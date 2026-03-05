@@ -1,0 +1,246 @@
+// duel-server.js
+import express from "express";
+import { createServer } from "http";
+import { Server } from "socket.io";
+import cors from "cors";
+import { createClient } from "@supabase/supabase-js";
+import dotenv from "dotenv";
+import { MatchmakingService } from "./services/matchmaking.js";
+import { JudgeService } from "./services/judge.js";
+import { MatchController } from "./services/match-controller.js";
+import { EloRatingService } from "./services/elo-rating.js";
+
+dotenv.config();
+
+const app = express();
+app.use(cors({ origin: true, credentials: true }));
+app.use(express.json());
+
+const httpServer = createServer(app);
+
+const io = new Server(httpServer, {
+  cors: {
+    origin: true,
+    methods: ["GET", "POST"],
+    credentials: true,
+  },
+});
+
+const PORT = Number(process.env.PORT || process.env.DUEL_SERVER_PORT || 5000);
+
+const SUPABASE_URL = process.env.SUPABASE_URL;
+const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+console.log("🔎 SUPABASE_URL:", SUPABASE_URL);
+console.log("🔎 SERVICE_ROLE_KEY prefix:", SUPABASE_SERVICE_ROLE_KEY?.slice(0, 12));
+console.log("🔎 SERVICE_ROLE_KEY length:", SUPABASE_SERVICE_ROLE_KEY?.length);
+
+let supabase = null;
+if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
+  console.warn("⚠️ Supabase server env not configured. Set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY on Render.");
+} else {
+  supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+  console.log("✅ Supabase client initialized");
+}
+
+const judgeService = new JudgeService();
+const eloRatingService = new EloRatingService();
+
+const matchController = supabase ? new MatchController(supabase, io, judgeService, eloRatingService) : null;
+const matchmakingService = supabase ? new MatchmakingService(supabase, io, matchController) : null;
+
+const connectedPlayers = new Map();
+
+function emitServerError(socket, message, details) {
+  console.error("🚨 server_error:", message, details || "");
+  socket.emit("server_error", { message, details });
+}
+
+function ackSafe(ack, payload) {
+  if (typeof ack === "function") ack(payload);
+}
+
+io.on("connection", (socket) => {
+  console.log("🧩 duel-server got connection:", socket.id);
+  socket.emit("server_identity", { name: "duel-server", port: PORT });
+
+  socket.on("register_player", async (data, ack) => {
+    console.log("📥 register_player received", data);
+
+    try {
+      if (!supabase) {
+        const msg = "Server not configured (missing Supabase env vars)";
+        ackSafe(ack, { ok: false, message: msg });
+        emitServerError(socket, msg, "Set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY on Render");
+        return;
+      }
+
+      const { userId, username } = data || {};
+      if (!userId) {
+        const msg = "Missing userId";
+        ackSafe(ack, { ok: false, message: msg });
+        emitServerError(socket, msg);
+        return;
+      }
+
+      const withTimeout = (p, ms) =>
+        Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error("DB timeout")), ms))]);
+
+      let duelUser = null;
+      try {
+        const { data: row, error } = await withTimeout(
+          supabase.from("duel_users").select("id, username, rating").eq("id", userId).maybeSingle(),
+          8000
+        );
+        if (error) throw error;
+        duelUser = row;
+      } catch (e) {
+        const msg = e?.message || "Database error";
+        ackSafe(ack, { ok: false, message: msg });
+        emitServerError(socket, "Supabase error", msg);
+        return;
+      }
+
+      if (!duelUser) {
+        try {
+          const insertPayload = { id: userId, username: username || "Player", rating: 1200 };
+          const { data: created, error: insertErr } = await supabase
+            .from("duel_users")
+            .insert(insertPayload)
+            .select("id, username, rating")
+            .single();
+
+          if (insertErr) throw insertErr;
+          duelUser = created;
+        } catch (e) {
+          const msg = e?.message || `Failed to create duel user for id ${userId}`;
+          ackSafe(ack, { ok: false, message: msg });
+          emitServerError(socket, "Failed to create user", msg);
+          return;
+        }
+      }
+
+      const safeUsername = duelUser.username || username || "Player";
+      const safeRating = duelUser.rating ?? 1200;
+
+      connectedPlayers.set(socket.id, {
+        userId: duelUser.id,
+        username: safeUsername,
+        rating: safeRating,
+        socketId: socket.id,
+      });
+
+      // ✅ identity + room join (reconnect-safe emits)
+      socket.userId = duelUser.id;
+      socket.join(`user:${duelUser.id}`);
+
+      console.log(`✅ Player registered: ${safeUsername} (${duelUser.id}) rating=${safeRating}`);
+      ackSafe(ack, { ok: true, rating: safeRating, username: safeUsername });
+    } catch (e) {
+      console.error("❌ register_player exception:", e);
+      const msg = e?.message || "Failed to register player";
+      ackSafe(ack, { ok: false, message: msg });
+      emitServerError(socket, "Failed to register player", msg);
+    }
+  });
+
+  socket.on("join_matchmaking", async (data) => {
+    try {
+      if (!matchmakingService || !matchController) {
+        emitServerError(socket, "Server not configured (missing Supabase env vars)");
+        return;
+      }
+
+      const player = connectedPlayers.get(socket.id);
+      if (!player) {
+        emitServerError(socket, "Player not registered", "Call register_player first");
+        return;
+      }
+
+      player.matchType = data?.matchType || "ranked";
+
+      socket.emit("queue_joined", { message: "Searching for opponent...", status: "searching" });
+
+      await matchmakingService.addToQueue(player);
+    } catch (err) {
+      console.error("Matchmaking error:", err);
+      emitServerError(socket, "Failed to join matchmaking", err?.message);
+    }
+  });
+
+  socket.on("leave_matchmaking", () => {
+    try {
+      const player = connectedPlayers.get(socket.id);
+      if (!player) return;
+
+      if (matchmakingService) matchmakingService.removeFromQueue(player.userId);
+      socket.emit("queue_left", { message: "Left matchmaking queue" });
+    } catch (e) {
+      emitServerError(socket, "Failed to leave matchmaking", e?.message);
+    }
+  });
+
+  socket.on("submit_code", async (data) => {
+    try {
+      if (!matchController) throw new Error("Server not configured");
+      const userId = socket.userId;
+      if (!userId) throw new Error("Not registered");
+
+      const matchId = (data?.matchId ?? "").toString();
+      const language = (data?.language ?? "").toString();
+      const code = (data?.code ?? "").toString();
+
+      if (!matchId) throw new Error("Missing matchId");
+      if (!language) throw new Error("Missing language");
+      if (!code.trim()) throw new Error("Empty code submission");
+      if (code.length > 100_000) throw new Error("Code too large (max 100k chars)");
+
+      await matchController.handleSubmission(matchId, userId, language, code, socket);
+    } catch (err) {
+      console.error("Submission error:", err);
+      socket.emit("submission_error", { message: err?.message || "Submission error" });
+    }
+  });
+
+  socket.on("code_snapshot", async (data) => {
+    try {
+      if (!supabase) return;
+      const userId = socket.userId;
+      if (!userId) return;
+
+      await supabase.from("code_snapshots").insert({
+        match_id: data.matchId,
+        user_id: userId,
+        code: data.code,
+        timestamp: new Date().toISOString(),
+      });
+    } catch (err) {
+      console.error("Snapshot error:", err);
+    }
+  });
+
+  socket.on("disconnect", async () => {
+    try {
+      const player = connectedPlayers.get(socket.id);
+      if (!player) return;
+
+      if (matchmakingService) matchmakingService.removeFromQueue(player.userId);
+
+      connectedPlayers.delete(socket.id);
+      console.log(`👋 Player disconnected: ${player.username} (${player.userId})`);
+
+      if (matchController) {
+        await matchController.handlePlayerDisconnect(player.userId);
+      }
+    } catch (e) {
+      console.error("Disconnect forfeit error:", e);
+    }
+  });
+});
+
+app.get("/", (req, res) => res.status(200).send("duel-server ok"));
+app.get("/health", (req, res) => res.json({ status: "ok", timestamp: new Date().toISOString() }));
+
+httpServer.listen(PORT, "0.0.0.0", () => {
+  console.log(`🚀 Duel server running on port ${PORT}`);
+});

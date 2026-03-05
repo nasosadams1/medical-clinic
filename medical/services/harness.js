@@ -1,0 +1,137 @@
+// services/harness.js
+
+// Updated harnesses:
+// - JS harness calls "solution"/"solve" with best-effort argument spreading so
+//   both LeetCode-style signatures and legacy signatures work.
+// - JS harness redirects all console output to stderr so stdout remains JSON-only.
+// - Python harness does similar spreading using inspect.signature.
+
+export function jsHarness({ entries = ["solution", "solve"], userFile = "user.js" }) {
+  const entriesJson = JSON.stringify(entries);
+
+  return `const fs = require('fs');
+const vm = require('vm');
+
+// Keep stdout JSON-only: redirect all console output to stderr
+console.log = (...a) => process.stderr.write(a.join(' ') + '\\n');
+console.info = (...a) => process.stderr.write(a.join(' ') + '\\n');
+console.warn = (...a) => process.stderr.write(a.join(' ') + '\\n');
+console.error = (...a) => process.stderr.write(a.join(' ') + '\\n');
+
+const inputData = JSON.parse(fs.readFileSync(0, 'utf-8'));
+
+function pickFnFromModule(mod) {
+  if (!mod) return null;
+  for (const name of ${entriesJson}) {
+    if (typeof mod[name] === 'function') return mod[name];
+  }
+  if (typeof mod.default === 'function') return mod.default;
+  return null;
+}
+
+let fn = null;
+
+// First try: CommonJS require
+try {
+  const mod = require('./${userFile}');
+  fn = pickFnFromModule(mod);
+} catch (e) {}
+
+// Fallback: VM context execution
+if (!fn) {
+  const code = fs.readFileSync('./${userFile}', 'utf-8');
+  const context = { console, module: { exports: {} }, exports: {} };
+  vm.createContext(context);
+
+  try {
+    vm.runInContext(code, context, { timeout: 1000 });
+  } catch (e) {
+    process.exit(1);
+  }
+
+  fn = pickFnFromModule(context.module.exports) || pickFnFromModule(context.exports);
+
+  if (!fn) {
+    for (const name of ${entriesJson}) {
+      if (typeof context[name] === 'function') { fn = context[name]; break; }
+    }
+  }
+}
+
+if (!fn) {
+  console.error('No entry function found.');
+  process.exit(1);
+}
+
+function callWithBestEffort(fn, input) {
+  if (Array.isArray(input)) {
+    return fn.length === 1 ? fn(input) : fn(...input);
+  }
+
+  if (input !== null && typeof input === 'object') {
+    const values = Object.values(input);
+
+    // If function expects 1 arg and we have 1 key (like {"s":"val"}), pass the value
+    if (fn.length === 1 && values.length === 1) return fn(values[0]);
+
+    // If function expects multiple args, spread the object values
+    if (fn.length > 1) return fn(...values);
+
+    // Otherwise pass the whole object (legacy/single-arg receiver)
+    return fn(input);
+  }
+
+  return fn(input);
+}
+
+try {
+  const result = callWithBestEffort(fn, inputData);
+
+  // JSON.stringify(undefined) returns undefined (not a string) -> must handle
+  const out = JSON.stringify(result);
+  process.stdout.write(out === undefined ? 'null' : out);
+} catch (error) {
+  process.exit(1);
+}
+`;
+}
+
+export function pythonHarness({ entry = "solve", userFile = "user.py" }) {
+  return `import sys, json, inspect
+from ${userFile.replace(".py", "")} import ${entry}
+
+def _call(fn, data):
+    try:
+        sig = inspect.signature(fn)
+        params = [
+            p for p in sig.parameters.values()
+            if p.kind in (
+                inspect.Parameter.POSITIONAL_ONLY,
+                inspect.Parameter.POSITIONAL_OR_KEYWORD
+            )
+        ]
+        arity = len(params)
+    except Exception:
+        return fn(data)
+
+    if isinstance(data, dict):
+        vals = list(data.values())
+        if arity == 1 and len(vals) == 1:
+            return fn(vals[0])
+        if arity > 1:
+            return fn(*vals)
+        return fn(data)
+
+    if isinstance(data, list) and arity > 1:
+        return fn(*data)
+
+    return fn(data)
+
+if __name__ == "__main__":
+    try:
+        data = json.loads(sys.stdin.read())
+        print(json.dumps(_call(${entry}, data)))
+    except Exception:
+        sys.exit(1)
+`;
+}
