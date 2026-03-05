@@ -7,6 +7,7 @@ import dotenv from "dotenv";
 import { MatchmakingService } from "./services/matchmaking.js";
 import { JudgeService } from "./services/judge.js";
 import { RemoteJudgeService } from "./services/remote-judge-service.js";
+import { Judge0Service } from "./services/judge0-service.js";
 import { MatchController } from "./services/match-controller.js";
 import { EloRatingService } from "./services/elo-rating.js";
 
@@ -31,16 +32,24 @@ const PORT = Number(process.env.PORT || process.env.DUEL_SERVER_PORT || 5000);
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
+const JUDGE_PROVIDER = (process.env.JUDGE_PROVIDER || "local").toLowerCase();
 const JUDGE_URL = process.env.JUDGE_URL;
 const JUDGE_SHARED_SECRET = process.env.JUDGE_SHARED_SECRET;
 const JUDGE_TIMEOUT_MS = Number(process.env.JUDGE_TIMEOUT_MS || 25_000);
+const JUDGE0_URL = process.env.JUDGE0_URL;
+const JUDGE0_API_KEY = process.env.JUDGE0_API_KEY;
+const JUDGE0_API_HOST = process.env.JUDGE0_API_HOST;
 
 console.log("SUPABASE_URL:", SUPABASE_URL);
 console.log("SERVICE_ROLE_KEY prefix:", SUPABASE_SERVICE_ROLE_KEY?.slice(0, 12));
 console.log("SERVICE_ROLE_KEY length:", SUPABASE_SERVICE_ROLE_KEY?.length);
 
-if (JUDGE_URL && !JUDGE_SHARED_SECRET) {
-  console.error("JUDGE_SHARED_SECRET is required when JUDGE_URL is set");
+if (JUDGE_PROVIDER === "remote" && JUDGE_URL && !JUDGE_SHARED_SECRET) {
+  console.error("JUDGE_SHARED_SECRET is required when JUDGE_PROVIDER=remote and JUDGE_URL is set");
+  process.exit(1);
+}
+if (JUDGE_PROVIDER === "judge0" && !JUDGE0_URL) {
+  console.error("JUDGE0_URL is required when JUDGE_PROVIDER=judge0");
   process.exit(1);
 }
 
@@ -52,17 +61,24 @@ if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
   console.log("Supabase client initialized");
 }
 
-const judgeService = JUDGE_URL
-  ? new RemoteJudgeService({
-      baseUrl: JUDGE_URL,
-      sharedSecret: JUDGE_SHARED_SECRET,
-      timeoutMs: JUDGE_TIMEOUT_MS,
-    })
-  : new JudgeService();
-
-if (JUDGE_URL) {
-  console.log("Using remote judge:", JUDGE_URL);
+let judgeService;
+if (JUDGE_PROVIDER === "remote") {
+  judgeService = new RemoteJudgeService({
+    baseUrl: JUDGE_URL,
+    sharedSecret: JUDGE_SHARED_SECRET,
+    timeoutMs: JUDGE_TIMEOUT_MS,
+  });
+  console.log("Using remote HMAC judge:", JUDGE_URL);
+} else if (JUDGE_PROVIDER === "judge0") {
+  judgeService = new Judge0Service({
+    baseUrl: JUDGE0_URL,
+    apiKey: JUDGE0_API_KEY,
+    apiHost: JUDGE0_API_HOST,
+    timeoutMs: JUDGE_TIMEOUT_MS,
+  });
+  console.log("Using Judge0 API:", JUDGE0_URL);
 } else {
+  judgeService = new JudgeService();
   console.log("Using local judge service");
 }
 
@@ -263,3 +279,5 @@ app.get("/health", (_req, res) => res.json({ status: "ok", timestamp: new Date()
 httpServer.listen(PORT, "0.0.0.0", () => {
   console.log(`Duel server running on port ${PORT}`);
 });
+
+
