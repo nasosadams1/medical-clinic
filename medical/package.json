@@ -15,7 +15,9 @@
     "server": "nodemon server.js",
     "start": "node duel-server.js",
     "start:api": "node server.js",
-    "seed": "node seed-problems.js"
+    "seed": "node seed-problems.js",
+    "start:judge-service": "node judge-service.js",
+    "start:duel-with-remote-judge": "node duel-server.js"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.1",

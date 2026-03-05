@@ -144,7 +144,9 @@ export class MatchController {
     socket?.emit?.("submission_running", { message: "Running tests..." });
     socket?.emit?.("submission_received", { message: "Running tests..." });
 
+    console.log("SUBMIT_STAGE load_testcases", { matchId, problemId: match.problem.id, userId });
     const testCases = await this._loadTestCases(match.problem.id);
+    console.log("TESTCASE_COUNT", Array.isArray(testCases) ? testCases.length : -1);
     debugMatch("testcases_loaded", { matchId, problemId: match.problem.id, count: Array.isArray(testCases) ? testCases.length : 0 });
     if (!Array.isArray(testCases) || testCases.length === 0) {
       socket?.emit?.("submission_error", { message: "This problem has no test cases configured." });
@@ -152,7 +154,12 @@ export class MatchController {
     }
 
     // Judge
-    const judgeResults = await this.judgeService.executeCode(code, lang, testCases);
+    console.log("SUBMIT_STAGE judge_start", { matchId, userId, lang, tests: testCases.length });
+    const judgeResults = await Promise.race([
+      this.judgeService.executeCode(code, lang, testCases),
+      new Promise((_, reject) => setTimeout(() => reject(new Error("Judge timeout after 20s")), 20_000)),
+    ]);
+    console.log("JUDGE_RESULT", JSON.stringify(judgeResults));
     debugMatch("judge_done", {
       matchId,
       userId,
@@ -701,3 +708,5 @@ export class MatchController {
     }
   }
 }
+
+
