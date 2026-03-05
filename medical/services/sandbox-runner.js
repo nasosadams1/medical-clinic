@@ -34,9 +34,10 @@ export async function runInDockerSandbox({
   const id = crypto.randomBytes(8).toString('hex');
   const containerName = `judge-${id}`;
 
-  const userEscaped = userCode.replace(/'/g, "'\\''");
-  const harnessEscaped = harnessCode.replace(/'/g, "'\\''");
-  const stdinEscaped = stdinJson.replace(/'/g, "'\\''");
+  // Avoid quote-escaping issues by transporting payloads as base64.
+  const userB64 = Buffer.from(userCode, 'utf8').toString('base64');
+  const harnessB64 = Buffer.from(harnessCode, 'utf8').toString('base64');
+  const stdinB64 = Buffer.from(stdinJson, 'utf8').toString('base64');
 
   let dockerCmd;
   let userFileName;
@@ -54,10 +55,10 @@ export async function runInDockerSandbox({
       --read-only \
       --tmpfs /tmp:rw,noexec,nosuid,size=10m \
       python:3.11-slim \
-      bash -c "echo '${userEscaped}' > /tmp/${userFileName} && \
-               echo '${harnessEscaped}' > /tmp/${harnessFileName} && \
+      bash -c "echo '${userB64}' | base64 -d > /tmp/${userFileName} && \
+               echo '${harnessB64}' | base64 -d > /tmp/${harnessFileName} && \
                cd /tmp && \
-               echo '${stdinEscaped}' | timeout ${Math.ceil(timeLimitMs / 1000)}s python ${harnessFileName}"`;
+               echo '${stdinB64}' | base64 -d | timeout ${Math.ceil(timeLimitMs / 1000)}s python ${harnessFileName}"`;
   } else {
     userFileName = 'user.js';
     harnessFileName = 'harness.js';
@@ -70,10 +71,10 @@ export async function runInDockerSandbox({
       --read-only \
       --tmpfs /tmp:rw,noexec,nosuid,size=10m \
       node:18-slim \
-      bash -c "echo '${userEscaped}' > /tmp/${userFileName} && \
-               echo '${harnessEscaped}' > /tmp/${harnessFileName} && \
+      bash -c "echo '${userB64}' | base64 -d > /tmp/${userFileName} && \
+               echo '${harnessB64}' | base64 -d > /tmp/${harnessFileName} && \
                cd /tmp && \
-               echo '${stdinEscaped}' | timeout ${Math.ceil(timeLimitMs / 1000)}s node ${harnessFileName}"`;
+               echo '${stdinB64}' | base64 -d | timeout ${Math.ceil(timeLimitMs / 1000)}s node ${harnessFileName}"`;
   }
 
   let stdout = '';
