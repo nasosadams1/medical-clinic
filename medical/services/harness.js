@@ -3,8 +3,10 @@
 // Updated harnesses:
 // - JS harness calls "solution"/"solve" with best-effort argument spreading so
 //   both LeetCode-style signatures and legacy signatures work.
+// - For object inputs and multi-arg functions, it first tries binding by param name
+//   so JSON key order differences cannot break correct submissions.
 // - JS harness redirects all console output to stderr so stdout remains JSON-only.
-// - Python harness does similar spreading using inspect.signature.
+// - Python harness similarly prefers parameter-name binding via inspect.signature.
 
 export function jsHarness({ entries = ["solution", "solve"], userFile = "user.js" }) {
   const entriesJson = JSON.stringify(entries);
@@ -63,12 +65,47 @@ if (!fn) {
   process.exit(1);
 }
 
+function getParamNames(f) {
+  try {
+    const src = String(f)
+      .replace(/\\/\\*[\\s\\S]*?\\*\\//g, '')
+      .replace(/\\/\\/.*$/gm, '');
+
+    const m =
+      src.match(/^[\\s\\(]*function[^\\(]*\\(([^)]*)\\)/) ||
+      src.match(/^\\s*\\(([^)]*)\\)\\s*=>/) ||
+      src.match(/^\\s*([^=()\\s,]+)\\s*=>/);
+
+    if (!m) return [];
+    const raw = (m[1] ?? '').trim();
+    if (!raw) return [];
+
+    return raw
+      .split(',')
+      .map((s) =>
+        s
+          .trim()
+          .replace(/^\\.\\.\\./, '')
+          .split('=')[0]
+          .trim()
+      )
+      .filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
 function callWithBestEffort(fn, input) {
   if (Array.isArray(input)) {
     return fn.length === 1 ? fn(input) : fn(...input);
   }
 
   if (input !== null && typeof input === 'object') {
+    const paramNames = getParamNames(fn);
+    if (paramNames.length > 1 && paramNames.every((k) => Object.prototype.hasOwnProperty.call(input, k))) {
+      return fn(...paramNames.map((k) => input[k]));
+    }
+
     const values = Object.values(input);
 
     // If function expects 1 arg and we have 1 key (like {"s":"val"}), pass the value
@@ -115,6 +152,10 @@ def _call(fn, data):
         return fn(data)
 
     if isinstance(data, dict):
+        names = [p.name for p in params]
+        if arity > 1 and all(name in data for name in names):
+            return fn(*[data[name] for name in names])
+
         vals = list(data.values())
         if arity == 1 and len(vals) == 1:
             return fn(vals[0])

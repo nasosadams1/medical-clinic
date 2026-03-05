@@ -19,6 +19,7 @@ type DuelProblem = {
 };
 
 type DuelStartPayload = {
+  matchId?: string;
   problem: DuelProblem;
 };
 
@@ -30,6 +31,7 @@ type DuelEndPayload = {
 
 export default function DuelPage() {
   const [problem, setProblem] = useState<DuelProblem | null>(null);
+  const [matchId, setMatchId] = useState<string>("");
   const [code, setCode] = useState<string>("");
 
   useEffect(() => {
@@ -37,6 +39,7 @@ export default function DuelPage() {
 
     const handleStart = (data: DuelStartPayload) => {
       setProblem(data.problem);
+      setMatchId(data.matchId ?? "");
     };
 
     const handleEnd = (data: DuelEndPayload) => {
@@ -70,10 +73,11 @@ export default function DuelPage() {
       <button
         onClick={() =>
           socket.emit("duel_submit", {
-            matchId: problem.id,
+            matchId,
             code,
           })
         }
+        disabled={!matchId}
       >
         Submit
       </button>

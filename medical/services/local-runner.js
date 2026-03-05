@@ -5,6 +5,36 @@
 
 import vm from "vm";
 
+function getParamNames(fn) {
+  try {
+    const src = String(fn)
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .replace(/\/\/.*$/gm, "");
+
+    const m =
+      src.match(/^[\s\(]*function[^\(]*\(([^)]*)\)/) ||
+      src.match(/^\s*\(([^)]*)\)\s*=>/) ||
+      src.match(/^\s*([^=()\s,]+)\s*=>/);
+
+    if (!m) return [];
+    const raw = (m[1] ?? "").trim();
+    if (!raw) return [];
+
+    return raw
+      .split(",")
+      .map((s) =>
+        s
+          .trim()
+          .replace(/^\.\.\./, "")
+          .split("=")[0]
+          .trim()
+      )
+      .filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
 export function runInLocalJsSandbox({
   userCode,
   stdinJson,
@@ -83,11 +113,18 @@ export function runInLocalJsSandbox({
     callExpr = fn.length <= 1 ? `__result = __fn(__input);` : `__result = __fn(...__input);`;
   } else if (isPlainObject(inputData)) {
     const values = Object.values(inputData);
-    context.__values = values;
-    if (fn.length <= 1) {
-      callExpr = values.length === 1 ? `__result = __fn(__values[0]);` : `__result = __fn(__input);`;
+    const paramNames = getParamNames(fn);
+
+    if (paramNames.length > 1 && paramNames.every((k) => Object.prototype.hasOwnProperty.call(inputData, k))) {
+      context.__namedArgs = paramNames.map((k) => inputData[k]);
+      callExpr = `__result = __fn(...__namedArgs);`;
     } else {
-      callExpr = `__result = __fn(...__values);`;
+      context.__values = values;
+      if (fn.length <= 1) {
+        callExpr = values.length === 1 ? `__result = __fn(__values[0]);` : `__result = __fn(__input);`;
+      } else {
+        callExpr = `__result = __fn(...__values);`;
+      }
     }
   }
 

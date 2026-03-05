@@ -28,6 +28,7 @@ export class DuelEngine {
     });
 
     this.io.to(matchId).emit("duel_start", {
+      matchId,
       problem: {
         id: problem.id,
         title: problem.title,
@@ -46,13 +47,30 @@ export class DuelEngine {
     const match = this.activeMatches.get(matchId);
     if (!match || match.ended) return;
 
-    const results = await this.judge.runAgainstTests(
-      code,
-      match.tests.hidden,
-      match.problem.time_limit_ms
-    );
+    const hiddenTests = Array.isArray(match.tests?.hidden) ? match.tests.hidden : [];
+    const normalizedCases = hiddenTests.map((t) => ({
+      input_json: t.input_json ?? t.input ?? null,
+      expected_json: t.expected_json,
+      expected_output: t.expected_output ?? t.output ?? t.expected,
+      validator: t.validator ?? null,
+      hidden: true,
+      time_limit_ms: t.time_limit_ms ?? match.problem.time_limit_ms ?? 2000,
+    }));
 
-    const passedAll = results.every(r => r.passed);
+    if (!normalizedCases.length) {
+      this.io.to(userId).emit("submission_result", {
+        result: "Wrong Answer",
+        verdict: "Wrong Answer",
+        score: 0,
+        passed: 0,
+        total: 0,
+        testResults: [],
+      });
+      return;
+    }
+
+    const judgeResults = await this.judge.executeCode(code, "javascript", normalizedCases);
+    const passedAll = (judgeResults.result ?? "").toString().toLowerCase() === "accepted";
 
     // Store submission in DB
     await this.supabase.from("duel_submissions").insert({
@@ -63,7 +81,15 @@ export class DuelEngine {
       created_at: new Date().toISOString()
     });
 
-    this.io.to(userId).emit("submission_result", { results });
+    this.io.to(userId).emit("submission_result", {
+      result: judgeResults.result,
+      verdict: judgeResults.result,
+      score: judgeResults.score,
+      passed: judgeResults.passed,
+      total: judgeResults.total,
+      testResults: judgeResults.testResults,
+      runtimeMs: judgeResults.runtimeMs,
+    });
 
     if (passedAll && !match.solvedBy) {
       match.solvedBy = userId;
