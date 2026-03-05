@@ -6,12 +6,13 @@ const execAsync = promisify(exec);
 
 let _dockerAvailPromise = null;
 
-/** Best-effort check for Docker availability in the current runtime. Cached. */
+/** Best-effort check for Docker daemon availability in the current runtime. Cached. */
 export async function isDockerAvailable() {
   if (_dockerAvailPromise) return _dockerAvailPromise;
   _dockerAvailPromise = (async () => {
     try {
-      await execAsync("docker --version", { timeout: 2000 });
+      // docker --version may pass even when daemon is down; docker info verifies engine connectivity.
+      await execAsync("docker info --format '{{.ServerVersion}}'", { timeout: 2500 });
       return true;
     } catch {
       return false;

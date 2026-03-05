@@ -1,4 +1,8 @@
 // services/match-controller.js
+const DEBUG_DUEL = process.env.DEBUG_DUEL === "1";
+function debugMatch(...args) {
+  if (DEBUG_DUEL) console.log("[match]", ...args);
+}
 export class MatchController {
   constructor(supabase, io, judgeService, eloRatingService) {
     this.supabase = supabase;
@@ -97,6 +101,7 @@ export class MatchController {
    */
   async handleSubmission(matchId, userId, language, code, socket) {
     const match = this.activeMatches.get(matchId);
+    debugMatch("submission_received", { matchId, userId, language, codeChars: (code ?? "").length, matchFound: !!match });
 
     if (!match) {
       socket?.emit?.("submission_error", { message: "Match not found or already ended" });
@@ -140,6 +145,7 @@ export class MatchController {
     socket?.emit?.("submission_received", { message: "Running tests..." });
 
     const testCases = await this._loadTestCases(match.problem.id);
+    debugMatch("testcases_loaded", { matchId, problemId: match.problem.id, count: Array.isArray(testCases) ? testCases.length : 0 });
     if (!Array.isArray(testCases) || testCases.length === 0) {
       socket?.emit?.("submission_error", { message: "This problem has no test cases configured." });
       return;
@@ -147,6 +153,15 @@ export class MatchController {
 
     // Judge
     const judgeResults = await this.judgeService.executeCode(code, lang, testCases);
+    debugMatch("judge_done", {
+      matchId,
+      userId,
+      result: judgeResults?.result,
+      passed: judgeResults?.passed,
+      total: judgeResults?.total,
+      score: judgeResults?.score,
+      runtimeMs: judgeResults?.runtimeMs,
+    });
 
     const submittedAtMs = Date.now();
     const elapsedSeconds = Math.floor((submittedAtMs - match.startTimeMs) / 1000);
@@ -218,6 +233,7 @@ export class MatchController {
     });
 
     if ((judgeResults.result ?? "").toLowerCase() === "accepted") {
+      debugMatch("match_win", { matchId, winnerId: userId });
       await this.endMatch(matchId, userId, "correct_solution", savedSubmissionId);
     }
   }

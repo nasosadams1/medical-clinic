@@ -102,14 +102,11 @@ function callWithBestEffort(fn, input) {
 
   if (input !== null && typeof input === 'object') {
     const paramNames = getParamNames(fn);
-    if (paramNames.length > 1 && paramNames.every((k) => Object.prototype.hasOwnProperty.call(input, k))) {
+    if (paramNames.length >= 1 && paramNames.every((k) => Object.prototype.hasOwnProperty.call(input, k))) {
       return fn(...paramNames.map((k) => input[k]));
     }
 
     const values = Object.values(input);
-
-    // If function expects 1 arg and we have 1 key (like {"s":"val"}), pass the value
-    if (fn.length === 1 && values.length === 1) return fn(values[0]);
 
     // If function expects multiple args, spread the object values
     if (fn.length > 1) return fn(...values);
@@ -153,12 +150,10 @@ def _call(fn, data):
 
     if isinstance(data, dict):
         names = [p.name for p in params]
-        if arity > 1 and all(name in data for name in names):
+        if arity >= 1 and all(name in data for name in names):
             return fn(*[data[name] for name in names])
 
         vals = list(data.values())
-        if arity == 1 and len(vals) == 1:
-            return fn(vals[0])
         if arity > 1:
             return fn(*vals)
         return fn(data)

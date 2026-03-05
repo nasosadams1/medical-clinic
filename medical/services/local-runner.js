@@ -115,13 +115,13 @@ export function runInLocalJsSandbox({
     const values = Object.values(inputData);
     const paramNames = getParamNames(fn);
 
-    if (paramNames.length > 1 && paramNames.every((k) => Object.prototype.hasOwnProperty.call(inputData, k))) {
+    if (paramNames.length >= 1 && paramNames.every((k) => Object.prototype.hasOwnProperty.call(inputData, k))) {
       context.__namedArgs = paramNames.map((k) => inputData[k]);
       callExpr = `__result = __fn(...__namedArgs);`;
     } else {
       context.__values = values;
       if (fn.length <= 1) {
-        callExpr = values.length === 1 ? `__result = __fn(__values[0]);` : `__result = __fn(__input);`;
+        callExpr = `__result = __fn(__input);`;
       } else {
         callExpr = `__result = __fn(...__values);`;
       }

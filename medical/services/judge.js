@@ -17,6 +17,11 @@ import { runInLocalJsSandbox } from "./local-runner.js";
 import { pythonHarness, jsHarness } from "./harness.js";
 import { deepEqual } from "./validators.js";
 
+const DEBUG_DUEL = process.env.DEBUG_DUEL === "1";
+function debugJudge(...args) {
+  if (DEBUG_DUEL) console.log("[judge]", ...args);
+}
+
 /* ----------------------------- utilities ---------------------------- */
 
 function safeJsonParse(s) {
@@ -124,9 +129,15 @@ function compareActualToExpected({ actualRaw, expectedJson, expectedOutputLegacy
 /* -------------------------- logic ------------------------- */
 
 function upgradeTestCase(raw) {
-  if (raw && typeof raw === "object" && ("input_json" in raw || "expected_json" in raw || "validator" in raw)) {
+  if (
+    raw &&
+    typeof raw === "object" &&
+    ("input_json" in raw || "input" in raw || "expected_json" in raw || "expected_output" in raw || "validator" in raw)
+  ) {
+    const inputRaw = raw.input_json !== undefined ? raw.input_json : raw.input;
+
     return {
-      input_json: coerceJsonMaybe(raw.input_json ?? null),
+      input_json: coerceJsonMaybe(inputRaw ?? null),
       expected_json: raw.expected_json === undefined ? undefined : coerceJsonMaybe(raw.expected_json),
       expected_output: raw.expected_output !== undefined ? String(raw.expected_output) : undefined,
       validator: raw.validator ?? null,
@@ -136,7 +147,7 @@ function upgradeTestCase(raw) {
   }
 
   return {
-    input_json: null,
+    input_json: coerceJsonMaybe(raw?.input ?? null),
     expected_output: String(raw?.expected_output ?? ""),
     hidden: !!raw?.hidden,
   };
@@ -150,6 +161,7 @@ export class JudgeService {
 
     const lang = (language || "").toLowerCase().startsWith("py") ? "python" : "javascript";
     const dockerOk = await isDockerAvailable().catch(() => false);
+    debugJudge("start", { lang, total, dockerOk, codeChars: (code ?? "").length });
 
     let passed = 0;
     let overallResult = "Accepted";
@@ -158,6 +170,14 @@ export class JudgeService {
     for (let idx = 0; idx < total; idx++) {
       const t = upgradeTestCase(cases[idx]);
       const stdinJson = JSON.stringify(t.input_json ?? null);
+      debugJudge("case_begin", {
+        idx: idx + 1,
+        hidden: !!t.hidden,
+        hasInputJson: t.input_json !== undefined,
+        hasExpectedJson: t.expected_json !== undefined,
+        hasExpectedOutput: t.expected_output !== undefined,
+        validator: t.validator ?? null,
+      });
 
       const harness =
         lang === "python"
