@@ -33,6 +33,10 @@ export class MatchController {
     const timeLimitSec = Number(problem?.time_limit_seconds ?? 60);
     const timeLimitMs = Math.max(5, timeLimitSec) * 1000;
 
+    const supportedLanguages = (Array.isArray(problem?.supported_languages) ? problem.supported_languages : [])
+      .map((x) => String(x).toLowerCase())
+      .filter((x) => x === "javascript" || x === "js");
+
     const matchData = {
       matchId,
       playerA,
@@ -84,7 +88,7 @@ export class MatchController {
         statement: problem.statement,
         difficulty: problem.difficulty,
         timeLimit: timeLimitSec,
-        supportedLanguages: problem.supported_languages,
+        supportedLanguages: supportedLanguages.length ? supportedLanguages : ["javascript"],
       },
     };
 
@@ -126,9 +130,9 @@ export class MatchController {
     console.log(`🧪 Submission for match ${matchId} from user ${userId}`);
 
     const lang = (language ?? "").toString().toLowerCase();
-    const allowed = new Set(["javascript", "js", "python", "py"]);
+    const allowed = new Set(["javascript", "js"]);
     if (!allowed.has(lang)) {
-      socket?.emit?.("submission_error", { message: `Unsupported language: ${language}` });
+      socket?.emit?.("submission_error", { message: "Only JavaScript is currently supported." });
       return;
     }
 
@@ -708,5 +712,7 @@ export class MatchController {
     }
   }
 }
+
+
 
 

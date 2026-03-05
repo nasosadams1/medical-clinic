@@ -31,8 +31,9 @@ export default function DuelArena({
   onMatchEnd
 }: DuelArenaProps) {
   const [code, setCode] = useState('// Write your solution here\nfunction solution(input) {\n  \n}');
-  const [language, setLanguage] = useState('javascript');
+  const [language] = useState('javascript');
   const [timeRemaining, setTimeRemaining] = useState(problem.timeLimit);
+  const uiLanguages = ['javascript'];
   const [testResults, setTestResults] = useState<any>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [opponentStatus, setOpponentStatus] = useState<any>(null);
@@ -273,10 +274,11 @@ export default function DuelArena({
               <div className="flex items-center justify-between">
                 <select
                   value={language}
-                  onChange={(e) => setLanguage(e.target.value)}
+                  disabled
+                  title="Only JavaScript is currently supported"
                   className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
-                  {problem.supportedLanguages.map((lang) => (
+                  {uiLanguages.map((lang) => (
                     <option key={lang} value={lang}>
                       {lang.charAt(0).toUpperCase() + lang.slice(1)}
                     </option>
@@ -317,3 +319,6 @@ export default function DuelArena({
     </div>
   );
 }
+
+
+
