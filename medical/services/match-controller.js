@@ -22,6 +22,7 @@ export class MatchController {
 
   /**
    * Starts a match and notifies both clients.
+   */
   async startMatch(matchId, playerA, playerB, problem) {
     console.log(`▶️ Starting match ${matchId}`);
 
@@ -108,6 +109,7 @@ export class MatchController {
 
   /**
    * Handles a code submission.
+   */
   async handleSubmission(matchId, userId, language, code, socket) {
     const match = this.activeMatches.get(matchId);
     debugMatch("submission_received", { matchId, userId, language, codeChars: (code ?? "").length, matchFound: !!match });
@@ -352,6 +354,7 @@ export class MatchController {
 
   /**
    * Ends match safely. winnerId can be null for draw.
+   */
   async endMatch(matchId, winnerId, reason, winningSubmissionId = null) {
     const match = this.activeMatches.get(matchId);
     if (!match || match.winnerId) return;
@@ -555,6 +558,7 @@ export class MatchController {
 
   /**
    * Disconnect handling: grace period; if not reconnected, opponent wins.
+   */
   async handlePlayerDisconnect(userId) {
     for (const [matchId, match] of this.activeMatches.entries()) {
       if (!match || match.winnerId || match.ending) continue;
