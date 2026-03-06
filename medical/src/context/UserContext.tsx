@@ -2,12 +2,12 @@
 import React, { createContext, useContext, useState, ReactNode, useCallback, useEffect, useRef } from 'react';
 import { calculateLevelFromXP } from '../hooks/levelSystem';
 import { useAuth } from './AuthContext';
-import { UserProfile, getUserProfile, getDisplayName } from '../lib/supabase';
+import { UserProfile, getUserProfile, getDisplayName, supabase } from '../lib/supabase';
 import { checkAchievements, Achievement } from '../data/achievements';
 import { avatars } from '../data/avatars';
 import { getLessonsByLanguage, getLessonById } from '../data/lessons';
 
-import NotificationDisplay from '../components/NotificationDisplay.tsx'; // Assuming this component exists
+import NotificationDisplay from '../components/NotificationDisplay.tsx';
 
 // Define User interface for local state
 export interface User {
@@ -17,6 +17,7 @@ export interface User {
   totalCoinsEarned: number;
   xp: number;
   completedLessons: string[];
+  lifetimeCompletedLessons: string[];
   level: number;
   hearts: number;
   maxHearts: number;
@@ -33,6 +34,19 @@ export interface User {
   unlimitedHeartsExpiresAt?: number;
   projects?: number;
 }
+
+const getLocalDateKey = (date = new Date()) => {
+  const year = date.getFullYear();
+  const month = `${date.getMonth() + 1}`.padStart(2, '0');
+  const day = `${date.getDate()}`.padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
+const getPreviousDateKey = (date = new Date()) => {
+  const previousDate = new Date(date);
+  previousDate.setDate(previousDate.getDate() - 1);
+  return getLocalDateKey(previousDate);
+};
 
 // Define Notification interface
 interface Notification {
@@ -92,6 +106,7 @@ const defaultGuestUser: User = {
   totalCoinsEarned: 0,
   xp: 0,
   completedLessons: [],
+  lifetimeCompletedLessons: [],
   level: 1,
   hearts: 5,
   maxHearts: 5,
@@ -99,8 +114,8 @@ const defaultGuestUser: User = {
   currentAvatar: 'default',
   ownedAvatars: ['default'],
   unlockedAchievements: [],
-  currentStreak: 1,
-  lastLoginDate: new Date().toDateString(),
+  currentStreak: 0,
+  lastLoginDate: '',
   totalLessonsCompleted: 0,
   unlimitedHeartsActive: false,
   xpBoostMultiplier: 1,
@@ -123,10 +138,22 @@ export const UserProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const isProcessingTransaction = useRef(false);
   const lastUpdateTimestamp = useRef(0);
   const updateTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const notificationCounterRef = useRef(0);
+  const lastNotificationRef = useRef<{ key: string; timestamp: number } | null>(null);
 
   // Function to add a notification to the state and auto-remove it
   const addNotification = useCallback((message: string, icon?: string, type: Notification['type'] = 'success') => {
-    const id = Date.now().toString();
+    const dedupeKey = `${type}:${icon || ''}:${message}`;
+    const now = Date.now();
+
+    if (lastNotificationRef.current && lastNotificationRef.current.key === dedupeKey && now - lastNotificationRef.current.timestamp < 1500) {
+      return;
+    }
+
+    lastNotificationRef.current = { key: dedupeKey, timestamp: now };
+    notificationCounterRef.current += 1;
+
+    const id = `${now}-${notificationCounterRef.current}`;
     setNotifications(prev => [...prev, { id, message, icon, type }]);
     
     setTimeout(() => {
@@ -184,6 +211,7 @@ export const UserProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         if (mergedUpdates.totalCoinsEarned !== undefined) profileUpdates.total_coins_earned = finalState.totalCoinsEarned;
         if (mergedUpdates.xp !== undefined) profileUpdates.xp = finalState.xp;
         if (mergedUpdates.completedLessons !== undefined) profileUpdates.completed_lessons = finalState.completedLessons;
+        if (mergedUpdates.lifetimeCompletedLessons !== undefined) profileUpdates.lifetime_completed_lessons = finalState.lifetimeCompletedLessons;
         if (mergedUpdates.level !== undefined) profileUpdates.level = finalState.level;
         if (mergedUpdates.hearts !== undefined) profileUpdates.hearts = finalState.hearts;
         if (mergedUpdates.currentAvatar !== undefined) profileUpdates.current_avatar = finalState.currentAvatar;
@@ -290,6 +318,7 @@ export const UserProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         totalCoinsEarned: authProfile.total_coins_earned,
         xp: authProfile.xp,
         completedLessons: authProfile.completed_lessons || [],
+        lifetimeCompletedLessons: authProfile.lifetime_completed_lessons || authProfile.completed_lessons || [],
         level: authProfile.level,
         hearts: authProfile.hearts,
         maxHearts: authProfile.max_hearts,
@@ -319,6 +348,7 @@ export const UserProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         user.name !== authProfile.name ||
         user.xp !== authProfile.xp ||
         user.totalLessonsCompleted !== authProfile.total_lessons_completed ||
+        (user.lifetimeCompletedLessons?.length || 0) !== ((authProfile.lifetime_completed_lessons || authProfile.completed_lessons || []).length) ||
         user.coins !== authProfile.coins ||
         user.xpBoostMultiplier !== (authProfile.xp_boost_multiplier || 1) ||
         user.xpBoostExpiresAt !== (authProfile.xp_boost_expires_at || 0) ||
@@ -333,6 +363,7 @@ export const UserProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           totalCoinsEarned: authProfile.total_coins_earned,
           xp: authProfile.xp,
           completedLessons: authProfile.completed_lessons || [],
+          lifetimeCompletedLessons: authProfile.lifetime_completed_lessons || authProfile.completed_lessons || [],
           level: authProfile.level,
           hearts: authProfile.hearts,
           maxHearts: authProfile.max_hearts,
@@ -350,7 +381,7 @@ export const UserProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         }));
       }
     }
-  }, [authUser, authProfile, authLoading, isInitialized, user?.id, user?.name, user?.xp, user?.totalLessonsCompleted, user?.coins, user?.xpBoostMultiplier, user?.xpBoostExpiresAt, user?.unlimitedHeartsExpiresAt]);
+  }, [authUser, authProfile, authLoading, isInitialized, user?.id, user?.name, user?.xp, user?.totalLessonsCompleted, user?.lifetimeCompletedLessons, user?.coins, user?.xpBoostMultiplier, user?.xpBoostExpiresAt, user?.unlimitedHeartsExpiresAt]);
 
   const isLoading = authLoading && !isInitialized;
 
@@ -583,6 +614,7 @@ export const UserProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           totalCoinsEarned: data.total_coins_earned,
           xp: data.xp,
           completedLessons: data.completed_lessons || [],
+          lifetimeCompletedLessons: data.lifetime_completed_lessons || data.completed_lessons || [],
           level: data.level,
           hearts: data.hearts,
           maxHearts: data.max_hearts,
@@ -655,6 +687,7 @@ export const UserProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     return authenticated;
   }, [user.id, authUser?.id]);
 
+
   const checkAndUnlockAchievements = useCallback(async () => {
     if (!user || user.id === 'guest' || !user.unlockedAchievements) {
       console.log('🏆 Skipping achievement check - user not authenticated or data not ready.');
@@ -663,15 +696,18 @@ export const UserProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
     console.log('🏆 Checking achievements for user:', user.name);
     
-    const newlyUnlockedAchievements = checkAchievements(user, user.completedLessons);
+    const unlockedSet = new Set(user.unlockedAchievements || []);
+    const newlyUnlockedAchievements = checkAchievements(user, user.lifetimeCompletedLessons).filter(
+      (achievement) => !unlockedSet.has(achievement.id)
+    );
 
     if (newlyUnlockedAchievements.length > 0) {
       let totalXPFromAchievements = 0;
-      const updatedUnlockedAchievements = [...(user.unlockedAchievements || [])];
+      const updatedUnlockedAchievements = new Set(user.unlockedAchievements || []);
 
       newlyUnlockedAchievements.forEach(achievement => {
         totalXPFromAchievements += achievement.reward.xp;
-        updatedUnlockedAchievements.push(achievement.id);
+        updatedUnlockedAchievements.add(achievement.id);
 
         addNotification(
           `Achievement Unlocked: ${achievement.name}! +${achievement.reward.xp} XP`, 
@@ -682,13 +718,13 @@ export const UserProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
       await queueUpdate({
         xp: user.xp + totalXPFromAchievements,
-        unlockedAchievements: updatedUnlockedAchievements,
+        unlockedAchievements: Array.from(updatedUnlockedAchievements),
         level: calculateLevelFromXP(user.xp + totalXPFromAchievements),
       });
 
       console.log(`🎉 Awarded ${totalXPFromAchievements} XP for new achievements.`);
     }
-  }, [user, queueUpdate, addNotification]);
+  }, [user, queueUpdate, addNotification, isAuthenticated]);
 
   const completeLesson = useCallback(async (lessonId: string, xpReward: number, coinsReward: number) => {
     const timestamp = new Date().toISOString();
@@ -711,14 +747,19 @@ export const UserProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       return;
     }
 
-    const today = new Date().toDateString();
-    const yesterday = new Date(Date.now() - 86400000).toDateString();
+
+    const today = getLocalDateKey();
+    const yesterday = getPreviousDateKey();
+    const isSameDay = user.lastLoginDate === today;
     const isConsecutiveDay = user.lastLoginDate === yesterday;
 
     const boostMultiplier = isXPBoostActive() ? (user.xpBoostMultiplier || 1) : 1;
     const boostedXP = Math.floor(xpReward * boostMultiplier);
 
     const updatedCompletedLessons = [...user.completedLessons, lessonId];
+    const updatedLifetimeCompletedLessons = user.lifetimeCompletedLessons.includes(lessonId)
+      ? user.lifetimeCompletedLessons
+      : [...user.lifetimeCompletedLessons, lessonId];
     const newXP = user.xp + boostedXP;
     const newLevel = calculateLevelFromXP(newXP);
     const newCoins = user.coins + coinsReward;
@@ -730,9 +771,10 @@ export const UserProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       coins: newCoins,
       totalCoinsEarned: newTotalCoins,
       completedLessons: updatedCompletedLessons,
+      lifetimeCompletedLessons: updatedLifetimeCompletedLessons,
       totalLessonsCompleted: newTotalLessons,
       level: newLevel,
-      currentStreak: isConsecutiveDay ? user.currentStreak + 1 : 1,
+      currentStreak: isSameDay ? user.currentStreak : isConsecutiveDay ? user.currentStreak + 1 : 1,
       lastLoginDate: today,
     };
 
@@ -752,13 +794,26 @@ export const UserProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         newTotalLessons,
         newLevel,
         oldCompletedLessons: user.completedLessons.length,
-        newCompletedLessonsCount: updatedCompletedLessons.length
+        newCompletedLessonsCount: updatedCompletedLessons.length,
+        oldLifetimeCompletedLessons: user.lifetimeCompletedLessons.length,
+        newLifetimeCompletedLessons: updatedLifetimeCompletedLessons.length
       }
     });
 
     try {
       // CRITICAL FIX: Update lesson completion first
       await queueUpdate(lessonUpdates);
+
+      try {
+        await supabase.from('lesson_completion_events').insert({
+          user_id: user.id,
+          lesson_id: lessonId,
+          xp_earned: boostedXP,
+          coins_earned: coinsReward,
+        });
+      } catch (eventError) {
+        console.error('Failed to record lesson completion event:', eventError);
+      }
       console.log('✅ LESSON COMPLETION SUCCESS:', {
         timestamp,
         lessonId,
@@ -777,23 +832,25 @@ export const UserProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         xp: updatedUserForAchievements.xp,
         level: updatedUserForAchievements.level,
         totalLessons: updatedUserForAchievements.totalLessonsCompleted,
-        completedLessons: updatedUserForAchievements.completedLessons.length
+        completedLessons: updatedUserForAchievements.completedLessons.length,
+        lifetimeCompletedLessons: updatedUserForAchievements.lifetimeCompletedLessons.length
       });
 
+      const unlockedSet = new Set(updatedUserForAchievements.unlockedAchievements || []);
       const newlyUnlockedAchievements = checkAchievements(
         updatedUserForAchievements, 
-        updatedUserForAchievements.completedLessons
-      );
+        updatedUserForAchievements.lifetimeCompletedLessons
+      ).filter((achievement) => !unlockedSet.has(achievement.id));
 
       if (newlyUnlockedAchievements.length > 0) {
         console.log('🎉 NEW ACHIEVEMENTS UNLOCKED:', newlyUnlockedAchievements.map(a => a.name));
         
         let totalAchievementXP = 0;
-        const updatedUnlockedAchievements = [...(user.unlockedAchievements || [])];
+        const updatedUnlockedAchievements = new Set(updatedUserForAchievements.unlockedAchievements || []);
 
         newlyUnlockedAchievements.forEach(achievement => {
           totalAchievementXP += achievement.reward.xp;
-          updatedUnlockedAchievements.push(achievement.id);
+          updatedUnlockedAchievements.add(achievement.id);
 
           addNotification(
             `Achievement Unlocked: ${achievement.name}! +${achievement.reward.xp} XP`, 
@@ -816,7 +873,7 @@ export const UserProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         await queueUpdate({
           xp: finalXP,
           level: finalLevel,
-          unlockedAchievements: updatedUnlockedAchievements,
+          unlockedAchievements: Array.from(updatedUnlockedAchievements),
         });
 
         console.log(`✅ Awarded ${totalAchievementXP} XP for ${newlyUnlockedAchievements.length} achievement(s).`);
@@ -871,6 +928,7 @@ export const UserProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   }, [user.ownedAvatars, queueUpdate]);
 
   const unlockAchievement = useCallback(async (achievementId: string, xpReward: number) => { 
+    if (!isAuthenticated()) return;
     if (user.unlockedAchievements.includes(achievementId)) return;
 
     const updatedUnlockedAchievements = [...user.unlockedAchievements, achievementId];
@@ -891,8 +949,7 @@ export const UserProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         'success'
       );
     }
-  }, [user, queueUpdate, addNotification]);
-
+  }, [user, queueUpdate, addNotification, isAuthenticated]);
   const getActiveBoosts = useCallback(() => {
     const boosts: { xpBoost?: { multiplier: number; expiresAt: number }; unlimitedHearts?: { expiresAt: number } } = {};
     
@@ -993,3 +1050,14 @@ export const useUser = () => {
   }
   return context;
 };
+
+
+
+
+
+
+
+
+
+
+

@@ -1,5 +1,5 @@
 import express from 'express';
-import sqlite3 from 'sqlite3';
+import Database from 'better-sqlite3';
 import cors from 'cors';
 import bodyParser from 'body-parser';
 import http from 'http';
@@ -22,7 +22,68 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const dbFile = path.resolve(__dirname, './leaderboard.db');
-const db = new sqlite3.Database(dbFile);
+const rawDb = new Database(dbFile);
+const db = {
+  serialize(fn) {
+    fn();
+  },
+  run(sql, params, callback) {
+    const values = typeof params === 'function' || params == null ? [] : params;
+    const cb = typeof params === 'function' ? params : callback;
+
+    try {
+      const result = rawDb.prepare(sql).run(...values);
+      if (cb) {
+        cb.call(
+          {
+            lastID: Number(result.lastInsertRowid ?? 0),
+            changes: Number(result.changes ?? 0),
+          },
+          null
+        );
+      }
+      return result;
+    } catch (err) {
+      if (cb) {
+        cb.call({}, err);
+        return null;
+      }
+      throw err;
+    }
+  },
+  get(sql, params, callback) {
+    const values = typeof params === 'function' || params == null ? [] : params;
+    const cb = typeof params === 'function' ? params : callback;
+
+    try {
+      const row = rawDb.prepare(sql).get(...values);
+      if (cb) cb(null, row);
+      return row;
+    } catch (err) {
+      if (cb) {
+        cb(err, undefined);
+        return undefined;
+      }
+      throw err;
+    }
+  },
+  all(sql, params, callback) {
+    const values = typeof params === 'function' || params == null ? [] : params;
+    const cb = typeof params === 'function' ? params : callback;
+
+    try {
+      const rows = rawDb.prepare(sql).all(...values);
+      if (cb) cb(null, rows);
+      return rows;
+    } catch (err) {
+      if (cb) {
+        cb(err, []);
+        return [];
+      }
+      throw err;
+    }
+  },
+};
 
 // Initialize database with correct schema
 db.serialize(() => {
@@ -783,3 +844,4 @@ server.listen(PORT, () => {
   console.log('🔄 Real-time updates enabled via Socket.IO');
   console.log(`🔍 Debug endpoint available at http://localhost:${PORT}/debug/:userId`);
 });
+

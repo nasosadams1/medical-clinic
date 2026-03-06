@@ -228,7 +228,7 @@ const SignUpForm: React.FC<SignUpFormProps> = ({ onToggleForm, onEmailVerificati
         console.log('SignUp successful with username:', name.trim())
         // Show email verification screen
         onEmailVerification(email.trim())
-        onMessage('success', `Account created! Please check your email to confirm your account.`)
+        onMessage('success', `Account created. Check your inbox to verify your email and finish setup.`)
       }
     } catch (err: any) {
       console.error('SignUp exception:', err)
@@ -556,3 +556,4 @@ const SignUpForm: React.FC<SignUpFormProps> = ({ onToggleForm, onEmailVerificati
 }
 
 export default SignUpForm
+

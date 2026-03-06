@@ -8,104 +8,103 @@ export interface Avatar {
   unlocked: boolean;
 }
 
-// Exponential pricing: each avatar is double the price of the previous one
 export const avatars: Avatar[] = [
   {
     id: 'default',
-    name: 'Default Avatar',
-    emoji: '👤', // No trailing semicolon
+    name: 'Core Profile',
+    emoji: '\u{1F464}',
     price: 0,
-    description: 'Your starting avatar',
+    description: 'The clean default identity every account starts with.',
     rarity: 'Common',
     unlocked: true,
   },
   {
     id: 'coder',
-    name: 'The Coder',
-    emoji: '👨‍💻', // No trailing semicolon
-    price: 10, // Starting price
-    description: 'For the dedicated programmer',
+    name: 'Terminal Ace',
+    emoji: '\u{1F468}\u200D\u{1F4BB}',
+    price: 120,
+    description: 'A sharp everyday avatar for players building their first streaks.',
     rarity: 'Common',
     unlocked: false,
   },
   {
     id: 'scientist',
-    name: 'Data Scientist',
-    emoji: '👩‍🔬', // No trailing semicolon
-    price: 20, // 2x previous
-    description: 'Master of algorithms and data',
+    name: 'Signal Analyst',
+    emoji: '\u{1F469}\u200D\u{1F52C}',
+    price: 240,
+    description: 'Made for players who like patterns, systems, and precise thinking.',
     rarity: 'Common',
     unlocked: false,
   },
   {
     id: 'wizard',
-    name: 'Code Wizard',
-    emoji: '🧙‍♂️', // No trailing semicolon
-    price: 40, // 2x previous
-    description: 'Magical coding abilities',
+    name: 'Arcane Debugger',
+    emoji: '\u{1F9D9}\u200D\u2642\uFE0F',
+    price: 450,
+    description: 'A rare profile for players who make hard problems look easy.',
     rarity: 'Rare',
     unlocked: false,
   },
   {
     id: 'ninja',
-    name: 'Code Ninja',
-    emoji: '🥷', // No trailing semicolon
-    price: 80, // 2x previous
-    description: 'Silent but deadly with code',
+    name: 'Shadow Runner',
+    emoji: '\u{1F977}',
+    price: 700,
+    description: 'Fast, clean, and efficient. Built for precise duel players.',
     rarity: 'Rare',
     unlocked: false,
   },
   {
     id: 'robot',
-    name: 'Cyber Bot',
-    emoji: '🤖', // No trailing semicolon
-    price: 160, // 2x previous
-    description: 'AI-powered coding machine',
+    name: 'Quantum Unit',
+    emoji: '\u{1F916}',
+    price: 950,
+    description: 'A polished cyber profile with high-rank energy.',
     rarity: 'Rare',
     unlocked: false,
   },
   {
     id: 'alien',
-    name: 'Code Alien',
-    emoji: '👽', // No trailing semicolon
-    price: 320, // 2x previous
-    description: 'Out-of-this-world programming',
+    name: 'Void Visitor',
+    emoji: '\u{1F47D}',
+    price: 1400,
+    description: 'For players whose logic looks slightly inhuman.',
     rarity: 'Epic',
     unlocked: false,
   },
   {
     id: 'superhero',
-    name: 'Code Hero',
-    emoji: '🦸‍♂️', // No trailing semicolon
-    price: 640, // 2x previous
-    description: 'Saving the world with code',
+    name: 'Skybreaker',
+    emoji: '\u{1F9B8}\u200D\u2642\uFE0F',
+    price: 1900,
+    description: 'An epic unlock for players carrying full momentum into ranked play.',
     rarity: 'Epic',
     unlocked: false,
   },
   {
     id: 'dragon',
-    name: 'Code Dragon',
-    emoji: '🐉', // No trailing semicolon
-    price: 1280, // 2x previous
-    description: 'Legendary programming beast',
+    name: 'Ashen Wyrm',
+    emoji: '\u{1F409}',
+    price: 2600,
+    description: 'A heavyweight avatar for players who want a legendary silhouette.',
     rarity: 'Epic',
     unlocked: false,
   },
   {
     id: 'crown',
-    name: 'Code Royalty',
-    emoji: '👑', // No trailing semicolon
-    price: 2560, // 2x previous
-    description: 'Rule the coding kingdom',
+    name: 'Cipher Monarch',
+    emoji: '\u{1F451}',
+    price: 3600,
+    description: 'A premium crown-tier identity built to stand out on the leaderboard.',
     rarity: 'Legendary',
     unlocked: false,
   },
   {
     id: 'master',
-    name: 'Grand Master',
-    emoji: '🏆', // No trailing semicolon
-    price: 5120, // 2x previous
-    description: 'The ultimate coding achievement',
+    name: 'Nebula Sovereign',
+    emoji: '\u{1FA90}',
+    price: 5000,
+    description: 'Forge whole constellations out of pure logic and impossible code.',
     rarity: 'Legendary',
     unlocked: false,
   },
@@ -113,10 +112,10 @@ export const avatars: Avatar[] = [
 
 export const getRarityColor = (rarity: string) => {
   switch (rarity) {
-    case 'Common': return 'text-gray-600 bg-gray-100';
-    case 'Rare': return 'text-blue-600 bg-blue-100';
-    case 'Epic': return 'text-purple-600 bg-purple-100';
-    case 'Legendary': return 'text-yellow-600 bg-yellow-100';
-    default: return 'text-gray-600 bg-gray-100';
+    case 'Common': return 'text-slate-700 bg-slate-100';
+    case 'Rare': return 'text-sky-700 bg-sky-100';
+    case 'Epic': return 'text-fuchsia-700 bg-fuchsia-100';
+    case 'Legendary': return 'text-amber-700 bg-amber-100';
+    default: return 'text-slate-700 bg-slate-100';
   }
 };

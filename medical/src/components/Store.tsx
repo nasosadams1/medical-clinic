@@ -23,7 +23,7 @@ interface StoreItem {
 }
 
 const Store: React.FC = () => {
-  const { user, purchaseWithCoins, addCoins, activateXPBoost, activateUnlimitedHearts, refillHearts, addNotification } = useUser();
+  const { user, purchaseWithCoins, activateXPBoost, activateUnlimitedHearts, refillHearts, addNotification, forceRefreshFromDatabase } = useUser();
   const { user: authUser } = useAuth();
   const [selectedItem, setSelectedItem] = useState<StoreItem | null>(null);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
@@ -32,11 +32,11 @@ const Store: React.FC = () => {
   const storeItems: StoreItem[] = [
     // Coin Packages (real money purchases)
     {
-      id: 'coins_100',
+      id: 'coins_150',
       type: 'coins',
-      name: '100 Coins',
-      description: 'Perfect starter pack',
-      coins: 100,
+      name: '150 Coins',
+      description: 'Starter stack',
+      coins: 150,
       price: 199, // $1.99 in cents
       priceDisplay: '$1.99',
       icon: <Coins className="w-8 h-8" />,
@@ -44,51 +44,52 @@ const Store: React.FC = () => {
       glowColor: 'shadow-yellow-500/25'
     },
     {
-      id: 'coins_260',
+      id: 'coins_420',
       type: 'coins',
-      name: '260 Coins',
-      description: 'Most popular choice',
-      coins: 260,
+      name: '420 Coins',
+      description: 'First real upgrade',
+      coins: 420,
       price: 499, // $4.99 in cents
       priceDisplay: '$4.99',
-      bonus: 4,
-      popular: true,
+      bonus: 12,
+      
       icon: <Coins className="w-8 h-8" />,
       gradient: 'from-blue-400 to-purple-500',
       glowColor: 'shadow-blue-500/25'
     },
     {
-      id: 'coins_600',
+      id: 'coins_900',
       type: 'coins',
-      name: '600 Coins',
-      description: 'Great value pack',
-      coins: 600,
+      name: '900 Coins',
+      description: 'Most players start here',
+      coins: 900,
       price: 999, // $9.99 in cents
       priceDisplay: '$9.99',
-      bonus: 23,
+      bonus: 20,
+      popular: true,
       icon: <Coins className="w-8 h-8" />,
       gradient: 'from-purple-400 to-pink-500',
       glowColor: 'shadow-purple-500/25'
     },
     {
-      id: 'coins_1280',
+      id: 'coins_1900',
       type: 'coins',
-      name: '1,280 Coins',
-      description: 'Premium bundle',
-      coins: 1280,
+      name: '1,900 Coins',
+      description: 'Best balance of value and flexibility',
+      coins: 1900,
       price: 1999, // $19.99 in cents
       priceDisplay: '$19.99',
-      bonus: 28,
+      bonus: 26,
       icon: <Crown className="w-8 h-8" />,
       gradient: 'from-orange-400 to-red-500',
       glowColor: 'shadow-orange-500/25'
     },
     {
-      id: 'coins_2000',
+      id: 'coins_3000',
       type: 'coins',
-      name: '2,000 Coins',
-      description: 'Ultimate value',
-      coins: 2000,
+      name: '3,000 Coins',
+      description: 'Built for long streaks and resets',
+      coins: 3000,
       price: 2999, // $29.99 in cents
       priceDisplay: '$29.99',
       bonus: 33,
@@ -98,27 +99,27 @@ const Store: React.FC = () => {
       glowColor: 'shadow-pink-500/25'
     },
     {
-      id: 'coins_3400',
+      id: 'coins_5600',
       type: 'coins',
-      name: '3,400 Coins',
-      description: 'Mega bundle',
-      coins: 3400,
+      name: '5,600 Coins',
+      description: 'Competitive grind bundle',
+      coins: 5600,
       price: 4999, // $49.99 in cents
       priceDisplay: '$49.99',
-      bonus: 36,
+      bonus: 49,
       icon: <Star className="w-8 h-8" />,
       gradient: 'from-indigo-400 to-purple-600',
       glowColor: 'shadow-indigo-500/25'
     },
     {
-      id: 'coins_7200',
+      id: 'coins_12000',
       type: 'coins',
-      name: '7,200 Coins',
-      description: 'Maximum value',
-      coins: 7200,
+      name: '12,000 Coins',
+      description: 'Maximum bonus, longest runway',
+      coins: 12000,
       price: 9999, // $99.99 in cents
       priceDisplay: '$99.99',
-      bonus: 44,
+      bonus: 59,
       icon: <Gift className="w-8 h-8" />,
       gradient: 'from-emerald-400 to-teal-500',
       glowColor: 'shadow-emerald-500/25'
@@ -130,8 +131,8 @@ const Store: React.FC = () => {
       type: 'xp_boost',
       name: '2x XP Boost',
       description: '1 hour duration',
-      price: 150, // 150 coins
-      priceDisplay: '150 coins',
+      price: 120, // 120 coins
+      priceDisplay: '120 coins',
       duration: 1,
       multiplier: 2,
       icon: <Zap className="w-8 h-8" />,
@@ -143,8 +144,8 @@ const Store: React.FC = () => {
       type: 'xp_boost',
       name: '2x XP Boost',
       description: '3 hours duration',
-      price: 400, // 400 coins
-      priceDisplay: '400 coins',
+      price: 300, // 300 coins
+      priceDisplay: '300 coins',
       duration: 3,
       multiplier: 2,
       popular: true,
@@ -157,8 +158,8 @@ const Store: React.FC = () => {
       type: 'xp_boost',
       name: '3x XP Boost',
       description: '1 hour duration',
-      price: 250, // 250 coins
-      priceDisplay: '250 coins',
+      price: 180, // 180 coins
+      priceDisplay: '180 coins',
       duration: 1,
       multiplier: 3,
       icon: <Zap className="w-8 h-8" />,
@@ -172,8 +173,8 @@ const Store: React.FC = () => {
       type: 'hearts',
       name: 'Refill Hearts',
       description: 'Restore all hearts',
-      price: 85, // 85 coins
-      priceDisplay: '85 coins',
+      price: 60, // 60 coins
+      priceDisplay: '60 coins',
       icon: <Heart className="w-8 h-8" />,
       gradient: 'from-red-400 to-pink-500',
       glowColor: 'shadow-red-500/25'
@@ -183,8 +184,8 @@ const Store: React.FC = () => {
       type: 'unlimited_hearts',
       name: 'Unlimited Hearts',
       description: '1 hour duration',
-      price: 300, // 300 coins
-      priceDisplay: '300 coins',
+      price: 220, // 220 coins
+      priceDisplay: '220 coins',
       duration: 1,
       icon: <Heart className="w-8 h-8" />,
       gradient: 'from-pink-400 to-red-500',
@@ -195,8 +196,8 @@ const Store: React.FC = () => {
       type: 'unlimited_hearts',
       name: 'Unlimited Hearts',
       description: '3 hours duration',
-      price: 600, // 600 coins
-      priceDisplay: '600 coins',
+      price: 500, // 500 coins
+      priceDisplay: '500 coins',
       duration: 3,
       popular: true,
       icon: <Heart className="w-8 h-8" />,
@@ -208,11 +209,11 @@ const Store: React.FC = () => {
       type: 'unlimited_hearts',
       name: 'Unlimited Hearts',
       description: '24 hours duration',
-      price: 2000, // 2000 coins
-      priceDisplay: '2000 coins',
+      price: 1500, // 1500 coins
+      priceDisplay: '1500 coins',
       duration: 24,
       bestValue: true,
-      icon: <Crown className="w-8 h-8" />,
+      icon: <Heart className="w-8 h-8" />,
       gradient: 'from-orange-400 to-red-600',
       glowColor: 'shadow-orange-500/25'
     }
@@ -274,18 +275,16 @@ const Store: React.FC = () => {
   setShowPaymentModal(true);
 };
 
-  const handlePaymentSuccess = (paymentIntent: any) => {
-    if (selectedItem?.coins) {
-      addCoins(selectedItem.coins);
-    }
-    
+  const handlePaymentSuccess = async (paymentResult: any) => {
+    await forceRefreshFromDatabase();
+
     setShowPaymentModal(false);
     setSelectedItem(null);
-    
+
     addNotification({
-      message: `Payment successful! You received ${selectedItem?.coins} coins!`,
+      message: `Payment successful! You received ${paymentResult?.coinsGranted || selectedItem?.coins || 0} coins!`,
       type: 'success',
-      icon: '🎉'
+      icon: '\u{1F3C6}'
     });
   };
 
@@ -301,12 +300,12 @@ const Store: React.FC = () => {
   };
 
   return (
-    <div className="p-4 lg:p-8 bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50 min-h-screen">
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50 px-3 py-4 sm:px-4 lg:px-8 lg:py-8">
       <div className="max-w-7xl mx-auto">
         {/* Header */}
-        <div className="text-center mb-12">
-          <div className="inline-flex items-center justify-center w-20 h-20 bg-gradient-to-r from-blue-500 to-purple-600 rounded-2xl mb-6 shadow-lg">
-            <ShoppingCart className="w-10 h-10 text-white" />
+        <div className="mb-8 text-center lg:mb-12">
+          <div className="mb-5 inline-flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-r from-blue-500 to-purple-600 shadow-lg sm:h-20 sm:w-20 sm:mb-6">
+            <ShoppingCart className="h-8 w-8 text-white sm:h-10 sm:w-10" />
           </div>
           <h1 className="text-2xl lg:text-4xl font-bold text-gray-900 mb-4">Codhak Store</h1>
           <p className="text-base lg:text-xl text-gray-600 max-w-2xl mx-auto px-4">
@@ -319,25 +318,25 @@ const Store: React.FC = () => {
         </div>
 
         {/* Special Offer Banner */}
-        <div className="bg-gradient-to-r from-orange-400 via-pink-500 to-purple-600 rounded-2xl p-4 lg:p-6 mb-8 text-white shadow-xl mx-2 lg:mx-0">
+        <div className="mx-0 mb-8 rounded-2xl bg-gradient-to-r from-orange-400 via-pink-500 to-purple-600 p-4 text-white shadow-xl sm:p-5 lg:p-6">
           <div className="flex flex-col sm:flex-row items-center justify-between text-center sm:text-left">
             <div>
-              <h3 className="text-xl lg:text-2xl font-bold mb-2">🎉 Limited Time Offer!</h3>
-              <p className="text-white/90 text-sm lg:text-base">Get up to 44% bonus coins on large packages</p>
+              <h3 className="text-xl lg:text-2xl font-bold mb-2">Best-Selling Bundles</h3>
+              <p className="text-white/90 text-sm lg:text-base">Get up to 59% more coins in premium bundles</p>
             </div>
             <div className="text-center sm:text-right mt-4 sm:mt-0">
-              <div className="text-3xl font-bold">44%</div>
+              <div className="text-3xl font-bold">59%</div>
               <div className="text-sm text-white/80">BONUS</div>
             </div>
           </div>
         </div>
 
         {/* Store Grid */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 lg:gap-6 px-2 lg:px-0">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 lg:gap-6 xl:grid-cols-4">
           {storeItems.map((item) => (
             <div
               key={item.id}
-              className={`relative bg-white rounded-2xl shadow-lg hover:shadow-xl transition-all duration-300 overflow-hidden border border-gray-100 ${item.glowColor} hover:shadow-2xl transform hover:-translate-y-1`}
+              className={`relative overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-lg transition-all duration-300 hover:-translate-y-1 hover:shadow-2xl ${item.glowColor}`}
             >
               {/* Badges */}
               <div className="absolute top-3 left-3 z-10">
@@ -359,10 +358,10 @@ const Store: React.FC = () => {
               </div>
 
               {/* Content */}
-              <div className={`bg-gradient-to-br ${item.gradient} p-4 lg:p-6 text-white relative overflow-hidden`}>
+              <div className={`relative overflow-hidden bg-gradient-to-br ${item.gradient} p-4 text-white sm:p-5 lg:p-6`}>
                 <div className="absolute inset-0 bg-white/10 backdrop-blur-sm"></div>
                 <div className="relative z-10">
-                  <div className="flex items-center justify-center w-12 h-12 lg:w-16 lg:h-16 bg-white/20 rounded-xl mb-4 mx-auto backdrop-blur-sm">
+                  <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-white/20 backdrop-blur-sm sm:h-14 sm:w-14 lg:h-16 lg:w-16">
                     {item.icon}
                   </div>
                   
@@ -393,11 +392,11 @@ const Store: React.FC = () => {
                 </div>
               </div>
 
-              <div className="p-4 lg:p-6">
+              <div className="p-4 sm:p-5 lg:p-6">
                 <h3 className="font-bold text-gray-900 text-base lg:text-lg mb-2">{item.name}</h3>
-                <p className="text-gray-600 text-sm mb-4">{item.description}</p>
+                {item.type === 'coins' ? <div className="mb-4" /> : <p className="text-gray-600 text-sm mb-4">{item.description}</p>}
                 
-                <div className="flex items-center justify-between mb-4">
+                <div className="mb-4 flex items-end justify-between gap-3">
                   <div className="text-xl lg:text-2xl font-bold text-gray-900">{item.priceDisplay}</div>
                   {item.bonus && (
                     <div className="text-green-600 text-sm font-semibold">
@@ -421,27 +420,11 @@ const Store: React.FC = () => {
           ))}
         </div>
 
-        {/* Security Notice */}
-        <div className="mt-12 bg-white rounded-xl p-4 lg:p-6 shadow-md border border-gray-100 mx-2 lg:mx-0">
-          <div className="flex flex-col sm:flex-row items-center justify-center space-y-2 sm:space-y-0 sm:space-x-4 text-gray-600">
-            <div className="flex items-center space-x-2">
-              <div className="w-2 h-2 bg-green-500 rounded-full"></div>
-              <span className="text-sm">Secure Payment</span>
-            </div>
-            <div className="flex items-center space-x-2">
-              <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
-              <span className="text-sm">Instant Delivery</span>
-            </div>
-            <div className="flex items-center space-x-2">
-              <div className="w-2 h-2 bg-purple-500 rounded-full"></div>
-              <span className="text-sm">24/7 Support</span>
-            </div>
-          </div>
-        </div>
       </div>
 
       {showPaymentModal && selectedItem && (
         <StripeCheckout
+          itemId={selectedItem.id}
           amount={selectedItem.price}
           description={`${selectedItem.name} - ${selectedItem.description}`}
           coins={selectedItem.coins}
@@ -458,3 +441,4 @@ const Store: React.FC = () => {
 };
 
 export default Store;
+

@@ -40,9 +40,6 @@ const JUDGE0_URL = process.env.JUDGE0_URL;
 const JUDGE0_API_KEY = process.env.JUDGE0_API_KEY;
 const JUDGE0_API_HOST = process.env.JUDGE0_API_HOST;
 
-console.log("SUPABASE_URL:", SUPABASE_URL);
-console.log("SERVICE_ROLE_KEY prefix:", SUPABASE_SERVICE_ROLE_KEY?.slice(0, 12));
-console.log("SERVICE_ROLE_KEY length:", SUPABASE_SERVICE_ROLE_KEY?.length);
 
 if (JUDGE_PROVIDER === "remote" && JUDGE_URL && !JUDGE_SHARED_SECRET) {
   console.error("JUDGE_SHARED_SECRET is required when JUDGE_PROVIDER=remote and JUDGE_URL is set");
@@ -98,6 +95,27 @@ function ackSafe(ack, payload) {
   if (typeof ack === "function") ack(payload);
 }
 
+async function authenticateSocketUser(accessToken, expectedUserId) {
+  if (!supabase) {
+    return { user: null, error: "Server authentication is unavailable." };
+  }
+
+  if (!accessToken) {
+    return { user: null, error: "Missing session token." };
+  }
+
+  const { data, error } = await supabase.auth.getUser(accessToken);
+  if (error || !data?.user) {
+    return { user: null, error: "Invalid or expired session token." };
+  }
+
+  if (expectedUserId && data.user.id !== expectedUserId) {
+    return { user: null, error: "Authenticated user does not match requested player." };
+  }
+
+  return { user: data.user, error: null };
+}
+
 io.on("connection", (socket) => {
   console.log("duel-server connection:", socket.id);
   socket.emit("server_identity", { name: "duel-server", port: PORT });
@@ -113,7 +131,7 @@ io.on("connection", (socket) => {
         return;
       }
 
-      const { userId, username } = data || {};
+      const { userId, username, accessToken } = data || {};
       if (!userId) {
         const msg = "Missing userId";
         ackSafe(ack, { ok: false, message: msg });
@@ -123,6 +141,14 @@ io.on("connection", (socket) => {
 
       const withTimeout = (p, ms) =>
         Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error("DB timeout")), ms))]);
+
+      const { user: authUser, error: authError } = await authenticateSocketUser(accessToken, userId);
+      if (authError || !authUser) {
+        const msg = authError || "Authentication failed";
+        ackSafe(ack, { ok: false, message: msg });
+        emitServerError(socket, "Authentication failed", msg);
+        return;
+      }
 
       let duelUser = null;
       try {
@@ -141,7 +167,15 @@ io.on("connection", (socket) => {
 
       if (!duelUser) {
         try {
-          const insertPayload = { id: userId, username: username || "Player", rating: 1200 };
+          const normalizedUsername = String(
+            username ||
+            authUser.user_metadata?.display_name ||
+            authUser.user_metadata?.full_name ||
+            authUser.user_metadata?.username ||
+            authUser.email?.split("@")[0] ||
+            "Player"
+          ).trim().slice(0, 16) || "Player";
+          const insertPayload = { id: userId, username: normalizedUsername, rating: 500 };
           const { data: created, error: insertErr } = await supabase
             .from("duel_users")
             .insert(insertPayload)
@@ -158,8 +192,8 @@ io.on("connection", (socket) => {
         }
       }
 
-      const safeUsername = duelUser.username || username || "Player";
-      const safeRating = duelUser.rating ?? 1200;
+      const safeUsername = duelUser.username || String(username || "").trim() || "Player";
+      const safeRating = duelUser.rating ?? 500;
 
       connectedPlayers.set(socket.id, {
         userId: duelUser.id,

@@ -4,12 +4,36 @@ import { createClient } from '@supabase/supabase-js'
 // Environment variables for the frontend
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string
+const appUrl = (import.meta.env.VITE_APP_URL as string | undefined)?.trim()
+const authStorageKey = 'codhak-auth'
+
+const getBaseUrl = () => {
+  if (typeof window !== 'undefined' && window.location?.origin) {
+    return window.location.origin
+  }
+
+  return appUrl || 'http://localhost:5173'
+}
+
+const buildRedirectUrl = (path: string) => {
+  const normalizedPath = path.startsWith('/') ? path : `/${path}`
+  return `${getBaseUrl()}${normalizedPath}`
+}
+
+const normalizeEmail = (email: string) => email.trim().toLowerCase()
+const normalizeUsername = (username: string) => username.trim()
+const getLocalDateKey = (date = new Date()) => {
+  const year = date.getFullYear()
+  const month = `${date.getMonth() + 1}`.padStart(2, '0')
+  const day = `${date.getDate()}`.padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
 
 // Validate environment variables
 if (!supabaseUrl || !supabaseAnonKey) {
   console.error('Missing Supabase environment variables:')
-  console.error('VITE_SUPABASE_URL:', supabaseUrl ? '✅ Set' : '❌ Missing')
-  console.error('VITE_SUPABASE_ANON_KEY:', supabaseAnonKey ? '✅ Set' : '❌ Missing')
+  console.error('VITE_SUPABASE_URL:', supabaseUrl ? '? Set' : '? Missing')
+  console.error('VITE_SUPABASE_ANON_KEY:', supabaseAnonKey ? '? Set' : '? Missing')
   throw new Error('Missing Supabase environment variables. Please set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in your .env file')
 }
 
@@ -25,7 +49,8 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
     autoRefreshToken: true,
     persistSession: true,
     detectSessionInUrl: true,
-    flowType: 'pkce' // Recommended for client-side applications
+    storageKey: authStorageKey,
+    flowType: 'pkce'
   }
 })
 
@@ -38,6 +63,7 @@ export interface UserProfile {
   total_coins_earned: number
   xp: number
   completed_lessons: string[]
+  lifetime_completed_lessons?: string[]
   level: number
   hearts: number
   max_hearts: number
@@ -56,12 +82,11 @@ export interface UserProfile {
   unlimited_hearts_expires_at?: number;
 }
 
-// LeaderboardEntry interface
 export interface LeaderboardEntry {
   user_id: string
   xp: number
   total_lessons_completed: number
-  achievements_count: number
+  ranked_elo: number
   current_streak: number
   level: number
   user_profiles: {
@@ -70,6 +95,8 @@ export interface LeaderboardEntry {
   }
 }
 
+export type LeaderboardPeriod = 'all' | 'month' | 'week'
+export type LeaderboardSort = 'xp' | 'lessons' | 'elo'
 // Helper function to get display name from Supabase auth metadata
 export const getDisplayName = async (userId: string) => {
   try {
@@ -88,14 +115,6 @@ export const getDisplayName = async (userId: string) => {
       user.user_metadata?.username ||      // Fallback to username
       'Unknown User'                       // Default if no name found
 
-    console.log('Display name from auth metadata:', {
-      display_name: user.user_metadata?.display_name,
-      full_name: user.user_metadata?.full_name,
-      name: user.user_metadata?.name,
-      username: user.user_metadata?.username,
-      email: user.email,
-      final_display_name: displayName
-    })
     
     return displayName
   } catch (error) {
@@ -107,7 +126,6 @@ export const getDisplayName = async (userId: string) => {
 // Function to update display name in Supabase auth metadata
 export const updateDisplayName = async (newDisplayName: string) => {
   try {
-    console.log('🔄 Updating display name in Supabase auth to:', newDisplayName)
     
     const { data, error } = await supabase.auth.updateUser({
       data: { 
@@ -118,14 +136,13 @@ export const updateDisplayName = async (newDisplayName: string) => {
     })
 
     if (error) {
-      console.error('❌ Error updating display name in auth:', error)
+      console.error('âŒ Error updating display name in auth:', error)
       return { data: null, error }
     }
 
-    console.log('✅ Display name updated in Supabase auth:', data.user?.user_metadata?.display_name)
     return { data, error: null }
   } catch (error) {
-    console.error('❌ Exception updating display name:', error)
+    console.error('âŒ Exception updating display name:', error)
     return { data: null, error }
   }
 }
@@ -133,7 +150,7 @@ export const updateDisplayName = async (newDisplayName: string) => {
 // Function to update a user's login streak
 export const updateLoginStreak = async (userId: string) => {
   try {
-    const today = new Date().toDateString()
+    const today = getLocalDateKey()
     
     // Use maybeSingle() to gracefully handle cases where no profile is found
     const { data: profile, error: fetchError } = await supabase
@@ -156,8 +173,8 @@ export const updateLoginStreak = async (userId: string) => {
     const lastLoginDate = profile.last_login_date
     
     if (lastLoginDate) {
-      const lastLogin = new Date(lastLoginDate)
-      const todayDate = new Date(today)
+      const lastLogin = new Date(`${lastLoginDate}T00:00:00`)
+      const todayDate = new Date(`${today}T00:00:00`)
       const timeDiff = todayDate.getTime() - lastLogin.getTime()
       const daysDiff = Math.floor(timeDiff / (1000 * 3600 * 24))
       
@@ -207,13 +224,13 @@ export const updateLoginStreak = async (userId: string) => {
 // Helper to generate streak messages
 const getStreakMessage = (newStreak: number, oldStreak: number): string => {
   if (newStreak === 1 && oldStreak > 1) {
-    return `Streak reset! Starting fresh with day 1. Keep it up! 🔥`
+    return `Streak reset! Starting fresh with day 1. Keep it up! ðŸ”¥`
   } else if (newStreak === 1 && oldStreak <= 1) {
-    return `Welcome back! Starting your streak journey! 🌟`
+    return `Welcome back! Starting your streak journey! ðŸŒŸ`
   } else if (newStreak > oldStreak) {
-    return `Awesome! ${newStreak} day streak! Keep the momentum going! 🔥`
+    return `Awesome! ${newStreak} day streak! Keep the momentum going! ðŸ”¥`
   } else {
-    return `${newStreak} day streak continues! 🔥`
+    return `${newStreak} day streak continues! ðŸ”¥`
   }
 }
 
@@ -236,7 +253,7 @@ export const getStreakInfo = async (userId: string) => {
       return { data: null, error: new Error('Profile not found') }
     }
 
-    const today = new Date().toDateString()
+    const today = getLocalDateKey()
     const isLoggedInToday = data.last_login_date === today
 
     return {
@@ -255,7 +272,7 @@ export const getStreakInfo = async (userId: string) => {
 
 // Handle login streak for OAuth logins
 export const handleOAuthLoginStreak = async (userId: string) => {
-  return await updateLoginStreak(userId)
+  return { data: null, error: null }
 }
 
 // Test Supabase connection status
@@ -327,7 +344,7 @@ export const getUserProfile = async (userId: string) => {
       
       // Update profile in DB if display name from auth is different and valid
       if (displayName && displayName !== 'Unknown User' && displayName !== data.name) {
-        console.log('🔄 Syncing auth display name:', displayName, '(stored:', data.name, ')')
+        console.log('ðŸ”„ Syncing auth display name:', displayName, '(stored:', data.name, ')')
         
         const { data: updatedData } = await supabase
             .from('user_profiles')
@@ -365,17 +382,17 @@ export const updateUserProfile = async (
     let finalUpdates = { ...updates }
     // If 'name' is being updated, also update it in Supabase auth metadata
     if (updates.name) {
-      console.log('🔄 Updating display name in auth:', updates.name)
+      console.log('ðŸ”„ Updating display name in auth:', updates.name)
       const { error: authError } = await updateDisplayName(updates.name)
       if (authError) {
-        console.error('❌ Failed to update display name in auth:', authError)
+        console.error('âŒ Failed to update display name in auth:', authError)
       }
     } else {
       // If no explicit name update, sync from auth to ensure consistency
       const displayName = await getDisplayName(userId)
       if (displayName && displayName !== 'Unknown User') {
         finalUpdates.name = displayName
-        console.log('🔄 Auto-syncing auth display name during update:', displayName)
+        console.log('ðŸ”„ Auto-syncing auth display name during update:', displayName)
       }
     }
 
@@ -411,130 +428,123 @@ export const updateUserProfile = async (
 
 // Get leaderboard data
 export const getLeaderboardData = async (
-  limit: number = 100, 
-  offset: number = 0, 
-  sortBy: 'xp' | 'lessons' | 'achievements' = 'xp'
+  limit: number = 100,
+  offset: number = 0,
+  sortBy: LeaderboardSort = 'xp',
+  period: LeaderboardPeriod = 'all'
 ) => {
   try {
-    console.log('📊 Fetching leaderboard with auth display names:', { limit, offset, sortBy });
-
-    let query = supabase
-      .from('user_profiles')
-      .select(`
-        id,
-        xp,
-        total_lessons_completed,
-        unlocked_achievements,
-        current_streak,
-        level,
-        name,
-        current_avatar
-      `);
-
-    switch (sortBy) {
-      case 'lessons':
-        query = query.order('total_lessons_completed', { ascending: false });
-        break;
-      case 'achievements':
-        query = query.order('unlocked_achievements', { ascending: false });
-        break;
-      default:
-        query = query.order('xp', { ascending: false });
-    }
-
-    query = query.range(offset, offset + limit - 1);
-
-    const { data, error } = await query;
+    const { data, error } = await supabase.rpc('get_public_leaderboard_page', {
+      p_limit: limit,
+      p_offset: offset,
+      p_period: period,
+      p_sort: sortBy
+    })
 
     if (error) {
-      console.error('Database error getting leaderboard:', error);
-      return { data: null, error };
+      const missingRpc =
+        error.message?.includes('get_public_leaderboard_page') ||
+        error.message?.includes('schema cache')
+
+      if (!missingRpc) {
+        console.error('Database error getting leaderboard:', error)
+        return { data: null, error }
+      }
+
+      const sortColumn =
+        sortBy === 'lessons'
+          ? 'total_lessons_completed'
+          : sortBy === 'elo'
+            ? 'ranked_elo'
+            : 'xp'
+
+      const { data: fallbackRows, error: fallbackError } = await supabase
+        .from('public_leaderboard')
+        .select('id, name, current_avatar, xp, total_lessons_completed, ranked_elo, current_streak, level')
+        .order(sortColumn, { ascending: false })
+        .order('xp', { ascending: false })
+        .range(offset, offset + limit - 1)
+
+      if (fallbackError) {
+        console.error('Fallback leaderboard query failed:', fallbackError)
+        return { data: null, error: fallbackError }
+      }
+
+      const transformedFallback = (fallbackRows || []).map((profile: any, index: number) => ({
+        user_id: profile.id,
+        xp: profile.xp || 0,
+        total_lessons_completed: profile.total_lessons_completed || 0,
+        ranked_elo: profile.ranked_elo || 500,
+        current_streak: profile.current_streak || 0,
+        level: profile.level || 1,
+        rank: offset + index + 1,
+        user_profiles: {
+          name: profile.name || 'Unknown Player',
+          current_avatar: profile.current_avatar || 'default'
+        },
+        total_count: (fallbackRows || []).length
+      }))
+
+      return { data: transformedFallback, error: null }
     }
 
-    // Transform data for consistent frontend usage
-    const transformedData = data?.map((profile, index) => ({
-      user_id: profile.id,
+    const transformedData = data?.map((profile: any, index: number) => ({
+      user_id: profile.user_id,
       xp: profile.xp || 0,
       total_lessons_completed: profile.total_lessons_completed || 0,
-      achievements_count: Array.isArray(profile.unlocked_achievements) 
-        ? profile.unlocked_achievements.length 
-        : 0,
+      ranked_elo: profile.ranked_elo || 500,
       current_streak: profile.current_streak || 0,
       level: profile.level || 1,
-      rank: offset + index + 1,
+      rank: profile.rank || (offset + index + 1),
       user_profiles: {
-        name: profile.name || 'Unknown Player', // Use the synced display name
-        current_avatar: profile.current_avatar || '👤'
-      }
-    })) || [];
+        name: profile.name || 'Unknown Player',
+        current_avatar: profile.current_avatar || 'default'
+      },
+      total_count: profile.total_count || 0
+    })) || []
 
-    console.log('✅ Leaderboard data fetched with auth display names:', transformedData.slice(0, 3));
-    return { data: transformedData, error: null };
-
+    return { data: transformedData, error: null }
   } catch (error) {
-    console.error('Exception getting leaderboard:', error);
-    return { data: null, error };
+    console.error('Exception getting leaderboard:', error)
+    return { data: null, error }
   }
 };
 
 // Get a user's rank on the leaderboard
-export const getUserRank = async (userId: string, sortBy: 'xp' | 'lessons' | 'achievements' = 'xp') => {
+export const getUserRank = async (
+  userId: string,
+  sortBy: LeaderboardSort = 'xp',
+  period: LeaderboardPeriod = 'all'
+) => {
   try {
-    const { data: userProfile, error: userError } = await supabase
-      .from('user_profiles')
-      .select('xp, total_lessons_completed, unlocked_achievements')
-      .eq('id', userId)
-      .maybeSingle(); // Prevents PGRST116 error
+    const { data, error } = await supabase.rpc('get_public_leaderboard_rank', {
+      p_user_id: userId,
+      p_period: period,
+      p_sort: sortBy
+    })
 
-    if (userError || !userProfile) {
-      return { data: null, error: userError };
+    if (error) {
+      const missingRpc =
+        error.message?.includes('get_public_leaderboard_rank') ||
+        error.message?.includes('schema cache')
+
+      if (!missingRpc) {
+        return { data: null, error }
+      }
+
+      const { data: fallbackRows, error: fallbackError } = await getLeaderboardData(1000, 0, sortBy, 'all')
+      if (fallbackError) {
+        return { data: null, error: fallbackError }
+      }
+
+      const fallbackRank = fallbackRows?.find((row: any) => row.user_id === userId)?.rank ?? 0
+      return { data: fallbackRank, error: null }
     }
 
-    let userValue: number;
-    let compareColumn: string;
-
-    switch (sortBy) {
-      case 'lessons':
-        userValue = userProfile.total_lessons_completed || 0;
-        compareColumn = 'total_lessons_completed';
-        break;
-      case 'achievements':
-        userValue = Array.isArray(userProfile.unlocked_achievements) 
-          ? userProfile.unlocked_achievements.length 
-          : 0;
-        // For achievements, need to fetch all profiles to compare counts
-        const { data: allProfiles } = await supabase
-          .from('user_profiles')
-          .select('unlocked_achievements');
-        
-        if (allProfiles) {
-          const usersWithMoreAchievements = allProfiles.filter(p => {
-            const count = Array.isArray(p.unlocked_achievements) ? p.unlocked_achievements.length : 0;
-            return count > userValue;
-          });
-          return { data: usersWithMoreAchievements.length + 1, error: null };
-        }
-        return { data: 1, error: null };
-      default:
-        userValue = userProfile.xp || 0;
-        compareColumn = 'xp';
-    }
-
-    const { data: betterUsers, error: rankError } = await supabase
-      .from('user_profiles')
-      .select('id', { count: 'exact' })
-      .gt(compareColumn, userValue); // Count users with a higher value
-
-    if (rankError) {
-      return { data: null, error: rankError };
-    }
-
-    const rank = (betterUsers?.length || 0) + 1; // Rank is (count of better users) + 1
-    return { data: rank, error: null };
-
+    return { data: data ?? 0, error: null }
   } catch (error) {
-    console.error('Exception getting user rank:', error);
-    return { data: null, error };
+    console.error('Exception getting user rank:', error)
+    return { data: null, error }
   }
 };
 
@@ -545,9 +555,27 @@ export const subscribeToLeaderboardUpdates = (callback: (payload: any) => void) 
     .on(
       'postgres_changes',
       {
-        event: '*', // Listen to all changes (INSERT, UPDATE, DELETE)
+        event: '*',
         schema: 'public',
-        table: 'user_profiles' // Specify the table to listen to
+        table: 'user_profiles'
+      },
+      callback
+    )
+    .on(
+      'postgres_changes',
+      {
+        event: '*',
+        schema: 'public',
+        table: 'duel_users'
+      },
+      callback
+    )
+    .on(
+      'postgres_changes',
+      {
+        event: '*',
+        schema: 'public',
+        table: 'lesson_completion_events'
       },
       callback
     )
@@ -559,48 +587,39 @@ export const subscribeToLeaderboardUpdates = (callback: (payload: any) => void) 
 // Sign up a new user with email and password
 export const signUpWithEmail = async (email: string, password: string, username: string) => {
   try {
-    console.log('🔄 Starting signup process for:', email, 'with username:', username)
-    
+    const normalizedEmail = normalizeEmail(email)
+    const normalizedUsername = normalizeUsername(username)
+
     const { data, error } = await supabase.auth.signUp({
-      email,
+      email: normalizedEmail,
       password,
       options: {
-        data: { 
-          username: username,
-          display_name: username,  // Primary: Set the display_name to the chosen username
-          full_name: username,     // Backup
-          name: username           // Backup
+        emailRedirectTo: buildRedirectUrl('/auth/confirm'),
+        data: {
+          username: normalizedUsername,
+          display_name: normalizedUsername,
+          full_name: normalizedUsername,
+          name: normalizedUsername
         }
       }
     })
 
     if (error) {
-      console.error('❌ Supabase signup error:', error)
+      console.error('Supabase signup error:', error)
       return { data: null, error }
     }
 
-    console.log('✅ Signup response with auth display_name set:', {
-      user: data.user?.id,
-      display_name: data.user?.user_metadata?.display_name,
-      full_name: data.user?.user_metadata?.full_name,
-      username: data.user?.user_metadata?.username,
-      session: !!data.session,
-      needsConfirmation: !data.session && data.user && !data.user.email_confirmed_at
-    })
-
-    // Only create profile in the 'user_profiles' table if user is confirmed or has a session
     if (data.user && (data.session || data.user.email_confirmed_at)) {
-      console.log('📝 Creating user profile with auth display name...')
-      
       const profileResult = await supabase.from('user_profiles').upsert({
         id: data.user.id,
-        name: data.user.user_metadata?.display_name || username, // Use auth display_name
-        email: email,
+        name: data.user.user_metadata?.display_name || normalizedUsername,
+        email: normalizedEmail,
         xp: 0,
         level: 1,
-        coins: 0, // Initial coins set to 0
-        total_coins_earned: 0, // Initial total coins earned set to 0
+        coins: 0,
+        total_coins_earned: 0,
         completed_lessons: [],
+        lifetime_completed_lessons: [],
         hearts: 5,
         max_hearts: 5,
         last_heart_reset: new Date().toDateString(),
@@ -619,17 +638,13 @@ export const signUpWithEmail = async (email: string, password: string, username:
       })
 
       if (profileResult.error) {
-        console.error('❌ Error creating profile:', profileResult.error)
-      } else {
-        console.log('✅ Profile created successfully with auth display name:', data.user.user_metadata?.display_name)
+        console.error('Error creating profile:', profileResult.error)
       }
-    } else if (data.user && !data.session) {
-      console.log('📧 User created but needs email confirmation')
     }
 
     return { data, error: null }
   } catch (err) {
-    console.error('❌ Exception during signup:', err)
+    console.error('Signup exception:', err)
     return { data: null, error: err }
   }
 }
@@ -638,17 +653,9 @@ export const signUpWithEmail = async (email: string, password: string, username:
 export const signInWithEmail = async (email: string, password: string) => {
   try {
     const { data, error } = await supabase.auth.signInWithPassword({
-      email,
+      email: normalizeEmail(email),
       password
     })
-
-    if (data?.user && !error) {
-      const streakResult = await updateLoginStreak(data.user.id)
-      if (streakResult.data) {
-        console.log('Streak updated:', streakResult.data.streak_message)
-        return { data, error, streakData: streakResult.data }
-      }
-    }
 
     return { data, error }
   } catch (error) {
@@ -663,7 +670,7 @@ export const signInWithGoogle = async () => {
     const { data, error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
       options: {
-        redirectTo: `https://codhak.vercel.app`, // Redirect URL after OAuth
+        redirectTo: buildRedirectUrl('/auth/confirm'),
         queryParams: {
           access_type: 'offline',
           prompt: 'consent',
@@ -686,8 +693,20 @@ export const signOut = async () => {
 
 // Reset user password via email
 export const resetPassword = async (email: string) => {
-  const { data, error } = await supabase.auth.resetPasswordForEmail(email, {
-    redirectTo: `https://codhak.vercel.app/auth/reset-password` // Redirect URL for password reset
+  const { data, error } = await supabase.auth.resetPasswordForEmail(normalizeEmail(email), {
+    redirectTo: buildRedirectUrl('/auth/reset-password')
+  })
+
+  return { data, error }
+}
+
+export const resendConfirmationEmail = async (email: string) => {
+  const { data, error } = await supabase.auth.resend({
+    type: 'signup',
+    email: normalizeEmail(email),
+    options: {
+      emailRedirectTo: buildRedirectUrl('/auth/confirm')
+    }
   })
 
   return { data, error }
@@ -710,9 +729,9 @@ export const getClientInfo = () => ({
   type: 'real',
   hasEnvVars: !!(supabaseUrl && supabaseAnonKey),
   isDevelopment: import.meta.env.DEV,
-  supabaseUrl: supabaseUrl ? '✅ Set' : '❌ Missing',
-  supabaseKey: supabaseAnonKey ? '✅ Set' : '❌ Missing'
+  supabaseUrl: supabaseUrl ? 'âœ… Set' : 'âŒ Missing',
+  supabaseKey: supabaseAnonKey ? 'âœ… Set' : 'âŒ Missing'
 })
 
-console.log('🔧 Supabase Client Info:', getClientInfo())
-testConnection()
+
+

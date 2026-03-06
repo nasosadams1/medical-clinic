@@ -17,10 +17,10 @@ import {
   signInWithGoogle as supabaseSignInWithGoogle,
   signOut as supabaseSignOut,
   resetPassword as supabaseResetPassword,
+  resendConfirmationEmail,
   getUserProfile,
   createUserProfile,
   updateUserProfile as supabaseUpdateUserProfile,
-  handleOAuthLoginStreak,
   testConnection,
   getDisplayName,
 } from "../lib/supabase";
@@ -38,7 +38,7 @@ interface AuthContextType {
   signIn: (
     email: string,
     password: string
-  ) => Promise<{ error: any; streakData?: any }>;
+  ) => Promise<{ error: any }>;
   signInWithGoogle: () => Promise<{ error: any }>;
   signOut: () => Promise<void>;
   resetPassword: (email: string) => Promise<{ error: any }>;
@@ -55,6 +55,30 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 // VITE_LEADERBOARD_API_URL=https://your-leaderboard-api
 const LEADERBOARD_API_URL =
   (import.meta.env.VITE_LEADERBOARD_API_URL as string | undefined)?.trim() || "";
+const AUTH_STORAGE_KEY = "codhak-auth";
+const isAuthDebugEnabled = import.meta.env.DEV && import.meta.env.VITE_DEBUG_AUTH === "1";
+
+const authLog = (...args: any[]) => {
+  if (isAuthDebugEnabled) {
+    console.log(...args);
+  }
+};
+
+const clearAuthStorage = () => {
+  if (typeof window === "undefined") return;
+
+  const shouldRemove = (key: string) =>
+    key === AUTH_STORAGE_KEY || key.startsWith("sb-") || key.toLowerCase().includes("supabase");
+
+  for (const storage of [window.localStorage, window.sessionStorage]) {
+    const keysToRemove: string[] = [];
+    for (let i = 0; i < storage.length; i += 1) {
+      const key = storage.key(i);
+      if (key && shouldRemove(key)) keysToRemove.push(key);
+    }
+    keysToRemove.forEach((key) => storage.removeItem(key));
+  }
+};
 
 export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<SupabaseUser | null>(null);
@@ -70,11 +94,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     const checkConnection = async () => {
       const isConnected = await testConnection();
       if (!isConnected) {
-        console.error(
-          "❌ Supabase connection failed. Please check your environment variables."
-        );
-      } else {
-        console.log("✅ Supabase connection successful");
+        console.error("Supabase connection failed. Please check your environment variables.");
       }
     };
     checkConnection();
@@ -83,13 +103,11 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   // Clear corrupted session
   const clearCorruptedSession = async () => {
     try {
-      console.log("🧹 Clearing potentially corrupted session...");
-      localStorage.clear();
-      sessionStorage.clear();
-      await supabase.auth.signOut();
+      clearAuthStorage();
+      await supabase.auth.signOut({ scope: "local" });
       window.location.reload();
     } catch (error) {
-      console.error("Error clearing session:", error);
+      console.error("Error clearing corrupted session:", error);
       window.location.reload();
     }
   };
@@ -132,7 +150,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
     const currentDataHash = JSON.stringify(payload);
     if (currentDataHash === lastSyncDataRef.current) {
-      console.log("📊 AuthContext: No changes detected, skipping leaderboard sync");
+      authLog("📊 AuthContext: No changes detected, skipping leaderboard sync");
       return;
     }
     lastSyncDataRef.current = currentDataHash;
@@ -143,7 +161,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
     leaderboardSyncTimeoutRef.current = setTimeout(async () => {
       try {
-        console.log("🔄 AuthContext: Syncing profile to leaderboard:", {
+        authLog("🔄 AuthContext: Syncing profile to leaderboard:", {
           name: payload.name,
           userId: payload.userId,
           xp: payload.xp,
@@ -167,7 +185,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         }
 
         const result = await response.json().catch(() => ({}));
-        console.log("✅ AuthContext: Leaderboard sync success:", result);
+        authLog("✅ AuthContext: Leaderboard sync success:", result);
       } catch (error) {
         console.error("❌ AuthContext: Failed to sync profile to leaderboard:", error);
         // Reset hash so next change attempts again
@@ -178,7 +196,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   const fetchProfile = async (userId: string, retryCount = 0) => {
     try {
-      console.log(
+      authLog(
         `🔄 AuthContext: Fetching profile for user: ${userId} (attempt ${
           retryCount + 1
         })`
@@ -191,12 +209,12 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       const { data } = await getUserProfile(userId);
 
       if (!data) {
-        console.log("No profile data returned, creating new profile...");
+        authLog("No profile data returned, creating new profile...");
         await createProfileManually(userId);
         return;
       }
 
-      console.log("✅ AuthContext: Profile found:", {
+      authLog("✅ AuthContext: Profile found:", {
         name: data.name,
         xp: data.xp,
         lessons: data.total_lessons_completed,
@@ -215,7 +233,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   const refetchProfile = useCallback(async () => {
     if (user?.id) {
-      console.log("🔄 AuthContext: Refetching profile from database...");
+      authLog("🔄 AuthContext: Refetching profile from database...");
       setLoading(true);
       await fetchProfile(user.id);
     }
@@ -223,7 +241,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   const createProfileManually = async (userId: string, preferredUsername?: string) => {
     try {
-      console.log(
+      authLog(
         "Creating profile manually for user:",
         userId,
         "with preferred username:",
@@ -239,7 +257,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         console.error("Error getting current user:", userError);
 
         if (userError.message?.includes("User from sub claim in JWT does not exist")) {
-          console.log("🚨 Detected corrupted JWT, clearing session...");
+          authLog("🚨 Detected corrupted JWT, clearing session...");
           await clearCorruptedSession();
           return;
         }
@@ -285,7 +303,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         const timestamp = Date.now().toString().slice(-6);
         const randomSuffix = Math.random().toString(36).substring(2, 5);
         userName = `User_${timestamp}_${randomSuffix}`;
-        console.log(`🔧 Generated safe username: ${userName}`);
+        authLog(`🔧 Generated safe username: ${userName}`);
       }
 
       const newProfile: Omit<UserProfile, "created_at" | "updated_at"> = {
@@ -296,6 +314,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         total_coins_earned: 0,
         xp: 0,
         completed_lessons: [],
+        lifetime_completed_lessons: [],
         level: 1,
         hearts: 5,
         max_hearts: 5,
@@ -321,7 +340,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       }
 
       if (data) {
-        console.log("✅ Profile created manually:", data.name);
+        authLog("✅ Profile created manually:", data.name);
         setProfile(data);
         await syncProfileToLeaderboard(data);
         setLoading(false);
@@ -338,7 +357,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     try {
       const displayName = await getDisplayName(user.id);
       if (displayName && displayName !== profile.name && displayName !== "Unknown User") {
-        console.log("🔄 AuthContext: Syncing display name from auth:", displayName);
+        authLog("🔄 AuthContext: Syncing display name from auth:", displayName);
         await updateProfile({ name: displayName });
       }
     } catch (error) {
@@ -348,18 +367,18 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
-      console.log("🔄 AuthContext: Initial session:", !!session);
+      authLog("🔄 AuthContext: Initial session:", !!session);
       setSession(session);
       setUser(session?.user ?? null);
 
       if (session?.user) {
-        console.log(
+        authLog(
           "🔄 AuthContext: Initial session found, fetching profile for user:",
           session.user.id
         );
         fetchProfile(session.user.id);
       } else {
-        console.log("🔄 AuthContext: No initial session found");
+        authLog("🔄 AuthContext: No initial session found");
         setLoading(false);
       }
     });
@@ -367,27 +386,19 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange(async (event, session) => {
-      console.log("🔄 AuthContext: Auth state change:", event, session?.user?.id);
+      authLog("🔄 AuthContext: Auth state change:", event, session?.user?.id);
       setSession(session);
       setUser(session?.user ?? null);
 
       if (event === "SIGNED_IN" && session?.user) {
-        console.log("🔄 AuthContext: User signed in, fetching fresh profile...");
-
-        if (session.user.app_metadata?.provider === "google") {
-          const streakResult = await handleOAuthLoginStreak(session.user.id);
-          if (streakResult.data) {
-            console.log("OAuth streak updated:", streakResult.data.streak_message);
-          }
-        }
-
+        authLog("🔄 AuthContext: User signed in, fetching fresh profile...");
         fetchProfile(session.user.id);
 
         setTimeout(() => {
           if (navigationCallbackRef.current) navigationCallbackRef.current();
         }, 1000);
       } else if (event === "SIGNED_OUT") {
-        console.log("🔄 AuthContext: User signed out, clearing profile");
+        authLog("🔄 AuthContext: User signed out, clearing profile");
         setProfile(null);
         lastSyncDataRef.current = "";
         setLoading(false);
@@ -428,18 +439,20 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   };
 
   const signUp = async (email: string, password: string, username: string) => {
-    console.log("Starting signup process with username:", username);
+    authLog("Starting signup process with username:", username);
 
     try {
-      const usernameExists = await checkUsernameExists(username.trim());
+      const normalizedUsername = username.trim();
+      const normalizedEmail = email.trim().toLowerCase();
+      const usernameExists = await checkUsernameExists(normalizedUsername);
       if (usernameExists) {
         return { error: { message: "Username already taken" } };
       }
 
       const { data, error } = await signUpWithEmail(
-        email.trim(),
+        normalizedEmail,
         password,
-        username.trim()
+        normalizedUsername
       );
 
       if (error) return { error };
@@ -447,7 +460,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       const needsConfirmation =
         data?.user && !data?.session && !data?.user?.email_confirmed_at;
 
-      console.log("Signup successful:", {
+      authLog("Signup successful:", {
         username: username.trim(),
         userId: data?.user?.id,
         needsConfirmation,
@@ -467,18 +480,16 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   const signIn = async (email: string, password: string) => {
     try {
-      console.log("Attempting sign in for:", email.trim());
+      authLog("Attempting sign in for:", email.trim());
 
-      const { data, error, streakData } = await signInWithEmail(email.trim(), password);
+      const { data, error } = await signInWithEmail(email.trim().toLowerCase(), password);
 
       if (error) {
         console.error("Sign in error:", error);
         return { error };
       }
 
-      console.log("Sign in successful for:", data?.user?.id);
-
-      if (streakData) return { error: null, streakData };
+      authLog("Sign in successful for:", data?.user?.id);
       return { error: null };
     } catch (err: any) {
       console.error("Sign in catch error:", err);
@@ -488,8 +499,8 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   const confirmUser = async (email: string) => {
     try {
-      console.log("Manual confirmation needed for:", email);
-      return { error: { message: "Manual confirmation required" } };
+      const { error } = await resendConfirmationEmail(email.trim().toLowerCase());
+      return { error };
     } catch (error) {
       return { error };
     }
@@ -501,7 +512,8 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   };
 
   const signOut = async () => {
-    console.log("Signing out...");
+    authLog("Signing out...");
+    clearAuthStorage();
     await supabaseSignOut();
   };
 
@@ -516,7 +528,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       return;
     }
 
-    console.log("🔄 AuthContext: updateProfile called with:", updates);
+    authLog("🔄 AuthContext: updateProfile called with:", updates);
 
     const { data, error } = await supabaseUpdateUserProfile(user.id, updates);
 
@@ -526,7 +538,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }
 
     if (data) {
-      console.log("✅ AuthContext: Profile updated:", {
+      authLog("✅ AuthContext: Profile updated:", {
         name: data.name,
         xp: data.xp,
         totalLessons: data.total_lessons_completed,

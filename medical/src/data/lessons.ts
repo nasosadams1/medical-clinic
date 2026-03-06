@@ -28,7 +28,7 @@ export interface Lesson {
 
 export const calculateXP = (
   xp: number,
-  difficulty: 'Beginner' | 'Intermediate' | 'Advanced',
+  difficulty: "Beginner' | 'Intermediate' | 'Advanced",
   lessonIndex: number,
   totalLessons: number,
   actualTime: number, // in minutes
@@ -60,7 +60,7 @@ export const getDifficultyByIndex = (index: number): 'Beginner' | 'Intermediate'
 export const pythonLessons: Lesson[] = [
  {
   id: 'python-variables-1',
-  title: 'Python Variables — Introduction',
+  title: 'Python Variables - Introduction',
   description: 'Learn what variables are in Python, how to create them, and the basic rules for naming and using them.',
   difficulty: 'Beginner',
   baseXP: 50,
@@ -85,12 +85,12 @@ height = 1.68`,
         code: `print(name)
 print(age)
 print(height)`,
-        explanation: 'Each variable’s value is printed to the console when passed to print().',
+        explanation: "Each variable's value is printed to the console when passed to print().",
         type: 'theory'
       },
       {
         title: 'Reassigning Values',
-        content: 'You can change a variable’s value by assigning it again.',
+        content: "You can change a variable's value by assigning it again.",
         code: `age = 26
 print(age)`,
         explanation: 'The variable age is reassigned a new value, replacing the old one.',
@@ -124,7 +124,7 @@ print(x, y, z)`,
 
  {
   id: 'python-variables-2',
-  title: 'Python Variables — Types and Operations',
+  title: 'Python Variables - Types and Operations',
   description: 'Understand different variable data types in Python and how to perform simple operations with them.',
   difficulty: 'Beginner',
   baseXP: 50,
@@ -212,7 +212,7 @@ print(type(value))`,
 y = int(x)
 print(y)
 print(type(y))`,
-        explanation: 'The string "10" is converted to the integer 10, so type(y) is <class \'int\'>.',
+        explanation: "The string \"10\" is converted to the integer 10, so type(y) is <class \\'int\\'>.",
         type: 'theory'
       },
       {
@@ -289,7 +289,7 @@ print(abs(x))`,
       },
       {
         title: 'Trigonometric Functions',
-        content: 'Python’s math module provides trigonometric functions like sin, cos, and tan.',
+        content: "Python's math module provides trigonometric functions like sin, cos, and tan.",
         code: `import math
 
 angle = math.pi / 4  # 45 degrees in radians
@@ -310,7 +310,7 @@ print(x // y)`,
       },
       {
         title: 'Using the Math Module',
-        content: 'Python’s math module provides functions for more complex calculations.',
+        content: "Python's math module provides functions for more complex calculations.",
         code: `import math
 
 print(math.sqrt(16))   # Square root
@@ -655,7 +655,7 @@ print(text.count("hello"))  # 2`,
 
   // ------------------- Python Booleans -------------------
  {
-  id: 'python-while-loops',
+  id: 'python-while-loops-conditions',
   title: 'Python While Loops',
   description: 'Learn how to use while loops in Python to repeatedly execute a block of code as long as a condition is True.',
   difficulty: 'Beginner',
@@ -732,7 +732,7 @@ else:
 
   // ------------------- Python Sets -------------------
 {
-  id: 'python-for-loops',
+  id: 'python-for-loops-nested',
   title: 'Python For and Nested Loops',
   description: 'Learn how to use for loops in Python to iterate over sequences and create nested loops for complex iteration.',
   difficulty: 'Beginner to Intermediate',
@@ -1101,7 +1101,7 @@ print(not a)    # False`,
 },
 // ------------------- Python While Loops -------------------
 {
-  id: 'python-while-loops',
+  id: 'python-while-loops-basics',
   title: 'Python While Loops',
   description: 'Learn how to repeat code as long as a condition is True using while loops.',
   difficulty: 'Beginner',
@@ -1162,7 +1162,7 @@ else:
         question: 'How many times will this loop run?\n\ni = 0\nwhile i < 3:\n    print(i)\n    i += 1',
         options: ['2', '3', '4', 'Infinite'],
         correctAnswer: 1,
-        explanation: 'The loop runs for i = 0, 1, 2 → 3 times.',
+        explanation: 'The loop runs for i = 0, 1, 2 ? 3 times.',
         type: 'question'
       },
       {
@@ -1178,7 +1178,7 @@ else:
 
 // ------------------- Python For Loops -------------------
 {
-  id: 'python-for-loops',
+  id: 'python-for-loops-basics',
   title: 'Python For Loops',
   description: 'Learn how to iterate over sequences such as lists, strings, or ranges.',
   difficulty: 'Beginner',
@@ -1966,7 +1966,7 @@ print(person1.name, person1.age)`,
 
 person1 = Person("Bob")
 person1.greet()`,
-        explanation: 'The greet() method prints a message using the object’s name.',
+        explanation: "The greet() method prints a message using the object's name.",
         type: 'theory'
       },
       {
@@ -2554,7 +2554,7 @@ print(now.strftime("%Y-%m-%d %H:%M:%S"))`,
 {
   id: 'python-math',
   title: 'Python Math',
-  description: 'Learn how to use Python’s math module for mathematical operations.',
+  description: "Learn how to use Python's math module for mathematical operations.",
   difficulty: 'Intermediate',
   baseXP: 300,
   baselineTime: 1.5,
@@ -3670,7 +3670,7 @@ export const javascriptLessons: Lesson[] = [
         title: "Example 3: Logging to the Console",
         content: "Print messages to the browser console for debugging.",
         code: "<!DOCTYPE html>\n<html>\n<body>\n  <script>\n    console.log('Learning JavaScript step by step');\n    // Output:\n    // Learning JavaScript step by step\n  </script>\n</body>\n</html>",
-        explanation: "console.log() writes information to the developer console (F12 → Console).",
+        explanation: "console.log() writes information to the developer console (F12 ? Console).",
         type: "theory"
       },
       {
@@ -3789,7 +3789,7 @@ export const javascriptLessons: Lesson[] = [
       },
       {
         title: "Example 4: Using console.log()",
-        content: "Print messages to the browser’s console for debugging.",
+        content: "Print messages to the browser's console for debugging.",
         code: "<!DOCTYPE html>\n<html>\n<body>\n  <script>\n    console.log('JavaScript is running');\n    console.log(10 + 5);\n    // Output:\n    // JavaScript is running\n    // 15\n  </script>\n</body>\n</html>",
         explanation: "console.log() is the most common way to test and debug code in the console.",
         type: "theory"
@@ -3833,7 +3833,7 @@ export const javascriptLessons: Lesson[] = [
       {
         title: "Example 2: Case Sensitivity",
         content: "JavaScript is case sensitive.",
-        code: "<!DOCTYPE html>\n<html>\n<body>\n  <script>\n    let name = 'Alice';\n    console.log(name);\n    // Output:\n    // Alice\n\n    // console.log(Name); // Would cause an error because 'Name' ≠ 'name'\n  </script>\n</body>\n</html>",
+        code: "<!DOCTYPE html>\n<html>\n<body>\n  <script>\n    let name = 'Alice';\n    console.log(name);\n    // Output:\n    // Alice\n\n    // console.log(Name); // Would cause an error because 'Name' ? 'name'\n  </script>\n</body>\n</html>",
         explanation: "Variables and function names are case sensitive in JavaScript (name and Name are different).",
         type: "theory"
       },
@@ -3954,7 +3954,7 @@ export const javascriptLessons: Lesson[] = [
       },
       {
         title: "Example 3: Block Scope",
-        content: "let is limited to the block where it’s declared.",
+        content: "let is limited to the block where it's declared.",
         code: "<script>\n{\n  let z = 20;\n  console.log(z);\n  // Output:\n  // 20\n}\n// console.log(z); // Error: z is not defined\n</script>",
         explanation: "let variables are only accessible within the block they are declared.",
         type: "theory"
@@ -4722,7 +4722,7 @@ export const javascriptLessons: Lesson[] = [
       },
       {
         question: "In nested loops, which loop does break affect?",
-        options: ["All loops at once", "Only the innermost loop containing it", "Only outermost loop", "It doesn’t work in nested loops"],
+        options: ["All loops at once", "Only the innermost loop containing it", "Only outermost loop", "It doesn't work in nested loops"],
         correctAnswer: 1,
         explanation: "break exits only the loop in which it is placed.",
         type: "question"
@@ -4982,7 +4982,7 @@ export const javascriptLessons: Lesson[] = [
         title: "Example 2: Calling a Function with Arguments",
         content: "Pass arguments when invoking a function.",
         code: "<script>\nfunction greet(name) {\n  console.log('Hi, ' + name + '!');\n}\ngreet('Bob');\n// Output:\n// Hi, Bob!\n</script>",
-        explanation: "Arguments provided during invocation are assigned to the function’s parameters.",
+        explanation: "Arguments provided during invocation are assigned to the function's parameters.",
         type: "theory"
       },
       {
@@ -5208,7 +5208,7 @@ export const javascriptLessons: Lesson[] = [
       },
       {
         title: "Example 2: Using this",
-        content: "Use this to access the object’s properties.",
+        content: "Use this to access the object's properties.",
         code: "<script>\nperson.age = 25;\nperson.showAge = function() { console.log(this.age); };\nperson.showAge();\n// Output:\n// 25\n</script>",
         explanation: "this refers to the current object inside a method.",
         type: "theory"
@@ -6661,9 +6661,9 @@ export const cppLessons: Lesson[] = [
       },
       {
         title: "Example 4: Whitespace",
-        content: "Spaces and line breaks improve readability but don’t affect execution.",
+        content: "Spaces and line breaks improve readability but don't affect execution.",
         code: "#include <iostream>\n\nint main() {\n    int a = 5;\n    int b = 10;\n    std::cout << a + b << std::endl;\n    return 0;\n}",
-        explanation: "Whitespace makes code easier to read. It doesn’t change program behavior.",
+        explanation: "Whitespace makes code easier to read. It doesn't change program behavior.",
         type: "theory"
       },
       {
@@ -7212,7 +7212,7 @@ export const cppLessons: Lesson[] = [
         title: "Example 2: Even or Odd",
         content: "Determine whether a number is even or odd using modulo operator.",
         code: "#include <iostream>\n\nint main() {\n    int x;\n    std::cout << \"Enter a number: \";\n    std::cin >> x;\n\n    if(x % 2 == 0) {\n        std::cout << \"Even\" << std::endl;\n    } else {\n        std::cout << \"Odd\" << std::endl;\n    }\n    return 0;\n}",
-        explanation: "x % 2 gives the remainder. 0 → even, else → odd.",
+        explanation: "x % 2 gives the remainder. 0 ? even, else ? odd.",
         type: "theory"
       },
       {
@@ -8012,7 +8012,7 @@ export const cppLessons: Lesson[] = [
         title: "Example 2: Block scope",
         content: "Variables inside a block are limited to that block.",
         code: "#include <iostream>\nint main() {\n    if(true) {\n        int y = 5;\n        std::cout << y;\n    }\n    // std::cout << y; // Error\n    return 0;\n}",
-        explanation: "y only exists inside the if block; outside it, it’s undefined.",
+        explanation: "y only exists inside the if block; outside it, it's undefined.",
         type: "theory"
       },
       {
@@ -8817,7 +8817,7 @@ export const cppLessons: Lesson[] = [
         title: "Example 3: Logic error",
         content: "Program runs but produces incorrect results.",
         code: "int sum = 5 - 3; // Intended to add\nstd::cout << sum;",
-        explanation: "Logic errors are mistakes in the program’s reasoning.",
+        explanation: "Logic errors are mistakes in the program's reasoning.",
         type: "theory"
       },
       {
@@ -9696,7 +9696,7 @@ export const javaLessons: Lesson[] = [
         type: "question"
       },
       {
-        question: "Can a variable’s value be changed after declaration?",
+        question: "Can a variable's value be changed after declaration?",
         options: ["Yes", "No", "Only for Strings", "Only for int"],
         correctAnswer: 0,
         explanation: "Variables in Java can be reassigned new values unless declared final.",
@@ -9810,7 +9810,7 @@ export const javaLessons: Lesson[] = [
         type: "question"
       },
       {
-        question: "Which casting may lose data if types don’t match?",
+        question: "Which casting may lose data if types don't match?",
         options: ["Implicit", "Explicit", "Automatic", "None"],
         correctAnswer: 1,
         explanation: "Explicit casting can cause data loss if the target type cannot hold the value.",
@@ -12218,15 +12218,166 @@ export const javaLessons: Lesson[] = [
 
 ];
 
-// Generate remaining lessons for each language
-export const allLessons: Lesson[] = [
-  ...pythonLessons,
-  ...javascriptLessons,
-  ...cppLessons,
-  ...javaLessons,
-  // Add more lessons here to reach 50 for each language
-];
+// Build stronger instructional scaffolding for the deployment lesson catalog.
+type LessonStep = Lesson['content']['steps'][number];
+type TheoryStep = Extract<LessonStep, { type: 'theory' }> ;
+type QuestionStep = Extract<LessonStep, { type: 'question' }> ;
 
+const isTheoryStep = (step: LessonStep): step is TheoryStep => step.type === 'theory';
+const isQuestionStep = (step: LessonStep): step is QuestionStep => step.type === 'question';
+
+const compactText = (value: string | undefined): string =>
+  (value ?? '').replace(/\s+/g, ' ').trim();
+
+const languageFrame = (language: Lesson['language']): string => {
+  switch (language) {
+    case 'javascript':
+      return 'Before running the code, predict what the runtime will do and then verify that prediction against the example.';
+    case 'cpp':
+      return 'Track types, state changes, and control flow before focusing on memorizing the exact syntax.';
+    case 'java':
+      return 'Pay attention to objects, method calls, and data flow so the syntax maps to a clear mental model.';
+    default:
+      return 'Understand the rule first, then use the syntax as a tool for applying that rule.';
+  }
+};
+
+const lessonFocus = (lesson: Lesson) => {
+  const title = lesson.title.toLowerCase();
+
+  if (title.includes('loop')) {
+    return {
+      core: 'Focus on the starting state, the continuation condition, and the value that changes after each pass.',
+      explain: 'Trace one full iteration at a time and explain why the loop continues or stops.',
+      pitfall: 'Most mistakes come from forgetting the update step or misreading the stopping condition.',
+    };
+  }
+
+  if (title.includes('array') || title.includes('vector') || title.includes('list') || title.includes('set') || title.includes('map')) {
+    return {
+      core: 'Identify what the structure stores, how elements are accessed, and which operations mutate it.',
+      explain: 'Connect each operation in the example to the exact new state of the collection.',
+      pitfall: 'A common mistake is confusing reading data with modifying the structure, or mixing indexed access with keyed access.',
+    };
+  }
+
+  if (title.includes('class') || title.includes('object') || title.includes('constructor') || title.includes('inheritance') || title.includes('polymorphism') || title.includes('interface') || title.includes('template')) {
+    return {
+      core: 'Separate the blueprint from the instance, then track which field or method belongs to each level.',
+      explain: 'Read the example by asking what is created, what behavior it exposes, and what state changes.',
+      pitfall: 'Learners often blur the difference between class-level definitions and instance-level behavior.',
+    };
+  }
+
+  if (title.includes('function') || title.includes('method') || title.includes('parameter') || title.includes('lambda')) {
+    return {
+      core: 'Track the inputs, the transformation, and the exact returned or printed result.',
+      explain: 'Match each argument in the example to the line where it is used and the value it influences.',
+      pitfall: 'Most confusion comes from losing track of parameter order or mixing returned values with displayed output.',
+    };
+  }
+
+  if (title.includes('string') || title.includes('output') || title.includes('input') || title.includes('comment')) {
+    return {
+      core: 'Pay attention to what text is stored, what text is displayed, and how the program represents it.',
+      explain: 'Use the example to connect each statement to the exact visible or stored result.',
+      pitfall: 'A frequent error is confusing what appears on screen with what remains in memory.',
+    };
+  }
+
+  if (title.includes('operator') || title.includes('math') || title.includes('comparison') || title.includes('boolean') || title.includes('arithmetic')) {
+    return {
+      core: 'Track operand types and the precise rule that each operator applies.',
+      explain: 'Predict the result before running the example and justify each step of the evaluation.',
+      pitfall: 'Many mistakes come from ignoring precedence, silent conversion, or the difference between assignment and comparison.',
+    };
+  }
+
+  if (title.includes('debug') || title.includes('error') || title.includes('exception')) {
+    return {
+      core: 'Use the example to connect the bug or failure mode with the tool or pattern used to investigate it.',
+      explain: 'Ask what the program state is when the problem appears and how the example reveals that state.',
+      pitfall: 'A common mistake is treating the error message as the cause instead of tracing back to the underlying issue.',
+    };
+  }
+
+  return {
+    core: 'Start with the one rule this lesson teaches and tie it immediately to the example.',
+    explain: 'After reading the example, explain aloud what each important line changes.',
+    pitfall: 'The usual mistake is memorizing syntax without understanding the rule behind it.',
+  };
+};
+
+const buildTheoryStep = (
+  title: string,
+  lesson: Lesson,
+  source: TheoryStep | undefined,
+  reinforcement: string
+): TheoryStep => ({
+  title,
+  content: compactText(lesson.description + ' ' + (source?.content ?? '') + ' ' + reinforcement),
+  code: source?.code ?? '',
+  explanation: compactText((source?.explanation ?? '') + ' ' + languageFrame(lesson.language)),
+  type: 'theory',
+});
+
+const buildQuestionStep = (
+  lesson: Lesson,
+  question: QuestionStep,
+  index: number
+): QuestionStep => ({
+  ...question,
+  explanation: compactText(
+    question.explanation +
+      ' First answer from memory, then justify your choice using the rule from ' + lesson.title + '. ' +
+      (index === 0
+        ? 'If you miss it, review the worked example and try again.'
+        : 'If you miss it, compare the correct answer with the lesson pitfall and explain the difference.')
+  ),
+});
+
+const rebuildDeploymentLesson = (lesson: Lesson): Lesson => {
+  if (!['javascript', 'cpp', 'java'].includes(lesson.language)) {
+    return lesson;
+  }
+
+  const steps = lesson.content.steps;
+  const theorySteps = steps.filter(isTheoryStep);
+  const questionSteps = steps.filter(isQuestionStep);
+  const focus = lessonFocus(lesson);
+  const primaryTheory = theorySteps[0];
+  const secondaryTheory = theorySteps[1] ?? primaryTheory;
+  const tertiaryTheory = theorySteps[2] ?? secondaryTheory ?? primaryTheory;
+  const finalTheory = theorySteps[3] ?? tertiaryTheory ?? secondaryTheory ?? primaryTheory;
+
+  const rebuiltTheory: TheoryStep[] = [
+    buildTheoryStep('Core idea', lesson, primaryTheory, focus.core),
+    buildTheoryStep('Worked example', lesson, secondaryTheory, 'Study the example first, then explain what each line changes before moving on.'),
+    buildTheoryStep('Explain the pattern', lesson, tertiaryTheory, focus.explain),
+    buildTheoryStep('Common mistake to avoid', lesson, finalTheory, focus.pitfall),
+  ];
+
+  const rebuiltQuestions = questionSteps.slice(0, 2).map((question, index) => buildQuestionStep(lesson, question, index));
+
+  return {
+    ...lesson,
+    content: {
+      steps: [...rebuiltTheory, ...rebuiltQuestions],
+    },
+  };
+};
+
+const enabledPythonLessons = pythonLessons.filter((lesson) => lesson.id !== 'python-advanced-math');
+const deploymentJavascriptLessons = javascriptLessons.map(rebuildDeploymentLesson);
+const deploymentCppLessons = cppLessons.map(rebuildDeploymentLesson);
+const deploymentJavaLessons = javaLessons.map(rebuildDeploymentLesson);
+
+export const allLessons: Lesson[] = [
+  ...enabledPythonLessons,
+  ...deploymentJavascriptLessons,
+  ...deploymentCppLessons,
+  ...deploymentJavaLessons,
+];
 export const getLessonsByLanguage = (language: 'python' | 'javascript' | 'cpp' | 'java'): Lesson[] => {
   return allLessons.filter(lesson => lesson.language === language);
 };

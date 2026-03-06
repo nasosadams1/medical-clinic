@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+﻿import React, { useState, useEffect, useMemo } from "react";
 import {
   X,
   CheckCircle,
@@ -7,10 +7,10 @@ import {
   Clock,
   BookOpen,
   RotateCcw,
+  Zap,
 } from "lucide-react";
 import { useUser } from "../context/UserContext";
 import { getLessonById, calculateXP, allLessons as lessonsData } from "../data/lessons";
-import { Zap } from "lucide-react";
 
 interface LessonModalProps {
   content?: any;
@@ -29,10 +29,11 @@ interface LessonModalProps {
 const renderWithNewlines = (text?: string | null) => {
   if (text === null || text === undefined) return null;
   if (typeof text !== "string") return text;
-  return text.split("\n").map((line, idx) => (
+  const lines = text.split("\n");
+  return lines.map((line, idx) => (
     <React.Fragment key={idx}>
       {line}
-      {idx < text.split("\n").length - 1 && <br />}
+      {idx < lines.length - 1 && <br />}
     </React.Fragment>
   ));
 };
@@ -52,8 +53,11 @@ const formatTime = (seconds: number) => {
   }
 };
 
+const getHeartsLabel = (isUnlimited: boolean, hearts: number) =>
+  isUnlimited ? "Unlimited" : `${hearts}/5`;
+
 const LessonModal: React.FC<LessonModalProps> = ({
-   content: contentProp,
+  content: contentProp,
   lesson,
   allLessons: allLessonsProp,
   onClose,
@@ -65,8 +69,7 @@ const LessonModal: React.FC<LessonModalProps> = ({
   resetHeartLossOverride,
   forceSkipQuiz = false,
 }) => {
-  // CRITICAL FIX: Move ALL hooks to the top, before any conditional logic
-  const { user, completeLesson: ctxCompleteLesson, loseHeart, resetHeartLoss, debugUserState, verifyDatabaseSync, isXPBoostActive, isUnlimitedHeartsActive, getActiveBoosts } = useUser();
+  const { user, completeLesson: ctxCompleteLesson, loseHeart, resetHeartLoss, isXPBoostActive, isUnlimitedHeartsActive, getActiveBoosts } = useUser();
   const completeLessonFn = completeLessonProp ?? ctxCompleteLesson;
   const loseHeartFn = loseHeartOverride ?? loseHeart;
   const resetHeartLossFn = resetHeartLossOverride ?? resetHeartLoss;
@@ -74,24 +77,22 @@ const LessonModal: React.FC<LessonModalProps> = ({
   const allLessons = allLessonsProp ?? lessonsData;
   const activeBoosts = getActiveBoosts();
 
-  const fullLesson = getLessonById ? getLessonById(lesson?.id) : null;
+  const fullLesson = useMemo(() => (getLessonById ? getLessonById(lesson?.id) : null), [lesson?.id]);
 
-  let content: { steps: any[]; quiz?: any[] } =
-    contentProp
-      ? JSON.parse(JSON.stringify(contentProp))
-      : fullLesson
-      ? JSON.parse(JSON.stringify(fullLesson.content ?? { steps: [], quiz: [] }))
-      : lesson?.content
-      ? JSON.parse(JSON.stringify(lesson.content))
-      : { steps: [], quiz: [] };
+  const content: { steps: any[]; quiz?: any[] } = useMemo(
+    () =>
+      contentProp ??
+      fullLesson?.content ??
+      lesson?.content ??
+      { steps: [], quiz: [] },
+    [contentProp, fullLesson?.content, lesson?.content]
+  );
 
-  // safe totals
   const safeTotalSteps = Math.max(0, (content.steps?.length ?? 0));
   const safeTotalQuiz = Math.max(0, (content.quiz?.length ?? 0));
   const effectiveQuizCount = forceSkipQuiz ? 0 : safeTotalQuiz;
   const safeTotalAll = Math.max(1, safeTotalSteps + effectiveQuizCount);
 
-  // ALL state hooks must be declared here, before any conditional returns
   const [currentStep, setCurrentStep] = useState(0);
   const [isCompleted, setIsCompleted] = useState(false);
   const [isQuizMode, setIsQuizMode] = useState(false);
@@ -104,20 +105,28 @@ const LessonModal: React.FC<LessonModalProps> = ({
   const [showRetakeModal, setShowRetakeModal] = useState(false);
   const [shouldClose, setShouldClose] = useState(false);
 
-  const theorySteps = (content.steps || []).filter((s) => s?.type === "theory");
-  const questionSteps = (content.steps || []).filter((s) => s?.type === "question");
+  const questionSteps = useMemo(
+    () => (content.steps || []).filter((s) => s?.type === "question"),
+    [content.steps]
+  );
 
-  // UPDATED: Enhanced heart check - redirect to learn page when hearts reach 0
+  const languageLessons = useMemo(
+    () => allLessons.filter((l) => l.language === lesson.language),
+    [allLessons, lesson.language]
+  );
+  const lessonIndex = useMemo(
+    () => languageLessons.findIndex((l) => l.id === lesson.id),
+    [languageLessons, lesson.id]
+  );
+
   useEffect(() => {
     if (user?.hearts <= 0 && !isUnlimitedHeartsActive()) {
-      console.log('💔 No hearts remaining and unlimited hearts not active - redirecting to learn page');
       if (onHeartLoss) onHeartLoss();
       if (onRedirectToLearn) {
         onRedirectToLearn();
       }
       setShouldClose(true);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.hearts, isUnlimitedHeartsActive]);
 
   useEffect(() => {
@@ -130,26 +139,23 @@ const LessonModal: React.FC<LessonModalProps> = ({
     setQuizResults([]);
     setMidLessonResults([]);
     setShowRetakeModal(false);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [lesson?.id, JSON.stringify(content)]);
+  }, [lesson?.id, content]);
 
-  // CRITICAL FIX: Handle close after all hooks are declared
   useEffect(() => {
     if (shouldClose) {
       onClose();
     }
   }, [shouldClose, onClose]);
 
-  // UPDATED: Don't block lesson if unlimited hearts is active, but check after hooks
   if (user?.hearts <= 0 && !isUnlimitedHeartsActive()) {
     return null;
   }
 
   if (safeTotalSteps === 0 && effectiveQuizCount === 0) {
     return (
-      <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-        <div className="bg-white rounded-xl max-w-md w-full p-8 text-center">
-          <h2 className="text-xl font-bold text-gray-900 mb-4">Lesson Content Loading...</h2>
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4">
+        <div className="w-full max-w-md rounded-2xl bg-white p-6 text-center shadow-2xl">
+          <h2 className="text-xl font-bold text-gray-900 mb-4">Loading lesson</h2>
           <button onClick={onClose} className="px-6 py-3 bg-blue-500 text-white rounded-lg">
             Close
           </button>
@@ -161,7 +167,6 @@ const LessonModal: React.FC<LessonModalProps> = ({
   const currentStepData = (content.steps || [])[currentStep] ?? null;
   const currentQuizItem = (content.quiz || [])[currentQuizIndex] ?? null;
 
-  // progress: 1-based shows
   const currentProgressInternal = isQuizMode
     ? midLessonResults.filter(Boolean).length + (currentQuizIndex + 1)
     : (currentStep + 1);
@@ -170,65 +175,31 @@ const LessonModal: React.FC<LessonModalProps> = ({
 
   const isCurrentStepQuestion = !isQuizMode && currentStepData?.type === "question" && !!currentStepData?.question;
 
-  // helper to finalize lesson (shared for quiz-less and quiz completion)
-  // helper to finalize lesson (shared for quiz-less and quiz completion)
-const finalizeLesson = async () => {
-  const actualTime = (Date.now() - startTime) / (1000 * 60);
-  const languageLessons = allLessons.filter((l) => l.language === lesson.language);
-  const lessonIndex = languageLessons.findIndex((l) => l.id === lesson.id);
+  // Finalize lesson completion and rewards.
+  const finalizeLesson = async () => {
+    const actualTime = (Date.now() - startTime) / (1000 * 60);
 
-  const earnedXP = calculateXPFn(
-    lesson.baseXP,
-    lesson.difficulty,
-    lessonIndex,
-    languageLessons.length,
-    actualTime,
-    lesson.baselineTime
-  );
+    const earnedXP = calculateXPFn(
+      lesson.baseXP,
+      lesson.difficulty,
+      lessonIndex,
+      languageLessons.length,
+      actualTime,
+      lesson.baselineTime
+    );
 
-  console.log('🎓 FINALIZING LESSON:', {
-    lessonId: lesson.id,
-    earnedXP,
-    lessonLanguage: lesson.language,
-    currentCompletedLessons: user.completedLessons,
-    alreadyCompleted: user.completedLessons.includes(lesson.id)
-  });
-
-  // CRITICAL FIX: Only complete if not already completed
-  if (!user.completedLessons.includes(lesson.id)) {
-    try {
-      if (completeLessonFn) {
-        // Complete the lesson first and wait for it to finish
-        await completeLessonFn(lesson.id, earnedXP, 0);
-        console.log('✅ LESSON COMPLETED SUCCESSFULLY:', lesson.id);
-        
-        // CRITICAL FIX: Wait a bit for the lesson completion to fully process
-        // then check for achievements - this ensures lesson XP is already added
-        await new Promise(resolve => setTimeout(resolve, 100));
-        
-        // Now check for achievements - the UserContext will handle adding achievement XP
-        // on top of the lesson XP that was just awarded
-        console.log('🏆 Checking for achievements after lesson completion...');
-        
-        // Debug current state after completion
-        setTimeout(() => {
-          console.log('🔍 POST-COMPLETION STATE CHECK:');
-          debugUserState();
-          verifyDatabaseSync();
-        }, 500);
-      } else {
-        console.error('❌ NO COMPLETE LESSON FUNCTION AVAILABLE');
+    if (!user.completedLessons.includes(lesson.id)) {
+      try {
+        if (completeLessonFn) {
+          await completeLessonFn(lesson.id, earnedXP, 0);
+        }
+      } catch (error) {
+        console.error("Lesson completion failed:", error);
       }
-    } catch (error) {
-      console.error('❌ LESSON COMPLETION FAILED:', error);
     }
-  } else {
-    console.log('⚠️ LESSON ALREADY COMPLETED:', lesson.id);
-  }
-  
-  setIsCompleted(true);
-};
 
+    setIsCompleted(true);
+  };
 
   const restartLesson = () => {
     setCurrentStep(0);
@@ -303,7 +274,6 @@ const finalizeLesson = async () => {
       if (!isCorrect) {
         loseHeartFn?.();
         setShowQuizResult(true);
-        // FIXED: Always show retake modal for wrong answers
         setTimeout(() => {
           setShowRetakeModal(true);
         }, 1500);
@@ -351,7 +321,6 @@ const finalizeLesson = async () => {
     if (!isCorrect) {
       loseHeartFn?.();
       setShowQuizResult(true);
-      // FIXED: Always show retake modal for wrong answers
       setTimeout(() => {
         setShowRetakeModal(true);
       }, 1500);
@@ -360,12 +329,10 @@ const finalizeLesson = async () => {
     }
   };
 
-  // FIXED: Always prevent progression on wrong answers
   const handleQuestionNext = () => {
     const isCorrect = selectedAnswer === currentStepData.correctAnswer;
     if (!isCorrect) {
-      // FIXED: Always prevent progression on wrong answers
-      return; // retake modal will be shown
+          return; // retake modal will be shown
     }
     
     setShowQuizResult(false);
@@ -385,12 +352,10 @@ const finalizeLesson = async () => {
     }
   };
 
-  // FIXED: Always prevent progression on wrong answers
   const handleQuizQuestionNext = () => {
     const isCorrect = selectedAnswer === currentQuizItem.correctAnswer;
     if (!isCorrect) {
-      // FIXED: Always prevent progression on wrong answers
-      return; // retake modal will be shown
+          return; // retake modal will be shown
     }
 
     if (!content.quiz || !Array.isArray(content.quiz)) {
@@ -415,10 +380,9 @@ const finalizeLesson = async () => {
     }
   };
 
-  // FIXED: Updated retake modal - always show for wrong answers and redirect to learn page
   if (showRetakeModal) {
     return (
-      <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4">
         <div className="bg-white rounded-2xl max-w-md w-full p-8 text-center shadow-2xl">
           <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
             <RotateCcw className="w-8 h-8 text-red-600" />
@@ -462,8 +426,6 @@ const finalizeLesson = async () => {
     const correctAnswers = quizResults.filter(Boolean).length;
     const correctMidAnswers = midLessonResults.filter(Boolean).length;
     const actualTimeSeconds = (Date.now() - startTime) / 1000;
-    const languageLessons = allLessons.filter((l) => l.language === lesson.language);
-    const lessonIndex = languageLessons.findIndex((l) => l.id === lesson.id);
 
     const baseXP = calculateXPFn(
       lesson.baseXP,
@@ -478,8 +440,8 @@ const finalizeLesson = async () => {
     const earnedXP = Math.floor(baseXP * boostMultiplier);
 
     return (
-      <div className="fixed inset-0 bg-gradient-to-br from-green-50 to-blue-50 flex items-center justify-center z-50">
-        <div className="bg-white rounded-2xl max-w-lg w-full mx-4 p-8 text-center shadow-2xl">
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4">
+        <div className="mx-4 w-full max-w-lg rounded-2xl bg-white p-6 text-center shadow-2xl sm:p-8">
           <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
             <CheckCircle className="w-8 h-8 text-green-600" />
           </div>
@@ -523,9 +485,9 @@ const finalizeLesson = async () => {
   if (isQuizMode) {
     const currentQuestion = currentQuizItem;
     return (
-      <div className="fixed inset-0 bg-gradient-to-br from-blue-50 to-purple-50 z-50">
-        <div className="h-full flex flex-col">
-          <div className="bg-white shadow-sm border-b border-gray-200 px-6 py-4">
+      <div className="fixed inset-0 z-50 overflow-y-auto overscroll-contain bg-slate-100">
+        <div className="flex min-h-full flex-col">
+          <div className="sticky top-0 z-10 border-b border-slate-200 bg-white/95 px-4 py-3 shadow-sm sm:px-6">
             <div className="flex items-center justify-between">
               <div className="flex items-center space-x-6">
                 <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-full transition-colors">
@@ -553,7 +515,6 @@ const finalizeLesson = async () => {
                   <span className="text-sm font-medium text-gray-700">{Math.min(currentQuizIndex + 1, effectiveQuizCount)}/{effectiveQuizCount}</span>
                 </div>
 
-                {/* UPDATED: Enhanced hearts display with unlimited hearts indicator */}
                 <div className="flex items-center space-x-2">
                   <span className="text-sm text-gray-600">Hearts:</span>
                   <div className="flex items-center space-x-1">
@@ -571,7 +532,7 @@ const finalizeLesson = async () => {
                     ))}
                   </div>
                   <span className="text-sm font-medium text-gray-700">
-                    {activeBoosts.unlimitedHearts ? '∞' : `${user?.hearts ?? 0}/5`}
+                    {getHeartsLabel(!!activeBoosts.unlimitedHearts, user?.hearts ?? 0)}
                   </span>
                 </div>
                 
@@ -588,8 +549,8 @@ const finalizeLesson = async () => {
             </div>
           </div>
 
-          <div className="flex-1 flex items-center justify-center p-8">
-            <div className="bg-white rounded-2xl shadow-xl max-w-3xl w-full p-8">
+          <div className="flex flex-1 items-start justify-center p-4 sm:p-6 lg:p-8">
+            <div className="w-full max-w-3xl rounded-2xl bg-white p-4 shadow-xl sm:p-6 lg:p-8">
               <div className="mb-6">
                 <div className="flex items-center justify-between mb-4">
                   <h3 className="text-sm font-medium text-gray-500 uppercase tracking-wide">
@@ -641,7 +602,7 @@ const finalizeLesson = async () => {
                   className={`p-6 rounded-xl mb-6 ${selectedAnswer === currentQuestion.correctAnswer ? "bg-green-50 border-2 border-green-200" : "bg-red-50 border-2 border-red-200"}`}
                 >
                   <p className={`font-bold text-lg mb-2 ${selectedAnswer === currentQuestion.correctAnswer ? "text-green-700" : "text-red-700"}`}>
-                    {selectedAnswer === currentQuestion.correctAnswer ? "✓ Correct!" : "✗ Incorrect!"}
+                    {selectedAnswer === currentQuestion.correctAnswer ? "Correct" : "Incorrect"}
                   </p>
                   <p className="text-gray-700">{renderWithNewlines(currentQuestion?.explanation)}</p>
                 </div>
@@ -673,9 +634,9 @@ const finalizeLesson = async () => {
 
   // Main lesson view
   return (
-    <div className="fixed inset-0 bg-gradient-to-br from-green-50 to-blue-50 z-50 overflow-y-auto">
-      <div className="flex flex-col min-h-screen">
-        <div className="bg-white shadow-sm border-b border-gray-200 px-4 lg:px-6 py-4 sticky top-0 z-10">
+    <div className="fixed inset-0 z-50 overflow-y-auto overscroll-contain bg-slate-100">
+      <div className="flex min-h-screen flex-col">
+        <div className="sticky top-0 z-10 border-b border-slate-200 bg-white/95 px-4 py-3 shadow-sm lg:px-6">
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-3 lg:space-x-6">
               <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-full transition-colors">
@@ -699,7 +660,6 @@ const finalizeLesson = async () => {
                 <span className="text-xs lg:text-sm font-medium text-gray-700">{Math.min(currentProgressInternal, safeTotalAll)}/{safeTotalAll}</span>
               </div>
 
-              {/* UPDATED: Enhanced hearts display with unlimited hearts indicator */}
               <div className="flex items-center space-x-1 lg:space-x-2">
                 <span className="text-xs lg:text-sm text-gray-600 hidden sm:inline">Hearts:</span>
                 <div className="flex items-center space-x-1">
@@ -717,7 +677,7 @@ const finalizeLesson = async () => {
                   ))}
                 </div>
                 <span className="text-xs lg:text-sm font-medium text-gray-700">
-                  {activeBoosts.unlimitedHearts ? '∞' : `${user?.hearts ?? 0}/5`}
+                  {getHeartsLabel(!!activeBoosts.unlimitedHearts, user?.hearts ?? 0)}
                 </span>
               </div>
               
@@ -738,7 +698,7 @@ const finalizeLesson = async () => {
           <div className="max-w-4xl mx-auto">
             <div className="mb-8">
               <div className="w-full bg-gray-200 rounded-full h-3">
-                <div className="bg-gradient-to-r from-green-500 to-blue-500 h-3 rounded-full transition-all duration-500" style={{ width: `${percent}%` }} />
+                <div className="h-3 rounded-full bg-blue-500 transition-all duration-500" style={{ width: `${percent}%` }} />
               </div>
               <div className="flex justify-between items-center mt-2">
                 <span className="text-xs lg:text-sm text-gray-600">Step {Math.min(currentStep + 1, safeTotalSteps)} of {safeTotalSteps}</span>
@@ -787,7 +747,7 @@ const finalizeLesson = async () => {
 
                   {showQuizResult && (
                     <div className={`p-4 lg:p-6 rounded-xl mb-6 ${selectedAnswer === currentStepData.correctAnswer ? "bg-green-50 border-2 border-green-200" : "bg-red-50 border-2 border-red-200"}`}>
-                      <p className={`font-bold text-base lg:text-lg mb-2 ${selectedAnswer === currentStepData.correctAnswer ? "text-green-700" : "text-red-700"}`}>{selectedAnswer === currentStepData.correctAnswer ? "✓ Correct!" : "✗ Incorrect!"}</p>
+                      <p className={`font-bold text-base lg:text-lg mb-2 ${selectedAnswer === currentStepData.correctAnswer ? "text-green-700" : "text-red-700"}`}>{selectedAnswer === currentStepData.correctAnswer ? "Correct" : "Incorrect"}</p>
                       <p className="text-gray-700 text-sm lg:text-base">{renderWithNewlines(currentStepData.explanation)}</p>
                     </div>
                   )}
@@ -824,7 +784,7 @@ const finalizeLesson = async () => {
                   disabled={(!isQuizMode && currentStep <= 0)}
                   className="px-4 lg:px-6 py-2 lg:py-3 text-gray-600 hover:text-gray-800 hover:bg-gray-100 rounded-xl disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm lg:text-base"
                 >
-                  ← Previous
+                  Previous
                 </button>
 
                 <div className="hidden sm:flex items-center space-x-2 text-sm text-gray-600">
@@ -832,14 +792,13 @@ const finalizeLesson = async () => {
                   <span>Est. {lesson.baselineTime} min</span>
                 </div>
 
-                {/* FIXED: Updated next button - always disabled for wrong answers */}
                 <button
                   onClick={showQuizResult ? handleQuestionNext : handleNext}
                   disabled={
                     (isCurrentStepQuestion && selectedAnswer === null && !showQuizResult) || 
                     (showQuizResult && selectedAnswer !== currentStepData.correctAnswer)
                   }
-                  className="px-4 lg:px-8 py-2 lg:py-3 bg-gradient-to-r from-blue-500 to-purple-500 hover:from-blue-600 hover:to-purple-600 disabled:from-gray-400 disabled:to-gray-500 disabled:cursor-not-allowed text-white rounded-xl font-medium transition-all duration-200 flex items-center space-x-2 shadow-lg hover:shadow-xl text-sm lg:text-base"
+                  className="flex items-center space-x-2 rounded-xl bg-blue-500 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-600 disabled:cursor-not-allowed disabled:bg-gray-400 lg:px-8 lg:py-3 lg:text-base"
                 >
                   <span>
                     {isCurrentStepQuestion && !showQuizResult
@@ -864,4 +823,10 @@ const finalizeLesson = async () => {
 }
 
 export default LessonModal;
+
+
+
+
+
+
 

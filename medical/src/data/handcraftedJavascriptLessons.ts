@@ -1,0 +1,143 @@
+export const handcraftedJavascriptLessons = {
+  'javascript-introduction-1': {
+    description: 'Start JavaScript by connecting code to visible browser behavior, console output, and page updates.',
+    steps: [
+      {
+        title: 'Core idea',
+        content: 'JavaScript is the language that lets a web page react, calculate, and change after it loads.',
+        code: '<button id="launch">Launch</button>\n<script>\n  console.log("page ready");\n</script>',
+        explanation: 'Good beginners first connect the language to an observable effect: something appears in the console, the page changes, or a click triggers new behavior.',
+        type: 'theory',
+      },
+      {
+        title: 'Worked example',
+        content: 'Read this example from top to bottom and predict what appears after the user clicks the button.',
+        code: '<p id="status">Waiting</p>\n<button id="launch">Launch</button>\n<script>\n  document.getElementById("launch").addEventListener("click", () => {\n    document.getElementById("status").textContent = "Sequence started";\n  });\n</script>',
+        explanation: 'The script does not run visible page-change code immediately. It registers a reaction, then waits for the click.',
+        type: 'theory',
+      },
+      {
+        title: 'Explain the pattern',
+        content: 'When learning JavaScript, ask three questions: What data exists? What event or line runs next? What changes on the page or in memory?',
+        code: 'let stage = "waiting";\nstage = "running";\nconsole.log(stage);',
+        explanation: 'Self-explanation is stronger than rereading. Say aloud what each line changes.',
+        type: 'theory',
+      },
+      {
+        title: 'Common mistake to avoid',
+        content: 'Beginners often read JavaScript as if every line changes the page immediately.',
+        code: 'const title = "Dashboard";\nconsole.log(title);',
+        explanation: 'Some lines only store data or log information. Separate invisible state changes from visible page changes.',
+        type: 'theory',
+      },
+      {
+        question: 'Which description best matches what JavaScript adds to a web page?',
+        options: ['It styles colors and spacing', 'It can react to events and change page behavior', 'It replaces HTML tags', 'It only stores images'],
+        correctAnswer: 1,
+        explanation: 'JavaScript is used for behavior, logic, interaction, and dynamic updates.',
+        type: 'question',
+      },
+      {
+        question: 'In the button example, what causes the text to change?',
+        options: ['The page loading', 'The browser opening the console', 'The click event handler running', 'The HTML parser finishing'],
+        correctAnswer: 2,
+        explanation: 'The text changes only when the registered click callback runs.',
+        type: 'question',
+      },
+    ],
+  },
+  'javascript-where-to-1': {
+    description: 'Learn where JavaScript can live in an HTML page and why script placement affects what code can access.',
+    steps: [
+      {
+        title: 'Core idea',
+        content: 'JavaScript can be placed in the head, in the body, or in a separate file. Placement matters because the browser reads the page in order.',
+        code: '<head>\n  <script src="panel.js" defer></script>\n</head>',
+        explanation: 'Think in execution order: when the browser reaches a script, it decides whether to run it now, later, or after parsing.',
+        type: 'theory',
+      },
+      {
+        title: 'Worked example',
+        content: 'Compare a script that runs before a paragraph exists with one that runs after parsing.',
+        code: '<p id="note">Ready</p>\n<script>\n  console.log(document.getElementById("note").textContent);\n</script>',
+        explanation: 'This works because the paragraph is already parsed when the script runs.',
+        type: 'theory',
+      },
+      {
+        title: 'Explain the pattern',
+        content: 'A script in the head may need defer so it waits until the HTML is parsed. External files are preferred because they keep markup cleaner and code reusable.',
+        code: '<head>\n  <script src="tracker.js" defer></script>\n</head>\n<body>\n  <main id="app"></main>\n</body>',
+        explanation: 'Use external scripts for maintainability and use defer when the code needs DOM elements.',
+        type: 'theory',
+      },
+      {
+        title: 'Common mistake to avoid',
+        content: 'A frequent mistake is running DOM code before the target element exists.',
+        code: '<head>\n  <script>\n    // document.getElementById("note") is null here if the element is not parsed yet\n  </script>\n</head>',
+        explanation: 'If your code reads or edits page elements, verify the browser has already parsed them.',
+        type: 'theory',
+      },
+      {
+        question: 'Why is defer useful on an external script in the head?',
+        options: ['It turns JavaScript into CSS', 'It delays execution until after HTML parsing', 'It removes the need for HTML', 'It makes variables global'],
+        correctAnswer: 1,
+        explanation: 'defer lets the browser parse the document first and then run the script in order.',
+        type: 'question',
+      },
+      {
+        question: 'When is body-bottom placement often enough for simple DOM code?',
+        options: ['When the script needs elements already parsed above it', 'When the page has no HTML', 'When JavaScript must run before the head', 'Only when using images'],
+        correctAnswer: 0,
+        explanation: 'A script near the end of the body can safely access elements the browser already parsed.',
+        type: 'question',
+      },
+    ],
+  },
+  'javascript-output-1': {
+    description: 'Use the right output tool for the job: visible page updates, alerts, or console-based debugging.',
+    steps: [
+      {
+        title: 'Core idea',
+        content: 'JavaScript output is not one thing. The browser gives you different channels depending on whether the message is for a user or for you.',
+        code: 'console.log("debug value");',
+        explanation: 'Match the output method to the audience: user-facing text belongs in the page, developer-facing checks belong in the console.',
+        type: 'theory',
+      },
+      {
+        title: 'Worked example',
+        content: 'This example updates a visible result while keeping a separate debug message in the console.',
+        code: '<p id="result"></p>\n<script>\n  const total = 18 + 7;\n  document.getElementById("result").textContent = `Total: ${total}`;\n  console.log("computed total", total);\n</script>',
+        explanation: 'One line writes to the page for the user. The other logs internal information for the developer.',
+        type: 'theory',
+      },
+      {
+        title: 'Explain the pattern',
+        content: 'Use textContent or innerHTML to update the page, console.log for debugging, and alert sparingly for interruptive messages.',
+        code: 'alert("Session expired");',
+        explanation: 'Strong learners decide output based on purpose, not habit.',
+        type: 'theory',
+      },
+      {
+        title: 'Common mistake to avoid',
+        content: 'document.write is easy to demonstrate but poor for modern apps because it can replace page content after load.',
+        code: 'document.write("This is rarely the right production choice.");',
+        explanation: 'Do not treat an old teaching tool as the default production pattern.',
+        type: 'theory',
+      },
+      {
+        question: 'Which choice is best for checking intermediate values while debugging?',
+        options: ['alert()', 'console.log()', 'document.write()', 'textContent'],
+        correctAnswer: 1,
+        explanation: 'console.log is designed for developer feedback without interrupting the user.',
+        type: 'question',
+      },
+      {
+        question: 'Which choice is best for showing a final total inside the page?',
+        options: ['textContent on a page element', 'Only console.log', 'Only alert', 'A code comment'],
+        correctAnswer: 0,
+        explanation: 'Visible app results should usually be rendered into the document.',
+        type: 'question',
+      },
+    ],
+  }
+};

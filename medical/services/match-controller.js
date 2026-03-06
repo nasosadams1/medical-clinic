@@ -1,3 +1,4 @@
+import { computeSubmissionMetrics, resolveResultStrength, resolveTimeLimitSeconds, normalizeDifficulty } from "./duel-competition.js";
 // services/match-controller.js
 const DEBUG_DUEL = process.env.DEBUG_DUEL === "1";
 function debugMatch(...args) {
@@ -21,7 +22,6 @@ export class MatchController {
 
   /**
    * Starts a match and notifies both clients.
-   */
   async startMatch(matchId, playerA, playerB, problem) {
     console.log(`▶️ Starting match ${matchId}`);
 
@@ -30,7 +30,8 @@ export class MatchController {
     const isRanked = matchType === "ranked";
 
     const nowMs = Date.now();
-    const timeLimitSec = Number(problem?.time_limit_seconds ?? 60);
+    const difficulty = normalizeDifficulty(problem?.difficulty);
+    const timeLimitSec = resolveTimeLimitSeconds(problem);
     const timeLimitMs = Math.max(5, timeLimitSec) * 1000;
 
     const supportedLanguages = (Array.isArray(problem?.supported_languages) ? problem.supported_languages : [])
@@ -41,12 +42,17 @@ export class MatchController {
       matchId,
       playerA,
       playerB,
-      problem,
+      problem: { ...problem, difficulty, time_limit_seconds: timeLimitSec },
+      difficulty,
       startTimeMs: nowMs,
       timeLimitMs,
+      timeLimitSec,
       submissions: new Map(),
+      attempts: new Map(),
+      wrongSubmissions: new Map(),
       lastSubmissionAtMs: new Map(),
       winnerId: null,
+      resultStrength: "draw",
       status: "ACTIVE",
       matchType,
       isRanked,
@@ -86,7 +92,7 @@ export class MatchController {
         id: problem.id,
         title: problem.title,
         statement: problem.statement,
-        difficulty: problem.difficulty,
+        difficulty,
         timeLimit: timeLimitSec,
         supportedLanguages: supportedLanguages.length ? supportedLanguages : ["javascript"],
       },
@@ -102,7 +108,6 @@ export class MatchController {
 
   /**
    * Handles a code submission.
-   */
   async handleSubmission(matchId, userId, language, code, socket) {
     const match = this.activeMatches.get(matchId);
     debugMatch("submission_received", { matchId, userId, language, codeChars: (code ?? "").length, matchFound: !!match });
@@ -175,7 +180,28 @@ export class MatchController {
     });
 
     const submittedAtMs = Date.now();
-    const elapsedSeconds = Math.floor((submittedAtMs - match.startTimeMs) / 1000);
+    const elapsedMs = submittedAtMs - match.startTimeMs;
+    const elapsedSeconds = Math.floor(elapsedMs / 1000);
+    const accepted = (judgeResults.result ?? "").toString().toLowerCase() === "accepted";
+
+    const attempts = (match.attempts.get(userId) ?? 0) + 1;
+    match.attempts.set(userId, attempts);
+
+    const priorWrongSubmissions = match.wrongSubmissions.get(userId) ?? 0;
+    const wrongSubmissionCount = accepted ? priorWrongSubmissions : priorWrongSubmissions + 1;
+    if (!accepted) {
+      match.wrongSubmissions.set(userId, wrongSubmissionCount);
+    }
+
+    const submissionMetrics = computeSubmissionMetrics({
+      difficulty: match.difficulty,
+      passed: judgeResults?.passed ?? 0,
+      total: judgeResults?.total ?? testCases.length,
+      accepted,
+      elapsedMs,
+      timeLimitMs: match.timeLimitMs,
+      wrongSubmissionCount,
+    });
 
     const savedSubmissionId = await this._saveSubmissionBestEffort({
       matchId,
@@ -187,20 +213,28 @@ export class MatchController {
     });
 
     const prev = match.submissions.get(userId);
-    const prevScore = prev?.score ?? prev?.result?.score ?? 0;
-    const newScore = judgeResults?.score ?? 0;
+    const prevMatchScore = prev?.matchScore ?? 0;
 
     const stored = {
       ...judgeResults,
       submittedAtMs,
+      elapsedMs,
       elapsedSeconds,
       submissionId: savedSubmissionId,
-      score: newScore,
+      score: judgeResults?.score ?? 0,
+      judgeScore: judgeResults?.score ?? 0,
+      matchScore: submissionMetrics.duelScore,
+      passRatio: submissionMetrics.passRatio,
+      speedBonus: submissionMetrics.speedBonus,
+      partialScore: submissionMetrics.partialScore,
+      penalty: submissionMetrics.penalty,
+      wrongSubmissionCount,
+      attempts,
       runtimeMs: judgeResults?.runtimeMs ?? 0,
       result: judgeResults?.result ?? judgeResults?.verdict ?? null,
     };
 
-    if (!prev || newScore >= prevScore) {
+    if (!prev || accepted || stored.matchScore >= prevMatchScore) {
       match.submissions.set(userId, stored);
     } else {
       match.submissions.set(userId, { ...prev, lastAttempt: stored });
@@ -214,9 +248,11 @@ export class MatchController {
         submission_id: savedSubmissionId,
         verdict: (judgeResults?.result ?? "").toString(),
         score: judgeResults?.score ?? 0,
+        duel_score: submissionMetrics.duelScore,
         passed: judgeResults?.passed ?? 0,
         total: judgeResults?.total ?? testCases.length,
         runtime_ms: judgeResults?.runtimeMs ?? 0,
+        wrong_submissions: wrongSubmissionCount,
       },
     });
 
@@ -225,27 +261,31 @@ export class MatchController {
       result: judgeResults.result,
       verdict: judgeResults.result,
       score: judgeResults.score,
+      duelScore: submissionMetrics.duelScore,
       passed: judgeResults.passed,
       total: judgeResults.total,
       testResults: judgeResults.testResults,
       runtimeMs: judgeResults.runtimeMs,
       memoryKb: judgeResults.memoryKb,
+      wrongSubmissions: wrongSubmissionCount,
+      attempts,
     };
 
-    // ✅ With room-based emit, this reaches the submitter already.
     this._emitToUser(userId, match, "submission_result", resultPayload);
 
     this._emitToOpponent(userId, match, "opponent_submitted", {
       result: judgeResults.result,
       verdict: judgeResults.result,
       score: judgeResults.score,
+      duelScore: submissionMetrics.duelScore,
       passed: judgeResults.passed,
       total: judgeResults.total,
+      wrongSubmissions: wrongSubmissionCount,
     });
 
-    if ((judgeResults.result ?? "").toLowerCase() === "accepted") {
-      debugMatch("match_win", { matchId, winnerId: userId });
-      await this.endMatch(matchId, userId, "correct_solution", savedSubmissionId);
+    if (accepted) {
+      debugMatch("match_win", { matchId, winnerId: userId, elapsedSeconds, duelScore: submissionMetrics.duelScore });
+      await this.endMatch(matchId, userId, "accepted_first", savedSubmissionId);
     }
   }
 
@@ -261,38 +301,48 @@ export class MatchController {
     const a = match.submissions.get(match.playerA.userId);
     const b = match.submissions.get(match.playerB.userId);
 
-    const scoreA = a?.score ?? a?.result?.score ?? 0;
-    const scoreB = b?.score ?? b?.result?.score ?? 0;
+    const aAccepted = (a?.result ?? "").toString().toLowerCase() === "accepted";
+    const bAccepted = (b?.result ?? "").toString().toLowerCase() === "accepted";
+    const scoreA = a?.matchScore ?? 0;
+    const scoreB = b?.matchScore ?? 0;
 
     let winnerId = null;
-    let reason = "timeout";
+    let reason = "timeout_draw";
 
-    if (a && b) {
-      if (scoreA > scoreB) {
+    if (aAccepted && bAccepted) {
+      const solveA = a?.elapsedMs ?? Infinity;
+      const solveB = b?.elapsedMs ?? Infinity;
+      if (solveA < solveB) {
         winnerId = match.playerA.userId;
-        reason = "higher_score";
-      } else if (scoreB > scoreA) {
+        reason = "faster_accepted_solution";
+      } else if (solveB < solveA) {
         winnerId = match.playerB.userId;
-        reason = "higher_score";
+        reason = "faster_accepted_solution";
       } else {
-        const runtimeA = a?.runtimeMs ?? Infinity;
-        const runtimeB = b?.runtimeMs ?? Infinity;
-        if (runtimeA < runtimeB) {
-          winnerId = match.playerA.userId;
-          reason = "faster_runtime";
-        } else if (runtimeB < runtimeA) {
-          winnerId = match.playerB.userId;
-          reason = "faster_runtime";
-        } else {
-          reason = "draw";
-        }
+        reason = "draw_both_solved";
+      }
+    } else if (aAccepted && !bAccepted) {
+      winnerId = match.playerA.userId;
+      reason = "accepted_vs_partial";
+    } else if (bAccepted && !aAccepted) {
+      winnerId = match.playerB.userId;
+      reason = "accepted_vs_partial";
+    } else if (a && b) {
+      if (Math.abs(scoreA - scoreB) <= 0.5) {
+        reason = "draw_partial_tie";
+      } else if (scoreA > scoreB) {
+        winnerId = match.playerA.userId;
+        reason = "higher_partial_score";
+      } else {
+        winnerId = match.playerB.userId;
+        reason = "higher_partial_score";
       }
     } else if (a && !b) {
       winnerId = match.playerA.userId;
-      reason = "opponent_no_submission";
+      reason = scoreA > 0 ? "partial_progress" : "opponent_no_submission";
     } else if (b && !a) {
       winnerId = match.playerB.userId;
-      reason = "opponent_no_submission";
+      reason = scoreB > 0 ? "partial_progress" : "opponent_no_submission";
     } else {
       reason = "draw_no_submissions";
     }
@@ -302,7 +352,6 @@ export class MatchController {
 
   /**
    * Ends match safely. winnerId can be null for draw.
-   */
   async endMatch(matchId, winnerId, reason, winningSubmissionId = null) {
     const match = this.activeMatches.get(matchId);
     if (!match || match.winnerId) return;
@@ -329,50 +378,70 @@ export class MatchController {
     const playerAData = playerARes.data;
     const playerBData = playerBRes.data;
 
-    const aRatingBefore = playerAData?.rating ?? match.playerA.rating ?? 1200;
-    const bRatingBefore = playerBData?.rating ?? match.playerB.rating ?? 1200;
-
-    const outcomeA =
-      winnerId === match.playerA.userId ? 1 :
-      winnerId === match.playerB.userId ? 0 :
-      0.5;
-
-    const matchesPlayedA =
-      (playerAData?.matches_played ?? playerAData?.total_matches ?? playerAData?.games_played ?? 0);
-
+    const aRatingBefore = playerAData?.rating ?? match.playerA.rating ?? 500;
+    const bRatingBefore = playerBData?.rating ?? match.playerB.rating ?? 500;
     const isRanked = (match.matchType || "ranked") === "ranked";
 
-    let ratingChanges = { playerAChange: 0, playerBChange: 0 };
-    let newRatingA = aRatingBefore;
-    let newRatingB = bRatingBefore;
+    const playerASubmission = match.submissions.get(match.playerA.userId) ?? null;
+    const playerBSubmission = match.submissions.get(match.playerB.userId) ?? null;
 
-    if (isRanked) {
-      if (typeof this.eloRatingService?.calculateRatingChange === "function") {
-        ratingChanges = this.eloRatingService.calculateRatingChange(
-          aRatingBefore,
-          bRatingBefore,
-          outcomeA,
-          matchesPlayedA
-        );
-        newRatingA = aRatingBefore + (ratingChanges.playerAChange ?? 0);
-        newRatingB = bRatingBefore + (ratingChanges.playerBChange ?? 0);
-      } else if (typeof this.eloRatingService?.calculateMatchRatings === "function") {
-        const isDraw = !winnerId;
-        const ratings = this.eloRatingService.calculateMatchRatings(
-          playerAData ?? { rating: aRatingBefore },
-          playerBData ?? { rating: bRatingBefore },
-          winnerId,
-          isDraw
-        );
-        newRatingA = ratings?.playerA?.ratingAfter ?? aRatingBefore;
-        newRatingB = ratings?.playerB?.ratingAfter ?? bRatingBefore;
-        ratingChanges.playerAChange = ratings?.playerA?.ratingChange ?? 0;
-        ratingChanges.playerBChange = ratings?.playerB?.ratingChange ?? 0;
-      }
+    const resolvedStrength = resolveResultStrength({
+      difficulty: match.difficulty,
+      winnerId,
+      playerAId: match.playerA.userId,
+      playerBId: match.playerB.userId,
+      playerASubmission,
+      playerBSubmission,
+    });
+    match.resultStrength = resolvedStrength.resultStrength;
+
+    let ratings = null;
+    if (isRanked && typeof this.eloRatingService?.calculateMatchRatings === "function") {
+      ratings = this.eloRatingService.calculateMatchRatings(
+        playerAData ?? { id: match.playerA.userId, rating: aRatingBefore },
+        playerBData ?? { id: match.playerB.userId, rating: bRatingBefore },
+        winnerId,
+        !winnerId,
+        {
+          difficulty: match.difficulty,
+          playerAActualScore: resolvedStrength.playerAActualScore,
+          playerBActualScore: resolvedStrength.playerBActualScore,
+          resultStrength: resolvedStrength.resultStrength,
+        }
+      );
     }
 
-    const playerAScore = match.submissions.get(match.playerA.userId)?.score ?? 0;
-    const playerBScore = match.submissions.get(match.playerB.userId)?.score ?? 0;
+    const playerARating = ratings?.playerA ?? {
+      ratingBefore: aRatingBefore,
+      ratingAfter: aRatingBefore,
+      ratingChange: 0,
+      actualScore: resolvedStrength.playerAActualScore,
+      expectedScore: 0.5,
+      subratingField: `${match.difficulty}_rating`,
+      subratingBefore: playerAData?.[`${match.difficulty}_rating`] ?? aRatingBefore,
+      subratingAfter: playerAData?.[`${match.difficulty}_rating`] ?? aRatingBefore,
+      subratingChange: 0,
+      tier: this.eloRatingService?.getTier?.(aRatingBefore) ?? "Bronze",
+      division: this.eloRatingService?.getDivision?.(aRatingBefore) ?? "III",
+    };
+    const playerBRating = ratings?.playerB ?? {
+      ratingBefore: bRatingBefore,
+      ratingAfter: bRatingBefore,
+      ratingChange: 0,
+      actualScore: resolvedStrength.playerBActualScore,
+      expectedScore: 0.5,
+      subratingField: `${match.difficulty}_rating`,
+      subratingBefore: playerBData?.[`${match.difficulty}_rating`] ?? bRatingBefore,
+      subratingAfter: playerBData?.[`${match.difficulty}_rating`] ?? bRatingBefore,
+      subratingChange: 0,
+      tier: this.eloRatingService?.getTier?.(bRatingBefore) ?? "Bronze",
+      division: this.eloRatingService?.getDivision?.(bRatingBefore) ?? "III",
+    };
+
+    const playerAJudgeScore = playerASubmission?.score ?? 0;
+    const playerBJudgeScore = playerBSubmission?.score ?? 0;
+    const playerAMatchScore = playerASubmission?.matchScore ?? 0;
+    const playerBMatchScore = playerBSubmission?.matchScore ?? 0;
 
     await this._safeUpdate("matches", { id: matchId }, {
       status: "FINISHED",
@@ -382,24 +451,31 @@ export class MatchController {
       ended_at: new Date().toISOString(),
       end_time: new Date().toISOString(),
       duration_seconds: durationSeconds,
-      player_a_rating_after: newRatingA,
-      player_b_rating_after: newRatingB,
-      player_a_rating_change: ratingChanges.playerAChange ?? 0,
-      player_b_rating_change: ratingChanges.playerBChange ?? 0,
-      player_a_score: playerAScore,
-      player_b_score: playerBScore,
+      time_limit_seconds: match.timeLimitSec,
+      problem_difficulty: match.difficulty,
+      duel_result_strength: resolvedStrength.resultStrength,
+      player_a_rating_after: playerARating.ratingAfter,
+      player_b_rating_after: playerBRating.ratingAfter,
+      player_a_rating_change: playerARating.ratingChange ?? 0,
+      player_b_rating_change: playerBRating.ratingChange ?? 0,
+      player_a_score: playerAMatchScore,
+      player_b_score: playerBMatchScore,
+      player_a_partial_score: playerAMatchScore,
+      player_b_partial_score: playerBMatchScore,
+      player_a_wrong_submissions: match.wrongSubmissions.get(match.playerA.userId) ?? 0,
+      player_b_wrong_submissions: match.wrongSubmissions.get(match.playerB.userId) ?? 0,
     });
 
     if (isRanked) {
       await Promise.all([
         this._safeUpdate("duel_users", { id: match.playerA.userId }, this._buildUserUpdate(playerAData, {
-          newRating: newRatingA,
+          ratingData: playerARating,
           won: winnerId === match.playerA.userId,
           lost: winnerId === match.playerB.userId,
           drew: !winnerId,
         })),
         this._safeUpdate("duel_users", { id: match.playerB.userId }, this._buildUserUpdate(playerBData, {
-          newRating: newRatingB,
+          ratingData: playerBRating,
           won: winnerId === match.playerB.userId,
           lost: winnerId === match.playerA.userId,
           drew: !winnerId,
@@ -417,7 +493,15 @@ export class MatchController {
       match_id: matchId,
       event_type: "match_end",
       user_id: winnerId ?? null,
-      payload: { winner_id: winnerId, reason, duration_seconds: durationSeconds },
+      payload: {
+        winner_id: winnerId,
+        reason,
+        duration_seconds: durationSeconds,
+        difficulty: match.difficulty,
+        result_strength: resolvedStrength.resultStrength,
+        player_a_actual_score: resolvedStrength.playerAActualScore,
+        player_b_actual_score: resolvedStrength.playerBActualScore,
+      },
     });
 
     await this.createReplay(matchId, match).catch((e) => console.error("Replay error:", e));
@@ -426,28 +510,42 @@ export class MatchController {
       matchId,
       winnerId: winnerId ?? null,
       reason,
+      resultStrength: resolvedStrength.resultStrength,
       duration: durationSeconds,
       matchType: match.matchType,
+      difficulty: match.difficulty,
+      timeLimit: match.timeLimitSec,
       playerA: {
         userId: match.playerA.userId,
         username: match.playerA.username,
-        ratingBefore: aRatingBefore,
-        ratingAfter: newRatingA,
-        ratingChange: ratingChanges.playerAChange ?? 0,
-        score: playerAScore,
-        submission: match.submissions.get(match.playerA.userId) ?? null,
+        ratingBefore: playerARating.ratingBefore,
+        ratingAfter: playerARating.ratingAfter,
+        ratingChange: playerARating.ratingChange ?? 0,
+        score: playerAJudgeScore,
+        matchScore: playerAMatchScore,
+        actualScore: playerARating.actualScore,
+        subratingField: playerARating.subratingField,
+        subratingBefore: playerARating.subratingBefore,
+        subratingAfter: playerARating.subratingAfter,
+        subratingChange: playerARating.subratingChange,
+        submission: playerASubmission,
       },
       playerB: {
         userId: match.playerB.userId,
         username: match.playerB.username,
-        ratingBefore: bRatingBefore,
-        ratingAfter: newRatingB,
-        ratingChange: ratingChanges.playerBChange ?? 0,
-        score: playerBScore,
-        submission: match.submissions.get(match.playerB.userId) ?? null,
+        ratingBefore: playerBRating.ratingBefore,
+        ratingAfter: playerBRating.ratingAfter,
+        ratingChange: playerBRating.ratingChange ?? 0,
+        score: playerBJudgeScore,
+        matchScore: playerBMatchScore,
+        actualScore: playerBRating.actualScore,
+        subratingField: playerBRating.subratingField,
+        subratingBefore: playerBRating.subratingBefore,
+        subratingAfter: playerBRating.subratingAfter,
+        subratingChange: playerBRating.subratingChange,
+        submission: playerBSubmission,
       },
     };
-
     this._emitToPlayer(match.playerA, "match_end", matchEndData);
     this._emitToPlayer(match.playerB, "match_end", matchEndData);
 
@@ -457,7 +555,6 @@ export class MatchController {
 
   /**
    * Disconnect handling: grace period; if not reconnected, opponent wins.
-   */
   async handlePlayerDisconnect(userId) {
     for (const [matchId, match] of this.activeMatches.entries()) {
       if (!match || match.winnerId || match.ending) continue;
@@ -652,7 +749,7 @@ export class MatchController {
     return null;
   }
 
-  _buildUserUpdate(userRow, { newRating, won, lost, drew }) {
+  _buildUserUpdate(userRow, { ratingData, won, lost, drew }) {
     const wins = userRow?.wins ?? 0;
     const losses = userRow?.losses ?? 0;
     const draws = userRow?.draws ?? 0;
@@ -660,14 +757,19 @@ export class MatchController {
     const matchesPlayed = userRow?.matches_played ?? null;
     const totalMatches = userRow?.total_matches ?? null;
     const gamesPlayed = userRow?.games_played ?? null;
+    const subratingField = ratingData?.subratingField;
 
     const base = {
-      rating: newRating,
+      rating: ratingData?.ratingAfter ?? userRow?.rating ?? 500,
       wins: won ? wins + 1 : wins,
       losses: lost ? losses + 1 : losses,
       draws: drew ? draws + 1 : draws,
       updated_at: new Date().toISOString(),
     };
+
+    if (subratingField && Object.prototype.hasOwnProperty.call(userRow ?? {}, subratingField)) {
+      base[subratingField] = ratingData?.subratingAfter ?? userRow?.[subratingField] ?? base.rating;
+    }
 
     if (matchesPlayed !== null) base.matches_played = matchesPlayed + 1;
     if (totalMatches !== null) base.total_matches = totalMatches + 1;
@@ -675,7 +777,6 @@ export class MatchController {
 
     return base;
   }
-
   // ✅ FIX: room-based emit (reconnect-safe)
   _emitToPlayer(player, event, payload) {
     if (!player?.userId) return;
@@ -712,6 +813,18 @@ export class MatchController {
     }
   }
 }
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

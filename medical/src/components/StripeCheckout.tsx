@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { loadStripe } from '@stripe/stripe-js';
 import {
   Elements,
@@ -6,20 +6,25 @@ import {
   useStripe,
   useElements
 } from '@stripe/react-stripe-js';
-import { X, CreditCard, Lock, Shield, CheckCircle, AlertCircle } from 'lucide-react';
+import { X, Lock, Shield } from 'lucide-react';
+import { supabase } from '../lib/supabase';
 
 interface StripeCheckoutProps {
-  amount: number; // Amount in cents
+  itemId: string;
+  amount: number;
   description: string;
   coins?: number;
-  onSuccess: (paymentIntent: any) => void;
+  onSuccess: (paymentResult: any) => void | Promise<void>;
   onError: (error: string) => void;
   onClose: () => void;
 }
 
-const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY || '');
+const STRIPE_PUBLISHABLE_KEY = import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY || '';
+const STRIPE_SERVER_URL = import.meta.env.VITE_STRIPE_SERVER_URL || 'http://localhost:3001';
+const stripePromise = STRIPE_PUBLISHABLE_KEY ? loadStripe(STRIPE_PUBLISHABLE_KEY) : Promise.resolve(null);
 
 const CheckoutForm: React.FC<StripeCheckoutProps> = ({
+  itemId,
   amount,
   description,
   coins,
@@ -29,46 +34,73 @@ const CheckoutForm: React.FC<StripeCheckoutProps> = ({
 }) => {
   const stripe = useStripe();
   const elements = useElements();
-  
+
   const [processing, setProcessing] = useState(false);
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
-  const [errors, setErrors] = useState<{[key: string]: string}>({});
+  const [errors, setErrors] = useState<{ [key: string]: string }>({});
   const [clientSecret, setClientSecret] = useState('');
+  const onErrorRef = useRef(onError);
 
   useEffect(() => {
-    createPaymentIntent();
-  }, [amount]);
+    onErrorRef.current = onError;
+  }, [onError]);
 
-  const createPaymentIntent = async () => {
-    try {
-      const response = await fetch('http://localhost:3001/api/create-payment-intent', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          amount,
-          description,
-          metadata: {
-            coins: coins?.toString() || '0',
-          },
-        }),
-      });
+  const getAuthHeaders = async () => {
+    const { data } = await supabase.auth.getSession();
+    const accessToken = data.session?.access_token;
 
-      if (!response.ok) {
-        throw new Error('Failed to create payment intent');
-      }
-
-      const { client_secret } = await response.json();
-      setClientSecret(client_secret);
-    } catch (error) {
-      onError(error instanceof Error ? error.message : 'Failed to initialize payment');
+    if (!accessToken) {
+      throw new Error('You must be signed in to make a purchase.');
     }
+
+    return {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${accessToken}`,
+    };
   };
 
+  useEffect(() => {
+    if (!STRIPE_PUBLISHABLE_KEY) {
+      onErrorRef.current('Stripe publishable key is not configured.');
+      return;
+    }
+
+    let cancelled = false;
+
+    const createPaymentIntent = async () => {
+      try {
+        const response = await fetch(`${STRIPE_SERVER_URL}/api/create-payment-intent`, {
+          method: 'POST',
+          headers: await getAuthHeaders(),
+          body: JSON.stringify({ itemId }),
+        });
+
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          throw new Error(payload.error || 'Failed to create payment intent');
+        }
+
+        if (!cancelled) {
+          setClientSecret(payload.client_secret || '');
+        }
+      } catch (error) {
+        if (!cancelled) {
+          onErrorRef.current(error instanceof Error ? error.message : 'Failed to initialize payment');
+        }
+      }
+    };
+
+    setClientSecret('');
+    createPaymentIntent();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [itemId]);
+
   const validateForm = () => {
-    const newErrors: {[key: string]: string} = {};
+    const newErrors: { [key: string]: string } = {};
 
     if (!name.trim()) newErrors.name = 'Name is required';
     if (!email.trim()) newErrors.email = 'Email is required';
@@ -80,7 +112,7 @@ const CheckoutForm: React.FC<StripeCheckoutProps> = ({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     if (!stripe || !elements || !validateForm() || !clientSecret) {
       return;
     }
@@ -94,35 +126,40 @@ const CheckoutForm: React.FC<StripeCheckoutProps> = ({
     setProcessing(true);
 
     try {
-      // Create payment method using CardElement
-      const { error: paymentMethodError, paymentMethod } = await stripe.createPaymentMethod({
-        type: 'card',
-        card: cardElement,
-        billing_details: {
-          name: name,
-          email: email,
+      const { error, paymentIntent } = await stripe.confirmCardPayment(clientSecret, {
+        payment_method: {
+          card: cardElement,
+          billing_details: {
+            name,
+            email,
+          },
         },
       });
 
-      if (paymentMethodError) {
-        throw new Error(paymentMethodError.message);
+      if (error) {
+        throw new Error(error.message);
       }
 
-      // Confirm payment
-      const { error: confirmError, paymentIntent } = await stripe.confirmCardPayment(clientSecret, {
-        payment_method: paymentMethod.id,
+      if (paymentIntent?.status !== 'succeeded') {
+        throw new Error(`Payment was not successful (${paymentIntent?.status || 'unknown status'})`);
+      }
+
+      const confirmationResponse = await fetch(`${STRIPE_SERVER_URL}/api/confirm-payment`, {
+        method: 'POST',
+        headers: await getAuthHeaders(),
+        body: JSON.stringify({ payment_intent_id: paymentIntent.id }),
       });
 
-      if (confirmError) {
-        throw new Error(confirmError.message);
+      const confirmationPayload = await confirmationResponse.json().catch(() => ({}));
+      if (!confirmationResponse.ok) {
+        throw new Error(confirmationPayload.error || 'Payment was captured but fulfillment failed.');
       }
 
-      if (paymentIntent.status === 'succeeded') {
-        onSuccess(paymentIntent);
-      } else {
-        throw new Error('Payment was not successful');
+      if (!confirmationPayload.success || !confirmationPayload.fulfilled) {
+        throw new Error('Payment succeeded, but the purchase could not be fulfilled.');
       }
 
+      await onSuccess(confirmationPayload);
     } catch (error) {
       onError(error instanceof Error ? error.message : 'Payment failed');
     } finally {
@@ -148,97 +185,80 @@ const CheckoutForm: React.FC<StripeCheckoutProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-2xl max-w-md w-full shadow-2xl max-h-[90vh] overflow-y-auto">
-        <div className="p-6 border-b border-gray-200">
-          <div className="flex items-center justify-between">
-            <h3 className="text-xl font-bold text-gray-900 flex items-center">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-3 sm:p-4">
+      <div className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-2xl bg-white shadow-2xl">
+        <div className="border-b border-gray-200 p-4 sm:p-6">
+          <div className="flex items-start justify-between gap-3">
+            <h3 className="flex items-center text-lg font-bold text-gray-900 sm:text-xl">
               <Shield className="w-6 h-6 mr-2 text-green-500" />
               Secure Payment
             </h3>
-            <button
-              onClick={onClose}
-              className="text-gray-400 hover:text-gray-600"
-            >
+            <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
               <X className="w-6 h-6" />
             </button>
           </div>
         </div>
 
-        <form onSubmit={handleSubmit} className="p-6">
+        <form onSubmit={handleSubmit} className="p-4 sm:p-6">
           <div className="mb-6">
-            <div className="flex items-center justify-between mb-2">
+            <div className="mb-2 flex items-center justify-between gap-3">
               <span className="text-gray-700">Total Amount</span>
-              <span className="text-2xl font-bold text-gray-900">
-                USD {(amount / 100).toFixed(2)}
-              </span>
+              <span className="text-xl font-bold text-gray-900 sm:text-2xl">USD {(amount / 100).toFixed(2)}</span>
             </div>
             <p className="text-gray-600 text-sm">{description}</p>
-            {coins && (
+            {coins ? (
               <div className="mt-2 p-3 bg-yellow-50 rounded-lg">
-                <p className="text-yellow-800 text-sm font-medium">
-                  🪙 You'll receive {coins.toLocaleString()} coins
-                </p>
+                <p className="text-yellow-800 text-sm font-medium">You will receive {coins.toLocaleString()} coins</p>
               </div>
-            )}
+            ) : null}
           </div>
 
           <div className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Full Name *
-              </label>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Full Name *</label>
               <input
                 type="text"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                className={`w-full p-3 border rounded-lg focus:border-blue-500 focus:ring-2 focus:ring-blue-100 outline-none ${
-                  errors.name ? 'border-red-300' : 'border-gray-200'
-                }`}
+                className={`w-full p-3 border rounded-lg focus:border-blue-500 focus:ring-2 focus:ring-blue-100 outline-none ${errors.name ? 'border-red-300' : 'border-gray-200'}`}
                 placeholder="John Doe"
                 required
               />
-              {errors.name && <p className="text-red-500 text-sm mt-1">{errors.name}</p>}
+              {errors.name ? <p className="text-red-500 text-sm mt-1">{errors.name}</p> : null}
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Email Address *
-              </label>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Email Address *</label>
               <input
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                className={`w-full p-3 border rounded-lg focus:border-blue-500 focus:ring-2 focus:ring-blue-100 outline-none ${
-                  errors.email ? 'border-red-300' : 'border-gray-200'
-                }`}
+                className={`w-full p-3 border rounded-lg focus:border-blue-500 focus:ring-2 focus:ring-blue-100 outline-none ${errors.email ? 'border-red-300' : 'border-gray-200'}`}
                 placeholder="john@example.com"
                 required
               />
-              {errors.email && <p className="text-red-500 text-sm mt-1">{errors.email}</p>}
+              {errors.email ? <p className="text-red-500 text-sm mt-1">{errors.email}</p> : null}
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Card Information *
-              </label>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Card Information *</label>
               <div className="border border-gray-200 rounded-lg p-3 focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-100">
                 <CardElement options={cardElementOptions} />
               </div>
             </div>
           </div>
 
-          <div className="mt-6 p-4 bg-gray-50 rounded-lg">
-            <div className="flex items-center space-x-2 text-sm text-gray-600">
+          <div className="mt-6 rounded-lg bg-gray-50 p-4">
+            <div className="flex items-start gap-2 text-sm text-gray-600">
               <Lock className="w-4 h-4" />
-              <span>Your payment information is encrypted and secure</span>
+              <span>Your payment information is encrypted and handled by Stripe</span>
             </div>
           </div>
 
           <button
             type="submit"
             disabled={processing || !clientSecret || !stripe}
-            className="w-full mt-6 py-4 bg-gradient-to-r from-green-500 to-blue-600 hover:from-green-600 hover:to-blue-700 text-white rounded-xl font-bold transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed shadow-lg"
+            className="mt-6 w-full rounded-xl bg-gradient-to-r from-green-500 to-blue-600 py-4 text-sm font-bold text-white shadow-lg transition-all duration-200 hover:from-green-600 hover:to-blue-700 disabled:cursor-not-allowed disabled:opacity-50 sm:text-base"
           >
             {processing ? (
               <div className="flex items-center justify-center">
@@ -251,12 +271,12 @@ const CheckoutForm: React.FC<StripeCheckoutProps> = ({
           </button>
         </form>
 
-        <div className="px-6 pb-6">
-          <div className="flex items-center justify-center space-x-4 text-xs text-gray-500">
+        <div className="px-4 pb-4 sm:px-6 sm:pb-6">
+          <div className="flex flex-wrap items-center justify-center gap-2 text-xs text-gray-500 sm:gap-4">
             <span>Powered by Stripe</span>
-            <span>•</span>
-            <span>SSL Encrypted</span>
-            <span>•</span>
+            <span>�</span>
+            <span>Encrypted</span>
+            <span>�</span>
             <span>PCI Compliant</span>
           </div>
         </div>

@@ -2,6 +2,7 @@
 import React, { useEffect, useState } from 'react';
 import { Swords, Loader2, Trophy, Users, Clock } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { supabase } from '../lib/supabase';
 
 interface MatchmakingQueueProps {
   socket: any;
@@ -31,7 +32,6 @@ export default function MatchmakingQueue({
     if (!socket) return;
 
     const onQueueUpdate = (data: any) => {
-      console.log('📡 queue_update', data);
       setQueueTime(data.waitTime ?? 0);
       setQueuePosition(data.queuePosition ?? 1);
       setQueueSize(data.queueSize ?? 1);
@@ -39,7 +39,6 @@ export default function MatchmakingQueue({
     };
 
     const onQueueJoined = (data: any) => {
-      console.log('✅ queue_joined', data);
       toast.success(data.message || 'Joined queue');
       setInQueue(true);
       setIsJoining(false);
@@ -47,7 +46,6 @@ export default function MatchmakingQueue({
     };
 
     const onQueueLeft = (data: any) => {
-      console.log('👋 queue_left', data);
       toast(data.message || 'Left queue');
       setInQueue(false);
       setIsJoining(false);
@@ -58,7 +56,6 @@ export default function MatchmakingQueue({
     };
 
     const onMatchFoundEvent = (data: any) => {
-      console.log('🎯 match_found', data);
       toast.success(`Match found! Opponent: ${data?.opponent?.username ?? 'Unknown'}`);
       setInQueue(false);
       setIsJoining(false);
@@ -77,10 +74,7 @@ export default function MatchmakingQueue({
     };
 
     const onServerError = (data: any) => {
-      console.error('🚨 server_error raw:', data);
-      console.error('🚨 server_error message:', data?.message);
-      console.error('🚨 server_error details:', data?.details || data?.error);
-
+      console.error('server_error:', data?.message, data?.details || data?.error);
       toast.error(data?.message || 'Server error');
       setInQueue(false);
       setIsJoining(false);
@@ -101,35 +95,33 @@ export default function MatchmakingQueue({
     };
   }, [socket, onMatchFoundProp]);
 
-  const handleJoinQueue = () => {
-    console.log('🟩 Find Match clicked', {
-      userId,
-      username,
-      matchType,
-      socketConnected: socket?.connected
-    });
-
+  const handleJoinQueue = async () => {
     if (!socket) return toast.error('Socket not ready');
     if (!socket.connected) return toast.error('Not connected to duel server');
-    if (inQueue) return;
-    if (isJoining) return;
+    if (inQueue || isJoining) return;
 
     setIsJoining(true);
 
-    // Render free can cold-start (30–60s). Use a generous timeout.
+    const { data: sessionData } = await supabase.auth.getSession();
+    const accessToken = sessionData.session?.access_token;
+
+    if (!accessToken) {
+      toast.error('Your session expired. Please sign in again.');
+      setIsJoining(false);
+      return;
+    }
+
     const ACK_TIMEOUT_MS = 20000;
 
     socket
       .timeout(ACK_TIMEOUT_MS)
-      .emit('register_player', { userId, username }, (err: any, res: any) => {
+      .emit('register_player', { userId, username, accessToken }, (err: any, res: any) => {
         if (err) {
-          console.error('❌ register_player ACK timeout / failed', err);
-          toast.error('register_player: no response (server sleeping / wrong URL / handler issue)');
+          console.error('register_player failed', err);
+          toast.error('No response from the duel server. Try again in a moment.');
           setIsJoining(false);
           return;
         }
-
-        console.log('🟨 register_player ack:', res);
 
         if (!res?.ok) {
           toast.error(res?.message || 'Failed to register player');
@@ -137,14 +129,11 @@ export default function MatchmakingQueue({
           return;
         }
 
-        console.log('🟧 Emitting join_matchmaking', { matchType });
         socket.emit('join_matchmaking', { matchType });
-        // `isJoining` will be cleared by queue_joined / server_error / queue_left
       });
   };
 
   const handleLeaveQueue = () => {
-    console.log('🟥 Leave Queue clicked');
     if (!socket) return;
 
     socket.emit('leave_matchmaking');
@@ -164,13 +153,13 @@ export default function MatchmakingQueue({
 
   if (countdown !== null) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-blue-500 to-blue-700 flex items-center justify-center p-4">
-        <div className="bg-white rounded-2xl shadow-2xl p-12 text-center max-w-md w-full">
+      <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-blue-500 to-blue-700 px-4 py-6 sm:px-6">
+        <div className="w-full max-w-md rounded-2xl bg-white p-6 text-center shadow-2xl sm:p-10 lg:p-12">
           <div className="mb-8">
-            <Swords className="w-24 h-24 mx-auto text-blue-600 animate-bounce" />
+            <Swords className="mx-auto h-16 w-16 animate-bounce text-blue-600 sm:h-20 sm:w-20 lg:h-24 lg:w-24" />
           </div>
-          <h2 className="text-4xl font-bold mb-4 text-gray-800">Match Starting!</h2>
-          <div className="text-8xl font-bold text-blue-600 mb-4">{countdown}</div>
+          <h2 className="mb-4 text-3xl font-bold text-gray-800 sm:text-4xl">Match Starting!</h2>
+          <div className="mb-4 text-6xl font-bold text-blue-600 sm:text-7xl lg:text-8xl">{countdown}</div>
           <p className="text-gray-600">Prepare yourself...</p>
         </div>
       </div>
@@ -178,37 +167,40 @@ export default function MatchmakingQueue({
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-900 to-gray-800 flex items-center justify-center p-4">
-      <div className="bg-white rounded-2xl shadow-2xl p-8 max-w-md w-full">
-        <div className="text-center mb-6">
+    <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-gray-900 to-gray-800 px-4 py-6 sm:px-6">
+      <div className="w-full max-w-md rounded-2xl bg-white p-5 shadow-2xl sm:p-6 lg:p-8">
+        <div className="mb-6 text-center">
           <h1 className="text-3xl font-bold text-gray-800">Code Duels</h1>
-          <p className="text-gray-600 mt-2">Ranked 1v1 matchmaking</p>
+          <p className="mt-2 text-gray-600">Ranked 1v1 matchmaking</p>
         </div>
 
-        <div className="flex gap-2 mb-6">
+        <div className="mb-6 grid grid-cols-2 gap-2">
           <button
             type="button"
-            className={`flex-1 py-2 rounded-xl font-semibold ${
-              matchType === 'ranked' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700'
-            }`}
+            className={`w-full rounded-xl px-3 py-2.5 text-sm font-semibold sm:text-base ${matchType === 'ranked' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700'}`}
             onClick={() => setMatchType('ranked')}
             disabled={inQueue || isJoining}
           >
-            <Trophy className="inline w-4 h-4 mr-1" />
+            <Trophy className="mr-1 inline h-4 w-4" />
             Ranked
           </button>
 
           <button
             type="button"
-            className={`flex-1 py-2 rounded-xl font-semibold ${
-              matchType === 'casual' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700'
-            }`}
+            className={`w-full rounded-xl px-3 py-2.5 text-sm font-semibold sm:text-base ${matchType === 'casual' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700'}`}
             onClick={() => setMatchType('casual')}
             disabled={inQueue || isJoining}
           >
-            <Users className="inline w-4 h-4 mr-1" />
+            <Users className="mr-1 inline h-4 w-4" />
             Casual
           </button>
+        </div>
+
+        <div className="mb-4 rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
+          <div className="flex items-center justify-between gap-3">
+            <span>Your rating</span>
+            <span className="font-semibold text-slate-900">{rating}</span>
+          </div>
         </div>
 
         {!inQueue ? (
@@ -216,9 +208,7 @@ export default function MatchmakingQueue({
             type="button"
             onClick={handleJoinQueue}
             disabled={isJoining}
-            className={`w-full py-3 rounded-xl font-bold transition ${
-              isJoining ? 'bg-gray-400 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700 text-white'
-            }`}
+            className={`w-full rounded-xl px-4 py-3 text-sm font-bold transition sm:text-base ${isJoining ? 'cursor-not-allowed bg-gray-400' : 'bg-blue-600 text-white hover:bg-blue-700'}`}
           >
             {isJoining ? 'Connecting...' : 'Find Match'}
           </button>
@@ -226,27 +216,28 @@ export default function MatchmakingQueue({
           <button
             type="button"
             onClick={handleLeaveQueue}
-            className="w-full bg-red-600 hover:bg-red-700 text-white py-3 rounded-xl font-bold transition"
+            className="w-full rounded-xl bg-red-600 px-4 py-3 text-sm font-bold text-white transition hover:bg-red-700 sm:text-base"
           >
             Leave Queue
           </button>
         )}
 
         {inQueue && (
-          <div className="mt-6 bg-gray-50 p-4 rounded-xl">
-            <div className="flex items-center justify-between text-gray-700">
+          <div className="mt-6 rounded-xl bg-gray-50 p-4">
+            <div className="flex flex-col gap-3 text-gray-700 sm:flex-row sm:items-center sm:justify-between">
               <div className="flex items-center gap-2">
-                <Clock className="w-4 h-4" />
+                <Clock className="h-4 w-4" />
                 <span>Time: {formatQueueTime(queueTime)}</span>
               </div>
               <div className="flex items-center gap-2">
-                <Loader2 className="w-4 h-4 animate-spin" />
+                <Loader2 className="h-4 w-4 animate-spin" />
                 <span>Searching...</span>
               </div>
             </div>
 
-            <div className="mt-3 text-sm text-gray-600">
-              Position: {queuePosition}/{queueSize} • Rating range: ±{ratingRange}
+            <div className="mt-3 space-y-2 text-sm leading-relaxed text-gray-600">
+              <div>Position: {queuePosition}/{queueSize}</div>
+              <div>Rating range: +/-{ratingRange}</div>
             </div>
           </div>
         )}

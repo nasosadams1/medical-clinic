@@ -1,28 +1,20 @@
 // services/judge.js
 // Judge runtime supporting Supabase JSON test_cases:
 // - { input_json, expected_json } (structured)
-// - optional { validator } e.g. "two_sum" (logical validation)
+// - optional { validator } for logically equivalent answers
+// - optional { compare_mode } for judge-side comparison rules
 // - optional { expected_output } (legacy string)
 // - optional { hidden }
-//
-// Key behavior:
-// - For JS, harness calls contestant functions with a best-effort arg strategy
-//   so "solution(nums, target)" AND "solution({nums,target})" can both work.
-// - Stops on first failing test.
-// - Robust against extra stdout lines by extracting the last non-empty line.
-// - Returns the real overall verdict (Accepted / Runtime Error / TLE / Wrong Answer).
 
 import { runInDockerSandbox, isDockerAvailable } from "./sandbox-runner.js";
 import { runInLocalJsSandbox } from "./local-runner.js";
 import { pythonHarness, jsHarness } from "./harness.js";
-import { deepEqual } from "./validators.js";
+import { deepEqual, normalizeOutput, validators } from "./validators.js";
 
 const DEBUG_DUEL = process.env.DEBUG_DUEL === "1";
 function debugJudge(...args) {
   if (DEBUG_DUEL) console.log("[judge]", ...args);
 }
-
-/* ----------------------------- utilities ---------------------------- */
 
 function safeJsonParse(s) {
   try {
@@ -34,32 +26,12 @@ function safeJsonParse(s) {
 
 function coerceJsonMaybe(v) {
   if (typeof v === "string") {
-    const p = safeJsonParse(v);
-    if (p.ok) return p.value;
+    const parsed = safeJsonParse(v);
+    if (parsed.ok) return parsed.value;
   }
   return v;
 }
 
-function normalizeLooseOutput(raw) {
-  const s = (raw ?? "").toString().trim();
-  if (!s) return s;
-
-  // (1,2) -> [1,2]
-  if (s.startsWith("(") && s.endsWith(")")) return `[${s.slice(1, -1)}]`;
-
-  // "1 2" -> [1,2]
-  if (/^-?\d+\s+-?\d+$/.test(s)) {
-    const parts = s.split(/\s+/);
-    return `[${parts[0]},${parts[1]}]`;
-  }
-
-  // "1, 2" -> [1, 2]
-  if (/^-?\d+\s*,\s*-?\d+$/.test(s)) return `[${s}]`;
-
-  return s;
-}
-
-// Extra-robust: take last non-empty line as answer
 function extractLastNonEmptyLine(stdout) {
   const lines = (stdout ?? "")
     .toString()
@@ -69,46 +41,33 @@ function extractLastNonEmptyLine(stdout) {
   return lines.length ? lines[lines.length - 1] : "";
 }
 
-/* -------------------------- validators ------------------------- */
+function compareActualToExpected({ actualRaw, expectedJson, expectedOutputLegacy, compareMode, inputJson }) {
+  const actualNorm = normalizeOutput(actualRaw);
 
-const INTERNAL_VALIDATORS = {
-  two_sum: (actualStdout, inputJson) => {
-    const normalized = normalizeLooseOutput(actualStdout);
-    const parsed = safeJsonParse(normalized);
-    if (!parsed.ok) return { ok: false, reason: "Output is not valid JSON (expected [i,j])" };
-
-    const out = parsed.value;
-    let i, j;
-
-    if (Array.isArray(out) && out.length === 2) {
-      i = out[0];
-      j = out[1];
-    } else if (out && typeof out === "object" && Number.isInteger(out.i) && Number.isInteger(out.j)) {
-      i = out.i;
-      j = out.j;
-    } else {
-      return { ok: false, reason: "Output must be [i,j] or {i,j}" };
-    }
-
-    const nums = inputJson?.nums;
-    const target = inputJson?.target;
-
-    if (!Array.isArray(nums) || target === undefined) return { ok: false, reason: "Bad input_json" };
-    if (!Number.isInteger(i) || !Number.isInteger(j)) return { ok: false, reason: "Indices must be integers" };
-    if (i === j) return { ok: false, reason: "Indices must be different" };
-    if (i < 0 || j < 0 || i >= nums.length || j >= nums.length) return { ok: false, reason: "Index out of bounds" };
-    if (nums[i] + nums[j] !== target) return { ok: false, reason: "Does not sum to target" };
-
-    return { ok: true, reason: "OK" };
-  },
-};
-
-function compareActualToExpected({ actualRaw, expectedJson, expectedOutputLegacy }) {
-  const actualNorm = normalizeLooseOutput(actualRaw);
+  if (compareMode && validators[compareMode]) {
+    const verdict = validators[compareMode](actualNorm, {
+      ...inputJson,
+      expected: expectedJson,
+    });
+    return { ok: !!verdict?.ok, reason: verdict?.reason || "Wrong Answer" };
+  }
 
   if (expectedJson !== undefined) {
-    // If expected is primitive, allow direct string match first
-    if (typeof expectedJson !== "object" && actualNorm === String(expectedJson)) {
+    if (typeof expectedJson === "number") {
+      const numeric = Number(actualNorm);
+      if (Number.isFinite(numeric) && numeric === expectedJson) {
+        return { ok: true, reason: "OK" };
+      }
+    }
+
+    if (typeof expectedJson === "boolean") {
+      const lowered = actualNorm.toLowerCase();
+      if (lowered === "true" || lowered === "false") {
+        return { ok: (lowered === "true") === expectedJson, reason: (lowered === "true") === expectedJson ? "OK" : "Wrong Answer" };
+      }
+    }
+
+    if (typeof expectedJson === "string" && actualNorm === expectedJson.trim()) {
       return { ok: true, reason: "OK" };
     }
 
@@ -117,16 +76,16 @@ function compareActualToExpected({ actualRaw, expectedJson, expectedOutputLegacy
     return { ok: deepEqual(parsed.value, expectedJson), reason: "Wrong Answer" };
   }
 
-  // Legacy expected_output compare
-  const expNorm = normalizeLooseOutput(expectedOutputLegacy ?? "");
-  const a = safeJsonParse(actualNorm);
-  const e = safeJsonParse(expNorm);
+  const expectedNormalized = normalizeOutput(expectedOutputLegacy ?? "");
+  const actualParsed = safeJsonParse(actualNorm);
+  const expectedParsed = safeJsonParse(expectedNormalized);
 
-  if (a.ok && e.ok) return { ok: deepEqual(a.value, e.value), reason: "Wrong Answer" };
-  return { ok: actualNorm.trim() === expNorm.trim(), reason: "Wrong Answer" };
+  if (actualParsed.ok && expectedParsed.ok) {
+    return { ok: deepEqual(actualParsed.value, expectedParsed.value), reason: "Wrong Answer" };
+  }
+
+  return { ok: actualNorm.trim() === expectedNormalized.trim(), reason: "Wrong Answer" };
 }
-
-/* -------------------------- logic ------------------------- */
 
 function upgradeTestCase(raw) {
   if (
@@ -141,6 +100,7 @@ function upgradeTestCase(raw) {
       expected_json: raw.expected_json === undefined ? undefined : coerceJsonMaybe(raw.expected_json),
       expected_output: raw.expected_output !== undefined ? String(raw.expected_output) : undefined,
       validator: raw.validator ?? null,
+      compare_mode: raw.compare_mode ?? null,
       hidden: !!raw.hidden,
       time_limit_ms: raw.time_limit_ms ?? (raw.time_limit_seconds ? Number(raw.time_limit_seconds) * 1000 : null),
     };
@@ -166,6 +126,9 @@ export class JudgeService {
     let passed = 0;
     let overallResult = "Accepted";
     const testResults = [];
+    let sawWrongAnswer = false;
+    let sawRuntimeError = false;
+    let sawTimeout = false;
 
     for (let idx = 0; idx < total; idx++) {
       const t = upgradeTestCase(cases[idx]);
@@ -173,10 +136,8 @@ export class JudgeService {
       debugJudge("case_begin", {
         idx: idx + 1,
         hidden: !!t.hidden,
-        hasInputJson: t.input_json !== undefined,
-        hasExpectedJson: t.expected_json !== undefined,
-        hasExpectedOutput: t.expected_output !== undefined,
         validator: t.validator ?? null,
+        compareMode: t.compare_mode ?? null,
       });
 
       const harness =
@@ -203,7 +164,6 @@ export class JudgeService {
       }
 
       const actualRaw = extractLastNonEmptyLine(res.stdout);
-
       let ok = false;
       let reason = "Wrong Answer";
 
@@ -211,37 +171,52 @@ export class JudgeService {
         reason = "Time Limit Exceeded";
       } else if ((res.exitCode ?? 0) !== 0) {
         reason = "Runtime Error";
+      } else if (t.validator && validators[t.validator]) {
+        const verdict = validators[t.validator](actualRaw, {
+          ...(t.input_json && typeof t.input_json === "object" ? t.input_json : {}),
+          expected: t.expected_json,
+        });
+        ok = !!verdict?.ok;
+        reason = ok ? "OK" : verdict?.reason || "Wrong Answer";
       } else {
-        const v = INTERNAL_VALIDATORS[t.validator];
-        if (v) {
-          const verdict = v(actualRaw, t.input_json);
-          ok = !!verdict?.ok;
-          reason = ok ? "OK" : verdict?.reason || "Wrong Answer";
-        } else {
-          const cmp = compareActualToExpected({
-            actualRaw,
-            expectedJson: t.expected_json,
-            expectedOutputLegacy: t.expected_output,
-          });
-          ok = cmp.ok;
-          reason = ok ? "OK" : cmp.reason;
-        }
+        const verdict = compareActualToExpected({
+          actualRaw,
+          expectedJson: t.expected_json,
+          expectedOutputLegacy: t.expected_output,
+          compareMode: t.compare_mode,
+          inputJson: t.input_json,
+        });
+        ok = verdict.ok;
+        reason = ok ? "OK" : verdict.reason;
       }
 
       testResults.push({
         passed: ok,
         reason,
         actual: t.hidden ? "" : actualRaw,
-        stderr: ok ? "" : t.hidden ? "" : (res.stderr ?? "").slice(0, 500),
+        stderr: ok ? "" : (t.hidden ? "" : (res.stderr ?? "").slice(0, 500)),
         hidden: !!t.hidden,
       });
 
       if (ok) {
         passed++;
+      } else if (reason === "Time Limit Exceeded") {
+        sawTimeout = true;
+      } else if (reason === "Runtime Error") {
+        sawRuntimeError = true;
       } else {
-        overallResult = reason;
-        break; // Stop on first fail
+        sawWrongAnswer = true;
       }
+    }
+
+    if (passed === total) {
+      overallResult = "Accepted";
+    } else if (sawTimeout) {
+      overallResult = "Time Limit Exceeded";
+    } else if (sawRuntimeError) {
+      overallResult = "Runtime Error";
+    } else if (sawWrongAnswer) {
+      overallResult = "Wrong Answer";
     }
 
     return {

@@ -2,45 +2,48 @@ import React, { useState, useMemo } from 'react';
 import { Trophy, Play, Lock, BookOpen, Code, Database, Globe } from 'lucide-react';
 import { useUser } from '../context/UserContext';
 import LessonModal from './LessonModal';
-import { allLessons, getLessonsByLanguage, getTotalLessonsByLanguage, getCompletedLessonsByLanguage } from '../data/lessons';
+import { getLessonsByLanguage, getTotalLessonsByLanguage, getCompletedLessonsByLanguage } from '../data/lessons';
 
 type Language = 'python' | 'javascript' | 'cpp' | 'java';
 
 interface LearnProps {
-  setCurrentSection?: (section: string) => void; // Add this prop to handle navigation
+  setCurrentSection?: (section: string) => void;
+  openAuthModal?: () => void;
+  isAuthenticated?: boolean;
 }
 
-const Learn: React.FC<LearnProps> = ({ setCurrentSection }) => {
+const Learn: React.FC<LearnProps> = ({ setCurrentSection, openAuthModal, isAuthenticated = false }) => {
   const { user, isUnlimitedHeartsActive } = useUser();
   const [selectedLanguage, setSelectedLanguage] = useState<Language>('python');
-  const [filter, setFilter] = useState('All Lessons');
+  const [filter, setFilter] = useState('Available');
   const [selectedLesson, setSelectedLesson] = useState<any>(null);
 
   const languages = [
     { id: 'python' as Language, name: 'Python', icon: Code, color: 'from-blue-400 to-green-500', description: '50 comprehensive Python lessons' },
-    { id: 'javascript' as Language, name: 'Javascript', icon: Database, color: 'from-purple-400 to-blue-500', description: '50 database and SQL lessons' },
-    { id: 'cpp' as Language, name: 'C++', icon: Globe, color: 'from-orange-400 to-red-500', description: '50 in depth C++ lessons' },
-    { id: 'java' as Language, name: 'Java', icon: Globe, color: 'from-orange-400 to-red-500', description: '50 web development lessons' },
+    { id: 'javascript' as Language, name: 'JavaScript', icon: Database, color: 'from-purple-400 to-blue-500', description: 'Interactive JavaScript fundamentals and problem solving' },
+    { id: 'cpp' as Language, name: 'C++', icon: Globe, color: 'from-orange-400 to-red-500', description: 'Core C++ syntax, logic, and structured programming' },
+    { id: 'java' as Language, name: 'Java', icon: Globe, color: 'from-orange-400 to-red-500', description: 'Java basics, object-oriented thinking, and syntax practice' },
   ];
 
-  // Memoize the current lessons to prevent recalculation on every render
   const currentLessons = useMemo(() => {
     return getLessonsByLanguage(selectedLanguage).map(lesson => ({
       ...lesson,
-      isLocked: false, // all lessons unlocked
+      isLocked: false,
     }));
   }, [selectedLanguage]);
 
+  const selectedLanguageCompletedCount = useMemo(
+    () => currentLessons.reduce((count, lesson) => count + (user.completedLessons.includes(lesson.id) ? 1 : 0), 0),
+    [currentLessons, user.completedLessons]
+  );
+
   const filters = ['All Lessons', 'Available', 'Completed', 'Beginner', 'Intermediate', 'Advanced'];
 
-  // FIXED: Updated filtered lessons logic
   const filteredLessons = useMemo(() => {
     return currentLessons.filter(lesson => {
       if (filter === 'All Lessons') return true;
-      // FIXED: Available should only show lessons that are NOT completed
       if (filter === 'Available') return !user.completedLessons.includes(lesson.id);
       if (filter === 'Completed') return user.completedLessons.includes(lesson.id);
-      // For difficulty filters, ensure exact match
       if (filter === 'Beginner' || filter === 'Intermediate' || filter === 'Advanced') {
         return lesson.difficulty === filter;
       }
@@ -57,7 +60,6 @@ const Learn: React.FC<LearnProps> = ({ setCurrentSection }) => {
     }
   };
 
-  // Memoize language statistics to prevent recalculation
   const languageStats = useMemo(() => {
     return languages.map(language => {
       const totalLessons = getTotalLessonsByLanguage(language.id);
@@ -70,38 +72,45 @@ const Learn: React.FC<LearnProps> = ({ setCurrentSection }) => {
     });
   }, [user.completedLessons]);
 
-  // UPDATED: Handle redirect to learn page
   const handleRedirectToLearn = () => {
     setSelectedLesson(null);
     if (setCurrentSection) {
       setCurrentSection('learn');
     }
-    // Optionally scroll to top or show a message
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
+  const handleStartLesson = (lesson: any) => {
+    if (!isAuthenticated) {
+      openAuthModal?.();
+      return;
+    }
+
+    setSelectedLesson(lesson);
+  };
+
   return (
-    <div className="p-4 lg:p-8">
-      <div className="mb-8">
-        <h1 className="text-2xl lg:text-3xl font-bold text-gray-900 mb-2">Learn Programming</h1>
+    <div className="px-3 py-4 sm:px-4 lg:px-8 lg:py-8">
+      <div className="mb-6 lg:mb-8">
+        <h1 className="mb-2 text-2xl font-bold text-gray-900 sm:text-3xl">Learn Programming</h1>
         <p className="text-gray-600">Master coding fundamentals with interactive lessons</p>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 mb-8">
+      <div className="mb-6 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:mb-8 lg:grid-cols-3 xl:grid-cols-4 lg:gap-4">
         {languageStats.map((language) => {
           const Icon = language.icon;
-          
+
           return (
             <button
               key={language.id}
               onClick={() => setSelectedLanguage(language.id)}
-              className={`p-6 rounded-xl text-left transition-all duration-300 ${
+              className={`rounded-2xl p-4 text-left transition-all duration-300 sm:p-5 lg:p-6 ${
                 selectedLanguage === language.id
-                  ? `bg-gradient-to-r ${language.color} text-white shadow-lg transform scale-105`
+                  ? `bg-gradient-to-r ${language.color} text-white shadow-lg lg:scale-[1.02]`
                   : 'bg-white hover:bg-gray-50 border border-gray-200 hover:shadow-md'
               }`}
             >
-              <div className="flex flex-col sm:flex-row items-center sm:space-x-3 mb-3 text-center sm:text-left">
+              <div className="mb-3 flex flex-col items-center gap-3 text-center sm:flex-row sm:items-start sm:text-left">
                 <Icon className={`w-8 h-8 ${selectedLanguage === language.id ? 'text-white' : 'text-gray-600'}`} />
                 <div>
                   <h3 className={`text-lg lg:text-xl font-bold ${selectedLanguage === language.id ? 'text-white' : 'text-gray-900'}`}>
@@ -115,7 +124,7 @@ const Learn: React.FC<LearnProps> = ({ setCurrentSection }) => {
               <div className={`text-sm ${selectedLanguage === language.id ? 'text-white/90' : 'text-gray-500'}`}>
                 Progress: {language.completedCount}/{language.totalLessons} lessons completed
               </div>
-              <div className="w-full bg-white/20 rounded-full h-2 mt-2">
+              <div className="mt-2 h-2 w-full rounded-full bg-white/20">
                 <div
                   className={`h-2 rounded-full transition-all duration-500 ${
                     selectedLanguage === language.id ? 'bg-white/40' : 'bg-gray-300'
@@ -128,7 +137,7 @@ const Learn: React.FC<LearnProps> = ({ setCurrentSection }) => {
         })}
       </div>
 
-      <div className="flex flex-wrap gap-2 mb-6 lg:mb-8 overflow-x-auto pb-2">
+      <div className="mb-6 flex gap-2 overflow-x-auto pb-2 lg:mb-8">
         {filters.map((filterOption) => (
           <button
             key={filterOption}
@@ -144,86 +153,90 @@ const Learn: React.FC<LearnProps> = ({ setCurrentSection }) => {
         ))}
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 lg:gap-6 mb-6 lg:mb-8">
-        <div className="bg-gradient-to-br from-green-400 to-blue-500 rounded-xl p-6 text-white">
-          <div className="flex items-center justify-center w-12 h-12 bg-white/20 rounded-lg mb-4">
+      <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:mb-8 lg:grid-cols-3 lg:gap-6">
+        <div className="rounded-2xl bg-gradient-to-br from-green-400 to-blue-500 p-5 text-white shadow-lg sm:p-6">
+          <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-lg bg-white/20">
             <Trophy className="w-6 h-6" />
           </div>
-          <div className="text-xl lg:text-2xl font-bold mb-1">
-            {currentLessons.filter(lesson => user.completedLessons.includes(lesson.id)).length}/{currentLessons.length}
+          <div className="mb-1 text-xl font-bold lg:text-2xl">
+            {selectedLanguageCompletedCount}/{currentLessons.length}
           </div>
-          <div className="text-sm lg:text-base text-white/80">{selectedLanguage.toUpperCase()} Lessons Completed</div>
+          <div className="text-sm text-white/80 lg:text-base">{selectedLanguage.toUpperCase()} Lessons Completed</div>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 lg:gap-6">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 lg:gap-6">
         {filteredLessons.map((lesson) => {
           const isCompleted = user.completedLessons.includes(lesson.id);
-          // UPDATED: Check if user can start lesson (considering unlimited hearts)
-          const canStartLesson = user.hearts > 0 || isUnlimitedHeartsActive();
-          
+          const canStartLesson = isAuthenticated && (user.hearts > 0 || isUnlimitedHeartsActive());
+
           return (
             <div
-              key={`${lesson.id}-${selectedLanguage}`} // More specific key to prevent React reconciliation issues
-              className="bg-white rounded-xl shadow-md hover:shadow-lg transition-all duration-300 overflow-hidden border border-gray-100"
+              key={`${lesson.id}-${selectedLanguage}`}
+              className="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-md transition-all duration-300 hover:-translate-y-1 hover:shadow-lg"
             >
-              <div className="p-4 lg:p-6">
-                <div className="flex items-start justify-between mb-4">
-                  <div className="flex items-center space-x-2">
+              <div className="p-4 sm:p-5 lg:p-6">
+                <div className="mb-4 flex items-start justify-between gap-3">
+                  <div className="flex min-w-0 items-center gap-2">
                     <BookOpen className="w-5 h-5 text-blue-500" />
                     <span className={`px-2 py-1 rounded-full text-xs font-medium ${getDifficultyColor(lesson.difficulty)}`}>
                       {lesson.difficulty}
                     </span>
                   </div>
-                  <div className="flex items-center text-xs text-gray-500">
-                    <span className="w-2 h-2 bg-blue-400 rounded-full mr-1"></span>
+                  <div className="shrink-0 text-right text-xs text-gray-500">
+                    <span className="mr-1 h-2 w-2 rounded-full bg-blue-400"></span>
                     {lesson.baseXP}+ XP
                   </div>
                 </div>
 
-                <h3 className="text-base lg:text-lg font-semibold text-gray-900 mb-2 line-clamp-2">{lesson.title}</h3>
-                <p className="text-gray-600 text-sm mb-4 line-clamp-3">{lesson.description}</p>
-                
-                <div className="flex items-center text-xs text-gray-500 mb-4">
+                <h3 className="mb-2 line-clamp-2 text-base font-semibold text-gray-900 lg:text-lg">{lesson.title}</h3>
+                <p className="mb-4 line-clamp-3 text-sm text-gray-600">{lesson.description}</p>
+
+                <div className="mb-4 flex items-center text-xs text-gray-500">
                   <span>Est. time: {lesson.baselineTime} min</span>
                 </div>
 
-                <div className="flex flex-col sm:flex-row items-center justify-between gap-2">
-                  <span className="px-3 py-1 bg-gray-100 text-gray-700 rounded-full text-xs">
+                <div className="flex flex-col items-stretch gap-2 sm:flex-row sm:items-center sm:justify-between">
+                  <span className="inline-flex max-w-full items-center rounded-full bg-gray-100 px-3 py-1 text-xs text-gray-700">
                     {lesson.category}
                   </span>
-                  
+
                   {isCompleted ? (
-                    <button className="w-full sm:w-auto px-4 py-2 bg-green-100 text-green-700 rounded-lg text-sm font-medium cursor-default">
+                    <button className="w-full cursor-default rounded-lg bg-green-100 px-4 py-2 text-sm font-medium text-green-700 sm:w-auto">
                       Completed
                     </button>
                   ) : lesson.isLocked ? (
-                    <button className="w-full sm:w-auto px-4 py-2 bg-gray-100 text-gray-500 rounded-lg text-sm font-medium cursor-not-allowed flex items-center justify-center space-x-1">
+                    <button className="w-full cursor-not-allowed rounded-lg bg-gray-100 px-4 py-2 text-sm font-medium text-gray-500 sm:w-auto flex items-center justify-center space-x-1">
                       <Lock className="w-4 h-4" />
                       <span>Locked</span>
                     </button>
-                  ) : (
-                    // UPDATED: Consider unlimited hearts when checking if user can start lesson
-                    !canStartLesson ? (
-                      <div className="tooltip">
-                        <button
-                          disabled
-                          className="w-full sm:w-auto px-4 py-2 rounded-lg text-sm font-medium flex items-center justify-center space-x-1 bg-gray-300 text-gray-600 cursor-not-allowed"
-                        >
-                          <Play className="w-4 h-4" />
-                          <span>Start</span>
-                        </button>
-                        <span className="tooltiptext">You have no hearts left</span>
-                      </div>
-                    ) : (
+                  ) : !isAuthenticated ? (
+                    <button
+                      type="button"
+                      onClick={() => handleStartLesson(lesson)}
+                      className="w-full rounded-lg bg-blue-500 px-4 py-2 text-sm font-medium text-white transition hover:bg-blue-600 sm:w-auto"
+                    >
+                      Start lesson
+                    </button>
+                  ) : !canStartLesson ? (
+                    <div className="tooltip">
                       <button
-                        onClick={() => setSelectedLesson(lesson)}
-                        className="w-full sm:w-auto px-4 py-2 rounded-lg text-sm font-medium flex items-center justify-center space-x-1 bg-blue-500 hover:bg-blue-600 text-white"
+                        disabled
+                        className="w-full cursor-not-allowed rounded-lg bg-gray-300 px-4 py-2 text-sm font-medium text-gray-600 sm:w-auto flex items-center justify-center space-x-1"
                       >
                         <Play className="w-4 h-4" />
                         <span>Start</span>
                       </button>
-                    )
+                      <span className="tooltiptext">You have no hearts left</span>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => handleStartLesson(lesson)}
+                      className="w-full rounded-lg bg-blue-500 px-4 py-2 text-sm font-medium text-white transition hover:bg-blue-600 sm:w-auto flex items-center justify-center space-x-1"
+                    >
+                      <Play className="w-4 h-4" />
+                      <span>Start</span>
+                    </button>
                   )}
                 </div>
               </div>
@@ -232,14 +245,14 @@ const Learn: React.FC<LearnProps> = ({ setCurrentSection }) => {
         })}
       </div>
 
-      {selectedLesson && (
+      {selectedLesson && isAuthenticated && (
         <LessonModal
           lesson={selectedLesson}
           onClose={() => setSelectedLesson(null)}
           onHeartLoss={() => {
-            setSelectedLesson(null); // close modal just in case
+            setSelectedLesson(null);
           }}
-          onRedirectToLearn={handleRedirectToLearn} // UPDATED: Pass redirect function
+          onRedirectToLearn={handleRedirectToLearn}
         />
       )}
     </div>
@@ -247,3 +260,4 @@ const Learn: React.FC<LearnProps> = ({ setCurrentSection }) => {
 };
 
 export default Learn;
+
