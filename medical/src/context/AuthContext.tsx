@@ -18,6 +18,7 @@ import {
   signOut as supabaseSignOut,
   resetPassword as supabaseResetPassword,
   resendConfirmationEmail,
+  updateEmail as supabaseUpdateEmail,
   getUserProfile,
   createUserProfile,
   updateUserProfile as supabaseUpdateUserProfile,
@@ -42,6 +43,7 @@ interface AuthContextType {
   signInWithGoogle: () => Promise<{ error: any }>;
   signOut: () => Promise<void>;
   resetPassword: (email: string) => Promise<{ error: any }>;
+  updateEmail: (email: string) => Promise<{ error: any }>;
   updateProfile: (updates: Partial<UserProfile>) => Promise<void>;
   refetchProfile: () => Promise<void>;
   setNavigationCallback: (callback: () => void) => void;
@@ -522,6 +524,35 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     return { error };
   };
 
+  const updateEmail = async (email: string) => {
+    if (!user) {
+      return { error: { message: 'No authenticated user found.' } };
+    }
+
+    const normalizedEmail = email.trim().toLowerCase();
+    const { data, error } = await supabaseUpdateEmail(normalizedEmail);
+    if (error) {
+      return { error };
+    }
+
+    if (data?.user?.email === normalizedEmail) {
+      const { data: updatedProfile, error: profileError } = await supabaseUpdateUserProfile(user.id, {
+        email: normalizedEmail,
+      });
+
+      if (profileError) {
+        return { error: profileError };
+      }
+
+      if (updatedProfile) {
+        setProfile(updatedProfile);
+        await syncProfileToLeaderboard(updatedProfile);
+      }
+    }
+
+    return { error: null };
+  };
+
   const updateProfile = async (updates: Partial<UserProfile>) => {
     if (!user) {
       console.warn("❌ AuthContext: Cannot update profile - no authenticated user");
@@ -567,6 +598,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         signInWithGoogle,
         signOut,
         resetPassword,
+        updateEmail,
         updateProfile,
         refetchProfile,
         setNavigationCallback,

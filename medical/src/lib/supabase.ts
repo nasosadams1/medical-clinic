@@ -712,6 +712,14 @@ export const resendConfirmationEmail = async (email: string) => {
   return { data, error }
 }
 
+export const updateEmail = async (email: string) => {
+  const { data, error } = await supabase.auth.updateUser({
+    email: normalizeEmail(email)
+  })
+
+  return { data, error }
+}
+
 // Get the current authenticated user
 export const getCurrentUser = async () => {
   const { data: { user }, error } = await supabase.auth.getUser()

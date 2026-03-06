@@ -14,6 +14,9 @@ export class MatchController {
     /** @type {Map<string, any>} */
     this.activeMatches = new Map();
 
+    /** @type {Map<string, any>} */
+    this.pendingMatches = new Map();
+
     /** @type {Map<string, NodeJS.Timeout>} */
     this.disconnectTimers = new Map();
 
@@ -24,7 +27,7 @@ export class MatchController {
    * Starts a match and notifies both clients.
    */
   async startMatch(matchId, playerA, playerB, problem) {
-    console.log(`▶️ Starting match ${matchId}`);
+    console.log(`â–¶ï¸ Starting match ${matchId}`);
 
     const matchMeta = await this._loadMatchMeta(matchId);
     const matchType = matchMeta.matchType; // "ranked" | "casual"
@@ -111,7 +114,7 @@ export class MatchController {
    * Handles a code submission.
    */
   async handleSubmission(matchId, userId, language, code, socket) {
-    const match = this.activeMatches.get(matchId);
+    const match = this.activeMatches.get(matchId) ?? this.pendingMatches.get(matchId);
     debugMatch("submission_received", { matchId, userId, language, codeChars: (code ?? "").length, matchFound: !!match });
 
     if (!match) {
@@ -134,7 +137,7 @@ export class MatchController {
       return;
     }
 
-    console.log(`🧪 Submission for match ${matchId} from user ${userId}`);
+    console.log(`ðŸ§ª Submission for match ${matchId} from user ${userId}`);
 
     const lang = (language ?? "").toString().toLowerCase();
     const allowed = new Set(["javascript", "js"]);
@@ -295,10 +298,10 @@ export class MatchController {
    * Ends match due to timeout.
    */
   async endMatchByTimeout(matchId) {
-    const match = this.activeMatches.get(matchId);
+    const match = this.activeMatches.get(matchId) ?? this.pendingMatches.get(matchId);
     if (!match || match.winnerId || match.ending) return;
 
-    console.log(`⏱️ Match ${matchId} ended by timeout`);
+    console.log(`â±ï¸ Match ${matchId} ended by timeout`);
 
     const a = match.submissions.get(match.playerA.userId);
     const b = match.submissions.get(match.playerB.userId);
@@ -356,13 +359,14 @@ export class MatchController {
    * Ends match safely. winnerId can be null for draw.
    */
   async endMatch(matchId, winnerId, reason, winningSubmissionId = null) {
-    const match = this.activeMatches.get(matchId);
+    const match = this.activeMatches.get(matchId) ?? this.pendingMatches.get(matchId);
     if (!match || match.winnerId) return;
     if (match.ending) return;
 
     match.ending = true;
 
     if (match.timeoutHandle) clearTimeout(match.timeoutHandle);
+    if (match.countdownHandle) clearTimeout(match.countdownHandle);
 
     match.winnerId = winnerId ?? null;
     match.status = "FINISHED";
@@ -553,7 +557,7 @@ export class MatchController {
     this._emitToPlayer(match.playerB, "match_end", matchEndData);
 
     this.activeMatches.delete(matchId);
-    console.log(`🏁 Match ${matchId} ended. Winner: ${winnerId || "Draw"}`);
+    console.log(`ðŸ Match ${matchId} ended. Winner: ${winnerId || "Draw"}`);
   }
 
   /**
@@ -568,7 +572,7 @@ export class MatchController {
 
       if (this.disconnectTimers.has(userId)) return;
 
-      console.log(`⚠️ Player ${userId} disconnected (grace ${this.RECONNECT_GRACE_PERIOD_MS}ms)`);
+      console.log(`âš ï¸ Player ${userId} disconnected (grace ${this.RECONNECT_GRACE_PERIOD_MS}ms)`);
 
       const timer = setTimeout(async () => {
         try {
@@ -601,7 +605,7 @@ export class MatchController {
     if (timer) {
       clearTimeout(timer);
       this.disconnectTimers.delete(userId);
-      console.log(`🔄 Player ${userId} reconnected in time`);
+      console.log(`ðŸ”„ Player ${userId} reconnected in time`);
     }
   }
 
@@ -781,7 +785,7 @@ export class MatchController {
 
     return base;
   }
-  // ✅ FIX: room-based emit (reconnect-safe)
+  // âœ… FIX: room-based emit (reconnect-safe)
   _emitToPlayer(player, event, payload) {
     if (!player?.userId) return;
     this.io?.to?.(`user:${player.userId}`)?.emit?.(event, payload);
@@ -817,6 +821,7 @@ export class MatchController {
     }
   }
 }
+
 
 
 

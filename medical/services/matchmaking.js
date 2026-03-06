@@ -10,9 +10,9 @@ export class MatchmakingService {
 
     this.MATCHMAKING_TICK_MS = 1000;
     this.QUEUE_UPDATE_TICK_MS = 1000;
-    this.BASE_RANGE = 100;
-    this.MAX_RANGE = 500;
-    this.RANGE_GROW_PER_SEC = 10;
+    this.BASE_RANGE = 75;
+    this.MAX_RANGE = 350;
+    this.RANGE_GROW_PER_SEC = 2;
 
     this.inFlight = new Set();
 
@@ -89,6 +89,11 @@ export class MatchmakingService {
         if (q[i].userId === userId) q.splice(i, 1);
       }
     }
+  }
+
+  isQueued(userId, matchType = null) {
+    const types = matchType ? [matchType] : ["ranked", "casual"];
+    return types.some((type) => this.getQueue(type).some((player) => player.userId === userId));
   }
 
   broadcastQueueStatus() {
@@ -246,11 +251,39 @@ export class MatchmakingService {
     });
 
     if (this.matchController?.startMatch) {
-      setTimeout(() => {
+      const countdownHandle = setTimeout(() => {
+        if (this.matchController?.pendingMatches) {
+          this.matchController.pendingMatches.delete(match.id);
+        }
         this.matchController
           .startMatch(match.id, playerA, playerB, problem)
           .catch((e) => console.error("startMatch error:", e));
       }, countdown * 1000);
+
+      if (this.matchController?.pendingMatches) {
+        this.matchController.pendingMatches.set(match.id, {
+          matchId: match.id,
+          playerA,
+          playerB,
+          problem: { ...problem, difficulty, time_limit_seconds: timeLimit },
+          difficulty,
+          startTimeMs: Date.now(),
+          timeLimitMs: Math.max(5, timeLimit) * 1000,
+          timeLimitSec: timeLimit,
+          submissions: new Map(),
+          attempts: new Map(),
+          wrongSubmissions: new Map(),
+          lastSubmissionAtMs: new Map(),
+          winnerId: null,
+          resultStrength: "draw",
+          status: "COUNTDOWN",
+          matchType,
+          isRanked: matchType === "ranked",
+          ending: false,
+          timeoutHandle: null,
+          countdownHandle,
+        });
+      }
     }
 
     return true;
@@ -323,19 +356,7 @@ export class MatchmakingService {
       throw new Error("No active problems available");
     }
 
-    if (matchType === "casual") {
-      return problems[Math.floor(Math.random() * problems.length)];
-    }
-
-    const avg = (Number(ratingA) + Number(ratingB)) / 2;
-    const bucket =
-      avg < 1100 ? ["easy"] :
-      avg < 1400 ? ["easy", "medium"] :
-      avg < 1700 ? ["medium"] :
-      ["medium", "hard"];
-
-    const filtered = problems.filter((p) => bucket.includes(String(p.difficulty || "").toLowerCase()));
-    const pool = filtered.length ? filtered : problems;
-    return pool[Math.floor(Math.random() * pool.length)];
+    return problems[Math.floor(Math.random() * problems.length)];
   }
 }
+

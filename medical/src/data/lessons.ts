@@ -735,7 +735,7 @@ else:
   id: 'python-for-loops-nested',
   title: 'Python For and Nested Loops',
   description: 'Learn how to use for loops in Python to iterate over sequences and create nested loops for complex iteration.',
-  difficulty: 'Beginner to Intermediate',
+  difficulty: 'Intermediate',
   baseXP: 50,
   baselineTime: 1,
   language: 'python',
@@ -12386,6 +12386,38 @@ export const getLessonById = (id: string): Lesson | undefined => {
   return allLessons.find(lesson => lesson.id === id);
 };
 
+export const formatLessonDisplayName = (lessonId: string): string => {
+  const lesson = getLessonById(lessonId);
+  if (lesson?.title && !/^[a-z0-9]+(?:[-_][a-z0-9]+)+$/i.test(lesson.title)) {
+    return lesson.title;
+  }
+
+  const normalized = lessonId.replace(/_/g, '-').toLowerCase();
+  const parts = normalized.split('-').filter(Boolean);
+  if (parts.length === 0) return lessonId;
+
+  const trailingNumber = /^\d+$/.test(parts[parts.length - 1]) ? parts.pop() : null;
+  const candidateBaseId = parts.join('-');
+
+  let shouldKeepNumber = false;
+  if (trailingNumber && candidateBaseId) {
+    const siblingCount = allLessons.filter((lessonItem) => {
+      const siblingId = lessonItem.id.replace(/_/g, '-').toLowerCase();
+      return siblingId === candidateBaseId || siblingId.startsWith(candidateBaseId + '-');
+    }).length;
+    shouldKeepNumber = siblingCount > 1;
+  }
+
+  const words = [...parts, ...(shouldKeepNumber && trailingNumber ? [trailingNumber] : [])].map((part) => {
+    if (part === 'cpp') return 'C++';
+    if (part === 'javascript') return 'JavaScript';
+    if (part === 'java') return 'Java';
+    if (part === 'python') return 'Python';
+    return part.charAt(0).toUpperCase() + part.slice(1);
+  });
+
+  return words.join(' ');
+};
 
 export const getTotalLessonsByLanguage = (language: 'python' | 'javascript' | 'cpp' | 'java'): number => {
   return getLessonsByLanguage(language).length;

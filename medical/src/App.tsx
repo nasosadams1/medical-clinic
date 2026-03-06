@@ -13,6 +13,7 @@ import DuelsDashboard from './components/DuelsDashboard';
 import { useAuth } from './context/AuthContext';
 import { BookOpen, Menu, ShoppingBag, Swords, Trophy, User as UserIcon, Settings, X } from 'lucide-react';
 import AuthConfirm from './components/AuthConfirm';
+import ResetPasswordPage from './components/ResetPasswordPage';
 
 type SectionId = 'learn' | 'duels' | 'store' | 'leaderboard' | 'profile' | 'account';
 
@@ -98,19 +99,6 @@ function AppContent() {
           >
             {sidebarOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
           </button>
-
-          <div className="text-center">
-            <div className="text-xs font-medium uppercase tracking-[0.2em] text-gray-400">Codhak</div>
-            <div className="text-sm font-semibold text-gray-900">{currentLabel}</div>
-          </div>
-
-          <button
-            type="button"
-            onClick={() => (!isAuthenticated ? setShowAuthModal(true) : null)}
-            className="flex h-10 min-w-10 items-center justify-center rounded-xl bg-gradient-to-br from-green-400 to-blue-500 px-3 text-sm font-semibold text-white shadow-sm"
-          >
-            {isAuthenticated ? 'Live' : 'Sign In'}
-          </button>
         </div>
       </div>
 
@@ -173,6 +161,7 @@ function App() {
           <Routes>
             <Route path="/" element={<AppContent />} />
             <Route path="/auth/confirm" element={<AuthConfirm />} />
+            <Route path="/auth/reset-password" element={<ResetPasswordPage />} />
           </Routes>
         </Router>
       </UserProvider>

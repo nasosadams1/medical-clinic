@@ -40,7 +40,6 @@ const JUDGE0_URL = process.env.JUDGE0_URL;
 const JUDGE0_API_KEY = process.env.JUDGE0_API_KEY;
 const JUDGE0_API_HOST = process.env.JUDGE0_API_HOST;
 
-
 if (JUDGE_PROVIDER === "remote" && JUDGE_URL && !JUDGE_SHARED_SECRET) {
   console.error("JUDGE_SHARED_SECRET is required when JUDGE_PROVIDER=remote and JUDGE_URL is set");
   process.exit(1);
@@ -80,11 +79,10 @@ if (JUDGE_PROVIDER === "remote") {
 }
 
 const eloRatingService = new EloRatingService();
-
 const matchController = supabase ? new MatchController(supabase, io, judgeService, eloRatingService) : null;
 const matchmakingService = supabase ? new MatchmakingService(supabase, io, matchController) : null;
-
 const connectedPlayers = new Map();
+const latestSocketByUserId = new Map();
 
 function emitServerError(socket, message, details) {
   console.error("server_error:", message, details || "");
@@ -93,6 +91,10 @@ function emitServerError(socket, message, details) {
 
 function ackSafe(ack, payload) {
   if (typeof ack === "function") ack(payload);
+}
+
+function isLatestSocketForUser(userId, socketId) {
+  return !!userId && latestSocketByUserId.get(userId) === socketId;
 }
 
 async function authenticateSocketUser(accessToken, expectedUserId) {
@@ -121,7 +123,11 @@ io.on("connection", (socket) => {
   socket.emit("server_identity", { name: "duel-server", port: PORT });
 
   socket.on("register_player", async (data, ack) => {
-    console.log("register_player received", data);
+    console.log("register_player received", {
+      userId: data?.userId,
+      username: data?.username,
+      hasAccessToken: !!data?.accessToken,
+    });
 
     try {
       if (!supabase) {
@@ -194,6 +200,32 @@ io.on("connection", (socket) => {
 
       const safeUsername = duelUser.username || String(username || "").trim() || "Player";
       const safeRating = duelUser.rating ?? 500;
+      const existingOwnerSocketId = latestSocketByUserId.get(duelUser.id);
+
+      if (existingOwnerSocketId === socket.id && connectedPlayers.has(socket.id)) {
+        connectedPlayers.set(socket.id, {
+          ...connectedPlayers.get(socket.id),
+          userId: duelUser.id,
+          username: safeUsername,
+          rating: safeRating,
+          socketId: socket.id,
+        });
+        socket.userId = duelUser.id;
+        socket.join(`user:${duelUser.id}`);
+        ackSafe(ack, { ok: true, rating: safeRating, username: safeUsername });
+        return;
+      }
+
+      if (matchmakingService) {
+        matchmakingService.removeFromQueue(duelUser.id);
+      }
+
+      for (const [existingSocketId, existingPlayer] of connectedPlayers.entries()) {
+        if (existingPlayer.userId !== duelUser.id || existingSocketId === socket.id) continue;
+        connectedPlayers.delete(existingSocketId);
+        const oldSocket = io.sockets.sockets.get(existingSocketId);
+        if (oldSocket) oldSocket.disconnect(true);
+      }
 
       connectedPlayers.set(socket.id, {
         userId: duelUser.id,
@@ -201,6 +233,7 @@ io.on("connection", (socket) => {
         rating: safeRating,
         socketId: socket.id,
       });
+      latestSocketByUserId.set(duelUser.id, socket.id);
 
       socket.userId = duelUser.id;
       socket.join(`user:${duelUser.id}`);
@@ -227,8 +260,16 @@ io.on("connection", (socket) => {
         emitServerError(socket, "Player not registered", "Call register_player first");
         return;
       }
+      if (!isLatestSocketForUser(player.userId, socket.id)) {
+        emitServerError(socket, "Stale duel connection", "A newer connection for this user is already active.");
+        return;
+      }
 
       player.matchType = data?.matchType || "ranked";
+      if (matchmakingService.isQueued(player.userId, player.matchType)) {
+        socket.emit("queue_joined", { message: "Already searching for an opponent.", status: "searching" });
+        return;
+      }
       socket.emit("queue_joined", { message: "Searching for opponent...", status: "searching" });
       await matchmakingService.addToQueue(player);
     } catch (err) {
@@ -241,6 +282,7 @@ io.on("connection", (socket) => {
     try {
       const player = connectedPlayers.get(socket.id);
       if (!player) return;
+      if (!isLatestSocketForUser(player.userId, socket.id)) return;
 
       if (matchmakingService) matchmakingService.removeFromQueue(player.userId);
       socket.emit("queue_left", { message: "Left matchmaking queue" });
@@ -254,6 +296,7 @@ io.on("connection", (socket) => {
       if (!matchController) throw new Error("Server not configured");
       const userId = socket.userId;
       if (!userId) throw new Error("Not registered");
+      if (!isLatestSocketForUser(userId, socket.id)) throw new Error("Stale duel connection");
 
       const matchId = (data?.matchId ?? "").toString();
       const language = (data?.language ?? "").toString();
@@ -276,6 +319,7 @@ io.on("connection", (socket) => {
       if (!supabase) return;
       const userId = socket.userId;
       if (!userId) return;
+      if (!isLatestSocketForUser(userId, socket.id)) return;
 
       await supabase.from("code_snapshots").insert({
         match_id: data.matchId,
@@ -293,13 +337,45 @@ io.on("connection", (socket) => {
       const player = connectedPlayers.get(socket.id);
       if (!player) return;
 
+      connectedPlayers.delete(socket.id);
+      if (isLatestSocketForUser(player.userId, socket.id)) {
+        latestSocketByUserId.delete(player.userId);
+      }
+
+      const hasReplacementSocket = Array.from(connectedPlayers.values()).some((entry) => entry.userId === player.userId);
+      if (hasReplacementSocket) {
+        console.log(`Ignoring stale disconnect for ${player.username} (${player.userId})`);
+        return;
+      }
+
       if (matchmakingService) matchmakingService.removeFromQueue(player.userId);
 
-      connectedPlayers.delete(socket.id);
       console.log(`Player disconnected: ${player.username} (${player.userId})`);
 
-      if (matchController) {
-        await matchController.handlePlayerDisconnect(player.userId);
+      if (!matchController) return;
+
+      const allMatches = [
+        ...(matchController.pendingMatches?.entries?.() ?? []),
+        ...(matchController.activeMatches?.entries?.() ?? []),
+      ];
+
+      const activeEntry = allMatches.find(([, match]) => {
+        if (!match || match.winnerId || match.ending) return false;
+        return match.playerA?.userId === player.userId || match.playerB?.userId === player.userId;
+      });
+
+      if (!activeEntry) return;
+
+      const [matchId, match] = activeEntry;
+      if (match.countdownHandle) {
+        clearTimeout(match.countdownHandle);
+        match.countdownHandle = null;
+      }
+
+      const opponentId = match.playerA.userId === player.userId ? match.playerB.userId : match.playerA.userId;
+      await matchController.endMatch(matchId, opponentId, "forfeit_disconnect", null);
+      if (matchController.pendingMatches?.has(matchId)) {
+        matchController.pendingMatches.delete(matchId);
       }
     } catch (e) {
       console.error("Disconnect forfeit error:", e);
@@ -313,5 +389,3 @@ app.get("/health", (_req, res) => res.json({ status: "ok", timestamp: new Date()
 httpServer.listen(PORT, "0.0.0.0", () => {
   console.log(`Duel server running on port ${PORT}`);
 });
-
-

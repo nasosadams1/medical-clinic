@@ -242,6 +242,20 @@ if __name__ == "__main__":
 `;
 }
 
+function classifyJudge0Error(message) {
+  const msg = String(message || '').toLowerCase();
+  if (msg.includes('not subscribed to this api')) {
+    return 'Judge backend misconfigured: RapidAPI Judge0 subscription is missing.';
+  }
+  if (msg.includes('invalid api key') || msg.includes('unauthorized') || msg.includes('forbidden')) {
+    return 'Judge backend misconfigured: Judge0 API credentials are invalid.';
+  }
+  if (msg.includes('quota') || msg.includes('rate limit')) {
+    return 'Judge backend temporarily unavailable: Judge0 quota or rate limit was reached.';
+  }
+  return '';
+}
+
 function normalizeLang(language) {
   const l = (language ?? "").toString().trim().toLowerCase();
   if (l === "js" || l === "node" || l === "nodejs") return "javascript";
@@ -308,7 +322,7 @@ export class Judge0Service {
 
       const payload = await res.json().catch(() => ({}));
       if (!res.ok) {
-        throw new Error(payload?.error || payload?.message || `Judge0 request failed (${res.status})`);
+        throw new Error(classifyJudge0Error(payload?.error || payload?.message) || payload?.error || payload?.message || `Judge0 request failed (${res.status})`);
       }
 
       const statusId = Number(payload?.status?.id ?? 0);
@@ -332,6 +346,12 @@ export class Judge0Service {
     } catch (err) {
       if (err?.name === "AbortError") {
         return { stdout: "", stderr: `Judge0 timeout after ${this.timeoutMs}ms`, timeout: true, exitCode: 124 };
+      }
+      const classified = classifyJudge0Error(err?.message);
+      if (classified) {
+        const judgeError = new Error(classified);
+        judgeError.code = "JUDGE_PROVIDER_ERROR";
+        throw judgeError;
       }
       return { stdout: "", stderr: err?.message || "Judge0 request failed", timeout: false, exitCode: 1 };
     } finally {

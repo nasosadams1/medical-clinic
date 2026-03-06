@@ -5,22 +5,18 @@ import MatchResults from "./MatchResults";
 import { useAuth } from "../context/AuthContext";
 import { supabase } from "../lib/supabase";
 import toast from "react-hot-toast";
-import socket from "../lib/socket"; // ✅ single shared socket instance
+import socket from "../lib/socket";
 
 type View = "queue" | "arena" | "results";
 
 export default function DuelsDashboard() {
   const { user, loading } = useAuth();
-
   const [duelUser, setDuelUser] = useState<any>(null);
-
   const [currentView, setCurrentView] = useState<View>("queue");
   const [matchData, setMatchData] = useState<any>(null);
   const [matchResults, setMatchResults] = useState<any>(null);
-
   const initializedRef = useRef(false);
 
-  // Ensure duel_users exists for this auth user (id = auth.uid())
   useEffect(() => {
     if (!user) return;
 
@@ -84,18 +80,17 @@ export default function DuelsDashboard() {
     };
   }, [user]);
 
-  // Setup socket listeners ONCE after duelUser exists (do not create socket here)
   useEffect(() => {
     if (!duelUser?.id) return;
     if (initializedRef.current) return;
     initializedRef.current = true;
 
-    const onConnect = () => console.log("✅ socket connected", socket.id);
-    const onDisconnect = (reason: any) => console.log("⚠️ disconnected", reason);
-    const onConnectError = (e: any) => console.error("❌ connect_error", e);
-    const onServerIdentity = (d: any) => console.log("🧩 server_identity", d);
+    const onConnect = () => console.log("socket connected", socket.id);
+    const onDisconnect = (reason: any) => console.log("socket disconnected", reason);
+    const onConnectError = (e: any) => console.error("connect_error", e);
+    const onServerIdentity = (d: any) => console.log("server_identity", d);
     const onServerError = (e: any) => {
-      console.error("🚨 server_error", e);
+      console.error("server_error", e);
       toast.error(e?.message || "Server error");
     };
 
@@ -105,7 +100,6 @@ export default function DuelsDashboard() {
     socket.on("server_identity", onServerIdentity);
     socket.on("server_error", onServerError);
 
-    // Optional: ask server identity (only if your server supports it)
     try {
       socket.emit("server_identity");
     } catch {
@@ -122,7 +116,7 @@ export default function DuelsDashboard() {
     };
   }, [duelUser?.id]);
 
-  const handleMatchFound = (data: any) => {
+  const handleDuelStarted = (data: any) => {
     setMatchData(data);
     setCurrentView("arena");
   };
@@ -138,7 +132,6 @@ export default function DuelsDashboard() {
     setMatchResults(null);
   };
 
-  // Show a guest/setup state instead of a blocking loading screen.
   if (!user) {
     return (
       <div className="min-h-screen bg-gray-50 px-6 py-10">
@@ -191,7 +184,8 @@ export default function DuelsDashboard() {
           userId={duelUser.id}
           username={duelUser.username}
           rating={duelUser.rating}
-          onMatchFound={handleMatchFound}
+          onMatchFound={handleDuelStarted}
+          onMatchEnd={handleMatchEnd}
         />
       )}
 

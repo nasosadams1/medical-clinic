@@ -22,7 +22,7 @@ import { supabase } from '../lib/supabase';
 import { getEloRankInfo } from '../lib/eloRanks';
 import { avatars, getRarityColor } from '../data/avatars';
 import { achievements } from '../data/achievements';
-import { getTotalLessonsByLanguage, getCompletedLessonsByLanguage } from '../data/lessons';
+import { getTotalLessonsByLanguage, getCompletedLessonsByLanguage, formatLessonDisplayName } from '../data/lessons';
 
 const Profile: React.FC = () => {
   const { 
@@ -31,8 +31,7 @@ const Profile: React.FC = () => {
     buyHearts, 
     buyAvatar, 
     setAvatar, 
-    getLanguageProgress, 
-    unlockAchievement, 
+    getLanguageProgress,
     checkAndUnlockAchievements,
     isAuthenticated,
     getActiveBoosts,
@@ -47,6 +46,11 @@ const Profile: React.FC = () => {
   const [isResettingLessons, setIsResettingLessons] = useState(false);
   const [showResetLessonsModal, setShowResetLessonsModal] = useState(false);
   const [duelRating, setDuelRating] = useState(500);
+  const [recentLessonEvents, setRecentLessonEvents] = useState<Array<{
+    lesson_id: string;
+    xp_earned: number;
+    completed_at: string;
+  }>>([]);
 
   // Update current time every second for boost timers
   useEffect(() => {
@@ -83,6 +87,40 @@ const Profile: React.FC = () => {
       cancelled = true;
     };
   }, [user?.id]);
+
+  useEffect(() => {
+    if (!user || user.id === 'guest') {
+      setRecentLessonEvents([]);
+      return;
+    }
+
+    let cancelled = false;
+
+    const loadRecentLessonEvents = async () => {
+      const { data, error } = await supabase
+        .from('lesson_completion_events')
+        .select('lesson_id, xp_earned, completed_at')
+        .eq('user_id', user.id)
+        .order('completed_at', { ascending: false })
+        .limit(5);
+
+      if (cancelled) return;
+
+      if (error) {
+        console.error('Failed to load recent lesson activity:', error);
+        setRecentLessonEvents([]);
+        return;
+      }
+
+      setRecentLessonEvents(data ?? []);
+    };
+
+    loadRecentLessonEvents();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.id, user?.completedLessons]);
 
   const scrollToProfileSection = (sectionId: 'overview' | 'progress' | 'achievements' | 'activity') => {
     setActiveTab(sectionId);
@@ -157,20 +195,6 @@ const Profile: React.FC = () => {
   const handleSetAvatar = (avatarId: string) => {
     setAvatar(avatarId); // This will trigger UserContext.updateUser
   };
-
-  // Manual achievement checking (for testing)
-  const handleCheckAchievements = () => {
-    if (isAuthenticated()) {
-      checkAndUnlockAchievements();
-    } else {
-      addNotification({
-        message: 'Sign in to unlock achievements.',
-        type: 'info',
-        icon: '\u{1F512}',
-      });
-    }
-  };
-
 
   const handleResetLessons = () => {
     if (!user || user.id === 'guest' || isResettingLessons) return;
@@ -317,12 +341,12 @@ const Profile: React.FC = () => {
   };
 
   const recentActivity = [
-    ...user.completedLessons.slice(-5).reverse().map((lessonId: string) => ({
+    ...recentLessonEvents.map((event) => ({
       action: 'Completed lesson',
-      item: lessonId.replace(/_/g, ' ').replace(/^\w/, (c: string) => c.toUpperCase()),
-      xp: 50,
+      item: formatLessonDisplayName(event.lesson_id),
+      xp: event.xp_earned,
       time: 'Recently',
-      icon: '📚',
+      icon: '\u{1F4DA}',
     })),
     ...user.unlockedAchievements.slice(-3).reverse().map((achievementId: string) => {
       const achievement = achievements.find((a) => a.id === achievementId);
@@ -343,15 +367,6 @@ const Profile: React.FC = () => {
           <div>
             <h1 className="mb-2 text-2xl font-bold text-gray-900 sm:text-3xl lg:text-4xl">Player Profile</h1>
             <p className="max-w-2xl text-sm text-gray-600 sm:text-base">Track your coding journey, lifetime progress, and duel milestones across every device.</p>
-          </div>
-          <div className="self-start">
-            <button
-              type="button"
-              onClick={handleCheckAchievements}
-              className="rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-700 transition hover:bg-gray-50"
-            >
-              Refresh achievements
-            </button>
           </div>
         </div>
       </div>
@@ -669,11 +684,6 @@ const Profile: React.FC = () => {
             </div>
             <div className="flex justify-between text-sm text-gray-600 mt-2">
               <span>Progress across all languages</span>
-              <span className={calculatedTotalCompleted !== user.totalLessonsCompleted ? 'text-orange-600 font-medium' : ''}>
-                {calculatedTotalCompleted !== user.totalLessonsCompleted ? 
-                  `Syncing... (${calculatedTotalCompleted} calculated vs ${user.totalLessonsCompleted} stored)` : 
-                  'All data synchronized'}
-              </span>
             </div>
           </div>
 

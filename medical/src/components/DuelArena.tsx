@@ -41,14 +41,14 @@ export default function DuelArena({
   const snapshotIntervalRef = useRef<any>(null);
 
   useEffect(() => {
-    socket.on('duel_started', (data: any) => {
+    const onDuelStarted = (data: any) => {
       if (data.matchId === matchId) {
         setMatchStarted(true);
         toast.success('Duel started! Good luck!');
       }
-    });
+    };
 
-    socket.on('submission_result', (data: any) => {
+    const onSubmissionResult = (data: any) => {
       setTestResults(data);
       setIsSubmitting(false);
 
@@ -62,9 +62,9 @@ export default function DuelArena({
       } else {
         toast.error(`${verdict.replace(/_/g, ' ')} - ${passed}/${total} tests passed`);
       }
-    });
+    };
 
-    socket.on('opponent_submitted', (data: any) => {
+    const onOpponentSubmitted = (data: any) => {
       setOpponentStatus(data);
 
       const verdict = (data?.result ?? data?.verdict ?? '').toString();
@@ -79,24 +79,30 @@ export default function DuelArena({
           icon: '\u2694',
         });
       }
-    });
+    };
 
-    socket.on('match_end', (data: any) => {
+    const onMatchEndEvent = (data: any) => {
       clearInterval(snapshotIntervalRef.current);
       onMatchEnd(data);
-    });
+    };
 
-    socket.on('submission_error', (data: any) => {
+    const onSubmissionError = (data: any) => {
       toast.error(data.message);
       setIsSubmitting(false);
-    });
+    };
+
+    socket.on('duel_started', onDuelStarted);
+    socket.on('submission_result', onSubmissionResult);
+    socket.on('opponent_submitted', onOpponentSubmitted);
+    socket.on('match_end', onMatchEndEvent);
+    socket.on('submission_error', onSubmissionError);
 
     return () => {
-      socket.off('duel_started');
-      socket.off('submission_result');
-      socket.off('opponent_submitted');
-      socket.off('match_end');
-      socket.off('submission_error');
+      socket.off('duel_started', onDuelStarted);
+      socket.off('submission_result', onSubmissionResult);
+      socket.off('opponent_submitted', onOpponentSubmitted);
+      socket.off('match_end', onMatchEndEvent);
+      socket.off('submission_error', onSubmissionError);
       if (snapshotIntervalRef.current) {
         clearInterval(snapshotIntervalRef.current);
       }

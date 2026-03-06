@@ -1,5 +1,4 @@
-// src/components/MatchmakingQueue.tsx
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Swords, Loader2, Trophy, Users, Clock } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { supabase } from '../lib/supabase';
@@ -10,6 +9,7 @@ interface MatchmakingQueueProps {
   username: string;
   rating: number;
   onMatchFound: (matchData: any) => void;
+  onMatchEnd: (result: any) => void;
 }
 
 export default function MatchmakingQueue({
@@ -17,7 +17,8 @@ export default function MatchmakingQueue({
   userId,
   username,
   rating,
-  onMatchFound: onMatchFoundProp
+  onMatchFound,
+  onMatchEnd,
 }: MatchmakingQueueProps) {
   const [inQueue, setInQueue] = useState(false);
   const [matchType, setMatchType] = useState<'ranked' | 'casual'>('ranked');
@@ -28,14 +29,38 @@ export default function MatchmakingQueue({
   const [ratingRange, setRatingRange] = useState(100);
   const [isJoining, setIsJoining] = useState(false);
 
+  const countdownIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const pendingMatchRef = useRef<any>(null);
+  const registeredSocketKeyRef = useRef<string | null>(null);
+
   useEffect(() => {
     if (!socket) return;
+
+    const clearCountdown = () => {
+      if (countdownIntervalRef.current) {
+        clearInterval(countdownIntervalRef.current);
+        countdownIntervalRef.current = null;
+      }
+    };
+
+    const resetPendingState = () => {
+      clearCountdown();
+      pendingMatchRef.current = null;
+      setCountdown(null);
+    };
 
     const onQueueUpdate = (data: any) => {
       setQueueTime(data.waitTime ?? 0);
       setQueuePosition(data.queuePosition ?? 1);
       setQueueSize(data.queueSize ?? 1);
       setRatingRange(data.ratingRange ?? 100);
+    };
+
+    const onDisconnectEvent = () => {
+      registeredSocketKeyRef.current = null;
+      resetPendingState();
+      setInQueue(false);
+      setIsJoining(false);
     };
 
     const onQueueJoined = (data: any) => {
@@ -47,6 +72,7 @@ export default function MatchmakingQueue({
 
     const onQueueLeft = (data: any) => {
       toast(data.message || 'Left queue');
+      resetPendingState();
       setInQueue(false);
       setIsJoining(false);
       setQueueTime(0);
@@ -57,48 +83,87 @@ export default function MatchmakingQueue({
 
     const onMatchFoundEvent = (data: any) => {
       toast.success(`Match found! Opponent: ${data?.opponent?.username ?? 'Unknown'}`);
+      pendingMatchRef.current = data;
       setInQueue(false);
       setIsJoining(false);
       setCountdown(data.countdown ?? 3);
 
+      clearCountdown();
       let timeLeft = data.countdown ?? 3;
-      const countdownInterval = setInterval(() => {
+      countdownIntervalRef.current = setInterval(() => {
         timeLeft -= 1;
-        setCountdown(timeLeft);
-
+        setCountdown(Math.max(timeLeft, 0));
         if (timeLeft <= 0) {
-          clearInterval(countdownInterval);
-          onMatchFoundProp(data);
+          clearCountdown();
         }
       }, 1000);
     };
 
+    const onDuelStartedEvent = (data: any) => {
+      if (pendingMatchRef.current?.matchId !== data?.matchId) return;
+
+      const merged = {
+        ...pendingMatchRef.current,
+        ...data,
+        opponent: pendingMatchRef.current?.opponent,
+      };
+
+      resetPendingState();
+      onMatchFound(merged);
+    };
+
+    const onMatchEndEvent = (data: any) => {
+      if (pendingMatchRef.current?.matchId !== data?.matchId) return;
+      resetPendingState();
+      setInQueue(false);
+      setIsJoining(false);
+      onMatchEnd(data);
+    };
+
     const onServerError = (data: any) => {
       console.error('server_error:', data?.message, data?.details || data?.error);
+      if (data?.message === 'Player not registered' || data?.message === 'Stale duel connection') {
+        registeredSocketKeyRef.current = null;
+      }
+      resetPendingState();
       toast.error(data?.message || 'Server error');
       setInQueue(false);
       setIsJoining(false);
     };
 
     socket.on('queue_update', onQueueUpdate);
+    socket.on('disconnect', onDisconnectEvent);
     socket.on('queue_joined', onQueueJoined);
     socket.on('queue_left', onQueueLeft);
     socket.on('match_found', onMatchFoundEvent);
+    socket.on('duel_started', onDuelStartedEvent);
+    socket.on('match_end', onMatchEndEvent);
     socket.on('server_error', onServerError);
 
     return () => {
+      clearCountdown();
       socket.off('queue_update', onQueueUpdate);
+      socket.off('disconnect', onDisconnectEvent);
       socket.off('queue_joined', onQueueJoined);
       socket.off('queue_left', onQueueLeft);
       socket.off('match_found', onMatchFoundEvent);
+      socket.off('duel_started', onDuelStartedEvent);
+      socket.off('match_end', onMatchEndEvent);
       socket.off('server_error', onServerError);
     };
-  }, [socket, onMatchFoundProp]);
+  }, [socket, onMatchFound, onMatchEnd]);
 
   const handleJoinQueue = async () => {
     if (!socket) return toast.error('Socket not ready');
     if (!socket.connected) return toast.error('Not connected to duel server');
     if (inQueue || isJoining) return;
+
+    const registrationKey = `${socket.id}:${userId}`;
+    if (registeredSocketKeyRef.current === registrationKey) {
+      setIsJoining(true);
+      socket.emit('join_matchmaking', { matchType });
+      return;
+    }
 
     setIsJoining(true);
 
@@ -129,6 +194,7 @@ export default function MatchmakingQueue({
           return;
         }
 
+        registeredSocketKeyRef.current = registrationKey;
         socket.emit('join_matchmaking', { matchType });
       });
   };
@@ -136,6 +202,12 @@ export default function MatchmakingQueue({
   const handleLeaveQueue = () => {
     if (!socket) return;
 
+    pendingMatchRef.current = null;
+    if (countdownIntervalRef.current) {
+      clearInterval(countdownIntervalRef.current);
+      countdownIntervalRef.current = null;
+    }
+    setCountdown(null);
     socket.emit('leave_matchmaking');
     setQueueTime(0);
     setQueuePosition(1);
