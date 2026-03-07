@@ -354,12 +354,24 @@ io.on("connection", (socket) => {
 
       if (!matchController) return;
 
-      const allMatches = [
-        ...(matchController.pendingMatches?.entries?.() ?? []),
-        ...(matchController.activeMatches?.entries?.() ?? []),
-      ];
+      const pendingEntry = (matchController.pendingMatches?.entries?.() ?? []).find(([, match]) => {
+        if (!match || match.winnerId || match.ending) return false;
+        return match.playerA?.userId === player.userId || match.playerB?.userId === player.userId;
+      });
 
-      const activeEntry = allMatches.find(([, match]) => {
+      if (pendingEntry) {
+        const [matchId, match] = pendingEntry;
+        if (match.countdownHandle) {
+          clearTimeout(match.countdownHandle);
+          match.countdownHandle = null;
+        }
+
+        const opponentId = match.playerA.userId === player.userId ? match.playerB.userId : match.playerA.userId;
+        await matchController.endMatch(matchId, opponentId, "disconnect_before_start", null);
+        return;
+      }
+
+      const activeEntry = (matchController.activeMatches?.entries?.() ?? []).find(([, match]) => {
         if (!match || match.winnerId || match.ending) return false;
         return match.playerA?.userId === player.userId || match.playerB?.userId === player.userId;
       });
@@ -367,16 +379,8 @@ io.on("connection", (socket) => {
       if (!activeEntry) return;
 
       const [matchId, match] = activeEntry;
-      if (match.countdownHandle) {
-        clearTimeout(match.countdownHandle);
-        match.countdownHandle = null;
-      }
-
       const opponentId = match.playerA.userId === player.userId ? match.playerB.userId : match.playerA.userId;
-      await matchController.endMatch(matchId, opponentId, "forfeit_disconnect", null);
-      if (matchController.pendingMatches?.has(matchId)) {
-        matchController.pendingMatches.delete(matchId);
-      }
+      await matchController.endMatch(matchId, opponentId, "disconnect_during_match", null);
     } catch (e) {
       console.error("Disconnect forfeit error:", e);
     }
@@ -389,3 +393,4 @@ app.get("/health", (_req, res) => res.json({ status: "ok", timestamp: new Date()
 httpServer.listen(PORT, "0.0.0.0", () => {
   console.log(`Duel server running on port ${PORT}`);
 });
+

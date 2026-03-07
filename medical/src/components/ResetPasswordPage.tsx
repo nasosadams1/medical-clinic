@@ -37,34 +37,46 @@ const ResetPasswordPage: React.FC = () => {
       try {
         const tokenHash = searchParams.get('token_hash');
         const type = searchParams.get('type');
+        const code = searchParams.get('code');
         const hashParams = new URLSearchParams(window.location.hash.startsWith('#') ? window.location.hash.slice(1) : '');
         const accessToken = hashParams.get('access_token');
         const refreshToken = hashParams.get('refresh_token');
+        const hasRecoveryParams = Boolean(tokenHash || type || code || accessToken || refreshToken);
 
-        if (tokenHash && type === 'recovery') {
+        let operationError: Error | null = null;
+
+        if (code) {
+          const { error } = await supabase.auth.exchangeCodeForSession(code);
+          if (error) operationError = error;
+        } else if (tokenHash && type === 'recovery') {
           const { error } = await supabase.auth.verifyOtp({
             token_hash: tokenHash,
             type: 'recovery',
           });
 
-          if (error) throw error;
+          if (error) operationError = error;
         } else if (accessToken && refreshToken) {
           const { error } = await supabase.auth.setSession({
             access_token: accessToken,
             refresh_token: refreshToken,
           });
 
-          if (error) throw error;
+          if (error) operationError = error;
         }
 
-        if (window.location.hash || searchParams.get('token_hash') || searchParams.get('type')) {
+        if (hasRecoveryParams) {
           window.history.replaceState({}, document.title, '/auth/reset-password');
         }
 
         const { data, error } = await supabase.auth.getSession();
         if (error) throw error;
         if (!data.session) {
-          throw new Error('This password reset link is invalid or has expired. Request a new reset email and try again.');
+          if (operationError) throw operationError;
+          throw new Error(
+            hasRecoveryParams
+              ? 'This password reset link is invalid or has expired. Request a new reset email and try again.'
+              : 'Open the newest password reset email to start a secure recovery session.'
+          );
         }
 
         if (cancelled) return;

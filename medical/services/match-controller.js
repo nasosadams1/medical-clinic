@@ -129,6 +129,10 @@ export class MatchController {
       socket?.emit?.("submission_error", { message: "Match is ending" });
       return;
     }
+    if (match.status !== "ACTIVE") {
+      socket?.emit?.("submission_error", { message: "Match has not started yet" });
+      return;
+    }
 
     const isPlayerA = userId === match.playerA.userId;
     const isPlayerB = userId === match.playerB.userId;
@@ -391,31 +395,46 @@ export class MatchController {
 
     const playerASubmission = match.submissions.get(match.playerA.userId) ?? null;
     const playerBSubmission = match.submissions.get(match.playerB.userId) ?? null;
-
+    const isCountdownDisconnect = reason === "disconnect_before_start";
+    const isActiveDisconnect = reason === "disconnect_during_match";
     const resolvedStrength = resolveResultStrength({
       difficulty: match.difficulty,
+      reason,
       winnerId,
       playerAId: match.playerA.userId,
       playerBId: match.playerB.userId,
       playerASubmission,
       playerBSubmission,
     });
-    match.resultStrength = resolvedStrength.resultStrength;
+    match.resultStrength = isCountdownDisconnect
+      ? "countdown_forfeit"
+      : isActiveDisconnect
+        ? "clear"
+        : resolvedStrength.resultStrength;
 
     let ratings = null;
-    if (isRanked && typeof this.eloRatingService?.calculateMatchRatings === "function") {
-      ratings = this.eloRatingService.calculateMatchRatings(
-        playerAData ?? { id: match.playerA.userId, rating: aRatingBefore },
-        playerBData ?? { id: match.playerB.userId, rating: bRatingBefore },
-        winnerId,
-        !winnerId,
-        {
-          difficulty: match.difficulty,
-          playerAActualScore: resolvedStrength.playerAActualScore,
-          playerBActualScore: resolvedStrength.playerBActualScore,
-          resultStrength: resolvedStrength.resultStrength,
-        }
-      );
+    if (isRanked) {
+      if (isCountdownDisconnect) {
+        ratings = this._calculateCountdownDisconnectRatings({
+          match,
+          winnerId,
+          playerAData,
+          playerBData,
+        });
+      } else if (typeof this.eloRatingService?.calculateMatchRatings === "function") {
+        ratings = this.eloRatingService.calculateMatchRatings(
+          playerAData ?? { id: match.playerA.userId, rating: aRatingBefore },
+          playerBData ?? { id: match.playerB.userId, rating: bRatingBefore },
+          winnerId,
+          !winnerId,
+          {
+            difficulty: match.difficulty,
+            playerAActualScore: resolvedStrength.playerAActualScore,
+            playerBActualScore: resolvedStrength.playerBActualScore,
+            resultStrength: match.resultStrength,
+          }
+        );
+      }
     }
 
     const playerARating = ratings?.playerA ?? {
@@ -460,7 +479,7 @@ export class MatchController {
       duration_seconds: durationSeconds,
       time_limit_seconds: match.timeLimitSec,
       problem_difficulty: match.difficulty,
-      duel_result_strength: resolvedStrength.resultStrength,
+      duel_result_strength: match.resultStrength,
       player_a_rating_after: playerARating.ratingAfter,
       player_b_rating_after: playerBRating.ratingAfter,
       player_a_rating_change: playerARating.ratingChange ?? 0,
@@ -505,9 +524,9 @@ export class MatchController {
         reason,
         duration_seconds: durationSeconds,
         difficulty: match.difficulty,
-        result_strength: resolvedStrength.resultStrength,
-        player_a_actual_score: resolvedStrength.playerAActualScore,
-        player_b_actual_score: resolvedStrength.playerBActualScore,
+        result_strength: match.resultStrength,
+        player_a_actual_score: isCountdownDisconnect ? playerARating.actualScore : resolvedStrength.playerAActualScore,
+        player_b_actual_score: isCountdownDisconnect ? playerBRating.actualScore : resolvedStrength.playerBActualScore,
       },
     });
 
@@ -517,7 +536,7 @@ export class MatchController {
       matchId,
       winnerId: winnerId ?? null,
       reason,
-      resultStrength: resolvedStrength.resultStrength,
+      resultStrength: match.resultStrength,
       duration: durationSeconds,
       matchType: match.matchType,
       difficulty: match.difficulty,
@@ -557,6 +576,7 @@ export class MatchController {
     this._emitToPlayer(match.playerB, "match_end", matchEndData);
 
     this.activeMatches.delete(matchId);
+    this.pendingMatches.delete(matchId);
     console.log(`ðŸ Match ${matchId} ended. Winner: ${winnerId || "Draw"}`);
   }
 
@@ -586,10 +606,10 @@ export class MatchController {
             match_id: matchId,
             event_type: "disconnect",
             user_id: userId,
-            payload: { reason: "forfeit_disconnect" },
+            payload: { reason: "disconnect_during_match" },
           });
 
-          await this.endMatch(matchId, opponentId, "forfeit_disconnect", null);
+          await this.endMatch(matchId, opponentId, "disconnect_during_match", null);
         } finally {
           this.disconnectTimers.delete(userId);
         }
@@ -757,6 +777,98 @@ export class MatchController {
     return null;
   }
 
+  _buildStaticRatingData({
+    userRow,
+    ratingBefore,
+    ratingAfter,
+    actualScore,
+    expectedScore,
+    difficulty,
+    subratingBefore = null,
+    subratingAfter = null,
+  }) {
+    const normalizedDifficulty = normalizeDifficulty(difficulty);
+    const subratingField = `${normalizedDifficulty}_rating`;
+    const safeRatingBefore = this.eloRatingService?.normalizeRating?.(ratingBefore) ?? Math.max(500, Number(ratingBefore) || 500);
+    const safeRatingAfter = this.eloRatingService?.normalizeRating?.(ratingAfter) ?? Math.max(500, Number(ratingAfter) || 500);
+    const resolvedSubratingBefore = subratingBefore ?? userRow?.[subratingField] ?? safeRatingBefore;
+    const resolvedSubratingAfter = subratingAfter ?? resolvedSubratingBefore;
+
+    return {
+      actualScore,
+      expectedScore,
+      ratingBefore: safeRatingBefore,
+      ratingAfter: safeRatingAfter,
+      ratingChange: safeRatingAfter - safeRatingBefore,
+      tier: this.eloRatingService?.getTier?.(safeRatingAfter) ?? "Bronze",
+      division: this.eloRatingService?.getDivision?.(safeRatingAfter) ?? "III",
+      subratingField,
+      subratingBefore: resolvedSubratingBefore,
+      subratingAfter: resolvedSubratingAfter,
+      subratingChange: resolvedSubratingAfter - resolvedSubratingBefore,
+    };
+  }
+
+  _calculateCountdownDisconnectRatings({ match, winnerId, playerAData, playerBData }) {
+    if (!winnerId || !this.eloRatingService) return null;
+
+    const difficulty = normalizeDifficulty(match.difficulty);
+    const subratingField = `${difficulty}_rating`;
+    const playerAResolved = playerAData ?? { id: match.playerA.userId, rating: match.playerA.rating ?? 500 };
+    const playerBResolved = playerBData ?? { id: match.playerB.userId, rating: match.playerB.rating ?? 500 };
+    const loserId = winnerId === match.playerA.userId ? match.playerB.userId : match.playerA.userId;
+    const loserIsPlayerA = loserId === match.playerA.userId;
+
+    const winnerRow = loserIsPlayerA ? playerBResolved : playerAResolved;
+    const loserRow = loserIsPlayerA ? playerAResolved : playerBResolved;
+    const winnerRatingBefore = this.eloRatingService.normalizeRating(winnerRow.rating);
+    const loserRatingBefore = this.eloRatingService.normalizeRating(loserRow.rating);
+    const winnerExpectedScore = this.eloRatingService.getExpectedScore(winnerRatingBefore, loserRatingBefore);
+    const loserGamesPlayed = this.eloRatingService._getGamesPlayed?.(loserRow) ?? loserRow?.games_played ?? 0;
+    const loserGlobal = this.eloRatingService.calculateRatingChange(
+      loserRatingBefore,
+      winnerRatingBefore,
+      0,
+      loserGamesPlayed,
+      difficulty,
+    );
+
+    const winnerSubratingBefore = this.eloRatingService.normalizeRating(winnerRow[subratingField] ?? winnerRatingBefore);
+    const loserSubratingBefore = this.eloRatingService.normalizeRating(loserRow[subratingField] ?? loserRatingBefore);
+    const loserSubrating = this.eloRatingService.calculateRatingChange(
+      loserSubratingBefore,
+      winnerSubratingBefore,
+      0,
+      loserGamesPlayed,
+      difficulty,
+    );
+
+    const winnerRatingData = this._buildStaticRatingData({
+      userRow: winnerRow,
+      ratingBefore: winnerRatingBefore,
+      ratingAfter: winnerRatingBefore,
+      actualScore: 1,
+      expectedScore: winnerExpectedScore,
+      difficulty,
+      subratingBefore: winnerSubratingBefore,
+      subratingAfter: winnerSubratingBefore,
+    });
+
+    const loserRatingData = this._buildStaticRatingData({
+      userRow: loserRow,
+      ratingBefore: loserRatingBefore,
+      ratingAfter: loserRatingBefore + loserGlobal.ratingChange,
+      actualScore: 0,
+      expectedScore: loserGlobal.expectedScore,
+      difficulty,
+      subratingBefore: loserSubratingBefore,
+      subratingAfter: loserSubratingBefore + loserSubrating.ratingChange,
+    });
+
+    return loserIsPlayerA
+      ? { playerA: loserRatingData, playerB: winnerRatingData }
+      : { playerA: winnerRatingData, playerB: loserRatingData };
+  }
   _buildUserUpdate(userRow, { ratingData, won, lost, drew }) {
     const wins = userRow?.wins ?? 0;
     const losses = userRow?.losses ?? 0;
@@ -821,6 +933,13 @@ export class MatchController {
     }
   }
 }
+
+
+
+
+
+
+
 
 
 

@@ -31,6 +31,7 @@ export default function MatchmakingQueue({
 
   const countdownIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const pendingMatchRef = useRef<any>(null);
+  const pendingMatchEndRef = useRef<any>(null);
   const registeredSocketKeyRef = useRef<string | null>(null);
 
   useEffect(() => {
@@ -46,6 +47,7 @@ export default function MatchmakingQueue({
     const resetPendingState = () => {
       clearCountdown();
       pendingMatchRef.current = null;
+      pendingMatchEndRef.current = null;
       setCountdown(null);
     };
 
@@ -84,6 +86,7 @@ export default function MatchmakingQueue({
     const onMatchFoundEvent = (data: any) => {
       toast.success(`Match found! Opponent: ${data?.opponent?.username ?? 'Unknown'}`);
       pendingMatchRef.current = data;
+      pendingMatchEndRef.current = null;
       setInQueue(false);
       setIsJoining(false);
       setCountdown(data.countdown ?? 3);
@@ -95,12 +98,20 @@ export default function MatchmakingQueue({
         setCountdown(Math.max(timeLeft, 0));
         if (timeLeft <= 0) {
           clearCountdown();
+          if (pendingMatchEndRef.current) {
+            const pendingResult = pendingMatchEndRef.current;
+            resetPendingState();
+            setInQueue(false);
+            setIsJoining(false);
+            onMatchEnd(pendingResult);
+          }
         }
       }, 1000);
     };
 
     const onDuelStartedEvent = (data: any) => {
       if (pendingMatchRef.current?.matchId !== data?.matchId) return;
+      if (pendingMatchEndRef.current) return;
 
       const merged = {
         ...pendingMatchRef.current,
@@ -114,6 +125,13 @@ export default function MatchmakingQueue({
 
     const onMatchEndEvent = (data: any) => {
       if (pendingMatchRef.current?.matchId !== data?.matchId) return;
+
+      if (countdownIntervalRef.current && data?.reason === 'disconnect_before_start') {
+        pendingMatchEndRef.current = data;
+        toast('Opponent disconnected before the duel started.', { icon: '\u26A0' });
+        return;
+      }
+
       resetPendingState();
       setInQueue(false);
       setIsJoining(false);
@@ -203,6 +221,7 @@ export default function MatchmakingQueue({
     if (!socket) return;
 
     pendingMatchRef.current = null;
+    pendingMatchEndRef.current = null;
     if (countdownIntervalRef.current) {
       clearInterval(countdownIntervalRef.current);
       countdownIntervalRef.current = null;

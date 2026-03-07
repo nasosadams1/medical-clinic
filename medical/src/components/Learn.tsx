@@ -35,9 +35,10 @@ const Learn: React.FC<LearnProps> = ({ setCurrentSection, openAuthModal, isAuthe
   };
 
   const currentLessons = useMemo(() => {
-    return getLessonsByLanguage(selectedLanguage).map((lesson) => ({
+    return getLessonsByLanguage(selectedLanguage).map((lesson, index) => ({
       ...lesson,
       tier: normalizeDifficultyTier(lesson.difficulty),
+      sortIndex: index,
     }));
   }, [selectedLanguage]);
 
@@ -98,7 +99,7 @@ const Learn: React.FC<LearnProps> = ({ setCurrentSection, openAuthModal, isAuthe
       .sort((left, right) => {
         const tierDelta = tierOrder[left.tier] - tierOrder[right.tier];
         if (tierDelta !== 0) return tierDelta;
-        return left.lessonIndex - right.lessonIndex;
+        return left.sortIndex - right.sortIndex;
       });
   }, [currentLessons, filter, user.completedLessons]);
 
@@ -342,3 +343,5 @@ const Learn: React.FC<LearnProps> = ({ setCurrentSection, openAuthModal, isAuthe
 };
 
 export default Learn;
+
+

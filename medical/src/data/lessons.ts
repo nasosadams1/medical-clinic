@@ -12367,10 +12367,78 @@ const rebuildDeploymentLesson = (lesson: Lesson): Lesson => {
   };
 };
 
-const enabledPythonLessons = pythonLessons.filter((lesson) => lesson.id !== 'python-advanced-math');
-const deploymentJavascriptLessons = javascriptLessons.map(rebuildDeploymentLesson);
-const deploymentCppLessons = cppLessons.map(rebuildDeploymentLesson);
-const deploymentJavaLessons = javaLessons.map(rebuildDeploymentLesson);
+const LESSON_REWARD_BANDS: Record<
+  Lesson['difficulty'],
+  { baseXp: [number, number]; baselineTime: [number, number] }
+> = {
+  Beginner: {
+    baseXp: [26, 42],
+    baselineTime: [2, 3],
+  },
+  Intermediate: {
+    baseXp: [42, 62],
+    baselineTime: [3, 4],
+  },
+  Advanced: {
+    baseXp: [62, 86],
+    baselineTime: [4, 5],
+  },
+};
+
+const interpolate = (start: number, end: number, progress: number) => start + (end - start) * progress;
+
+const roundToHalfMinute = (value: number) => Math.round(value * 2) / 2;
+
+// Keep the existing XP formula and rebalance only the lesson inputs it uses.
+const rebalanceLessonRewards = (lessons: Lesson[]): Lesson[] => {
+  const tierProgressByLessonId = new Map<string, { position: number; count: number }>();
+
+  (['Beginner', 'Intermediate', 'Advanced'] as const).forEach((tier) => {
+    const tierLessons = lessons.filter((lesson) => lesson.difficulty === tier);
+    tierLessons.forEach((lesson, index) => {
+      tierProgressByLessonId.set(lesson.id, {
+        position: index,
+        count: tierLessons.length,
+      });
+    });
+  });
+
+  return lessons.map((lesson) => {
+    const tierProgress = tierProgressByLessonId.get(lesson.id) ?? { position: 0, count: 1 };
+    const normalizedTierProgress =
+      tierProgress.count <= 1 ? 0 : tierProgress.position / (tierProgress.count - 1);
+    const rewardBand = LESSON_REWARD_BANDS[lesson.difficulty];
+    const targetBaseXp = Math.round(
+      interpolate(rewardBand.baseXp[0], rewardBand.baseXp[1], normalizedTierProgress)
+    );
+    const targetBaselineTime = roundToHalfMinute(
+      interpolate(
+        rewardBand.baselineTime[0],
+        rewardBand.baselineTime[1],
+        normalizedTierProgress
+      )
+    );
+
+    return {
+      ...lesson,
+      baseXP: targetBaseXp,
+      baselineTime: Math.max(lesson.baselineTime, targetBaselineTime),
+    };
+  });
+};
+
+const enabledPythonLessons = rebalanceLessonRewards(
+  pythonLessons.filter((lesson) => lesson.id !== 'python-advanced-math')
+);
+const deploymentJavascriptLessons = rebalanceLessonRewards(
+  javascriptLessons.map(rebuildDeploymentLesson)
+);
+const deploymentCppLessons = rebalanceLessonRewards(
+  cppLessons.map(rebuildDeploymentLesson)
+);
+const deploymentJavaLessons = rebalanceLessonRewards(
+  javaLessons.map(rebuildDeploymentLesson)
+);
 
 export const allLessons: Lesson[] = [
   ...enabledPythonLessons,

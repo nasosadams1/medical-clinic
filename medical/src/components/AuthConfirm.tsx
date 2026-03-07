@@ -17,7 +17,8 @@ const AuthConfirm: React.FC = () => {
   const confirmationParams = useMemo(() => {
     return {
       tokenHash: searchParams.get('token_hash'),
-      type: searchParams.get('type')
+      type: searchParams.get('type'),
+      code: searchParams.get('code')
     }
   }, [searchParams])
 
@@ -26,26 +27,48 @@ const AuthConfirm: React.FC = () => {
 
     const verifyEmail = async () => {
       try {
-        if (!confirmationParams.tokenHash || !confirmationParams.type) {
-          setStatus('error')
-          setTitle('This link is not valid')
-          setMessage('The confirmation link is incomplete or has already been used. Request a fresh verification email and try again.')
-          return
+        const hashParams = new URLSearchParams(window.location.hash.startsWith('#') ? window.location.hash.slice(1) : '')
+        const accessToken = hashParams.get('access_token')
+        const refreshToken = hashParams.get('refresh_token')
+        const hasAuthParams = Boolean(
+          confirmationParams.code ||
+          confirmationParams.tokenHash ||
+          confirmationParams.type ||
+          accessToken ||
+          refreshToken
+        )
+
+        let operationError: Error | null = null
+
+        if (confirmationParams.code) {
+          const { error } = await supabase.auth.exchangeCodeForSession(confirmationParams.code)
+          if (error) operationError = error
+        } else if (confirmationParams.tokenHash && confirmationParams.type) {
+          const { error } = await supabase.auth.verifyOtp({
+            token_hash: confirmationParams.tokenHash,
+            type: confirmationParams.type as 'signup' | 'email_change' | 'recovery' | 'invite' | 'email'
+          })
+
+          if (error) operationError = error
+        } else if (accessToken && refreshToken) {
+          const { error } = await supabase.auth.setSession({
+            access_token: accessToken,
+            refresh_token: refreshToken
+          })
+
+          if (error) operationError = error
         }
 
-        const { data, error } = await supabase.auth.verifyOtp({
-          token_hash: confirmationParams.tokenHash,
-          type: confirmationParams.type as 'signup' | 'email_change' | 'recovery' | 'invite' | 'email'
-        })
+        if (hasAuthParams) {
+          window.history.replaceState({}, document.title, '/auth/confirm')
+        }
 
+        const { data, error } = await supabase.auth.getSession()
         if (error) {
-          setStatus('error')
-          setTitle('Verification could not be completed')
-          setMessage(error.message || 'This verification link has expired or is no longer valid. Return to sign up and request a new email.')
-          return
+          throw error
         }
 
-        if (data.user) {
+        if (data.session?.user) {
           setStatus('success')
           setTitle('Email verified')
           setMessage('Your account is confirmed and ready to use. We are signing you in now.')
@@ -53,13 +76,19 @@ const AuthConfirm: React.FC = () => {
           return
         }
 
+        if (operationError) {
+          throw operationError
+        }
+
+        throw new Error(
+          hasAuthParams
+            ? 'The confirmation link is incomplete or has already been used. Request a fresh verification email and try again.'
+            : 'We could not find a valid verification session for this page. Open the newest confirmation email and try again.'
+        )
+      } catch (error: any) {
         setStatus('error')
         setTitle('Verification could not be completed')
-        setMessage('We could not confirm your account from this link. Request a fresh verification email and try again.')
-      } catch {
-        setStatus('error')
-        setTitle('Verification failed')
-        setMessage('An unexpected error interrupted verification. Try the link again or request a new email from the sign up screen.')
+        setMessage(error?.message || 'An unexpected error interrupted verification. Try the link again or request a new email from the sign up screen.')
       }
     }
 
@@ -109,7 +138,7 @@ const AuthConfirm: React.FC = () => {
               <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
                 <p className="text-sm font-medium text-white">If the link fails</p>
                 <p className="mt-2 text-sm leading-6 text-slate-300">
-                  Use the newest email only. Older verification links can be invalidated after a resend.
+                  Open the newest confirmation email. Older links can become invalid after a resend or after they have already been used.
                 </p>
               </div>
             </div>
@@ -139,7 +168,7 @@ const AuthConfirm: React.FC = () => {
 
             {status === 'error' && (
               <div className="mt-8 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-900">
-                If you requested multiple emails, only the most recent verification link will work.
+                If you requested multiple emails, only the most recent verification link should be used.
               </div>
             )}
 

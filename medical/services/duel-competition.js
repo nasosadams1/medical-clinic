@@ -93,6 +93,7 @@ export function computeSubmissionMetrics({
 
 export function resolveResultStrength({
   difficulty,
+  reason,
   winnerId,
   playerAId,
   playerBId,
@@ -104,6 +105,22 @@ export function resolveResultStrength({
       playerAActualScore: 0.5,
       playerBActualScore: 0.5,
       resultStrength: "draw",
+    };
+  }
+
+  if (typeof reason === "string" && reason.startsWith("disconnect")) {
+    if (winnerId === playerAId) {
+      return {
+        playerAActualScore: 1.0,
+        playerBActualScore: 0.0,
+        resultStrength: "clear",
+      };
+    }
+
+    return {
+      playerAActualScore: 0.0,
+      playerBActualScore: 1.0,
+      resultStrength: "clear",
     };
   }
 
@@ -170,3 +187,4 @@ export function resolveResultStrength({
     resultStrength,
   };
 }
+
