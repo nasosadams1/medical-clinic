@@ -3,7 +3,6 @@ import React, { useState, useEffect } from 'react';
 import { getLevelProgress, getLevelTier } from '../hooks/levelSystem';
 import {
   User,
-  Settings,
   Trophy,
   Calendar,
   Target,
@@ -25,7 +24,7 @@ import { supabase } from '../lib/supabase';
 import { getEloRankInfo } from '../lib/eloRanks';
 import { avatars, getRarityColor } from '../data/avatars';
 import { achievements } from '../data/achievements';
-import { getTotalLessonsByLanguage, getCompletedLessonsByLanguage } from '../data/lessons';
+import { allLessons, getTotalLessonsByLanguage, getCompletedLessonsByLanguage } from '../data/lessons';
 
 const Profile: React.FC = () => {
   // Destructure refreshDisplayName from useUser
@@ -53,6 +52,7 @@ const Profile: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'overview' | 'progress' | 'achievements' | 'activity'>('overview');
   const [isRefreshingName, setIsRefreshingName] = useState(false); // NEW: Loading state for name refresh
   const [duelRating, setDuelRating] = useState(500);
+  const [recentLessonEvents, setRecentLessonEvents] = useState<Array<{ lessonId: string; xp: number; completedAt: string }>>([]);
 
   // Update current time every second for boost timers
   useEffect(() => {
@@ -84,7 +84,7 @@ const Profile: React.FC = () => {
         .maybeSingle();
 
       if (!cancelled) {
-        setDuelRating(data?.rating ?? '🏆 500');
+        setDuelRating(data?.rating ?? 500);
       }
     };
 
@@ -95,6 +95,52 @@ const Profile: React.FC = () => {
     };
   }, [user?.id]);
 
+
+  const lessonTitleById = React.useMemo(() => {
+    return new Map(allLessons.map((lesson) => [lesson.id, lesson.title]));
+  }, []);
+
+  useEffect(() => {
+    if (!user || user.id === 'guest') {
+      setRecentLessonEvents([]);
+      return;
+    }
+
+    let cancelled = false;
+
+    const loadRecentLessonEvents = async () => {
+      const { data, error } = await supabase
+        .from('lesson_completion_events')
+        .select('lesson_id, xp_earned, completed_at')
+        .eq('user_id', user.id)
+        .order('completed_at', { ascending: false })
+        .limit(5);
+
+      if (cancelled) {
+        return;
+      }
+
+      if (error) {
+        console.error('Failed to load recent lesson activity:', error);
+        setRecentLessonEvents([]);
+        return;
+      }
+
+      setRecentLessonEvents(
+        (data || []).map((entry) => ({
+          lessonId: entry.lesson_id,
+          xp: entry.xp_earned ?? 0,
+          completedAt: entry.completed_at,
+        }))
+      );
+    };
+
+    loadRecentLessonEvents();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.id]);
   const scrollToProfileSection = (sectionId: 'overview' | 'progress' | 'achievements' | 'activity') => {
     setActiveTab(sectionId);
     const element = document.getElementById(`profile-${sectionId}`);
@@ -370,11 +416,18 @@ const Profile: React.FC = () => {
   };
 
   const recentActivity = [
-    ...user.completedLessons.slice(-5).reverse().map((lessonId: string) => ({
+    ...recentLessonEvents.map((entry) => ({
       action: 'Completed lesson',
-      item: lessonId.replace(/_/g, ' ').replace(/^\w/, (c: string) => c.toUpperCase()),
-      xp: 50,
-      time: 'Recently',
+      item:
+        lessonTitleById.get(entry.lessonId) ||
+        entry.lessonId.replace(/[-_]/g, ' ').replace(/\b\w/g, (char: string) => char.toUpperCase()),
+      xp: entry.xp,
+      time: new Date(entry.completedAt).toLocaleString(undefined, {
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+      }),
       icon: '📚',
     })),
     ...user.unlockedAchievements.slice(-3).reverse().map((achievementId: string) => {
@@ -483,28 +536,14 @@ const Profile: React.FC = () => {
                 </p>
                 <div className="flex flex-col sm:flex-row gap-2">
                   <button
-                    onClick={() => setIsEditing(true)}
-                    className="inline-flex items-center justify-center space-x-2 px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg transition-colors text-sm lg:text-base"
-                  >
-                    <Settings className="w-4 h-4" />
-                    <span>Edit Profile</span>
-                  </button>
-                  <button
                     onClick={() => setShowAvatarStore(true)}
                     className="inline-flex items-center justify-center space-x-2 px-4 py-2 bg-purple-100 hover:bg-purple-200 text-purple-700 rounded-lg transition-colors text-sm lg:text-base"
                   >
                     <User className="w-4 h-4" />
-                    <span>Change Avatar</span>
+                    <span>Avatar Collection</span>
                   </button>
                 </div>
                 {/* NEW: Display name info */}
-                {user.id !== 'guest' && (
-                  <div className="mt-3 p-2 bg-blue-50 rounded-lg">
-                    <p className="text-xs text-blue-600 text-center">
-                      Display name synced from your account
-                    </p>
-                  </div>
-                )}
               </div>
             )}
           </div>
@@ -597,18 +636,6 @@ const Profile: React.FC = () => {
               </div>
             )}
 
-            {/* Leaderboard Sync Status (Visual only, sync handled by AuthContext) */}
-            <div className="mt-4 p-3 bg-blue-50 rounded-lg border border-blue-200">
-              <div className="flex flex-col sm:flex-row items-center justify-between gap-2">
-                <div className="flex items-center gap-2">
-                  <Trophy className="w-4 h-4 text-blue-600" />
-                  <span className="text-sm font-medium text-blue-800">Leaderboard Status</span>
-                </div>
-                <div className="text-xs text-blue-600 text-center sm:text-right">
-                  Display Name: {user.name} | XP: {user.xp} | Lessons: {user.totalLessonsCompleted} | ELO: {duelRating} ({duelRank.tier})
-                </div>
-              </div>
-            </div>
           </div>
         </div>
       </div>
@@ -726,11 +753,6 @@ const Profile: React.FC = () => {
             </div>
             <div className="flex justify-between text-sm text-gray-600 mt-2">
               <span>Progress across all languages</span>
-              <span className={calculatedTotalCompleted !== user.totalLessonsCompleted ? 'text-orange-600 font-medium' : ''}>
-                {calculatedTotalCompleted !== user.totalLessonsCompleted ? 
-                  `Syncing... (${calculatedTotalCompleted} calculated vs ${user.totalLessonsCompleted} stored)` : 
-                  'All data synchronized'}
-              </span>
             </div>
           </div>
 
@@ -1005,3 +1027,9 @@ const Profile: React.FC = () => {
 };
 
 export default Profile;
+
+
+
+
+
+

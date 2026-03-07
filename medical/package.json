@@ -17,7 +17,8 @@
     "start:api": "node server.js",
     "seed": "node seed-problems.js",
     "start:judge-service": "node judge-service.js",
-    "start:duel-with-remote-judge": "node duel-server.js"
+    "start:duel-with-remote-judge": "node duel-server.js",
+    "test:feedback": "node scripts/test-feedback.js"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.1",
@@ -71,3 +72,5 @@
     "vite": "^7.1.1"
   }
 }
+
+

@@ -10,6 +10,8 @@ import {
 } from 'lucide-react';
 import { useUser } from '../context/UserContext';
 import { useAuth } from '../context/AuthContext';
+import AccountFeedbackPanel from './account/AccountFeedbackPanel';
+import AccountFeedbackAdminPanel from './account/AccountFeedbackAdminPanel';
 
 const USERNAME_REGEX = /^[a-zA-Z0-9_]+$/;
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -51,6 +53,10 @@ const Account: React.FC = () => {
   const isEmailVerified = !!authUser?.email_confirmed_at;
   const hasNameChanges = displayName.trim() !== (user?.name ?? '');
   const hasEmailChanges = pendingEmail.trim().toLowerCase() !== accountEmail.trim().toLowerCase();
+  const canReviewFeedback =
+    authUser?.app_metadata?.role === 'admin' ||
+    authUser?.user_metadata?.role === 'admin' ||
+    authUser?.user_metadata?.is_admin === true;
 
   const lastSignIn = useMemo(() => {
     if (!authUser?.last_sign_in_at) return 'Unknown';
@@ -371,9 +377,17 @@ const Account: React.FC = () => {
             </div>
           </section>
         </div>
+
+        <div className="mt-6 space-y-6">
+          <AccountFeedbackPanel />
+          {canReviewFeedback && <AccountFeedbackAdminPanel />}
+        </div>
       </div>
     </div>
   );
 };
 
 export default Account;
+
+
+

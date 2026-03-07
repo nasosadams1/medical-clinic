@@ -42,7 +42,17 @@ export class EloRatingService {
 
   calculateRatingChange(playerRating, opponentRating, actualScore, gamesPlayed = 0, difficulty = 'medium') {
     const expectedScore = this.getExpectedScore(playerRating, opponentRating);
-    const ratingChange = Math.round(this.getKFactor(gamesPlayed, difficulty) * (actualScore - expectedScore));
+    const rawRatingChange = Math.round(this.getKFactor(gamesPlayed, difficulty) * (actualScore - expectedScore));
+    let ratingChange = rawRatingChange;
+
+    if (actualScore > 0.5) {
+      const minimumWinGain = actualScore >= 0.93 ? 6 : 4;
+      ratingChange = Math.max(rawRatingChange, minimumWinGain);
+    } else if (actualScore < 0.5) {
+      const minimumLossMagnitude = actualScore <= 0.07 ? 5 : 4;
+      ratingChange = Math.min(rawRatingChange, -minimumLossMagnitude);
+    }
+
     return {
       expectedScore,
       ratingChange,
@@ -192,3 +202,5 @@ export class EloRatingService {
     };
   }
 }
+
+

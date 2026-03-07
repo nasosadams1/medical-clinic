@@ -6,6 +6,12 @@ import http from 'http';
 import { Server } from 'socket.io';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import dotenv from 'dotenv';
+import helmet from 'helmet';
+import { createClient } from '@supabase/supabase-js';
+import { createFeedbackRouter } from './services/feedback/routes.js';
+
+dotenv.config();
 
 const app = express();
 const server = http.createServer(app);
@@ -13,10 +19,24 @@ const io = new Server(server, {
   cors: { origin: '*', methods: ['GET', 'POST'] }
 });
 
+app.set('trust proxy', 1);
+app.use(helmet({ crossOriginResourcePolicy: false }));
 app.use(cors());
-app.use(bodyParser.json());
+app.use(bodyParser.json({ limit: process.env.API_JSON_LIMIT || '20mb' }));
 
 
+
+const SUPABASE_URL = process.env.SUPABASE_URL || '';
+const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+const supabaseAdmin = SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY
+  ? createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
+      auth: { persistSession: false, autoRefreshToken: false },
+    })
+  : null;
+
+if (!supabaseAdmin) {
+  console.warn('Feedback API disabled: missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY.');
+}
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -678,6 +698,8 @@ const emitLeaderboards = () => {
   });
 };
 
+app.use('/api/feedback', createFeedbackRouter({ supabaseAdmin }));
+
 // REST API Endpoints
 app.get('/', (req, res) => {
   res.json({
@@ -844,4 +866,8 @@ server.listen(PORT, () => {
   console.log('🔄 Real-time updates enabled via Socket.IO');
   console.log(`🔍 Debug endpoint available at http://localhost:${PORT}/debug/:userId`);
 });
+
+
+
+
 
