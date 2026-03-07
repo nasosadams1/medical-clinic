@@ -1,5 +1,5 @@
 import express from 'express';
-import rateLimit from 'express-rate-limit';
+import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import { FeedbackStatusUpdateSchema, FeedbackSubmissionSchema } from '../../shared/feedback-contract.js';
 import {
   FEEDBACK_ADMIN_USER_IDS,
@@ -81,7 +81,7 @@ const createLimiter = (windowMs, max) =>
     max,
     standardHeaders: true,
     legacyHeaders: false,
-    keyGenerator: (req) => req.feedbackUser?.id || req.ip,
+    keyGenerator: (req) => req.feedbackUser?.id || ipKeyGenerator(req.ip || ''),
     handler: (_req, res) => {
       res.status(429).json({ error: 'Too many feedback requests. Please slow down and try again shortly.' });
     },
@@ -329,4 +329,5 @@ export const createFeedbackRouter = ({ supabaseAdmin }) => {
 
   return router;
 };
+
 
