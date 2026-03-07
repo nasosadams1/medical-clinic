@@ -10,8 +10,9 @@ import {
 export class EloRatingService {
   constructor() {
     this.STARTING_RATING = 500;
+    this.MIN_RATING = 300;
     this.RANKS = [
-      { tier: 'Bronze', min: 500, max: 799 },
+      { tier: 'Bronze', min: 300, max: 799 },
       { tier: 'Silver', min: 800, max: 1099 },
       { tier: 'Gold', min: 1100, max: 1399 },
       { tier: 'Platinum', min: 1400, max: 1699 },
@@ -23,7 +24,8 @@ export class EloRatingService {
   }
 
   normalizeRating(rating) {
-    return Math.max(this.STARTING_RATING, Number(rating) || this.STARTING_RATING);
+    const numericRating = Number(rating);
+    return Math.max(this.MIN_RATING, Number.isFinite(numericRating) ? numericRating : this.STARTING_RATING);
   }
 
   getExpectedScore(playerRating, opponentRating) {
@@ -102,7 +104,7 @@ export class EloRatingService {
     return {
       expectedScore,
       ratingBefore: playerRating,
-      ratingAfter: Math.max(this.STARTING_RATING, playerRating + ratingChange),
+      ratingAfter: Math.max(this.MIN_RATING, playerRating + ratingChange),
       ratingChange,
     };
   }

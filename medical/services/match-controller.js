@@ -789,8 +789,8 @@ export class MatchController {
   }) {
     const normalizedDifficulty = normalizeDifficulty(difficulty);
     const subratingField = `${normalizedDifficulty}_rating`;
-    const safeRatingBefore = this.eloRatingService?.normalizeRating?.(ratingBefore) ?? Math.max(500, Number(ratingBefore) || 500);
-    const safeRatingAfter = this.eloRatingService?.normalizeRating?.(ratingAfter) ?? Math.max(500, Number(ratingAfter) || 500);
+    const safeRatingBefore = this.eloRatingService?.normalizeRating?.(ratingBefore) ?? Math.max(300, Number(ratingBefore) || 500);
+    const safeRatingAfter = this.eloRatingService?.normalizeRating?.(ratingAfter) ?? Math.max(300, Number(ratingAfter) || 500);
     const resolvedSubratingBefore = subratingBefore ?? userRow?.[subratingField] ?? safeRatingBefore;
     const resolvedSubratingAfter = subratingAfter ?? resolvedSubratingBefore;
 
@@ -933,6 +933,7 @@ export class MatchController {
     }
   }
 }
+
 
 
 
