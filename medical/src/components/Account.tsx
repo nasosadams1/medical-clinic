@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import {
   ShieldCheck,
   Mail,
@@ -7,11 +8,16 @@ import {
   RefreshCw,
   Save,
   LogOut,
+  FileText,
+  ExternalLink,
+  CheckCircle2,
 } from 'lucide-react';
 import { useUser } from '../context/UserContext';
 import { useAuth } from '../context/AuthContext';
 import AccountFeedbackPanel from './account/AccountFeedbackPanel';
 import AccountFeedbackAdminPanel from './account/AccountFeedbackAdminPanel';
+import AccountDuelModerationPanel from './account/AccountDuelModerationPanel';
+import { acceptLatestLegalDocuments, fetchLegalStatus, getLegalDocumentLinks, type LegalStatusResponse } from '../lib/legal';
 
 const USERNAME_REGEX = /^[a-zA-Z0-9_]+$/;
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -36,6 +42,9 @@ const Account: React.FC = () => {
   const [isSendingReset, setIsSendingReset] = useState(false);
   const [isResendingVerification, setIsResendingVerification] = useState(false);
   const [isSigningOut, setIsSigningOut] = useState(false);
+  const [legalStatus, setLegalStatus] = useState<LegalStatusResponse | null>(null);
+  const [isLoadingLegal, setIsLoadingLegal] = useState(true);
+  const [isAcceptingLegal, setIsAcceptingLegal] = useState(false);
 
   useEffect(() => {
     if (isSavingName) return;
@@ -54,6 +63,8 @@ const Account: React.FC = () => {
   const hasNameChanges = displayName.trim() !== (user?.name ?? '');
   const hasEmailChanges = pendingEmail.trim().toLowerCase() !== accountEmail.trim().toLowerCase();
 
+  const legalDocuments = useMemo(() => getLegalDocumentLinks(), []);
+
   const lastSignIn = useMemo(() => {
     if (!authUser?.last_sign_in_at) return 'Unknown';
 
@@ -66,6 +77,36 @@ const Account: React.FC = () => {
     });
   }, [authUser?.last_sign_in_at]);
 
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadLegalStatus = async () => {
+      setIsLoadingLegal(true);
+      try {
+        const nextStatus = await fetchLegalStatus();
+        if (!cancelled) {
+          setLegalStatus(nextStatus);
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setLegalStatus(null);
+        }
+      } finally {
+        if (!cancelled) {
+          setIsLoadingLegal(false);
+        }
+      }
+    };
+
+    if (authUser?.id) {
+      void loadLegalStatus();
+    }
+
+    return () => {
+      cancelled = true;
+    };
+  }, [authUser?.id]);
   if (!user || !authUser || !isAuthenticated()) {
     return null;
   }
@@ -189,6 +230,29 @@ const Account: React.FC = () => {
     }
   };
 
+
+  const handleAcceptCurrentPolicies = async () => {
+    if (isAcceptingLegal) return;
+
+    setIsAcceptingLegal(true);
+    try {
+      const nextStatus = await acceptLatestLegalDocuments('account');
+      setLegalStatus(nextStatus);
+      addNotification({
+        message: 'Current legal documents accepted successfully.',
+        type: 'success',
+        icon: '\u{2705}',
+      });
+    } catch (error: any) {
+      addNotification({
+        message: error?.message || 'We could not record legal acceptance.',
+        type: 'error',
+        icon: '\u{26A0}',
+      });
+    } finally {
+      setIsAcceptingLegal(false);
+    }
+  };
   const handleSignOut = async () => {
     if (isSigningOut) return;
     setIsSigningOut(true);
@@ -374,7 +438,80 @@ const Account: React.FC = () => {
           </section>
         </div>
 
+        <section className="mt-6 rounded-3xl border border-slate-200 bg-white p-6 shadow-[0_16px_40px_rgba(15,23,42,0.06)] sm:p-8">
+          <div className="flex items-start gap-3">
+            <div className="rounded-2xl bg-violet-50 p-3 text-violet-600">
+              <FileText className="h-6 w-6" />
+            </div>
+            <div>
+              <h2 className="text-xl font-semibold text-slate-900">Legal and billing</h2>
+              <p className="mt-1 text-sm text-slate-600">
+                Review the policies that govern account use, privacy, and digital purchases.
+              </p>
+            </div>
+          </div>
+
+          <div className="mt-8 grid gap-4 lg:grid-cols-3">
+            {legalDocuments.map((document) => {
+              const acceptance = legalStatus?.acceptances?.[document.key];
+              return (
+                <div key={document.key} className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <div className="text-sm font-semibold text-slate-900">{document.title}</div>
+                      <div className="mt-1 text-xs text-slate-500">Version {document.version}</div>
+                    </div>
+                    {acceptance?.isCurrent ? (
+                      <CheckCircle2 className="h-5 w-5 text-emerald-600" />
+                    ) : (
+                      <div className="rounded-full border border-amber-200 bg-amber-50 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-amber-700">
+                        Update needed
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="mt-3 text-xs text-slate-500">
+                    {acceptance?.isCurrent
+                      ? `Accepted ${new Date(acceptance.acceptedAt || '').toLocaleString()}`
+                      : 'Not yet accepted on this version.'}
+                  </div>
+
+                  <Link
+                    to={document.href}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="mt-4 inline-flex items-center gap-2 text-sm font-medium text-blue-600 transition hover:text-blue-700"
+                  >
+                    Open document
+                    <ExternalLink className="h-4 w-4" />
+                  </Link>
+                </div>
+              );
+            })}
+          </div>
+
+          <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-sm text-slate-600">
+              {isLoadingLegal
+                ? 'Checking your latest acceptance status...'
+                : legalStatus?.allCurrentAccepted
+                  ? 'You have accepted the latest Terms of Service, Privacy Policy, and Refund Policy.'
+                  : 'You need to accept the latest policy versions before sensitive account and payment actions can rely on current terms.'}
+            </p>
+            <button
+              type="button"
+              onClick={handleAcceptCurrentPolicies}
+              disabled={isLoadingLegal || isAcceptingLegal || legalStatus?.allCurrentAccepted}
+              className="inline-flex items-center justify-center gap-2 rounded-2xl bg-slate-950 px-5 py-3 text-sm font-medium text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300"
+            >
+              {isAcceptingLegal ? <RefreshCw className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4" />}
+              <span>{isAcceptingLegal ? 'Saving acceptance...' : 'Accept current versions'}</span>
+            </button>
+          </div>
+        </section>
+
         <div className="mt-6 space-y-6">
+          <AccountDuelModerationPanel />
           <AccountFeedbackAdminPanel />
           <AccountFeedbackPanel />
         </div>
@@ -384,6 +521,8 @@ const Account: React.FC = () => {
 };
 
 export default Account;
+
+
 
 
 

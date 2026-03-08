@@ -10,6 +10,8 @@ import dotenv from 'dotenv';
 import helmet from 'helmet';
 import { createClient } from '@supabase/supabase-js';
 import { createFeedbackRouter } from './services/feedback/routes.js';
+import { createLegalRouter } from './services/legal/routes.js';
+import { createDuelAdminRouter } from './services/duel-admin/routes.js';
 
 dotenv.config();
 
@@ -699,6 +701,8 @@ const emitLeaderboards = () => {
 };
 
 app.use('/api/feedback', createFeedbackRouter({ supabaseAdmin }));
+app.use('/api/legal', createLegalRouter({ supabaseAdmin }));
+app.use('/api/duel/admin', createDuelAdminRouter({ supabaseAdmin }));
 
 // REST API Endpoints
 app.get('/', (req, res) => {
@@ -866,6 +870,8 @@ server.listen(PORT, () => {
   console.log('🔄 Real-time updates enabled via Socket.IO');
   console.log(`🔍 Debug endpoint available at http://localhost:${PORT}/debug/:userId`);
 });
+
+
 
 
 

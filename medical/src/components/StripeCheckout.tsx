@@ -1,13 +1,15 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { loadStripe } from '@stripe/stripe-js';
 import {
-  Elements,
   CardElement,
+  Elements,
+  useElements,
   useStripe,
-  useElements
 } from '@stripe/react-stripe-js';
-import { X, Lock, Shield } from 'lucide-react';
+import { AlertCircle, CheckCircle2, Lock, Shield, X } from 'lucide-react';
 import { supabase } from '../lib/supabase';
+import { acceptLatestLegalDocuments, fetchLegalStatus, type LegalStatusResponse } from '../lib/legal';
+import LegalLinksInline from './legal/LegalLinksInline';
 
 interface StripeCheckoutProps {
   itemId: string;
@@ -23,6 +25,23 @@ const STRIPE_PUBLISHABLE_KEY = import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY || ''
 const STRIPE_SERVER_URL = import.meta.env.VITE_STRIPE_SERVER_URL || 'http://localhost:3001';
 const stripePromise = STRIPE_PUBLISHABLE_KEY ? loadStripe(STRIPE_PUBLISHABLE_KEY) : Promise.resolve(null);
 
+const cardElementOptions = {
+  style: {
+    base: {
+      fontSize: '16px',
+      color: '#424770',
+      '::placeholder': {
+        color: '#aab7c4',
+      },
+      padding: '12px',
+    },
+    invalid: {
+      color: '#9e2146',
+    },
+  },
+  hidePostalCode: true,
+};
+
 const CheckoutForm: React.FC<StripeCheckoutProps> = ({
   itemId,
   amount,
@@ -30,21 +49,78 @@ const CheckoutForm: React.FC<StripeCheckoutProps> = ({
   coins,
   onSuccess,
   onError,
-  onClose
+  onClose,
 }) => {
   const stripe = useStripe();
   const elements = useElements();
+  const onErrorRef = useRef(onError);
 
   const [processing, setProcessing] = useState(false);
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
-  const [errors, setErrors] = useState<{ [key: string]: string }>({});
+  const [errors, setErrors] = useState<Record<string, string>>({});
   const [clientSecret, setClientSecret] = useState('');
-  const onErrorRef = useRef(onError);
+  const [legalStatus, setLegalStatus] = useState<LegalStatusResponse | null>(null);
+  const [legalLoading, setLegalLoading] = useState(true);
+  const [legalAccepted, setLegalAccepted] = useState(false);
+  const [legalError, setLegalError] = useState('');
 
   useEffect(() => {
     onErrorRef.current = onError;
   }, [onError]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const hydrateCustomerFields = async () => {
+      const { data } = await supabase.auth.getUser();
+      if (cancelled) {
+        return;
+      }
+
+      const nextEmail = data.user?.email || '';
+      const nextName = (data.user?.user_metadata?.display_name || data.user?.user_metadata?.name || '').trim();
+      if (nextEmail) setEmail(nextEmail);
+      if (nextName) setName(nextName);
+    };
+
+    hydrateCustomerFields().catch(() => undefined);
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadLegalStatus = async () => {
+      setLegalLoading(true);
+      try {
+        const nextStatus = await fetchLegalStatus();
+        if (!cancelled) {
+          setLegalStatus(nextStatus);
+          setLegalAccepted(Boolean(nextStatus.allCurrentAccepted));
+          setLegalError('');
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setLegalStatus(null);
+          setLegalError(error instanceof Error ? error.message : 'Could not verify legal acceptance status.');
+        }
+      } finally {
+        if (!cancelled) {
+          setLegalLoading(false);
+        }
+      }
+    };
+
+    void loadLegalStatus();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const getAuthHeaders = async () => {
     const { data } = await supabase.auth.getSession();
@@ -92,7 +168,7 @@ const CheckoutForm: React.FC<StripeCheckoutProps> = ({
     };
 
     setClientSecret('');
-    createPaymentIntent();
+    void createPaymentIntent();
 
     return () => {
       cancelled = true;
@@ -100,20 +176,27 @@ const CheckoutForm: React.FC<StripeCheckoutProps> = ({
   }, [itemId]);
 
   const validateForm = () => {
-    const newErrors: { [key: string]: string } = {};
+    const nextErrors: Record<string, string> = {};
 
-    if (!name.trim()) newErrors.name = 'Name is required';
-    if (!email.trim()) newErrors.email = 'Email is required';
-    else if (!/\S+@\S+\.\S+/.test(email)) newErrors.email = 'Email is invalid';
+    if (!name.trim()) nextErrors.name = 'Name is required';
+    if (!email.trim()) nextErrors.email = 'Email is required';
+    else if (!/\S+@\S+\.\S+/.test(email)) nextErrors.email = 'Email is invalid';
 
-    setErrors(newErrors);
-    return Object.keys(newErrors).length === 0;
+    setErrors(nextErrors);
+    return Object.keys(nextErrors).length === 0;
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const requiresLegalAcceptance = !legalLoading && !legalStatus?.allCurrentAccepted;
 
-    if (!stripe || !elements || !validateForm() || !clientSecret) {
+  const handleSubmit = async (event: React.FormEvent) => {
+    event.preventDefault();
+
+    if (!stripe || !elements || !validateForm() || !clientSecret || legalLoading) {
+      return;
+    }
+
+    if (requiresLegalAcceptance && !legalAccepted) {
+      setLegalError('You must accept the current Terms of Service, Privacy Policy, and Refund Policy before completing this purchase.');
       return;
     }
 
@@ -126,12 +209,19 @@ const CheckoutForm: React.FC<StripeCheckoutProps> = ({
     setProcessing(true);
 
     try {
+      if (requiresLegalAcceptance) {
+        const nextStatus = await acceptLatestLegalDocuments('checkout');
+        setLegalStatus(nextStatus);
+        setLegalAccepted(true);
+        setLegalError('');
+      }
+
       const { error, paymentIntent } = await stripe.confirmCardPayment(clientSecret, {
         payment_method: {
           card: cardElement,
           billing_details: {
-            name,
-            email,
+            name: name.trim(),
+            email: email.trim(),
           },
         },
       });
@@ -167,34 +257,17 @@ const CheckoutForm: React.FC<StripeCheckoutProps> = ({
     }
   };
 
-  const cardElementOptions = {
-    style: {
-      base: {
-        fontSize: '16px',
-        color: '#424770',
-        '::placeholder': {
-          color: '#aab7c4',
-        },
-        padding: '12px',
-      },
-      invalid: {
-        color: '#9e2146',
-      },
-    },
-    hidePostalCode: true,
-  };
-
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-3 sm:p-4">
       <div className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-2xl bg-white shadow-2xl">
         <div className="border-b border-gray-200 p-4 sm:p-6">
           <div className="flex items-start justify-between gap-3">
             <h3 className="flex items-center text-lg font-bold text-gray-900 sm:text-xl">
-              <Shield className="w-6 h-6 mr-2 text-green-500" />
+              <Shield className="mr-2 h-6 w-6 text-green-500" />
               Secure Payment
             </h3>
-            <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
-              <X className="w-6 h-6" />
+            <button onClick={onClose} className="text-gray-400 hover:text-gray-600" aria-label="Close payment modal">
+              <X className="h-6 w-6" />
             </button>
           </div>
         </div>
@@ -205,44 +278,44 @@ const CheckoutForm: React.FC<StripeCheckoutProps> = ({
               <span className="text-gray-700">Total Amount</span>
               <span className="text-xl font-bold text-gray-900 sm:text-2xl">USD {(amount / 100).toFixed(2)}</span>
             </div>
-            <p className="text-gray-600 text-sm">{description}</p>
+            <p className="text-sm text-gray-600">{description}</p>
             {coins ? (
-              <div className="mt-2 p-3 bg-yellow-50 rounded-lg">
-                <p className="text-yellow-800 text-sm font-medium">You will receive {coins.toLocaleString()} coins</p>
+              <div className="mt-2 rounded-lg bg-yellow-50 p-3">
+                <p className="text-sm font-medium text-yellow-800">You will receive {coins.toLocaleString()} coins</p>
               </div>
             ) : null}
           </div>
 
           <div className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Full Name *</label>
+              <label className="mb-2 block text-sm font-medium text-gray-700">Full Name *</label>
               <input
                 type="text"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                className={`w-full p-3 border rounded-lg focus:border-blue-500 focus:ring-2 focus:ring-blue-100 outline-none ${errors.name ? 'border-red-300' : 'border-gray-200'}`}
+                className={`w-full rounded-lg border p-3 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 ${errors.name ? 'border-red-300' : 'border-gray-200'}`}
                 placeholder="John Doe"
                 required
               />
-              {errors.name ? <p className="text-red-500 text-sm mt-1">{errors.name}</p> : null}
+              {errors.name ? <p className="mt-1 text-sm text-red-500">{errors.name}</p> : null}
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Email Address *</label>
+              <label className="mb-2 block text-sm font-medium text-gray-700">Email Address *</label>
               <input
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                className={`w-full p-3 border rounded-lg focus:border-blue-500 focus:ring-2 focus:ring-blue-100 outline-none ${errors.email ? 'border-red-300' : 'border-gray-200'}`}
+                className={`w-full rounded-lg border p-3 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 ${errors.email ? 'border-red-300' : 'border-gray-200'}`}
                 placeholder="john@example.com"
                 required
               />
-              {errors.email ? <p className="text-red-500 text-sm mt-1">{errors.email}</p> : null}
+              {errors.email ? <p className="mt-1 text-sm text-red-500">{errors.email}</p> : null}
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Card Information *</label>
-              <div className="border border-gray-200 rounded-lg p-3 focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-100">
+              <label className="mb-2 block text-sm font-medium text-gray-700">Card Information *</label>
+              <div className="rounded-lg border border-gray-200 p-3 focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-100">
                 <CardElement options={cardElementOptions} />
               </div>
             </div>
@@ -250,19 +323,64 @@ const CheckoutForm: React.FC<StripeCheckoutProps> = ({
 
           <div className="mt-6 rounded-lg bg-gray-50 p-4">
             <div className="flex items-start gap-2 text-sm text-gray-600">
-              <Lock className="w-4 h-4" />
-              <span>Your payment information is encrypted and handled by Stripe</span>
+              <Lock className="h-4 w-4" />
+              <span>Your payment information is encrypted and handled by Stripe.</span>
             </div>
+          </div>
+
+          <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
+            {legalLoading ? (
+              <div className="flex items-center gap-2 text-slate-500">
+                <div className="h-4 w-4 animate-spin rounded-full border-2 border-slate-300 border-t-slate-600" />
+                Checking current legal acceptance status...
+              </div>
+            ) : legalStatus?.allCurrentAccepted ? (
+              <div className="space-y-2">
+                <div className="flex items-center gap-2 text-emerald-700">
+                  <CheckCircle2 className="h-4 w-4" />
+                  Latest legal documents already accepted.
+                </div>
+                <div className="text-xs text-slate-500">
+                  Accepted versions are on file. You can review them here: <LegalLinksInline />.
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <label className="flex items-start gap-3">
+                  <input
+                    type="checkbox"
+                    checked={legalAccepted}
+                    onChange={(e) => {
+                      setLegalAccepted(e.target.checked);
+                      if (e.target.checked) {
+                        setLegalError('');
+                      }
+                    }}
+                    className="mt-1 h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                    disabled={processing}
+                  />
+                  <span>
+                    I agree to the <LegalLinksInline /> and understand that digital goods are fulfilled under those terms.
+                  </span>
+                </label>
+                {legalError ? (
+                  <div className="flex items-start gap-2 text-sm text-red-600">
+                    <AlertCircle className="mt-0.5 h-4 w-4" />
+                    <span>{legalError}</span>
+                  </div>
+                ) : null}
+              </div>
+            )}
           </div>
 
           <button
             type="submit"
-            disabled={processing || !clientSecret || !stripe}
+            disabled={processing || legalLoading || !clientSecret || !stripe}
             className="mt-6 w-full rounded-xl bg-gradient-to-r from-green-500 to-blue-600 py-4 text-sm font-bold text-white shadow-lg transition-all duration-200 hover:from-green-600 hover:to-blue-700 disabled:cursor-not-allowed disabled:opacity-50 sm:text-base"
           >
             {processing ? (
               <div className="flex items-center justify-center">
-                <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin mr-2"></div>
+                <div className="mr-2 h-5 w-5 animate-spin rounded-full border-2 border-white border-t-transparent"></div>
                 Processing Payment...
               </div>
             ) : (
@@ -274,9 +392,9 @@ const CheckoutForm: React.FC<StripeCheckoutProps> = ({
         <div className="px-4 pb-4 sm:px-6 sm:pb-6">
           <div className="flex flex-wrap items-center justify-center gap-2 text-xs text-gray-500 sm:gap-4">
             <span>Powered by Stripe</span>
-            <span>ï¿½</span>
+            <span>•</span>
             <span>Encrypted</span>
-            <span>ï¿½</span>
+            <span>•</span>
             <span>PCI Compliant</span>
           </div>
         </div>

@@ -13,15 +13,43 @@ import { EloRatingService } from "./services/elo-rating.js";
 
 dotenv.config();
 
+const allowedOrigins = (process.env.DUEL_ALLOWED_ORIGINS || "")
+  .split(",")
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+
+function isAllowedOrigin(origin) {
+  if (!origin) return true;
+  if (allowedOrigins.length === 0) return true;
+  return allowedOrigins.includes(origin);
+}
+
+const corsOptions = {
+  origin(origin, callback) {
+    if (isAllowedOrigin(origin)) {
+      callback(null, true);
+      return;
+    }
+    callback(new Error("Origin not allowed by duel server CORS"));
+  },
+  credentials: true,
+};
+
 const app = express();
-app.use(cors({ origin: true, credentials: true }));
+app.use(cors(corsOptions));
 app.use(express.json());
 
 const httpServer = createServer(app);
 
 const io = new Server(httpServer, {
   cors: {
-    origin: true,
+    origin(origin, callback) {
+      if (isAllowedOrigin(origin)) {
+        callback(null, true);
+        return;
+      }
+      callback(new Error("Origin not allowed by duel server CORS"));
+    },
     methods: ["GET", "POST"],
     credentials: true,
   },
@@ -97,6 +125,78 @@ function isLatestSocketForUser(userId, socketId) {
   return !!userId && latestSocketByUserId.get(userId) === socketId;
 }
 
+function getSocketIpAddress(socket) {
+  const forwardedFor = socket?.handshake?.headers?.["x-forwarded-for"];
+  if (typeof forwardedFor === "string" && forwardedFor.trim()) {
+    return (
+      forwardedFor
+        .split(",")
+        .map((value) => value.trim())
+        .filter(Boolean)[0] || null
+    );
+  }
+
+  return socket?.handshake?.address || socket?.conn?.remoteAddress || null;
+}
+
+function sanitizeClientMeta(rawClientMeta) {
+  const clientMeta = rawClientMeta && typeof rawClientMeta === "object" ? rawClientMeta : {};
+  const toSafeString = (value, maxLength) =>
+    typeof value === "string" ? value.trim().slice(0, maxLength) : null;
+  const toSafeDimension = (value) => {
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed) || parsed <= 0) return null;
+    return Math.min(Math.floor(parsed), 10000);
+  };
+  const toSafeInteger = (value, min, max) => {
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed)) return null;
+    return Math.min(max, Math.max(min, Math.floor(parsed)));
+  };
+
+  return {
+    deviceClusterId: toSafeString(clientMeta.deviceClusterId, 128),
+    timezone: toSafeString(clientMeta.timezone, 64),
+    platform: toSafeString(clientMeta.platform, 64),
+    language: toSafeString(clientMeta.language, 32),
+    origin: toSafeString(clientMeta.origin, 200),
+    hardwareConcurrency: toSafeInteger(clientMeta.hardwareConcurrency, 1, 256),
+    screen:
+      clientMeta.screen && typeof clientMeta.screen === "object"
+        ? {
+            width: toSafeDimension(clientMeta.screen.width),
+            height: toSafeDimension(clientMeta.screen.height),
+          }
+        : null,
+    viewport:
+      clientMeta.viewport && typeof clientMeta.viewport === "object"
+        ? {
+            width: toSafeDimension(clientMeta.viewport.width),
+            height: toSafeDimension(clientMeta.viewport.height),
+          }
+        : null,
+  };
+}
+
+function buildSessionEvidence(socket, rawClientMeta) {
+  const clientMeta = sanitizeClientMeta(rawClientMeta);
+  return {
+    socketId: socket.id,
+    connectedAt: new Date().toISOString(),
+    ipAddress: getSocketIpAddress(socket),
+    userAgent:
+      typeof socket?.handshake?.headers?.["user-agent"] === "string"
+        ? socket.handshake.headers["user-agent"].trim().slice(0, 512)
+        : null,
+    transport:
+      typeof socket?.conn?.transport?.name === "string"
+        ? socket.conn.transport.name
+        : null,
+    deviceClusterId: clientMeta.deviceClusterId,
+    clientMeta,
+  };
+}
+
 async function authenticateSocketUser(accessToken, expectedUserId) {
   if (!supabase) {
     return { user: null, error: "Server authentication is unavailable." };
@@ -137,7 +237,7 @@ io.on("connection", (socket) => {
         return;
       }
 
-      const { userId, username, accessToken } = data || {};
+      const { userId, username, accessToken, clientMeta: rawClientMeta } = data || {};
       if (!userId) {
         const msg = "Missing userId";
         ackSafe(ack, { ok: false, message: msg });
@@ -200,6 +300,28 @@ io.on("connection", (socket) => {
 
       const safeUsername = duelUser.username || String(username || "").trim() || "Player";
       const safeRating = duelUser.rating ?? 500;
+      const sessionEvidence = buildSessionEvidence(socket, rawClientMeta);
+      const connectionRiskFlags = [];
+      if (!sessionEvidence.deviceClusterId) {
+        connectionRiskFlags.push("missing_device_cluster");
+      }
+      if (!sessionEvidence.clientMeta?.timezone) {
+        connectionRiskFlags.push("missing_timezone");
+      }
+      const hasSharedDeviceCluster = Array.from(connectedPlayers.values()).some((entry) => {
+        if (!entry || entry.userId === duelUser.id) return false;
+        return !!sessionEvidence.deviceClusterId && entry.sessionEvidence?.deviceClusterId === sessionEvidence.deviceClusterId;
+      });
+      if (hasSharedDeviceCluster) {
+        connectionRiskFlags.push("shared_device_cluster_live");
+      }
+      const hasSharedIp = Array.from(connectedPlayers.values()).some((entry) => {
+        if (!entry || entry.userId === duelUser.id) return false;
+        return !!sessionEvidence.ipAddress && entry.sessionEvidence?.ipAddress === sessionEvidence.ipAddress;
+      });
+      if (hasSharedIp) {
+        connectionRiskFlags.push("shared_ip_live");
+      }
       const existingOwnerSocketId = latestSocketByUserId.get(duelUser.id);
 
       if (existingOwnerSocketId === socket.id && connectedPlayers.has(socket.id)) {
@@ -209,9 +331,13 @@ io.on("connection", (socket) => {
           username: safeUsername,
           rating: safeRating,
           socketId: socket.id,
+          sessionEvidence,
+          connectionRiskFlags,
         });
         socket.userId = duelUser.id;
+        socket.sessionEvidence = sessionEvidence;
         socket.join(`user:${duelUser.id}`);
+        matchController?.handlePlayerReconnect?.(duelUser.id);
         ackSafe(ack, { ok: true, rating: safeRating, username: safeUsername });
         return;
       }
@@ -232,11 +358,15 @@ io.on("connection", (socket) => {
         username: safeUsername,
         rating: safeRating,
         socketId: socket.id,
+        sessionEvidence,
+        connectionRiskFlags,
       });
       latestSocketByUserId.set(duelUser.id, socket.id);
 
       socket.userId = duelUser.id;
+      socket.sessionEvidence = sessionEvidence;
       socket.join(`user:${duelUser.id}`);
+      matchController?.handlePlayerReconnect?.(duelUser.id);
 
       console.log(`Player registered: ${safeUsername} (${duelUser.id}) rating=${safeRating}`);
       ackSafe(ack, { ok: true, rating: safeRating, username: safeUsername });
@@ -316,19 +446,38 @@ io.on("connection", (socket) => {
 
   socket.on("code_snapshot", async (data) => {
     try {
-      if (!supabase) return;
+      if (!matchController) return;
       const userId = socket.userId;
       if (!userId) return;
       if (!isLatestSocketForUser(userId, socket.id)) return;
 
-      await supabase.from("code_snapshots").insert({
-        match_id: data.matchId,
-        user_id: userId,
-        code: data.code,
-        timestamp: new Date().toISOString(),
-      });
+      const result = await matchController.recordCodeSnapshot(data?.matchId, userId, data?.code);
+      if (!result?.ok && result?.reason && result.reason !== "unchanged" && result.reason !== "inactive_match") {
+        console.warn("Snapshot rejected", { userId, matchId: data?.matchId, reason: result.reason });
+      }
     } catch (err) {
       console.error("Snapshot error:", err);
+    }
+  });
+
+  socket.on("editor_telemetry", async (data) => {
+    try {
+      if (!matchController) return;
+      const userId = socket.userId;
+      if (!userId) return;
+      if (!isLatestSocketForUser(userId, socket.id)) return;
+
+      const result = await matchController.recordEditorTelemetry(
+        data?.matchId,
+        userId,
+        data?.telemetry,
+        socket.sessionEvidence || null
+      );
+      if (!result?.ok && result?.reason && result.reason !== "inactive_match") {
+        console.warn("Editor telemetry rejected", { userId, matchId: data?.matchId, reason: result.reason });
+      }
+    } catch (err) {
+      console.error("Editor telemetry error:", err);
     }
   });
 
@@ -393,4 +542,13 @@ app.get("/health", (_req, res) => res.json({ status: "ok", timestamp: new Date()
 httpServer.listen(PORT, "0.0.0.0", () => {
   console.log(`Duel server running on port ${PORT}`);
 });
+
+
+
+
+
+
+
+
+
 

@@ -1,3 +1,6 @@
+import dotenv from 'dotenv';
+dotenv.config();
+
 import {
   FEEDBACK_ALLOWED_ATTACHMENT_TYPES,
   FEEDBACK_MAX_ATTACHMENTS,
@@ -24,4 +27,5 @@ export const FEEDBACK_ADMIN_USER_IDS = (process.env.FEEDBACK_ADMIN_USER_IDS || '
   .map((value) => value.trim())
   .filter(Boolean);
 export const FEEDBACK_ALLOWED_TYPES = new Set(FEEDBACK_ALLOWED_ATTACHMENT_TYPES);
+
 

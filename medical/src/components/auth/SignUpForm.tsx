@@ -2,6 +2,8 @@ import React, { useState } from 'react'
 import { Eye, EyeOff, Mail, Lock, User, AlertCircle, CheckCircle, Loader2 } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
 import { motion } from 'framer-motion'
+import LegalLinksInline from '../legal/LegalLinksInline'
+import { clearPendingLegalAcceptance, savePendingLegalAcceptance } from '../../lib/legal'
 
 interface SignUpFormProps {
   onToggleForm: () => void
@@ -14,6 +16,7 @@ interface FormErrors {
   email?: string
   password?: string
   confirmPassword?: string
+  legal?: string
   general?: string
 }
 
@@ -31,6 +34,7 @@ const SignUpForm: React.FC<SignUpFormProps> = ({ onToggleForm, onEmailVerificati
   const [showPassword, setShowPassword] = useState(false)
   const [showConfirmPassword, setShowConfirmPassword] = useState(false)
   const [loading, setLoading] = useState(false)
+  const [acceptedLegal, setAcceptedLegal] = useState(false)
   const [errors, setErrors] = useState<FormErrors>({})
   const [touched, setTouched] = useState<{
     name: boolean
@@ -75,7 +79,7 @@ const SignUpForm: React.FC<SignUpFormProps> = ({ onToggleForm, onEmailVerificati
   // Validation functions
   const validateName = (name: string): string | undefined => {
     if (!name.trim()) return 'Username is required'
-    if (name.trim().length < 2) return 'Username must be at least 2 characters'
+    if (name.trim().length < 4) return 'Username must be at least 4 characters'
     if (name.trim().length > 16) return 'Username must be 16 characters or less'
     if (!/^[a-zA-Z0-9_]+$/.test(name.trim())) return 'Username can only contain letters, numbers, and underscores'
     return undefined
@@ -116,6 +120,7 @@ const SignUpForm: React.FC<SignUpFormProps> = ({ onToggleForm, onEmailVerificati
     if (emailError) newErrors.email = emailError
     if (passwordError) newErrors.password = passwordError
     if (confirmPasswordError) newErrors.confirmPassword = confirmPasswordError
+    if (!acceptedLegal) newErrors.legal = 'You must accept the Terms of Service, Privacy Policy, and Refund Policy.'
     
     setErrors(newErrors)
     return Object.keys(newErrors).length === 0
@@ -215,11 +220,13 @@ const SignUpForm: React.FC<SignUpFormProps> = ({ onToggleForm, onEmailVerificati
     setErrors({})
 
     try {
+      savePendingLegalAcceptance('signup')
       console.log('Calling signUp function with username:', name.trim())
       const result = await signUp(email.trim(), password, name.trim())
       console.log('SignUp result:', result)
       
       if (result && result.error) {
+        clearPendingLegalAcceptance()
         console.log('SignUp error:', result.error)
         const friendlyMessage = getErrorMessage(result.error.message)
         setErrors({ general: friendlyMessage })
@@ -231,6 +238,7 @@ const SignUpForm: React.FC<SignUpFormProps> = ({ onToggleForm, onEmailVerificati
         onMessage('success', `Account created. Check your inbox to verify your email and finish setup.`)
       }
     } catch (err: any) {
+      clearPendingLegalAcceptance()
       console.error('SignUp exception:', err)
       const friendlyMessage = getErrorMessage(err.message)
       setErrors({ general: friendlyMessage })
@@ -250,12 +258,14 @@ const SignUpForm: React.FC<SignUpFormProps> = ({ onToggleForm, onEmailVerificati
       console.log('Google signIn result:', result)
       
       if (result && result.error) {
+        clearPendingLegalAcceptance()
         console.log('Google signIn error:', result.error)
         const friendlyMessage = getErrorMessage(result.error.message)
         setErrors({ general: friendlyMessage })
         onMessage('error', friendlyMessage)
       }
     } catch (err: any) {
+      clearPendingLegalAcceptance()
       console.error('Google signIn exception:', err)
       const friendlyMessage = 'Google sign-up failed. Please try again or use email/password.'
       setErrors({ general: friendlyMessage })
@@ -272,10 +282,12 @@ const SignUpForm: React.FC<SignUpFormProps> = ({ onToggleForm, onEmailVerificati
                      email.trim() && 
                      password && 
                      confirmPassword && 
+                     acceptedLegal && 
                      !errors.name && 
                      !errors.email && 
                      !errors.password && 
-                     !errors.confirmPassword
+                     !errors.confirmPassword && 
+                     !errors.legal
 
   return (
     <div className="w-full max-w-md mx-auto">
@@ -516,6 +528,34 @@ const SignUpForm: React.FC<SignUpFormProps> = ({ onToggleForm, onEmailVerificati
           )}
         </div>
 
+        <div className="space-y-3 rounded-xl border border-slate-200 bg-slate-50 p-4">
+          <label className="flex items-start gap-3">
+            <input
+              type="checkbox"
+              checked={acceptedLegal}
+              onChange={(e) => {
+                setAcceptedLegal(e.target.checked)
+                setErrors(prev => ({ ...prev, legal: e.target.checked ? undefined : prev.legal }))
+              }}
+              className="mt-1 h-4 w-4 rounded border-slate-300 text-green-600 focus:ring-green-500"
+              disabled={loading}
+            />
+            <span className="text-sm leading-6 text-slate-700">
+              I agree to the <LegalLinksInline />.
+            </span>
+          </label>
+          {errors.legal && (
+            <motion.p
+              initial={{ opacity: 0, y: -10 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="text-sm text-red-600 flex items-center space-x-1"
+            >
+              <AlertCircle className="w-4 h-4" />
+              <span>{errors.legal}</span>
+            </motion.p>
+          )}
+        </div>
+
         {/* Submit Button */}
         <button
           type="submit"
@@ -556,4 +596,5 @@ const SignUpForm: React.FC<SignUpFormProps> = ({ onToggleForm, onEmailVerificati
 }
 
 export default SignUpForm
+
 

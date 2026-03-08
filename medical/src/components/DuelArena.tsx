@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import Editor from '@monaco-editor/react';
 import { Play, Clock, Trophy, Target, Zap } from 'lucide-react';
 import toast from 'react-hot-toast';
@@ -22,13 +22,29 @@ interface DuelArenaProps {
   onMatchEnd: (result: any) => void;
 }
 
+interface EditorTelemetryState {
+  pasteEvents: number;
+  largePasteEvents: number;
+  pasteChars: number;
+  majorEdits: number;
+  focusLosses: number;
+}
+
+const createEmptyTelemetry = (): EditorTelemetryState => ({
+  pasteEvents: 0,
+  largePasteEvents: 0,
+  pasteChars: 0,
+  majorEdits: 0,
+  focusLosses: 0,
+});
+
 export default function DuelArena({
   matchId,
   problem,
   opponent,
   socket,
   userId,
-  onMatchEnd
+  onMatchEnd,
 }: DuelArenaProps) {
   const [code, setCode] = useState('// Write your solution here\nfunction solution(input) {\n  \n}');
   const [language] = useState('javascript');
@@ -38,7 +54,36 @@ export default function DuelArena({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [opponentStatus, setOpponentStatus] = useState<any>(null);
   const [matchStarted, setMatchStarted] = useState(false);
+
+  const codeRef = useRef(code);
+  const editorRef = useRef<any>(null);
   const snapshotIntervalRef = useRef<any>(null);
+  const telemetryIntervalRef = useRef<any>(null);
+  const telemetryRef = useRef<EditorTelemetryState>(createEmptyTelemetry());
+
+  useEffect(() => {
+    codeRef.current = code;
+  }, [code]);
+
+  const flushTelemetry = useCallback((reason: 'interval' | 'submit' | 'cleanup' | 'blur') => {
+    const snapshot = telemetryRef.current;
+    const hasTelemetry = Object.values(snapshot).some((value) => value > 0);
+    if (!matchStarted || (!hasTelemetry && reason === 'interval')) {
+      return;
+    }
+
+    socket.emit('editor_telemetry', {
+      matchId,
+      telemetry: {
+        ...snapshot,
+        reason,
+        clientTimestamp: Date.now(),
+        language,
+      },
+    });
+
+    telemetryRef.current = createEmptyTelemetry();
+  }, [language, matchId, matchStarted, socket]);
 
   useEffect(() => {
     const onDuelStarted = (data: any) => {
@@ -69,20 +114,20 @@ export default function DuelArena({
 
       const verdict = (data?.result ?? data?.verdict ?? '').toString();
       const isAccepted = verdict.toLowerCase() === 'accepted';
-      const passed = Number.isFinite(data?.passed) ? data.passed : 0;
-      const total = Number.isFinite(data?.total) ? data.total : 0;
 
       if (isAccepted) {
         toast.error('Opponent passed all tests.');
       } else {
-        toast(`Opponent submitted: ${passed}/${total} tests passed`, {
+        toast('Opponent submitted again.', {
           icon: '\u2694',
         });
       }
     };
 
     const onMatchEndEvent = (data: any) => {
-      clearInterval(snapshotIntervalRef.current);
+      if (snapshotIntervalRef.current) clearInterval(snapshotIntervalRef.current);
+      if (telemetryIntervalRef.current) clearInterval(telemetryIntervalRef.current);
+      flushTelemetry('cleanup');
       onMatchEnd(data);
     };
 
@@ -103,11 +148,11 @@ export default function DuelArena({
       socket.off('opponent_submitted', onOpponentSubmitted);
       socket.off('match_end', onMatchEndEvent);
       socket.off('submission_error', onSubmissionError);
-      if (snapshotIntervalRef.current) {
-        clearInterval(snapshotIntervalRef.current);
-      }
+      if (snapshotIntervalRef.current) clearInterval(snapshotIntervalRef.current);
+      if (telemetryIntervalRef.current) clearInterval(telemetryIntervalRef.current);
+      flushTelemetry('cleanup');
     };
-  }, [matchId, socket, onMatchEnd]);
+  }, [flushTelemetry, matchId, onMatchEnd, socket]);
 
   useEffect(() => {
     if (!matchStarted) return;
@@ -126,17 +171,53 @@ export default function DuelArena({
       socket.emit('code_snapshot', {
         matchId,
         userId,
-        code
+        code: codeRef.current,
       });
     }, 30000);
 
+    telemetryIntervalRef.current = setInterval(() => {
+      flushTelemetry('interval');
+    }, 15000);
+
+    const onWindowBlur = () => {
+      telemetryRef.current.focusLosses += 1;
+      flushTelemetry('blur');
+    };
+
+    window.addEventListener('blur', onWindowBlur);
+
     return () => {
       clearInterval(timer);
-      if (snapshotIntervalRef.current) {
-        clearInterval(snapshotIntervalRef.current);
-      }
+      if (snapshotIntervalRef.current) clearInterval(snapshotIntervalRef.current);
+      if (telemetryIntervalRef.current) clearInterval(telemetryIntervalRef.current);
+      window.removeEventListener('blur', onWindowBlur);
+      flushTelemetry('cleanup');
     };
-  }, [matchStarted, matchId, userId, code, socket]);
+  }, [flushTelemetry, matchId, matchStarted, socket, userId]);
+
+  const handleEditorMount = useCallback((editor: any) => {
+    editorRef.current = editor;
+
+    editor.onDidPaste((event: any) => {
+      const pastedText = editor.getModel()?.getValueInRange(event.range) ?? '';
+      telemetryRef.current.pasteEvents += 1;
+      telemetryRef.current.pasteChars += pastedText.length;
+
+      if (pastedText.length >= 120 || (event.range.endLineNumber - event.range.startLineNumber) >= 3) {
+        telemetryRef.current.largePasteEvents += 1;
+      }
+    });
+
+    editor.onDidChangeModelContent((event: any) => {
+      const changeMagnitude = (event.changes || []).reduce((total: number, change: any) => {
+        return total + Math.abs((change.text?.length ?? 0) - (change.rangeLength ?? 0));
+      }, 0);
+
+      if ((event.changes || []).length >= 3 || changeMagnitude >= 80) {
+        telemetryRef.current.majorEdits += 1;
+      }
+    });
+  }, []);
 
   const handleSubmit = () => {
     if (!code.trim()) {
@@ -144,11 +225,12 @@ export default function DuelArena({
       return;
     }
 
+    flushTelemetry('submit');
     setIsSubmitting(true);
     socket.emit('submit_code', {
       matchId,
       language,
-      code
+      code,
     });
   };
 
@@ -259,8 +341,16 @@ export default function DuelArena({
                     <h3 className="text-sm font-semibold">Opponent Status</h3>
                   </div>
                   <div className="space-y-1 text-sm">
-                    <div>Tests Passed: {opponentStatus.passed}/{opponentStatus.total}</div>
-                    <div>Score: {opponentStatus.score.toFixed(1)}%</div>
+                    <div>Attempts: {opponentStatus.attempts ?? 1}</div>
+                    <div>
+                      Latest result:{' '}
+                      {(opponentStatus?.accepted
+                        ? 'Accepted'
+                        : (opponentStatus?.verdict ?? 'Submitted')).toString().replace(/_/g, ' ')}
+                    </div>
+                    {!opponentStatus?.accepted && Number.isFinite(opponentStatus?.wrongSubmissions) && (
+                      <div>Wrong submissions: {opponentStatus.wrongSubmissions}</div>
+                    )}
                   </div>
                 </div>
               )}
@@ -296,6 +386,7 @@ export default function DuelArena({
                   height="100%"
                   language={language}
                   value={code}
+                  onMount={handleEditorMount}
                   onChange={(value: string | undefined) => setCode(value || '')}
                   theme="vs-dark"
                   options={{

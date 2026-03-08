@@ -1,3 +1,5 @@
+import { createHash } from "crypto";
+import { analyzeMatchForAntiCheat } from "./anti-cheat.js";
 import { computeSubmissionMetrics, resolveResultStrength, resolveTimeLimitSeconds, normalizeDifficulty } from "./duel-competition.js";
 // services/match-controller.js
 const DEBUG_DUEL = process.env.DEBUG_DUEL === "1";
@@ -21,13 +23,17 @@ export class MatchController {
     this.disconnectTimers = new Map();
 
     this.RECONNECT_GRACE_PERIOD_MS = 30_000;
+    this.BASE_SUBMISSION_COOLDOWN_MS = 2_000;
+    this.WRONG_SUBMISSION_COOLDOWN_MS = 750;
+    this.MAX_SUBMISSION_COOLDOWN_MS = 8_000;
+    this.MAX_SNAPSHOT_CODE_CHARS = 100_000;
   }
 
   /**
    * Starts a match and notifies both clients.
    */
   async startMatch(matchId, playerA, playerB, problem) {
-    console.log(`â–¶ï¸ Starting match ${matchId}`);
+    console.log(`Starting match ${matchId}`);
 
     const matchMeta = await this._loadMatchMeta(matchId);
     const matchType = matchMeta.matchType; // "ranked" | "casual"
@@ -44,8 +50,8 @@ export class MatchController {
 
     const matchData = {
       matchId,
-      playerA,
-      playerB,
+      playerA: { ...playerA },
+      playerB: { ...playerB },
       problem: { ...problem, difficulty, time_limit_seconds: timeLimitSec },
       difficulty,
       startTimeMs: nowMs,
@@ -55,6 +61,10 @@ export class MatchController {
       attempts: new Map(),
       wrongSubmissions: new Map(),
       lastSubmissionAtMs: new Map(),
+      submissionLocks: new Set(),
+      submissionSequence: new Map(),
+      lastSubmissionHashes: new Map(),
+      lastSnapshotHashes: new Map(),
       winnerId: null,
       resultStrength: "draw",
       status: "ACTIVE",
@@ -130,6 +140,9 @@ export class MatchController {
       return;
     }
     if (match.status !== "ACTIVE") {
+      await this.logSecurityEvent(matchId, userId, "submission_before_match_start", {
+        match_status: match.status,
+      });
       socket?.emit?.("submission_error", { message: "Match has not started yet" });
       return;
     }
@@ -137,175 +150,230 @@ export class MatchController {
     const isPlayerA = userId === match.playerA.userId;
     const isPlayerB = userId === match.playerB.userId;
     if (!isPlayerA && !isPlayerB) {
+      await this.logSecurityEvent(matchId, userId, "submission_unauthorized_player", {});
       socket?.emit?.("submission_error", { message: "User is not part of this match" });
       return;
     }
 
-    console.log(`ðŸ§ª Submission for match ${matchId} from user ${userId}`);
+    console.log(`Submission for match ${matchId} from user ${userId}`);
 
     const lang = (language ?? "").toString().toLowerCase();
     const allowed = new Set(["javascript", "js"]);
     if (!allowed.has(lang)) {
+      await this.logSecurityEvent(matchId, userId, "submission_invalid_language", { language: lang });
       socket?.emit?.("submission_error", { message: "Only JavaScript is currently supported." });
       return;
     }
 
-    // rate limit
+    const normalizedCode = this._normalizeCode(code);
+    const codeHash = this._hashCode(normalizedCode);
+    const previousCodeHash = match.lastSubmissionHashes?.get(userId);
+    if (previousCodeHash && previousCodeHash === codeHash) {
+      await this.logSecurityEvent(matchId, userId, "duplicate_submission_blocked", {
+        code_hash: codeHash,
+      });
+      socket?.emit?.("submission_error", { message: "This exact code was already submitted." });
+      return;
+    }
+
+    if (match.submissionLocks?.has(userId)) {
+      await this.logSecurityEvent(matchId, userId, "concurrent_submission_blocked", {});
+      socket?.emit?.("submission_error", { message: "Your previous submission is still running." });
+      return;
+    }
+
     const lastAt = match.lastSubmissionAtMs.get(userId) ?? 0;
     const now = Date.now();
-    if (now - lastAt < 1200) {
+    const cooldownMs = this._getSubmissionCooldownMs(match, userId);
+    if (now - lastAt < cooldownMs) {
+      await this.logSecurityEvent(matchId, userId, "submission_rate_limited", {
+        remaining_ms: cooldownMs - (now - lastAt),
+        cooldown_ms: cooldownMs,
+      });
       socket?.emit?.("submission_error", { message: "You're submitting too fast. Please wait a moment." });
       return;
     }
+
     match.lastSubmissionAtMs.set(userId, now);
+    match.submissionLocks?.add(userId);
 
     socket?.emit?.("submission_running", { message: "Running tests..." });
     socket?.emit?.("submission_received", { message: "Running tests..." });
 
-    console.log("SUBMIT_STAGE load_testcases", { matchId, problemId: match.problem.id, userId });
-    const testCases = await this._loadTestCases(match.problem.id);
-    console.log("TESTCASE_COUNT", Array.isArray(testCases) ? testCases.length : -1);
-    debugMatch("testcases_loaded", { matchId, problemId: match.problem.id, count: Array.isArray(testCases) ? testCases.length : 0 });
-    if (!Array.isArray(testCases) || testCases.length === 0) {
-      socket?.emit?.("submission_error", { message: "This problem has no test cases configured." });
-      return;
-    }
+    try {
+      console.log("SUBMIT_STAGE load_testcases", { matchId, problemId: match.problem.id, userId });
+      const testCases = await this._loadTestCases(match.problem.id);
+      console.log("TESTCASE_COUNT", Array.isArray(testCases) ? testCases.length : -1);
+      debugMatch("testcases_loaded", { matchId, problemId: match.problem.id, count: Array.isArray(testCases) ? testCases.length : 0 });
+      if (!Array.isArray(testCases) || testCases.length === 0) {
+        socket?.emit?.("submission_error", { message: "This problem has no test cases configured." });
+        return;
+      }
 
-    // Judge
-    console.log("SUBMIT_STAGE judge_start", { matchId, userId, lang, tests: testCases.length });
-    const judgeResults = await Promise.race([
-      this.judgeService.executeCode(code, lang, testCases),
-      new Promise((_, reject) => setTimeout(() => reject(new Error("Judge timeout after 20s")), 20_000)),
-    ]);
-    console.log("JUDGE_RESULT", JSON.stringify(judgeResults));
-    debugMatch("judge_done", {
-      matchId,
-      userId,
-      result: judgeResults?.result,
-      passed: judgeResults?.passed,
-      total: judgeResults?.total,
-      score: judgeResults?.score,
-      runtimeMs: judgeResults?.runtimeMs,
-    });
+      console.log("SUBMIT_STAGE judge_start", { matchId, userId, lang, tests: testCases.length });
+      const judgeResults = await Promise.race([
+        this.judgeService.executeCode(normalizedCode, lang, testCases),
+        new Promise((_, reject) => setTimeout(() => reject(new Error("Judge timeout after 20s")), 20_000)),
+      ]);
+      console.log("JUDGE_RESULT", JSON.stringify(judgeResults));
+      debugMatch("judge_done", {
+        matchId,
+        userId,
+        result: judgeResults?.result,
+        passed: judgeResults?.passed,
+        total: judgeResults?.total,
+        score: judgeResults?.score,
+        runtimeMs: judgeResults?.runtimeMs,
+      });
 
-    const submittedAtMs = Date.now();
-    const elapsedMs = submittedAtMs - match.startTimeMs;
-    const elapsedSeconds = Math.floor(elapsedMs / 1000);
-    const accepted = (judgeResults.result ?? "").toString().toLowerCase() === "accepted";
+      const submittedAtMs = Date.now();
+      const elapsedMs = submittedAtMs - match.startTimeMs;
+      const elapsedSeconds = Math.floor(elapsedMs / 1000);
+      const accepted = (judgeResults.result ?? "").toString().toLowerCase() === "accepted";
 
-    const attempts = (match.attempts.get(userId) ?? 0) + 1;
-    match.attempts.set(userId, attempts);
+      const attempts = (match.attempts.get(userId) ?? 0) + 1;
+      match.attempts.set(userId, attempts);
 
-    const priorWrongSubmissions = match.wrongSubmissions.get(userId) ?? 0;
-    const wrongSubmissionCount = accepted ? priorWrongSubmissions : priorWrongSubmissions + 1;
-    if (!accepted) {
-      match.wrongSubmissions.set(userId, wrongSubmissionCount);
-    }
+      const priorWrongSubmissions = match.wrongSubmissions.get(userId) ?? 0;
+      const wrongSubmissionCount = accepted ? priorWrongSubmissions : priorWrongSubmissions + 1;
+      if (!accepted) {
+        match.wrongSubmissions.set(userId, wrongSubmissionCount);
+      }
 
-    const submissionMetrics = computeSubmissionMetrics({
-      difficulty: match.difficulty,
-      passed: judgeResults?.passed ?? 0,
-      total: judgeResults?.total ?? testCases.length,
-      accepted,
-      elapsedMs,
-      timeLimitMs: match.timeLimitMs,
-      wrongSubmissionCount,
-    });
-
-    const savedSubmissionId = await this._saveSubmissionBestEffort({
-      matchId,
-      userId,
-      code,
-      language,
-      judgeResults,
-      testCasesCount: testCases.length,
-    });
-
-    const prev = match.submissions.get(userId);
-    const prevMatchScore = prev?.matchScore ?? 0;
-
-    const stored = {
-      ...judgeResults,
-      submittedAtMs,
-      elapsedMs,
-      elapsedSeconds,
-      submissionId: savedSubmissionId,
-      score: judgeResults?.score ?? 0,
-      judgeScore: judgeResults?.score ?? 0,
-      matchScore: submissionMetrics.duelScore,
-      passRatio: submissionMetrics.passRatio,
-      speedBonus: submissionMetrics.speedBonus,
-      partialScore: submissionMetrics.partialScore,
-      penalty: submissionMetrics.penalty,
-      wrongSubmissionCount,
-      attempts,
-      runtimeMs: judgeResults?.runtimeMs ?? 0,
-      result: judgeResults?.result ?? judgeResults?.verdict ?? null,
-    };
-
-    if (!prev || accepted || stored.matchScore >= prevMatchScore) {
-      match.submissions.set(userId, stored);
-    } else {
-      match.submissions.set(userId, { ...prev, lastAttempt: stored });
-    }
-
-    await this._safeInsert("match_events", {
-      match_id: matchId,
-      event_type: "submission",
-      user_id: userId,
-      payload: {
-        submission_id: savedSubmissionId,
-        verdict: (judgeResults?.result ?? "").toString(),
-        score: judgeResults?.score ?? 0,
-        duel_score: submissionMetrics.duelScore,
+      const submissionMetrics = computeSubmissionMetrics({
+        difficulty: match.difficulty,
         passed: judgeResults?.passed ?? 0,
         total: judgeResults?.total ?? testCases.length,
-        runtime_ms: judgeResults?.runtimeMs ?? 0,
-        wrong_submissions: wrongSubmissionCount,
-      },
-    });
+        accepted,
+        elapsedMs,
+        timeLimitMs: match.timeLimitMs,
+        wrongSubmissionCount,
+      });
 
-    const resultPayload = {
-      submissionId: savedSubmissionId,
-      result: judgeResults.result,
-      verdict: judgeResults.result,
-      score: judgeResults.score,
-      duelScore: submissionMetrics.duelScore,
-      passed: judgeResults.passed,
-      total: judgeResults.total,
-      testResults: judgeResults.testResults,
-      runtimeMs: judgeResults.runtimeMs,
-      memoryKb: judgeResults.memoryKb,
-      wrongSubmissions: wrongSubmissionCount,
-      attempts,
-    };
+      const submissionSequence = (match.submissionSequence.get(userId) ?? 0) + 1;
+      match.submissionSequence.set(userId, submissionSequence);
 
-    this._emitToUser(userId, match, "submission_result", resultPayload);
+      const playerSession =
+        match.playerA.userId === userId ? match.playerA.sessionEvidence || null : match.playerB.sessionEvidence || null;
+      const connectionRiskFlags =
+        match.playerA.userId === userId
+          ? match.playerA.connectionRiskFlags || []
+          : match.playerB.connectionRiskFlags || [];
+      const auditMetadata = {
+        sessionEvidence: playerSession,
+        connectionRiskFlags,
+        matchDifficulty: match.difficulty,
+        attempts,
+        wrongSubmissions: wrongSubmissionCount,
+      };
 
-    this._emitToOpponent(userId, match, "opponent_submitted", {
-      result: judgeResults.result,
-      verdict: judgeResults.result,
-      score: judgeResults.score,
-      duelScore: submissionMetrics.duelScore,
-      passed: judgeResults.passed,
-      total: judgeResults.total,
-      wrongSubmissions: wrongSubmissionCount,
-    });
+      const savedSubmissionId = await this._saveSubmissionBestEffort({
+        matchId,
+        userId,
+        code: normalizedCode,
+        codeHash,
+        language,
+        judgeResults,
+        testCasesCount: testCases.length,
+        submissionSequence,
+        submissionKind: "manual",
+        auditMetadata,
+      });
 
-    if (accepted) {
-      debugMatch("match_win", { matchId, winnerId: userId, elapsedSeconds, duelScore: submissionMetrics.duelScore });
-      await this.endMatch(matchId, userId, "accepted_first", savedSubmissionId);
+      const prev = match.submissions.get(userId);
+      const prevMatchScore = prev?.matchScore ?? 0;
+
+      const stored = {
+        ...judgeResults,
+        submittedAtMs,
+        elapsedMs,
+        elapsedSeconds,
+        submissionId: savedSubmissionId,
+        score: judgeResults?.score ?? 0,
+        judgeScore: judgeResults?.score ?? 0,
+        matchScore: submissionMetrics.duelScore,
+        passRatio: submissionMetrics.passRatio,
+        speedBonus: submissionMetrics.speedBonus,
+        partialScore: submissionMetrics.partialScore,
+        penalty: submissionMetrics.penalty,
+        wrongSubmissionCount,
+        attempts,
+        runtimeMs: judgeResults?.runtimeMs ?? 0,
+        result: judgeResults?.result ?? judgeResults?.verdict ?? null,
+        code: normalizedCode,
+        codeHash,
+        submissionSequence,
+        sessionEvidence: playerSession,
+        connectionRiskFlags,
+      };
+
+      if (!prev || accepted || stored.matchScore >= prevMatchScore) {
+        match.submissions.set(userId, stored);
+      } else {
+        match.submissions.set(userId, { ...prev, lastAttempt: stored });
+      }
+      match.lastSubmissionHashes?.set(userId, codeHash);
+
+      await this._safeInsert("match_events", {
+        match_id: matchId,
+        event_type: "submission",
+        user_id: userId,
+        payload: {
+          submission_id: savedSubmissionId,
+          verdict: (judgeResults?.result ?? "").toString(),
+          score: judgeResults?.score ?? 0,
+          duel_score: submissionMetrics.duelScore,
+          passed: judgeResults?.passed ?? 0,
+          total: judgeResults?.total ?? testCases.length,
+          runtime_ms: judgeResults?.runtimeMs ?? 0,
+          wrong_submissions: wrongSubmissionCount,
+        },
+      });
+
+      const resultPayload = {
+        submissionId: savedSubmissionId,
+        result: judgeResults.result,
+        verdict: judgeResults.result,
+        score: judgeResults.score,
+        duelScore: submissionMetrics.duelScore,
+        passed: judgeResults.passed,
+        total: judgeResults.total,
+        testResults: judgeResults.testResults,
+        runtimeMs: judgeResults.runtimeMs,
+        memoryKb: judgeResults.memoryKb,
+        wrongSubmissions: wrongSubmissionCount,
+        attempts,
+      };
+
+      this._emitToUser(userId, match, "submission_result", resultPayload);
+
+      this._emitToOpponent(userId, match, "opponent_submitted", {
+        accepted,
+        verdict: judgeResults.result,
+        attempts,
+        wrongSubmissions: wrongSubmissionCount,
+      });
+
+      if (attempts >= this._getSuspiciousAttemptThreshold(match)) {
+        await this.logSecurityEvent(matchId, userId, "high_submission_volume", {
+          attempts,
+          wrong_submissions: wrongSubmissionCount,
+        });
+      }
+
+      if (accepted) {
+        debugMatch("match_win", { matchId, winnerId: userId, elapsedSeconds, duelScore: submissionMetrics.duelScore });
+        await this.endMatch(matchId, userId, "accepted_first", savedSubmissionId);
+      }
+    } finally {
+      match.submissionLocks?.delete(userId);
     }
   }
-
-  /**
-   * Ends match due to timeout.
-   */
   async endMatchByTimeout(matchId) {
     const match = this.activeMatches.get(matchId) ?? this.pendingMatches.get(matchId);
     if (!match || match.winnerId || match.ending) return;
 
-    console.log(`â±ï¸ Match ${matchId} ended by timeout`);
+    console.log(`Match ${matchId} ended by timeout`);
 
     const a = match.submissions.get(match.playerA.userId);
     const b = match.submissions.get(match.playerB.userId);
@@ -530,7 +598,8 @@ export class MatchController {
       },
     });
 
-    await this.createReplay(matchId, match).catch((e) => console.error("Replay error:", e));
+        await this.createReplay(matchId, match).catch((e) => console.error("Replay error:", e));
+    await this.createAntiCheatCase(matchId, match).catch((e) => console.error("Anti-cheat case error:", e));
 
     const matchEndData = {
       matchId,
@@ -577,7 +646,7 @@ export class MatchController {
 
     this.activeMatches.delete(matchId);
     this.pendingMatches.delete(matchId);
-    console.log(`ðŸ Match ${matchId} ended. Winner: ${winnerId || "Draw"}`);
+    console.log(`Match ${matchId} ended. Winner: ${winnerId || "Draw"}`);
   }
 
   /**
@@ -592,7 +661,7 @@ export class MatchController {
 
       if (this.disconnectTimers.has(userId)) return;
 
-      console.log(`âš ï¸ Player ${userId} disconnected (grace ${this.RECONNECT_GRACE_PERIOD_MS}ms)`);
+      console.log(`Player ${userId} disconnected (grace ${this.RECONNECT_GRACE_PERIOD_MS}ms)`);
 
       const timer = setTimeout(async () => {
         try {
@@ -625,43 +694,198 @@ export class MatchController {
     if (timer) {
       clearTimeout(timer);
       this.disconnectTimers.delete(userId);
-      console.log(`ðŸ”„ Player ${userId} reconnected in time`);
+      console.log(`Player ${userId} reconnected in time`);
     }
   }
 
   async createReplay(matchId, match) {
-    const { data: snapshots, error } = await this.supabase
-      .from("code_snapshots")
-      .select("*")
-      .eq("match_id", matchId)
-      .order("timestamp", { ascending: true });
+    const [snapshotRes, eventRes, submissionRes] = await Promise.all([
+      this.supabase
+        .from("code_snapshots")
+        .select("*")
+        .eq("match_id", matchId)
+        .order("timestamp", { ascending: true }),
+      this.supabase
+        .from("match_events")
+        .select("*")
+        .eq("match_id", matchId)
+        .order("created_at", { ascending: true }),
+      this.supabase
+        .from("submissions")
+        .select("*")
+        .eq("match_id", matchId)
+        .order("submitted_at", { ascending: true }),
+    ]);
 
-    if (error) {
-      console.error("Snapshot fetch error:", error);
-      return;
-    }
+    if (snapshotRes.error) console.error("Snapshot fetch error:", snapshotRes.error);
+    if (eventRes.error) console.error("Match event fetch error:", eventRes.error);
+    if (submissionRes.error) console.error("Submission fetch error:", submissionRes.error);
 
-    const playerATimeline = (snapshots ?? [])
-      .filter((s) => s.user_id === match.playerA.userId)
-      .map((s) => ({ timestamp: s.timestamp, code: s.code }));
+    const snapshots = snapshotRes.data ?? [];
+    const eventRows = eventRes.data ?? [];
+    const submissionRows = submissionRes.data ?? [];
 
-    const playerBTimeline = (snapshots ?? [])
-      .filter((s) => s.user_id === match.playerB.userId)
-      .map((s) => ({ timestamp: s.timestamp, code: s.code }));
+    const buildTimeline = (playerId) =>
+      snapshots
+        .filter((snapshot) => snapshot.user_id === playerId)
+        .map((snapshot) => ({
+          timestamp: snapshot.timestamp,
+          code: snapshot.code,
+          codeHash: this._hashCode(snapshot.code),
+          codeChars: String(snapshot.code ?? "").length,
+        }));
 
-    const events = [];
-    const a = match.submissions.get(match.playerA.userId);
-    const b = match.submissions.get(match.playerB.userId);
+    const playerATimeline = buildTimeline(match.playerA.userId);
+    const playerBTimeline = buildTimeline(match.playerB.userId);
 
-    if (a) events.push({ type: "submission", userId: match.playerA.userId, timestamp: a.submittedAtMs, result: a.result, score: a.score });
-    if (b) events.push({ type: "submission", userId: match.playerB.userId, timestamp: b.submittedAtMs, result: b.result, score: b.score });
+    const finalSubmissionA = match.submissions.get(match.playerA.userId) ?? null;
+    const finalSubmissionB = match.submissions.get(match.playerB.userId) ?? null;
+
+    const events = eventRows.map((event) => ({
+      id: event.id,
+      type: event.event_type,
+      userId: event.user_id,
+      timestamp: event.created_at,
+      payload: event.payload ?? {},
+    }));
+
+    const replayData = {
+      matchId,
+      status: match.status,
+      matchType: match.matchType,
+      difficulty: match.difficulty,
+      resultStrength: match.resultStrength,
+      startTimeMs: match.startTimeMs,
+      timeLimitSec: match.timeLimitSec,
+      winnerId: match.winnerId,
+      playerA: {
+        userId: match.playerA.userId,
+        username: match.playerA.username,
+        sessionEvidence: match.playerA.sessionEvidence ?? null,
+        connectionRiskFlags: match.playerA.connectionRiskFlags ?? [],
+      },
+      playerB: {
+        userId: match.playerB.userId,
+        username: match.playerB.username,
+        sessionEvidence: match.playerB.sessionEvidence ?? null,
+        connectionRiskFlags: match.playerB.connectionRiskFlags ?? [],
+      },
+      problem: {
+        id: match.problem?.id ?? null,
+        title: match.problem?.title ?? null,
+        difficulty: match.problem?.difficulty ?? match.difficulty,
+        timeLimit: match.problem?.time_limit_seconds ?? match.timeLimitSec,
+      },
+      finalSubmissions: {
+        playerA: finalSubmissionA
+          ? {
+              verdict: finalSubmissionA.result ?? null,
+              score: finalSubmissionA.score ?? 0,
+              duelScore: finalSubmissionA.matchScore ?? 0,
+              submittedAtMs: finalSubmissionA.submittedAtMs ?? null,
+              elapsedMs: finalSubmissionA.elapsedMs ?? null,
+              attempts: finalSubmissionA.attempts ?? 0,
+              wrongSubmissions: finalSubmissionA.wrongSubmissionCount ?? 0,
+              codeHash: finalSubmissionA.codeHash ?? null,
+            }
+          : null,
+        playerB: finalSubmissionB
+          ? {
+              verdict: finalSubmissionB.result ?? null,
+              score: finalSubmissionB.score ?? 0,
+              duelScore: finalSubmissionB.matchScore ?? 0,
+              submittedAtMs: finalSubmissionB.submittedAtMs ?? null,
+              elapsedMs: finalSubmissionB.elapsedMs ?? null,
+              attempts: finalSubmissionB.attempts ?? 0,
+              wrongSubmissions: finalSubmissionB.wrongSubmissionCount ?? 0,
+              codeHash: finalSubmissionB.codeHash ?? null,
+            }
+          : null,
+      },
+      persistedSubmissionCount: submissionRows.length,
+      securityEventCount: eventRows.filter((entry) => entry.event_type === "security_event").length,
+      generatedAt: new Date().toISOString(),
+    };
 
     await this._safeInsert("match_replays", {
       match_id: matchId,
+      replay_data: replayData,
       player_a_timeline: playerATimeline,
       player_b_timeline: playerBTimeline,
       events,
     });
+  }
+
+  async createAntiCheatCase(matchId, match) {
+    const finalSubmissionA = match.submissions.get(match.playerA.userId) ?? null;
+    const finalSubmissionB = match.submissions.get(match.playerB.userId) ?? null;
+
+    if (!finalSubmissionA && !finalSubmissionB) {
+      return null;
+    }
+
+    const [{ data: existingCase, error: existingError }, { data: eventRows, error: eventError }] = await Promise.all([
+      this.supabase.from("anti_cheat_cases").select("id").eq("match_id", matchId).maybeSingle(),
+      this.supabase
+        .from("match_events")
+        .select("*")
+        .eq("match_id", matchId)
+        .order("created_at", { ascending: true }),
+    ]);
+
+    if (existingError) {
+      console.error("Anti-cheat case existence check failed:", existingError);
+      return null;
+    }
+    if (existingCase?.id) {
+      return existingCase.id;
+    }
+    if (eventError) {
+      console.error("Anti-cheat event load failed:", eventError);
+      return null;
+    }
+
+    const analysis = analyzeMatchForAntiCheat({
+      matchId,
+      match,
+      playerASubmission: finalSubmissionA,
+      playerBSubmission: finalSubmissionB,
+      events: eventRows ?? [],
+    });
+
+    if (!analysis.shouldCreateCase) {
+      return null;
+    }
+
+    const { data: insertedCase, error: insertError } = await this.supabase
+      .from("anti_cheat_cases")
+      .insert({
+        match_id: matchId,
+        risk_score: analysis.riskScore,
+        summary: analysis.summary,
+        evidence: analysis.evidence,
+        status: "new",
+      })
+      .select("id")
+      .single();
+
+    if (insertError) {
+      console.error("Anti-cheat case insert failed:", insertError);
+      return null;
+    }
+
+    await this._safeInsert("anti_cheat_case_events", {
+      case_id: insertedCase.id,
+      actor_user_id: null,
+      action: "created",
+      details: {
+        risk_score: analysis.riskScore,
+        summary: analysis.summary,
+        flags: analysis.evidence?.flags ?? [],
+      },
+    });
+
+    return insertedCase.id;
   }
 
   /* ------------------------- helpers ------------------------- */
@@ -719,7 +943,158 @@ export class MatchController {
     return [];
   }
 
-  async _saveSubmissionBestEffort({ matchId, userId, code, language, judgeResults, testCasesCount }) {
+  getMatch(matchId) {
+    return this.activeMatches.get(matchId) ?? this.pendingMatches.get(matchId) ?? null;
+  }
+
+  isAuthorizedPlayer(matchId, userId) {
+    const match = this.getMatch(matchId);
+    if (!match || !userId) return false;
+    return match.playerA?.userId === userId || match.playerB?.userId === userId;
+  }
+
+  async recordCodeSnapshot(matchId, userId, code) {
+    const match = this.activeMatches.get(matchId);
+    if (!match) return { ok: false, reason: "inactive_match" };
+    if (!this.isAuthorizedPlayer(matchId, userId)) {
+      await this.logSecurityEvent(matchId, userId, "snapshot_unauthorized", {});
+      return { ok: false, reason: "unauthorized" };
+    }
+
+    const normalizedCode = this._normalizeCode(code);
+    if (normalizedCode.length > this.MAX_SNAPSHOT_CODE_CHARS) {
+      await this.logSecurityEvent(matchId, userId, "snapshot_too_large", {
+        code_chars: normalizedCode.length,
+      });
+      return { ok: false, reason: "too_large" };
+    }
+
+    const hash = this._hashCode(normalizedCode);
+    const previousHash = match.lastSnapshotHashes?.get(userId);
+    if (previousHash && previousHash === hash) {
+      return { ok: false, reason: "unchanged" };
+    }
+
+    match.lastSnapshotHashes?.set(userId, hash);
+    await this.supabase.from("code_snapshots").insert({
+      match_id: matchId,
+      user_id: userId,
+      code: normalizedCode,
+      timestamp: new Date().toISOString(),
+    });
+
+    return { ok: true };
+  }
+
+  async recordEditorTelemetry(matchId, userId, telemetry, sessionEvidence = null) {
+    const match = this.activeMatches.get(matchId);
+    if (!match) return { ok: false, reason: "inactive_match" };
+    if (!this.isAuthorizedPlayer(matchId, userId)) {
+      await this.logSecurityEvent(matchId, userId, "telemetry_unauthorized", {});
+      return { ok: false, reason: "unauthorized" };
+    }
+
+    const payload = {
+      pasteEvents: Math.max(0, Math.min(500, Number(telemetry?.pasteEvents || 0))),
+      largePasteEvents: Math.max(0, Math.min(200, Number(telemetry?.largePasteEvents || 0))),
+      pasteChars: Math.max(0, Math.min(500000, Number(telemetry?.pasteChars || 0))),
+      majorEdits: Math.max(0, Math.min(2000, Number(telemetry?.majorEdits || 0))),
+      focusLosses: Math.max(0, Math.min(200, Number(telemetry?.focusLosses || 0))),
+      reason: String(telemetry?.reason || "interval").slice(0, 64),
+      clientTimestamp: Number(telemetry?.clientTimestamp || Date.now()),
+      language: String(telemetry?.language || "javascript").slice(0, 32),
+      deviceClusterId: sessionEvidence?.deviceClusterId || null,
+      timezone: sessionEvidence?.clientMeta?.timezone || null,
+      platform: sessionEvidence?.clientMeta?.platform || null,
+      localeLanguage: sessionEvidence?.clientMeta?.language || null,
+      origin: sessionEvidence?.clientMeta?.origin || null,
+    };
+
+    await this._safeInsert("match_events", {
+      match_id: matchId,
+      event_type: "editor_telemetry",
+      user_id: userId,
+      payload,
+    });
+
+    if (payload.largePasteEvents >= 2 || payload.pasteChars >= 2000 || payload.focusLosses >= 4) {
+      await this.logSecurityEvent(matchId, userId, "suspicious_editor_telemetry", {
+        paste_events: payload.pasteEvents,
+        large_paste_events: payload.largePasteEvents,
+        paste_chars: payload.pasteChars,
+        focus_losses: payload.focusLosses,
+        reason: payload.reason,
+      });
+    }
+
+    return { ok: true };
+  }
+  _normalizeCode(code) {
+    return String(code ?? "").replace(/\r\n/g, "\n").trim();
+  }
+
+  _hashCode(code) {
+    return createHash("sha256").update(this._normalizeCode(code)).digest("hex");
+  }
+
+  _getSubmissionCooldownMs(match, userId) {
+    const attempts = match.attempts.get(userId) ?? 0;
+    const wrongSubmissions = match.wrongSubmissions.get(userId) ?? 0;
+    const extraPenaltyMs = Math.min(
+      this.MAX_SUBMISSION_COOLDOWN_MS - this.BASE_SUBMISSION_COOLDOWN_MS,
+      Math.max(0, wrongSubmissions - 1) * this.WRONG_SUBMISSION_COOLDOWN_MS
+    );
+    const attemptPenaltyMs = Math.min(2000, Math.max(0, attempts - 2) * 250);
+
+    return Math.min(
+      this.MAX_SUBMISSION_COOLDOWN_MS,
+      this.BASE_SUBMISSION_COOLDOWN_MS + extraPenaltyMs + attemptPenaltyMs
+    );
+  }
+
+  _getSuspiciousAttemptThreshold(match) {
+    switch (normalizeDifficulty(match?.difficulty)) {
+      case "hard":
+        return 10;
+      case "medium":
+        return 12;
+      default:
+        return 14;
+    }
+  }
+
+  async logSecurityEvent(matchId, userId, eventType, payload = {}) {
+    await this._safeInsert("match_events", {
+      match_id: matchId,
+      event_type: "security_event",
+      user_id: userId ?? null,
+      payload: {
+        type: eventType,
+        ...payload,
+        recorded_at: new Date().toISOString(),
+      },
+    });
+  }
+  async _saveSubmissionBestEffort({
+    matchId,
+    userId,
+    code,
+    codeHash,
+    language,
+    judgeResults,
+    testCasesCount,
+    submissionSequence = null,
+    submissionKind = "manual",
+    auditMetadata = {},
+  }) {
+    const testSummary = {
+      result: judgeResults.result ?? judgeResults.verdict ?? null,
+      passed: judgeResults.passed ?? 0,
+      total: judgeResults.total ?? testCasesCount,
+      runtimeMs: judgeResults.runtimeMs ?? 0,
+      score: judgeResults.score ?? 0,
+    };
+
     try {
       const { data, error } = await this.supabase
         .from("submissions")
@@ -727,6 +1102,7 @@ export class MatchController {
           match_id: matchId,
           user_id: userId,
           code,
+          code_hash: codeHash,
           language,
           test_results: judgeResults.testResults ?? [],
           passed_tests: judgeResults.passed ?? 0,
@@ -742,6 +1118,12 @@ export class MatchController {
               : null,
           total_count: judgeResults.total ?? null,
           runtime_ms: judgeResults.runtimeMs ?? null,
+          submission_sequence: submissionSequence,
+          compile_log: judgeResults.compileLog ?? "",
+          execution_log: judgeResults.stderr ?? "",
+          test_summary: testSummary,
+          audit_metadata: auditMetadata,
+          submission_kind: submissionKind,
         })
         .select("id")
         .single();
@@ -759,11 +1141,13 @@ export class MatchController {
           match_id: matchId,
           user_id: userId,
           code,
+          code_hash: codeHash,
           language,
           verdict: judgeResults.result ?? null,
           score: judgeResults.score ?? 0,
           runtime_ms: judgeResults.runtimeMs ?? 0,
           test_results: judgeResults.testResults ?? [],
+          audit_metadata: auditMetadata,
         })
         .select("id")
         .single();
@@ -897,7 +1281,7 @@ export class MatchController {
 
     return base;
   }
-  // âœ… FIX: room-based emit (reconnect-safe)
+  // Ã¢Å“â€¦ FIX: room-based emit (reconnect-safe)
   _emitToPlayer(player, event, payload) {
     if (!player?.userId) return;
     this.io?.to?.(`user:${player.userId}`)?.emit?.(event, payload);
@@ -933,6 +1317,18 @@ export class MatchController {
     }
   }
 }
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

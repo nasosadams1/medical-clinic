@@ -70,6 +70,8 @@ export class MatchmakingService {
       username: player.username,
       rating: Number(player.rating) || 500,
       socketId: player.socketId,
+      sessionEvidence: player.sessionEvidence || null,
+      connectionRiskFlags: Array.isArray(player.connectionRiskFlags) ? [...player.connectionRiskFlags] : [],
       matchType,
       joinedAt: Date.now(),
     };
@@ -211,8 +213,8 @@ export class MatchmakingService {
 
     const match = await this._insertMatchRecord({
       matchType,
-      playerA,
-      playerB,
+      playerA: { ...playerA },
+          playerB: { ...playerB },
       safeA,
       safeB,
       problem,
@@ -227,16 +229,6 @@ export class MatchmakingService {
     const payload = {
       matchId: match.id,
       opponent: null,
-      problem: {
-        id: problem.id,
-        title: problem.title,
-        statement: problem.statement,
-        difficulty,
-        timeLimit,
-        supportedLanguages: problem.supported_languages,
-        testCases: problem.test_cases,
-        starterCode: problem.starter_code,
-      },
       countdown,
     };
 
@@ -263,8 +255,8 @@ export class MatchmakingService {
       if (this.matchController?.pendingMatches) {
         this.matchController.pendingMatches.set(match.id, {
           matchId: match.id,
-          playerA,
-          playerB,
+          playerA: { ...playerA },
+          playerB: { ...playerB },
           problem: { ...problem, difficulty, time_limit_seconds: timeLimit },
           difficulty,
           startTimeMs: Date.now(),
@@ -274,6 +266,10 @@ export class MatchmakingService {
           attempts: new Map(),
           wrongSubmissions: new Map(),
           lastSubmissionAtMs: new Map(),
+          submissionLocks: new Set(),
+          submissionSequence: new Map(),
+          lastSubmissionHashes: new Map(),
+          lastSnapshotHashes: new Map(),
           winnerId: null,
           resultStrength: "draw",
           status: "COUNTDOWN",

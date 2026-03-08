@@ -14,6 +14,7 @@ import { useAuth } from './context/AuthContext';
 import { BookOpen, Menu, ShoppingBag, Swords, Trophy, User as UserIcon, Settings, X } from 'lucide-react';
 import AuthConfirm from './components/AuthConfirm';
 import ResetPasswordPage from './components/ResetPasswordPage';
+import LegalDocumentPage from './components/legal/LegalDocumentPage';
 
 type SectionId = 'learn' | 'duels' | 'store' | 'leaderboard' | 'profile' | 'account';
 
@@ -162,6 +163,9 @@ function App() {
             <Route path="/" element={<AppContent />} />
             <Route path="/auth/confirm" element={<AuthConfirm />} />
             <Route path="/auth/reset-password" element={<ResetPasswordPage />} />
+            <Route path="/terms" element={<LegalDocumentPage slug="terms" />} />
+            <Route path="/privacy" element={<LegalDocumentPage slug="privacy" />} />
+            <Route path="/refunds" element={<LegalDocumentPage slug="refunds" />} />
           </Routes>
         </Router>
       </UserProvider>
@@ -170,3 +174,4 @@ function App() {
 }
 
 export default App;
+
