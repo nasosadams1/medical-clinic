@@ -13,6 +13,10 @@ import { EloRatingService } from "./services/elo-rating.js";
 
 dotenv.config();
 
+const NODE_ENV = (process.env.NODE_ENV || "development").toLowerCase();
+const IS_PRODUCTION = NODE_ENV === "production";
+const ALLOW_INSECURE_LOCAL_JUDGE = process.env.ALLOW_INSECURE_LOCAL_JUDGE === "1";
+
 const allowedOrigins = (process.env.DUEL_ALLOWED_ORIGINS || "")
   .split(",")
   .map((origin) => origin.trim())
@@ -20,7 +24,7 @@ const allowedOrigins = (process.env.DUEL_ALLOWED_ORIGINS || "")
 
 function isAllowedOrigin(origin) {
   if (!origin) return true;
-  if (allowedOrigins.length === 0) return true;
+  if (allowedOrigins.length === 0) return !IS_PRODUCTION;
   return allowedOrigins.includes(origin);
 }
 
@@ -74,6 +78,16 @@ if (JUDGE_PROVIDER === "remote" && JUDGE_URL && !JUDGE_SHARED_SECRET) {
 }
 if (JUDGE_PROVIDER === "judge0" && !JUDGE0_URL) {
   console.error("JUDGE0_URL is required when JUDGE_PROVIDER=judge0");
+  process.exit(1);
+}
+if (IS_PRODUCTION && allowedOrigins.length === 0) {
+  console.error("DUEL_ALLOWED_ORIGINS must be set explicitly in production");
+  process.exit(1);
+}
+if (IS_PRODUCTION && JUDGE_PROVIDER === "local" && !ALLOW_INSECURE_LOCAL_JUDGE) {
+  console.error(
+    "Refusing to start duel-server in production with the insecure local judge. Use JUDGE_PROVIDER=remote or JUDGE_PROVIDER=judge0."
+  );
   process.exit(1);
 }
 
@@ -542,13 +556,3 @@ app.get("/health", (_req, res) => res.json({ status: "ok", timestamp: new Date()
 httpServer.listen(PORT, "0.0.0.0", () => {
   console.log(`Duel server running on port ${PORT}`);
 });
-
-
-
-
-
-
-
-
-
-

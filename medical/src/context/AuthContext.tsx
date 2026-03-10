@@ -52,7 +52,7 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-// ✅ NEW: Leaderboard API base URL (optional). If not set, sync is skipped.
+// âœ… NEW: Leaderboard API base URL (optional). If not set, sync is skipped.
 // Add in Vercel env vars if/when you deploy leaderboard:
 // VITE_LEADERBOARD_API_URL=https://your-leaderboard-api
 const LEADERBOARD_API_URL =
@@ -118,16 +118,16 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const syncProfileToLeaderboard = useCallback(async (profileData: UserProfile) => {
     if (!profileData || !profileData.id || profileData.id === "guest") {
       console.warn(
-        "⚠️ AuthContext: Skipping leaderboard sync due to invalid profile data or guest user."
+        "âš ï¸ AuthContext: Skipping leaderboard sync due to invalid profile data or guest user."
       );
       return;
     }
 
-    // ✅ If not configured (like on Vercel), skip to avoid localhost errors.
+    // âœ… If not configured (like on Vercel), skip to avoid localhost errors.
     if (!LEADERBOARD_API_URL) {
       // keep it quiet-ish in production; still useful during debugging
       console.warn(
-        "⚠️ Leaderboard API not configured (VITE_LEADERBOARD_API_URL). Skipping leaderboard sync."
+        "âš ï¸ Leaderboard API not configured (VITE_LEADERBOARD_API_URL). Skipping leaderboard sync."
       );
       return;
     }
@@ -139,7 +139,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     const payload = {
       name: profileData.name || "Unknown User",
       userId: profileData.id,
-      avatar: profileData.current_avatar || "👤",
+      avatar: profileData.current_avatar || "ðŸ‘¤",
       badge: "Learner",
       xp: Math.max(0, profileData.xp || 0),
       level: Math.max(1, profileData.level || 1),
@@ -152,7 +152,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
     const currentDataHash = JSON.stringify(payload);
     if (currentDataHash === lastSyncDataRef.current) {
-      authLog("📊 AuthContext: No changes detected, skipping leaderboard sync");
+      authLog("ðŸ“Š AuthContext: No changes detected, skipping leaderboard sync");
       return;
     }
     lastSyncDataRef.current = currentDataHash;
@@ -163,7 +163,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
     leaderboardSyncTimeoutRef.current = setTimeout(async () => {
       try {
-        authLog("🔄 AuthContext: Syncing profile to leaderboard:", {
+        authLog("ðŸ”„ AuthContext: Syncing profile to leaderboard:", {
           name: payload.name,
           userId: payload.userId,
           xp: payload.xp,
@@ -172,11 +172,19 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           streak: payload.streak,
         });
 
+        const { data: sessionData } = await supabase.auth.getSession();
+        const accessToken = sessionData.session?.access_token;
+
+        if (!accessToken) {
+          throw new Error('No active session token is available for leaderboard sync.');
+        }
+
         const response = await fetch(`${LEADERBOARD_API_URL}/submit`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
             Accept: "application/json",
+            Authorization: `Bearer ${accessToken}`,
           },
           body: JSON.stringify(payload),
         });
@@ -187,9 +195,9 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         }
 
         const result = await response.json().catch(() => ({}));
-        authLog("✅ AuthContext: Leaderboard sync success:", result);
+        authLog("âœ… AuthContext: Leaderboard sync success:", result);
       } catch (error) {
-        console.error("❌ AuthContext: Failed to sync profile to leaderboard:", error);
+        console.error("âŒ AuthContext: Failed to sync profile to leaderboard:", error);
         // Reset hash so next change attempts again
         lastSyncDataRef.current = "";
       }
@@ -199,7 +207,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const fetchProfile = async (userId: string, retryCount = 0) => {
     try {
       authLog(
-        `🔄 AuthContext: Fetching profile for user: ${userId} (attempt ${
+        `ðŸ”„ AuthContext: Fetching profile for user: ${userId} (attempt ${
           retryCount + 1
         })`
       );
@@ -216,7 +224,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         return;
       }
 
-      authLog("✅ AuthContext: Profile found:", {
+      authLog("âœ… AuthContext: Profile found:", {
         name: data.name,
         xp: data.xp,
         lessons: data.total_lessons_completed,
@@ -235,7 +243,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   const refetchProfile = useCallback(async () => {
     if (user?.id) {
-      authLog("🔄 AuthContext: Refetching profile from database...");
+      authLog("ðŸ”„ AuthContext: Refetching profile from database...");
       setLoading(true);
       await fetchProfile(user.id);
     }
@@ -259,7 +267,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         console.error("Error getting current user:", userError);
 
         if (userError.message?.includes("User from sub claim in JWT does not exist")) {
-          authLog("🚨 Detected corrupted JWT, clearing session...");
+          authLog("ðŸš¨ Detected corrupted JWT, clearing session...");
           await clearCorruptedSession();
           return;
         }
@@ -305,7 +313,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         const timestamp = Date.now().toString().slice(-6);
         const randomSuffix = Math.random().toString(36).substring(2, 5);
         userName = `User_${timestamp}_${randomSuffix}`;
-        authLog(`🔧 Generated safe username: ${userName}`);
+        authLog(`ðŸ”§ Generated safe username: ${userName}`);
       }
 
       const newProfile: Omit<UserProfile, "created_at" | "updated_at"> = {
@@ -342,7 +350,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       }
 
       if (data) {
-        authLog("✅ Profile created manually:", data.name);
+        authLog("âœ… Profile created manually:", data.name);
         setProfile(data);
         await syncProfileToLeaderboard(data);
         setLoading(false);
@@ -359,7 +367,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     try {
       const displayName = await getDisplayName(user.id);
       if (displayName && displayName !== profile.name && displayName !== "Unknown User") {
-        authLog("🔄 AuthContext: Syncing display name from auth:", displayName);
+        authLog("ðŸ”„ AuthContext: Syncing display name from auth:", displayName);
         await updateProfile({ name: displayName });
       }
     } catch (error) {
@@ -369,18 +377,18 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
-      authLog("🔄 AuthContext: Initial session:", !!session);
+      authLog("ðŸ”„ AuthContext: Initial session:", !!session);
       setSession(session);
       setUser(session?.user ?? null);
 
       if (session?.user) {
         authLog(
-          "🔄 AuthContext: Initial session found, fetching profile for user:",
+          "ðŸ”„ AuthContext: Initial session found, fetching profile for user:",
           session.user.id
         );
         fetchProfile(session.user.id);
       } else {
-        authLog("🔄 AuthContext: No initial session found");
+        authLog("ðŸ”„ AuthContext: No initial session found");
         setLoading(false);
       }
     });
@@ -388,19 +396,19 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange(async (event, session) => {
-      authLog("🔄 AuthContext: Auth state change:", event, session?.user?.id);
+      authLog("ðŸ”„ AuthContext: Auth state change:", event, session?.user?.id);
       setSession(session);
       setUser(session?.user ?? null);
 
       if (event === "SIGNED_IN" && session?.user) {
-        authLog("🔄 AuthContext: User signed in, fetching fresh profile...");
+        authLog("ðŸ”„ AuthContext: User signed in, fetching fresh profile...");
         fetchProfile(session.user.id);
 
         setTimeout(() => {
           if (navigationCallbackRef.current) navigationCallbackRef.current();
         }, 1000);
       } else if (event === "SIGNED_OUT") {
-        authLog("🔄 AuthContext: User signed out, clearing profile");
+        authLog("ðŸ”„ AuthContext: User signed out, clearing profile");
         setProfile(null);
         lastSyncDataRef.current = "";
         setLoading(false);
@@ -555,21 +563,21 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   const updateProfile = async (updates: Partial<UserProfile>) => {
     if (!user) {
-      console.warn("❌ AuthContext: Cannot update profile - no authenticated user");
+      console.warn("âŒ AuthContext: Cannot update profile - no authenticated user");
       return;
     }
 
-    authLog("🔄 AuthContext: updateProfile called with:", updates);
+    authLog("ðŸ”„ AuthContext: updateProfile called with:", updates);
 
     const { data, error } = await supabaseUpdateUserProfile(user.id, updates);
 
     if (error) {
-      console.error("❌ AuthContext: Error updating profile in database:", error);
+      console.error("âŒ AuthContext: Error updating profile in database:", error);
       throw error;
     }
 
     if (data) {
-      authLog("✅ AuthContext: Profile updated:", {
+      authLog("âœ… AuthContext: Profile updated:", {
         name: data.name,
         xp: data.xp,
         totalLessons: data.total_lessons_completed,
@@ -629,4 +637,3 @@ export const useAuth = () => {
   }
   return context;
 };
-

@@ -847,10 +847,11 @@ export class MatchController {
 
     const analysis = analyzeMatchForAntiCheat({
       matchId,
-      match,
+      playerA: match.playerA,
+      playerB: match.playerB,
       playerASubmission: finalSubmissionA,
       playerBSubmission: finalSubmissionB,
-      events: eventRows ?? [],
+      matchEvents: eventRows ?? [],
     });
 
     if (!analysis.shouldCreateCase) {
@@ -1281,7 +1282,7 @@ export class MatchController {
 
     return base;
   }
-  // Ã¢Å“â€¦ FIX: room-based emit (reconnect-safe)
+  // ÃƒÂ¢Ã…â€œÃ¢â‚¬Â¦ FIX: room-based emit (reconnect-safe)
   _emitToPlayer(player, event, payload) {
     if (!player?.userId) return;
     this.io?.to?.(`user:${player.userId}`)?.emit?.(event, payload);
@@ -1317,40 +1318,3 @@ export class MatchController {
     }
   }
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

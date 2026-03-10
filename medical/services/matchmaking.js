@@ -345,7 +345,7 @@ export class MatchmakingService {
   async selectProblem(matchType, ratingA, ratingB) {
     const { data: problems, error } = await this.supabase
       .from("problems")
-      .select("*")
+      .select("id, title, statement, difficulty, time_limit_seconds, memory_limit_mb, supported_languages, starter_code, tags, short_story, input_format, output_format, constraints_text, solution_explanation, estimated_time_minutes, rating_weight, is_active, created_at")
       .eq("is_active", true);
 
     if (error || !problems || problems.length === 0) {
@@ -355,4 +355,3 @@ export class MatchmakingService {
     return problems[Math.floor(Math.random() * problems.length)];
   }
 }
-

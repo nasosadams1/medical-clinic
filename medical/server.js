@@ -12,18 +12,59 @@ import { createClient } from '@supabase/supabase-js';
 import { createFeedbackRouter } from './services/feedback/routes.js';
 import { createLegalRouter } from './services/legal/routes.js';
 import { createDuelAdminRouter } from './services/duel-admin/routes.js';
+import { createDuelProblemAdminRouter } from './services/duel-problems/routes.js';
 
 dotenv.config();
+
+const NODE_ENV = (process.env.NODE_ENV || 'development').toLowerCase();
+const IS_PRODUCTION = NODE_ENV === 'production';
+const ALLOW_LEGACY_UNAUTHENTICATED_SCORE_SUBMIT = process.env.ALLOW_LEGACY_UNAUTHENTICATED_SCORE_SUBMIT === '1';
+const allowedOrigins = (process.env.API_ALLOWED_ORIGINS || process.env.DUEL_ALLOWED_ORIGINS || '')
+  .split(',')
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+
+function isAllowedOrigin(origin) {
+  if (!origin) return true;
+  if (allowedOrigins.length === 0) return !IS_PRODUCTION;
+  return allowedOrigins.includes(origin);
+}
+
+const corsOptions = {
+  origin(origin, callback) {
+    if (isAllowedOrigin(origin)) {
+      callback(null, true);
+      return;
+    }
+    callback(new Error('Origin not allowed by API server CORS'));
+  },
+  credentials: true,
+};
+
+if (IS_PRODUCTION && allowedOrigins.length === 0) {
+  console.error('API_ALLOWED_ORIGINS must be set explicitly in production');
+  process.exit(1);
+}
 
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server, {
-  cors: { origin: '*', methods: ['GET', 'POST'] }
+  cors: {
+    origin(origin, callback) {
+      if (isAllowedOrigin(origin)) {
+        callback(null, true);
+        return;
+      }
+      callback(new Error('Origin not allowed by API server CORS'));
+    },
+    methods: ['GET', 'POST'],
+    credentials: true,
+  }
 });
 
 app.set('trust proxy', 1);
 app.use(helmet({ crossOriginResourcePolicy: false }));
-app.use(cors());
+app.use(cors(corsOptions));
 app.use(bodyParser.json({ limit: process.env.API_JSON_LIMIT || '20mb' }));
 
 
@@ -39,6 +80,122 @@ const supabaseAdmin = SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY
 if (!supabaseAdmin) {
   console.warn('Feedback API disabled: missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY.');
 }
+
+const getBearerToken = (req) => {
+  const authHeader = req.headers.authorization || '';
+  if (!authHeader.startsWith('Bearer ')) return null;
+  return authHeader.slice('Bearer '.length).trim();
+};
+
+const clampInteger = (value, min, max, fallback) => {
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.min(max, Math.max(min, parsed));
+};
+
+const sanitizeText = (value, maxLength, fallback = '') => {
+  if (typeof value !== 'string') return fallback;
+  const trimmed = value.trim();
+  if (!trimmed) return fallback;
+  return trimmed.slice(0, maxLength);
+};
+
+const resolveAuthDisplayName = (user) =>
+  sanitizeText(
+    user?.user_metadata?.display_name ||
+      user?.user_metadata?.full_name ||
+      user?.user_metadata?.name ||
+      user?.user_metadata?.username ||
+      user?.email?.split('@')[0] ||
+      'Player',
+    80,
+    'Player'
+  );
+
+const normalizeLeaderboardSubmitPayload = (payload = {}, authUser = null) => {
+  const lessons = clampInteger(payload?.lessons ?? payload?.completedLessons, 0, 1_000_000_000, 0);
+
+  return {
+    name: sanitizeText(payload?.name, 80, resolveAuthDisplayName(authUser)),
+    userId: sanitizeText(payload?.userId, 128, authUser?.id || ''),
+    avatar: sanitizeText(payload?.avatar, 64, 'default'),
+    badge: sanitizeText(payload?.badge, 48, 'Learner'),
+    xp: clampInteger(payload?.xp, 0, 1_000_000_000, 0),
+    level: clampInteger(payload?.level, 1, 1_000_000, 1),
+    lessons,
+    completedLessons: lessons,
+    projects: clampInteger(payload?.projects, 0, 1_000_000_000, 0),
+    streak: clampInteger(payload?.streak, 0, 1_000_000_000, 0),
+    achievements: clampInteger(payload?.achievements, 0, 1_000_000_000, 0),
+    xpDelta: clampInteger(payload?.xpDelta, 0, 1_000_000_000, 0),
+  };
+};
+
+const buildAuthoritativeLeaderboardPayload = async (payload = {}, authUser = null) => {
+  const normalized = normalizeLeaderboardSubmitPayload(payload, authUser);
+  if (!authUser || !supabaseAdmin) {
+    return normalized;
+  }
+
+  const { data: profile, error } = await supabaseAdmin
+    .from('user_profiles')
+    .select('id, name, current_avatar, xp, level, total_lessons_completed, current_streak, unlocked_achievements')
+    .eq('id', authUser.id)
+    .maybeSingle();
+
+  if (error) {
+    throw new Error(error.message || 'Could not load leaderboard profile data.');
+  }
+
+  const achievements = Array.isArray(profile?.unlocked_achievements)
+    ? profile.unlocked_achievements.length
+    : normalized.achievements;
+
+  const lessons = clampInteger(profile?.total_lessons_completed, 0, 1_000_000_000, normalized.lessons);
+
+  return {
+    ...normalized,
+    userId: authUser.id,
+    name: sanitizeText(profile?.name, 80, normalized.name),
+    avatar: sanitizeText(profile?.current_avatar, 64, normalized.avatar),
+    badge: 'Learner',
+    xp: clampInteger(profile?.xp, 0, 1_000_000_000, normalized.xp),
+    level: clampInteger(profile?.level, 1, 1_000_000, normalized.level),
+    lessons,
+    completedLessons: lessons,
+    streak: clampInteger(profile?.current_streak, 0, 1_000_000_000, normalized.streak),
+    achievements: clampInteger(achievements, 0, 1_000_000_000, normalized.achievements),
+    xpDelta: 0,
+  };
+};
+
+const requireAuthenticatedScoreSubmit = async (req, res, next) => {
+  if (ALLOW_LEGACY_UNAUTHENTICATED_SCORE_SUBMIT) {
+    return next();
+  }
+
+  if (!supabaseAdmin) {
+    return res.status(503).json({ error: 'Score submission requires SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY.' });
+  }
+
+  const token = getBearerToken(req);
+  if (!token) {
+    return res.status(401).json({ error: 'Missing authorization token.' });
+  }
+
+  const { data, error } = await supabaseAdmin.auth.getUser(token);
+  if (error || !data?.user) {
+    return res.status(401).json({ error: 'Invalid or expired session token.' });
+  }
+
+  const requestedUserId = String(req.body?.userId || '').trim();
+  if (!requestedUserId || requestedUserId !== data.user.id) {
+    return res.status(403).json({ error: 'You can only submit leaderboard stats for your own account.' });
+  }
+
+  req.authUser = data.user;
+  return next();
+};
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -114,7 +271,7 @@ db.serialize(() => {
     CREATE TABLE IF NOT EXISTS users (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT UNIQUE NOT NULL,
-      avatar TEXT DEFAULT '👤',
+      avatar TEXT DEFAULT 'ðŸ‘¤',
       badge TEXT DEFAULT 'Beginner',
       external_id TEXT UNIQUE,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
@@ -575,11 +732,12 @@ const updateUserStats = (userId, stats, callback) => {
 
 // Upsert user and stats
 const upsertUserAndStats = (payload, callback) => {
+  const normalized = normalizeLeaderboardSubmitPayload(payload);
   const {
     name,
     userId: externalId,
-    avatar = '👤',
-    badge = 'Beginner',
+    avatar = 'default',
+    badge = 'Learner',
     xp = 0,
     level = 1,
     lessons = 0,
@@ -588,17 +746,22 @@ const upsertUserAndStats = (payload, callback) => {
     streak = 0,
     achievements = 0,
     xpDelta = 0
-  } = payload || {};
+  } = normalized;
 
   if (!name) return callback(new Error('Name is required'));
+  if (!externalId) return callback(new Error('userId is required'));
 
-  const finalLessons = lessons || completedLessons || 0;
+  const finalLessons = Math.max(lessons || 0, completedLessons || 0, 0);
+  const duplicateNamePattern = /users\.name|UNIQUE constraint failed: users\.name/i;
+  const fallbackSuffix = String(externalId).slice(0, 8) || 'player';
+  const fallbackBase = name.slice(0, Math.max(1, 80 - fallbackSuffix.length - 1));
+  const fallbackName = `${fallbackBase}-${fallbackSuffix}`;
 
   db.serialize(() => {
     db.get(`
-      SELECT id FROM users 
-      WHERE name = ? OR external_id = ?
-    `, [name, externalId], (err, existingUser) => {
+      SELECT id FROM users
+      WHERE external_id = ? OR (external_id IS NULL AND name = ?)
+    `, [externalId, name], (err, existingUser) => {
       if (err) return callback(err);
 
       const handleUserUpdate = (userId) => {
@@ -618,30 +781,44 @@ const upsertUserAndStats = (payload, callback) => {
             projects,
             streak,
             achievements,
-            xpDelta: calculatedXpDelta,
+            xpDelta: Math.max(0, calculatedXpDelta),
             lessonsDelta: Math.max(0, lessonsDelta),
             achievementsDelta: Math.max(0, achievementsDelta)
           }, callback);
         });
       };
 
-      if (existingUser) {
+      const updateUserRecord = (candidateName, allowFallback) => {
         db.run(`
-          UPDATE users 
-          SET avatar = ?, badge = ?, external_id = ?
+          UPDATE users
+          SET name = ?, avatar = ?, badge = ?, external_id = ?
           WHERE id = ?
-        `, [avatar, badge, externalId, existingUser.id], (updateErr) => {
+        `, [candidateName, avatar, badge, externalId, existingUser.id], (updateErr) => {
+          if (updateErr && allowFallback && duplicateNamePattern.test(updateErr.message || '')) {
+            return updateUserRecord(fallbackName, false);
+          }
           if (updateErr) return callback(updateErr);
           handleUserUpdate(existingUser.id);
         });
-      } else {
+      };
+
+      const insertUserRecord = (candidateName, allowFallback) => {
         db.run(`
           INSERT INTO users (name, avatar, badge, external_id)
           VALUES (?, ?, ?, ?)
-        `, [name, avatar, badge, externalId], function(insertErr) {
+        `, [candidateName, avatar, badge, externalId], function(insertErr) {
+          if (insertErr && allowFallback && duplicateNamePattern.test(insertErr.message || '')) {
+            return insertUserRecord(fallbackName, false);
+          }
           if (insertErr) return callback(insertErr);
           handleUserUpdate(this.lastID);
         });
+      };
+
+      if (existingUser) {
+        updateUserRecord(name, true);
+      } else {
+        insertUserRecord(name, true);
       }
     });
   });
@@ -649,6 +826,10 @@ const upsertUserAndStats = (payload, callback) => {
 
 // Add a debug endpoint to check your data
 app.get('/debug/:userId', (req, res) => {
+  if (IS_PRODUCTION) {
+    return res.status(404).json({ error: 'Not found' });
+  }
+
   const userId = req.params.userId;
   
   Promise.all([
@@ -703,6 +884,7 @@ const emitLeaderboards = () => {
 app.use('/api/feedback', createFeedbackRouter({ supabaseAdmin }));
 app.use('/api/legal', createLegalRouter({ supabaseAdmin }));
 app.use('/api/duel/admin', createDuelAdminRouter({ supabaseAdmin }));
+app.use('/api/duel/problems', createDuelProblemAdminRouter({ supabaseAdmin }));
 
 // REST API Endpoints
 app.get('/', (req, res) => {
@@ -734,17 +916,17 @@ app.post('/leaderboard/paginated', (req, res) => {
     sortBy = 'xp'
   } = req.body || {};
 
-  console.log('📊 Leaderboard request:', { frame, page, limit, userId, sortBy });
+  console.log('ðŸ“Š Leaderboard request:', { frame, page, limit, userId, sortBy });
 
   getPaginatedLeaderboard(frame, page, limit, sortBy, (err, players) => {
     if (err) {
-      console.error('❌ Leaderboard error:', err);
+      console.error('âŒ Leaderboard error:', err);
       return res.status(500).json({ error: err.message });
     }
 
     getTotalPlayerCount(frame, (countErr, totalPlayers) => {
       if (countErr) {
-        console.error('❌ Player count error:', countErr);
+        console.error('âŒ Player count error:', countErr);
         return res.status(500).json({ error: countErr.message });
       }
 
@@ -756,7 +938,7 @@ app.post('/leaderboard/paginated', (req, res) => {
           new Promise(resolve => getUserStats(userId, frame, (err, stats) => resolve(err ? null : stats)))
         ]).then(([yourRank, yourLessonsRank, yourAchievementsRank, yourStats]) => {
           
-          console.log('✅ Leaderboard response:', {
+          console.log('âœ… Leaderboard response:', {
             frame,
             playersCount: players?.length || 0,
             totalPlayers,
@@ -783,7 +965,7 @@ app.post('/leaderboard/paginated', (req, res) => {
           });
         });
       } else {
-        console.log('✅ Leaderboard response (no user):', {
+        console.log('âœ… Leaderboard response (no user):', {
           playersCount: players?.length || 0,
           totalPlayers
         });
@@ -801,21 +983,35 @@ app.post('/leaderboard/paginated', (req, res) => {
   });
 });
 
-app.post('/submit', (req, res) => {
-  console.log('📝 Submit request:', req.body);
-  
-  upsertUserAndStats(req.body, (err, userId) => {
-    if (err) {
-      console.error('❌ Submit error:', err);
-      return res.status(500).json({ error: err.message });
-    }
-    
-    console.log('✅ Submit success:', userId);
-    
-    setTimeout(emitLeaderboards, 100);
-    
-    res.json({ success: true, userId: userId || null });
-  });
+app.post('/submit', requireAuthenticatedScoreSubmit, async (req, res) => {
+  try {
+    const payload = ALLOW_LEGACY_UNAUTHENTICATED_SCORE_SUBMIT
+      ? normalizeLeaderboardSubmitPayload(req.body)
+      : await buildAuthoritativeLeaderboardPayload(req.body, req.authUser);
+
+    console.log('Leaderboard submit request:', {
+      userId: payload.userId,
+      xp: payload.xp,
+      lessons: payload.completedLessons,
+      achievements: payload.achievements,
+    });
+
+    upsertUserAndStats(payload, (err, userId) => {
+      if (err) {
+        console.error('Submit error:', err);
+        return res.status(500).json({ error: err.message });
+      }
+
+      console.log('Submit success:', userId);
+
+      setTimeout(emitLeaderboards, 100);
+
+      res.json({ success: true, userId: userId || null });
+    });
+  } catch (error) {
+    console.error('Authoritative submit error:', error);
+    return res.status(400).json({ error: error.message || 'Could not process leaderboard submit.' });
+  }
 });
 
 // Socket.IO handling
@@ -847,7 +1043,16 @@ io.on('connection', (socket) => {
   });
 
   socket.on('score:submit', (payload) => {
-    upsertUserAndStats(payload, (err) => {
+    if (!ALLOW_LEGACY_UNAUTHENTICATED_SCORE_SUBMIT) {
+      socket.emit('score:error', {
+        error: 'Direct socket score submission is disabled. Use the authenticated /submit API instead.',
+      });
+      return;
+    }
+
+    const normalizedPayload = normalizeLeaderboardSubmitPayload(payload);
+
+    upsertUserAndStats(normalizedPayload, (err) => {
       if (!err) {
         emitLeaderboards();
         socket.emit('score:success', { message: 'Score submitted successfully' });
@@ -865,15 +1070,8 @@ io.on('connection', (socket) => {
 
 const PORT = process.env.PORT || 4000;
 server.listen(PORT, () => {
-  console.log(`🚀 Leaderboard API + WebSocket server running on http://localhost:${PORT}`);
-  console.log('📊 Database initialized with proper schema');
-  console.log('🔄 Real-time updates enabled via Socket.IO');
-  console.log(`🔍 Debug endpoint available at http://localhost:${PORT}/debug/:userId`);
+  console.log(`ðŸš€ Leaderboard API + WebSocket server running on http://localhost:${PORT}`);
+  console.log('ðŸ“Š Database initialized with proper schema');
+  console.log('ðŸ”„ Real-time updates enabled via Socket.IO');
+  console.log(`ðŸ” Debug endpoint available at http://localhost:${PORT}/debug/:userId`);
 });
-
-
-
-
-
-
-

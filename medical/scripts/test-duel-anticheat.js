@@ -135,6 +135,53 @@ runScenario(
 );
 
 runScenario(
+  'legacy match and events aliases still preserve session evidence',
+  () => ({
+    matchId: 'match-legacy',
+    match: {
+      playerA: basePlayer('a', 'Alpha', {
+        ipAddress: '203.0.113.10',
+        userAgent: 'BrowserAlias',
+        deviceClusterId: 'alias-cluster',
+        timezone: 'Europe/Athens',
+        platform: 'Win32',
+        language: 'en-US',
+      }),
+      playerB: basePlayer('b', 'Bravo', {
+        ipAddress: '203.0.113.10',
+        userAgent: 'BrowserAlias',
+        deviceClusterId: 'alias-cluster',
+        timezone: 'Europe/Athens',
+        platform: 'Win32',
+        language: 'en-US',
+      }),
+    },
+    playerASubmission: baseSubmission('function solution(input){ return input.total; }', {
+      codeHash: 'legacy-hash',
+      elapsedMs: 30000,
+      submittedAtMs: 1710002000000,
+      matchScore: 150,
+    }),
+    playerBSubmission: baseSubmission('function solution(input){ return input.total; }', {
+      codeHash: 'legacy-hash',
+      elapsedMs: 32000,
+      submittedAtMs: 1710002002000,
+      matchScore: 149,
+    }),
+    events: [
+      { user_id: 'a', event_type: 'editor_telemetry', payload: { pasteEvents: 1, largePasteEvents: 0, pasteChars: 32, majorEdits: 1, focusLosses: 0 } },
+      { user_id: 'b', event_type: 'editor_telemetry', payload: { pasteEvents: 1, largePasteEvents: 1, pasteChars: 180, majorEdits: 1, focusLosses: 0 } },
+    ],
+  }),
+  (result) => {
+    assert.equal(result.shouldCreateCase, true);
+    assert.ok(result.evidence.flags.includes('same_device_cluster'));
+    assert.equal(result.evidence.telemetry.playerA.pasteEvents, 1);
+    assert.equal(result.evidence.players.playerA.userId, 'a');
+    assert.equal(result.evidence.players.playerB.userId, 'b');
+  }
+);
+runScenario(
   'different code and session signals do not create a case',
   () => ({
     matchId: 'match-3',

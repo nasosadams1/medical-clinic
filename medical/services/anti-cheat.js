@@ -270,12 +270,17 @@ const buildRiskSignals = ({ similarity, session, telemetry, timing, submissionA,
 
 export const analyzeMatchForAntiCheat = ({
   matchId,
-  playerA,
-  playerB,
+  playerA = null,
+  playerB = null,
   playerASubmission,
   playerBSubmission,
-  matchEvents,
+  matchEvents = null,
+  match = null,
+  events = null,
 }) => {
+  const resolvedPlayerA = playerA ?? match?.playerA ?? null;
+  const resolvedPlayerB = playerB ?? match?.playerB ?? null;
+  const resolvedMatchEvents = safeArray(matchEvents ?? events);
   const codeA = playerASubmission?.code || '';
   const codeB = playerBSubmission?.code || '';
 
@@ -293,8 +298,8 @@ export const analyzeMatchForAntiCheat = ({
     controlFlowSimilarity: round(cosineSimilarity(buildControlFlowCounts(tokensA), buildControlFlowCounts(tokensB))),
   };
 
-  const leftSession = playerA?.sessionEvidence || {};
-  const rightSession = playerB?.sessionEvidence || {};
+  const leftSession = resolvedPlayerA?.sessionEvidence || {};
+  const rightSession = resolvedPlayerB?.sessionEvidence || {};
   const ipSignals = compareIpPrefix(leftSession.ipAddress, rightSession.ipAddress);
 
   const session = {
@@ -323,8 +328,8 @@ export const analyzeMatchForAntiCheat = ({
   };
 
   const telemetry = {
-    playerA: summarizeTelemetry(matchEvents, playerA?.userId),
-    playerB: summarizeTelemetry(matchEvents, playerB?.userId),
+    playerA: summarizeTelemetry(resolvedMatchEvents, resolvedPlayerA?.userId),
+    playerB: summarizeTelemetry(resolvedMatchEvents, resolvedPlayerB?.userId),
   };
 
   const timing = buildTimingSignals(playerASubmission, playerBSubmission);
@@ -364,15 +369,15 @@ export const analyzeMatchForAntiCheat = ({
       flags: risk.flags,
       players: {
         playerA: {
-          userId: playerA?.userId,
-          username: playerA?.username,
+          userId: resolvedPlayerA?.userId,
+          username: resolvedPlayerA?.username,
           codeHash: playerASubmission?.codeHash || null,
           attempts: playerASubmission?.attempts || 0,
           wrongSubmissions: playerASubmission?.wrongSubmissionCount || 0,
         },
         playerB: {
-          userId: playerB?.userId,
-          username: playerB?.username,
+          userId: resolvedPlayerB?.userId,
+          username: resolvedPlayerB?.username,
           codeHash: playerBSubmission?.codeHash || null,
           attempts: playerBSubmission?.attempts || 0,
           wrongSubmissions: playerBSubmission?.wrongSubmissionCount || 0,

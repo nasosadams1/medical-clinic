@@ -12,6 +12,10 @@ import { pythonHarness, jsHarness } from "./harness.js";
 import { deepEqual, normalizeOutput, validators } from "./validators.js";
 
 const DEBUG_DUEL = process.env.DEBUG_DUEL === "1";
+const REQUIRE_ISOLATED_JUDGE =
+  process.env.REQUIRE_ISOLATED_JUDGE === "1" ||
+  (process.env.NODE_ENV === "production" && process.env.ALLOW_INSECURE_LOCAL_JUDGE !== "1");
+
 function debugJudge(...args) {
   if (DEBUG_DUEL) console.log("[judge]", ...args);
 }
@@ -157,6 +161,11 @@ export class JudgeService {
           timeLimitMs,
         });
       } else {
+        if (REQUIRE_ISOLATED_JUDGE) {
+          throw new Error(
+            "Isolated judge execution is required. Configure Docker, JUDGE_PROVIDER=remote, or JUDGE_PROVIDER=judge0."
+          );
+        }
         res =
           lang === "javascript"
             ? await runInLocalJsSandbox({ userCode: code, harnessCode: harness, stdinJson, timeLimitMs })

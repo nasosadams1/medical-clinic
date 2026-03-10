@@ -1,50 +1,61 @@
 import React, { useState, useEffect } from 'react';
-import { supabase } from '../lib/supabase';
 import { Plus, Edit2, Trash2, Save, X } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { useAuth } from '../context/AuthContext';
+import {
+  createDuelProblem,
+  deleteDuelProblem,
+  fetchDuelProblemCapabilities,
+  fetchDuelProblems,
+  type DuelProblemRecord,
+  type DuelProblemTestCase,
+  updateDuelProblem,
+} from '../lib/duelProblemAdmin';
 
-interface Problem {
-  id?: string;
-  title: string;
-  statement: string;
-  difficulty: 'easy' | 'medium' | 'hard';
-  time_limit_seconds: number;
-  memory_limit_mb: number;
-  supported_languages: string[];
-  test_cases: TestCase[];
-  tags: string[];
-  is_active: boolean;
-}
+interface Problem extends DuelProblemRecord {}
 
-interface TestCase {
-  input: string;
-  expected_output: string;
-  weight: number;
-  hidden: boolean;
-}
+interface TestCase extends DuelProblemTestCase {}
 
 export default function AdminPanel() {
+  const { session } = useAuth();
   const [problems, setProblems] = useState<Problem[]>([]);
   const [editingProblem, setEditingProblem] = useState<Problem | null>(null);
   const [isCreating, setIsCreating] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const [canManageProblems, setCanManageProblems] = useState<boolean | null>(null);
+
+  const loadProblems = async () => {
+    if (!session?.access_token) {
+      setProblems([]);
+      setCanManageProblems(false);
+      setIsLoading(false);
+      return;
+    }
+
+    setIsLoading(true);
+
+    try {
+      const capabilities = await fetchDuelProblemCapabilities(session.access_token);
+      setCanManageProblems(capabilities.canManageProblems);
+
+      if (!capabilities.canManageProblems) {
+        setProblems([]);
+        return;
+      }
+
+      const entries = await fetchDuelProblems(session.access_token, { limit: 100 });
+      setProblems((entries || []) as Problem[]);
+    } catch (error: any) {
+      toast.error(error?.message || 'Failed to load problems');
+      console.error(error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   useEffect(() => {
     loadProblems();
-  }, []);
-
-  const loadProblems = async () => {
-    const { data, error } = await supabase
-      .from('problems')
-      .select('*')
-      .order('created_at', { ascending: false });
-
-    if (error) {
-      toast.error('Failed to load problems');
-      console.error(error);
-    } else {
-      setProblems(data || []);
-    }
-  };
+  }, [session?.access_token]);
 
   const handleCreate = () => {
     setEditingProblem({
@@ -65,6 +76,10 @@ export default function AdminPanel() {
 
   const handleSave = async () => {
     if (!editingProblem) return;
+    if (!session?.access_token) {
+      toast.error('You must be signed in as an admin to manage duel problems.');
+      return;
+    }
 
     if (!editingProblem.title || !editingProblem.statement) {
       toast.error('Title and statement are required');
@@ -78,33 +93,19 @@ export default function AdminPanel() {
 
     try {
       if (isCreating) {
-        const { error } = await supabase
-          .from('problems')
-          .insert({
-            ...editingProblem,
-            supported_languages: editingProblem.supported_languages,
-            test_cases: editingProblem.test_cases
-          });
-
-        if (error) throw error;
+        await createDuelProblem(session.access_token, editingProblem);
         toast.success('Problem created successfully');
       } else {
-        const { error } = await supabase
-          .from('problems')
-          .update({
-            ...editingProblem,
-            supported_languages: editingProblem.supported_languages,
-            test_cases: editingProblem.test_cases
-          })
-          .eq('id', editingProblem.id);
-
-        if (error) throw error;
+        if (!editingProblem.id) {
+          throw new Error('Problem id is required for updates');
+        }
+        await updateDuelProblem(session.access_token, editingProblem.id, editingProblem);
         toast.success('Problem updated successfully');
       }
 
       setEditingProblem(null);
       setIsCreating(false);
-      loadProblems();
+      await loadProblems();
     } catch (error: any) {
       toast.error(error.message || 'Failed to save problem');
       console.error(error);
@@ -112,21 +113,35 @@ export default function AdminPanel() {
   };
 
   const handleDelete = async (id: string) => {
+    if (!session?.access_token) {
+      toast.error('You must be signed in as an admin to manage duel problems.');
+      return;
+    }
     if (!confirm('Are you sure you want to delete this problem?')) return;
 
-    const { error } = await supabase
-      .from('problems')
-      .delete()
-      .eq('id', id);
-
-    if (error) {
-      toast.error('Failed to delete problem');
-      console.error(error);
-    } else {
+    try {
+      await deleteDuelProblem(session.access_token, id);
       toast.success('Problem deleted');
-      loadProblems();
+      await loadProblems();
+    } catch (error: any) {
+      toast.error(error?.message || 'Failed to delete problem');
+      console.error(error);
     }
   };
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-gray-50 p-6">
+        <div className="mx-auto max-w-4xl rounded-2xl border border-gray-200 bg-white p-6 text-sm text-gray-500 shadow-sm">
+          Loading duel problem admin...
+        </div>
+      </div>
+    );
+  }
+
+  if (canManageProblems === false) {
+    return null;
+  }
 
   const addTestCase = () => {
     if (!editingProblem) return;
