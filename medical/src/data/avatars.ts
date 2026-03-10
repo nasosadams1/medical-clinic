@@ -11,7 +11,7 @@ export interface Avatar {
 export const avatars: Avatar[] = [
   {
     id: 'default',
-    name: 'Core Profile',
+    name: 'Default Avatar',
     emoji: '\u{1F464}',
     price: 0,
     description: 'The clean default identity every account starts with.',

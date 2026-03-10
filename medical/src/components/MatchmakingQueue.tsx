@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Swords, Loader2, Trophy, Users, Clock } from 'lucide-react';
+import { Swords, Loader2, Trophy, Users } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { supabase } from '../lib/supabase';
 
@@ -64,12 +64,8 @@ export default function MatchmakingQueue({
   onMatchEnd,
 }: MatchmakingQueueProps) {
   const [inQueue, setInQueue] = useState(false);
-  const [matchType, setMatchType] = useState<'ranked' | 'casual'>('ranked');
-  const [queueTime, setQueueTime] = useState(0);
   const [countdown, setCountdown] = useState<number | null>(null);
-  const [queuePosition, setQueuePosition] = useState(1);
   const [queueSize, setQueueSize] = useState(1);
-  const [ratingRange, setRatingRange] = useState(75);
   const [isJoining, setIsJoining] = useState(false);
 
   const countdownIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -95,10 +91,7 @@ export default function MatchmakingQueue({
     };
 
     const onQueueUpdate = (data: any) => {
-      setQueueTime(data.waitTime ?? 0);
-      setQueuePosition(data.queuePosition ?? 1);
       setQueueSize(data.queueSize ?? 1);
-      setRatingRange(data.ratingRange ?? 75);
     };
 
     const onDisconnectEvent = () => {
@@ -112,7 +105,6 @@ export default function MatchmakingQueue({
       toast.success(data.message || 'Joined queue');
       setInQueue(true);
       setIsJoining(false);
-      setQueueTime(0);
     };
 
     const onQueueLeft = (data: any) => {
@@ -120,10 +112,6 @@ export default function MatchmakingQueue({
       resetPendingState();
       setInQueue(false);
       setIsJoining(false);
-      setQueueTime(0);
-      setQueuePosition(1);
-      setQueueSize(1);
-      setRatingRange(75);
     };
 
     const onMatchFoundEvent = (data: any) => {
@@ -192,6 +180,7 @@ export default function MatchmakingQueue({
       setIsJoining(false);
     };
 
+
     socket.on('queue_update', onQueueUpdate);
     socket.on('disconnect', onDisconnectEvent);
     socket.on('queue_joined', onQueueJoined);
@@ -203,6 +192,7 @@ export default function MatchmakingQueue({
 
     return () => {
       clearCountdown();
+
       socket.off('queue_update', onQueueUpdate);
       socket.off('disconnect', onDisconnectEvent);
       socket.off('queue_joined', onQueueJoined);
@@ -222,7 +212,7 @@ export default function MatchmakingQueue({
     const registrationKey = `${socket.id}:${userId}`;
     if (registeredSocketKeyRef.current === registrationKey) {
       setIsJoining(true);
-      socket.emit('join_matchmaking', { matchType });
+      socket.emit('join_matchmaking', { matchType: 'ranked' });
       return;
     }
 
@@ -257,7 +247,7 @@ export default function MatchmakingQueue({
         }
 
         registeredSocketKeyRef.current = registrationKey;
-        socket.emit('join_matchmaking', { matchType });
+        socket.emit('join_matchmaking', { matchType: 'ranked' });
       });
   };
 
@@ -272,19 +262,10 @@ export default function MatchmakingQueue({
     }
     setCountdown(null);
     socket.emit('leave_matchmaking');
-    setQueueTime(0);
-    setQueuePosition(1);
-    setQueueSize(1);
-    setRatingRange(75);
     setInQueue(false);
     setIsJoining(false);
   };
 
-  const formatQueueTime = (seconds: number) => {
-    const mins = Math.floor(seconds / 60);
-    const secs = seconds % 60;
-    return `${mins}:${secs.toString().padStart(2, '0')}`;
-  };
 
   if (countdown !== null) {
     return (
@@ -312,50 +293,20 @@ export default function MatchmakingQueue({
           <h2 className="mb-3 text-3xl font-bold text-gray-800 sm:text-4xl">Code Duels</h2>
           <p className="mb-8 text-gray-600">Compete against another player in a real-time coding battle</p>
 
-          <div className="mb-8 grid grid-cols-1 gap-4 sm:grid-cols-3">
-            <div className="rounded-lg bg-blue-50 p-4">
+          <div className="mb-8 grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div className="rounded-lg bg-blue-50 p-6">
               <Trophy className="mx-auto mb-2 h-8 w-8 text-blue-600" />
               <div className="text-2xl font-bold text-blue-600">{rating}</div>
               <div className="text-sm text-gray-600">Your Rating</div>
             </div>
 
-            <div className="rounded-lg bg-green-50 p-4">
+            <div className="rounded-lg bg-green-50 p-6">
               <Users className="mx-auto mb-2 h-8 w-8 text-green-600" />
               <div className="text-2xl font-bold text-green-600">{queueSize}</div>
               <div className="text-sm text-gray-600">Players Online</div>
             </div>
-
-            <div className="rounded-lg bg-purple-50 p-4">
-              <Clock className="mx-auto mb-2 h-8 w-8 text-purple-600" />
-              <div className="text-2xl font-bold text-purple-600">{formatQueueTime(queueTime)}</div>
-              <div className="text-sm text-gray-600">Queue Time</div>
-            </div>
           </div>
 
-          <div className="mb-8 flex justify-center gap-4">
-            <button
-              onClick={() => setMatchType('ranked')}
-              disabled={inQueue}
-              className={`rounded-lg px-6 py-3 font-semibold transition-colors ${
-                matchType === 'ranked'
-                  ? 'bg-blue-600 text-white'
-                  : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-              } disabled:cursor-not-allowed disabled:opacity-50`}
-            >
-              Ranked Match
-            </button>
-            <button
-              onClick={() => setMatchType('casual')}
-              disabled={inQueue}
-              className={`rounded-lg px-6 py-3 font-semibold transition-colors ${
-                matchType === 'casual'
-                  ? 'bg-blue-600 text-white'
-                  : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-              } disabled:cursor-not-allowed disabled:opacity-50`}
-            >
-              Casual Match
-            </button>
-          </div>
 
           {inQueue ? (
             <div className="space-y-6">
@@ -364,11 +315,7 @@ export default function MatchmakingQueue({
                 <span className="text-xl font-semibold text-gray-700">Searching for opponent...</span>
               </div>
 
-              <div className="space-y-2 text-gray-600">
-                <p>Queue Position: {queuePosition}</p>
-                <p>Players in Queue: {queueSize}</p>
-                <p>Rating Range: ±{ratingRange}</p>
-              </div>
+              <p className="text-gray-600">You&apos;re in queue. A duel will begin automatically when a match is found.</p>
 
               <button
                 onClick={handleLeaveQueue}
@@ -383,7 +330,7 @@ export default function MatchmakingQueue({
               disabled={isJoining}
               className="rounded-lg bg-blue-600 px-12 py-4 text-lg font-semibold text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {isJoining ? 'Joining...' : `Join ${matchType === 'ranked' ? 'Ranked' : 'Casual'} Queue`}
+              {isJoining ? 'Starting...' : 'Start Queue'}
             </button>
           )}
         </div>

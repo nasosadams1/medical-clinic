@@ -476,9 +476,10 @@ export const UserProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       await queueUpdate({
         coins: user.coins - avatar.price,
         ownedAvatars: [...user.ownedAvatars, avatarId],
+        currentAvatar: avatarId,
       });
       
-      addNotification(`Avatar purchased!`, '🎭', 'success');
+      addNotification(`Avatar Purchased`, '🎭', 'success');
       return true;
     } catch (error) {
       console.error('❌ Avatar purchase failed:', error);

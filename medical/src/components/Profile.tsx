@@ -1,4 +1,3 @@
-// In Profile.tsx, add display name refresh functionality
 import React, { useState, useEffect } from 'react';
 import { getLevelProgress, getLevelTier } from '../hooks/levelSystem';
 import {
@@ -16,7 +15,6 @@ import {
   Zap,
   Lock,
   CheckCircle,
-  RefreshCw, // NEW: Import refresh icon
 } from 'lucide-react';
 import { useUser } from '../context/UserContext';
 import { useAuth } from '../context/AuthContext';
@@ -25,9 +23,9 @@ import { getEloRankInfo } from '../lib/eloRanks';
 import { avatars, getRarityColor } from '../data/avatars';
 import { achievements } from '../data/achievements';
 import { allLessons, getTotalLessonsByLanguage, getCompletedLessonsByLanguage } from '../data/lessons';
+import { motion, AnimatePresence } from 'framer-motion';
 
 const Profile: React.FC = () => {
-  // Destructure refreshDisplayName from useUser
   const { 
     user, 
     updateUser, 
@@ -39,10 +37,10 @@ const Profile: React.FC = () => {
     checkAndUnlockAchievements,
     isAuthenticated,
     getActiveBoosts,
-    refreshDisplayName // NEW: Get refresh display name function
+    addNotification,
   } = useUser();
   
-  const { updateProfile: updateAuthProfile, refetchProfile } = useAuth();
+  const { refetchProfile } = useAuth();
   const [currentTime, setCurrentTime] = useState(Date.now());
 
   const [isEditing, setIsEditing] = useState(false);
@@ -50,7 +48,13 @@ const Profile: React.FC = () => {
   const [showStore, setShowStore] = useState(false);
   const [showAvatarStore, setShowAvatarStore] = useState(false);
   const [activeTab, setActiveTab] = useState<'overview' | 'progress' | 'achievements' | 'activity'>('overview');
-  const [isRefreshingName, setIsRefreshingName] = useState(false); // NEW: Loading state for name refresh
+  const [avatarPurchaseFeedback, setAvatarPurchaseFeedback] = useState<null | {
+    name: string;
+    emoji: string;
+    rarity: 'Common' | 'Rare' | 'Epic' | 'Legendary';
+    description: string;
+    remainingCoins: number;
+  }>(null);
   const [duelRating, setDuelRating] = useState(500);
   const [recentLessonEvents, setRecentLessonEvents] = useState<Array<{ lessonId: string; xp: number; completedAt: string }>>([]);
 
@@ -141,50 +145,15 @@ const Profile: React.FC = () => {
       cancelled = true;
     };
   }, [user?.id]);
+
+
   const scrollToProfileSection = (sectionId: 'overview' | 'progress' | 'achievements' | 'activity') => {
     setActiveTab(sectionId);
     const element = document.getElementById(`profile-${sectionId}`);
     element?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   };
 
-  // NEW: Handle display name refresh
-  const handleRefreshDisplayName = async () => {
-    if (!user || user.id === 'guest') return;
-    
-    setIsRefreshingName(true);
-    try {
-      await refreshDisplayName();
-      console.log('✅ Display name refreshed successfully');
-    } catch (error) {
-      console.error('❌ Failed to refresh display name:', error);
-    } finally {
-      setIsRefreshingName(false);
-    }
-  };
-
-  // UPDATED: Manual sync function with name sync capability
-  const handleManualSync = async () => {
-    if (user && user.id !== 'guest') {
-      console.log('Manual sync triggered from Profile.tsx');
-      // Trigger AuthContext's updateProfile with current user data to force a sync
-      await updateAuthProfile({
-        xp: user.xp,
-        level: user.level,
-        total_lessons_completed: user.totalLessonsCompleted,
-        unlocked_achievements: user.unlockedAchievements,
-        current_streak: user.currentStreak,
-        current_avatar: user.currentAvatar,
-        name: user.name, // This preserves the display name
-        coins: user.coins,
-        total_coins_earned: user.totalCoinsEarned,
-        hearts: user.hearts,
-        last_heart_reset: user.lastHeartReset,
-        owned_avatars: user.ownedAvatars,
-      });
-    }
-  };
-
-  // UPDATED: Handle name changes with 16 character limit
+  // Handle name changes with 16 character limit
   const handleNameChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value;
     // Only allow up to 16 characters
@@ -252,19 +221,34 @@ const Profile: React.FC = () => {
     try {
       const success = await buyAvatar(avatarId);
       if (success) {
-        alert(`Avatar "${avatar.name}" purchased successfully!`);
-        // Check for achievements after purchase
+        setAvatarPurchaseFeedback({
+          name: avatar.name,
+          emoji: avatar.emoji,
+          rarity: avatar.rarity,
+          description: avatar.description,
+          remainingCoins: user.coins - avatar.price,
+        });
         setTimeout(() => checkAndUnlockAchievements(), 500);
+      } else if (user.ownedAvatars.includes(avatarId)) {
+        addNotification({
+          message: `${avatar.name} is already in your collection.`,
+          type: 'info',
+          icon: '🎭',
+        });
       } else {
-        if (user.ownedAvatars.includes(avatarId)) {
-          alert('You already own this avatar!');
-        } else {
-          alert(`Not enough coins! You need ${avatar.price} coins but only have ${user.coins}.`);
-        }
+        addNotification({
+          message: `You need ${avatar.price - user.coins} more coins to unlock ${avatar.name}.`,
+          type: 'warning',
+          icon: '🪙',
+        });
       }
     } catch (error) {
       console.error('Failed to buy avatar:', error);
-      alert('Purchase failed. Please try again.');
+      addNotification({
+        message: 'Avatar purchase failed. Please try again.',
+        type: 'error',
+        icon: '⚠️',
+      });
     }
   };
 
@@ -477,7 +461,7 @@ const Profile: React.FC = () => {
               </div>
             </div>
 
-            {/* UPDATED: Name editing section with display name refresh */}
+            {/* Name editing section */}
             {isEditing ? (
               <div className="space-y-3">
                 <div>
@@ -516,21 +500,9 @@ const Profile: React.FC = () => {
               </div>
             ) : (
               <div>
-                <div className="flex items-center justify-center lg:justify-start gap-2 mb-2">
+                <div className="mb-4 flex items-center justify-center lg:justify-start">
                   <h2 className="text-2xl lg:text-3xl font-bold text-gray-900">{user.name}</h2>
-                  {/* NEW: Display name refresh button */}
-                  {user.id !== 'guest' && (
-                    <button
-                      onClick={handleRefreshDisplayName}
-                      disabled={isRefreshingName}
-                      className="p-1 text-gray-400 hover:text-blue-500 transition-colors disabled:opacity-50"
-                      title="Refresh display name from account"
-                    >
-                      <RefreshCw className={`w-4 h-4 ${isRefreshingName ? 'animate-spin' : ''}`} />
-                    </button>
-                  )}
                 </div>
-                <p className="text-lg lg:text-xl text-gray-600 mb-2">{currentAvatar.name}</p>
                 <p className={`text-sm font-medium ${levelTier.color} mb-4`}>
                   Level {levelProgress.currentLevel} {levelTier.tier}
                 </p>
@@ -543,7 +515,6 @@ const Profile: React.FC = () => {
                     <span>Avatar Collection</span>
                   </button>
                 </div>
-                {/* NEW: Display name info */}
               </div>
             )}
           </div>
@@ -936,6 +907,67 @@ const Profile: React.FC = () => {
           </div>
         </div>
       )}
+
+      <AnimatePresence>
+        {avatarPurchaseFeedback && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/25 px-4 backdrop-blur-sm"
+            onClick={() => setAvatarPurchaseFeedback(null)}
+          >
+            <motion.div
+              initial={{ opacity: 0, y: 24, scale: 0.96 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 18, scale: 0.98 }}
+              transition={{ duration: 0.24, ease: 'easeOut' }}
+              className="relative w-full max-w-md overflow-hidden rounded-[28px] border border-white/70 bg-white shadow-[0_30px_90px_rgba(15,23,42,0.22)]"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <div className="absolute inset-x-0 top-0 h-36 bg-gradient-to-br from-amber-200 via-fuchsia-100 to-sky-200 opacity-90" />
+              <div className="absolute -right-10 top-6 h-28 w-28 rounded-full bg-white/40 blur-2xl" />
+              <div className="absolute -left-8 top-16 h-24 w-24 rounded-full bg-white/40 blur-2xl" />
+
+              <div className="relative px-6 pb-6 pt-8">
+                <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-[24px] bg-white/85 text-5xl shadow-lg ring-1 ring-white/70">
+                  {avatarPurchaseFeedback.emoji}
+                </div>
+
+                <div className="mt-5 text-center">
+                  <div className="inline-flex items-center gap-2 rounded-full bg-emerald-50 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.24em] text-emerald-700">
+                    <CheckCircle className="h-3.5 w-3.5" />
+                    Purchase complete
+                  </div>
+                  <h3 className="mt-4 text-2xl font-bold text-slate-900">{avatarPurchaseFeedback.name} equipped</h3>
+                  <p className="mt-2 text-sm leading-6 text-slate-600">{avatarPurchaseFeedback.description}</p>
+
+                </div>
+
+                <div className="mt-6 grid grid-cols-2 gap-3">
+                  <div className="rounded-2xl bg-slate-50 p-3 text-left">
+                    <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500">Rarity</div>
+                    <span className={`mt-2 inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${getRarityColor(avatarPurchaseFeedback.rarity)}`}>
+                      {avatarPurchaseFeedback.rarity}
+                    </span>
+                  </div>
+                  <div className="rounded-2xl bg-slate-50 p-3 text-left">
+                    <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500">Coins left</div>
+                    <div className="mt-2 text-lg font-bold text-slate-900">{avatarPurchaseFeedback.remainingCoins}</div>
+                  </div>
+                </div>
+
+                <button
+                  onClick={() => setAvatarPurchaseFeedback(null)}
+                  className="mt-6 w-full rounded-2xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white transition-colors hover:bg-slate-800"
+                >
+                  Continue
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Avatar Store Modal */}
       {showAvatarStore && (
