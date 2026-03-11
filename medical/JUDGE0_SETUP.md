@@ -16,6 +16,8 @@ If Root Directory is not `medical`, deploy fails with `ENOENT package.json`.
 
 - `SUPABASE_URL`
 - `SUPABASE_SERVICE_ROLE_KEY`
+- `DUEL_ALLOWED_ORIGINS=https://<your-frontend>.onrender.com`
+  - or `FRONTEND_URL=https://<your-frontend>.onrender.com`
 - `JUDGE_PROVIDER=judge0`
 - `JUDGE0_URL=https://judge0-ce.p.rapidapi.com` (RapidAPI) or your own Judge0 host
 - `JUDGE0_API_KEY=...` (only if using RapidAPI)
@@ -26,6 +28,11 @@ If Root Directory is not `medical`, deploy fails with `ENOENT package.json`.
 Frontend (Vercel) still needs:
 
 - `VITE_DUEL_SERVER_URL=https://<your-render-service>.onrender.com`
+
+Important:
+
+- `DUEL_ALLOWED_ORIGINS` / `FRONTEND_URL` must be the frontend app URL, not the duel server URL.
+- If you have multiple frontend origins, provide a comma-separated list in `DUEL_ALLOWED_ORIGINS`.
 
 ## 3) What to expect in logs
 

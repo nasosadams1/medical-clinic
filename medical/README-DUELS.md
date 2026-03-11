@@ -222,6 +222,7 @@ Required in `.env`:
 VITE_SUPABASE_URL=your_supabase_url
 VITE_SUPABASE_SUPABASE_ANON_KEY=your_anon_key
 DUEL_SERVER_PORT=5000
+DUEL_ALLOWED_ORIGINS=https://your-frontend.example.com
 ```
 
 ## Troubleshooting
