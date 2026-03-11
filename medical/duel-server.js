@@ -1,15 +1,18 @@
-import express from "express";
+﻿import express from "express";
 import { createServer } from "http";
 import { Server } from "socket.io";
 import cors from "cors";
 import { createClient } from "@supabase/supabase-js";
 import dotenv from "dotenv";
+import { randomUUID } from "crypto";
 import { MatchmakingService } from "./services/matchmaking.js";
 import { JudgeService } from "./services/judge.js";
 import { RemoteJudgeService } from "./services/remote-judge-service.js";
 import { Judge0Service } from "./services/judge0-service.js";
 import { MatchController } from "./services/match-controller.js";
 import { EloRatingService } from "./services/elo-rating.js";
+import { SharedDuelStateStore } from "./services/shared-duel-state.js";
+import { getBlockingSanction, formatSanctionMessage } from "./services/sanctions.js";
 
 dotenv.config();
 
@@ -60,6 +63,7 @@ const io = new Server(httpServer, {
 });
 
 const PORT = Number(process.env.PORT || process.env.DUEL_SERVER_PORT || 5000);
+const SERVER_INSTANCE_ID = process.env.DUEL_SERVER_INSTANCE_ID || `duel-${process.pid}-${randomUUID().slice(0, 8)}`;
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -121,8 +125,10 @@ if (JUDGE_PROVIDER === "remote") {
 }
 
 const eloRatingService = new EloRatingService();
-const matchController = supabase ? new MatchController(supabase, io, judgeService, eloRatingService) : null;
-const matchmakingService = supabase ? new MatchmakingService(supabase, io, matchController) : null;
+const duelStateStore = SharedDuelStateStore.isEnabled(supabase) ? new SharedDuelStateStore(supabase, SERVER_INSTANCE_ID) : null;
+const matchController = supabase ? new MatchController(supabase, io, judgeService, eloRatingService, duelStateStore) : null;
+const matchmakingService = supabase ? new MatchmakingService(supabase, io, matchController, duelStateStore) : null;
+const RUNTIME_LEASE_HEARTBEAT_MS = 5_000;
 const connectedPlayers = new Map();
 const latestSocketByUserId = new Map();
 
@@ -133,6 +139,155 @@ function emitServerError(socket, message, details) {
 
 function ackSafe(ack, payload) {
   if (typeof ack === "function") ack(payload);
+}
+
+function emitUserRoomEvent(userId, event, payload) {
+  if (!userId) return;
+  io.to(`user:${userId}`).emit(event, payload);
+}
+
+function emitDistributedUserEvent(userId, event, payload) {
+  emitUserRoomEvent(userId, event, payload);
+  void duelStateStore?.dispatchSocketEventToUser?.(userId, event, payload);
+}
+
+function createProxySocket(userId) {
+  return {
+    emit(event, payload) {
+      emitDistributedUserEvent(userId, event, payload);
+    },
+  };
+}
+
+function isRuntimeLeaseExpired(runtimeMatch) {
+  const leaseExpiresAt = Date.parse(runtimeMatch?.lease_expires_at || "");
+  return Number.isFinite(leaseExpiresAt) && leaseExpiresAt <= Date.now();
+}
+
+async function clearStaleRuntimeOwnership(runtimeMatch) {
+  if (!runtimeMatch?.match_id) return;
+  await duelStateStore?.clearPresenceActiveMatch?.([runtimeMatch.player_a_user_id, runtimeMatch.player_b_user_id]);
+  await duelStateStore?.removeRuntimeMatch?.(runtimeMatch.match_id);
+}
+
+async function forwardRuntimeAction(matchId, messageType, payload, userId = null) {
+  const runtimeMatch = await duelStateStore?.getRuntimeMatch?.(matchId);
+  if (!runtimeMatch) {
+    return false;
+  }
+  if (isRuntimeLeaseExpired(runtimeMatch)) {
+    await clearStaleRuntimeOwnership(runtimeMatch);
+    return false;
+  }
+  if (!runtimeMatch.owner_instance_id || runtimeMatch.owner_instance_id === SERVER_INSTANCE_ID) {
+    return false;
+  }
+
+  await duelStateStore.dispatchRuntimeMessage(runtimeMatch.owner_instance_id, messageType, payload, userId);
+  return true;
+}
+
+async function notifyRemoteReconnect(userId) {
+  const runtimeMatch = await duelStateStore?.getRuntimeMatchForUser?.(userId);
+  if (!runtimeMatch) {
+    return false;
+  }
+  if (isRuntimeLeaseExpired(runtimeMatch)) {
+    await clearStaleRuntimeOwnership(runtimeMatch);
+    return false;
+  }
+  if (!runtimeMatch.owner_instance_id || runtimeMatch.owner_instance_id === SERVER_INSTANCE_ID) {
+    return false;
+  }
+
+  await duelStateStore.dispatchRuntimeMessage(
+    runtimeMatch.owner_instance_id,
+    "player_reconnect",
+    { userId, matchId: runtimeMatch.match_id },
+    userId
+  );
+  return true;
+}
+
+async function notifyRemoteDisconnect(userId) {
+  const runtimeMatch = await duelStateStore?.getRuntimeMatchForUser?.(userId);
+  if (!runtimeMatch) {
+    return false;
+  }
+  if (isRuntimeLeaseExpired(runtimeMatch)) {
+    await clearStaleRuntimeOwnership(runtimeMatch);
+    return false;
+  }
+  if (!runtimeMatch.owner_instance_id || runtimeMatch.owner_instance_id === SERVER_INSTANCE_ID) {
+    return false;
+  }
+
+  await duelStateStore.dispatchRuntimeMessage(
+    runtimeMatch.owner_instance_id,
+    "player_disconnect",
+    { userId, matchId: runtimeMatch.match_id },
+    userId
+  );
+  return true;
+}
+
+async function consumeRuntimeMessages() {
+  if (!duelStateStore || !matchController) return;
+  const messages = await duelStateStore.consumeRuntimeMessages(100);
+
+  for (const message of messages) {
+    let shouldAcknowledge = false;
+
+    try {
+      const payload = message.payload || {};
+      switch (message.message_type) {
+        case "socket_event":
+          emitUserRoomEvent(payload.userId || message.target_user_id, payload.event, payload.payload);
+          shouldAcknowledge = true;
+          break;
+        case "submit_code":
+          await matchController.handleSubmission(payload.matchId, payload.userId, payload.language, payload.code, createProxySocket(payload.userId));
+          shouldAcknowledge = true;
+          break;
+        case "code_snapshot":
+          await matchController.recordCodeSnapshot(payload.matchId, payload.userId, payload.code);
+          shouldAcknowledge = true;
+          break;
+        case "editor_telemetry":
+          await matchController.recordEditorTelemetry(payload.matchId, payload.userId, payload.telemetry, payload.sessionEvidence || null);
+          shouldAcknowledge = true;
+          break;
+        case "player_disconnect":
+          await matchController.handlePlayerDisconnectLifecycle(payload.userId);
+          shouldAcknowledge = true;
+          break;
+        case "player_reconnect":
+          matchController.handlePlayerReconnect(payload.userId);
+          shouldAcknowledge = true;
+          break;
+        default:
+          console.warn("Unknown duel runtime message type:", message.message_type);
+          shouldAcknowledge = true;
+          break;
+      }
+    } catch (error) {
+      console.error("Duel runtime message processing error:", error);
+    }
+
+    if (shouldAcknowledge) {
+      await duelStateStore.markRuntimeMessageDelivered(message.id);
+    }
+  }
+}
+
+if (duelStateStore) {
+  setInterval(() => {
+    consumeRuntimeMessages().catch((error) => console.error("consumeRuntimeMessages error:", error));
+  }, 250);
+
+  setInterval(() => {
+    matchController?.syncRuntimeLeases?.().catch((error) => console.error("syncRuntimeLeases error:", error));
+  }, RUNTIME_LEASE_HEARTBEAT_MS);
 }
 
 function isLatestSocketForUser(userId, socketId) {
@@ -234,7 +389,7 @@ async function authenticateSocketUser(accessToken, expectedUserId) {
 
 io.on("connection", (socket) => {
   console.log("duel-server connection:", socket.id);
-  socket.emit("server_identity", { name: "duel-server", port: PORT });
+  socket.emit("server_identity", { name: "duel-server", port: PORT, instanceId: SERVER_INSTANCE_ID });
 
   socket.on("register_player", async (data, ack) => {
     console.log("register_player received", {
@@ -267,6 +422,14 @@ io.on("connection", (socket) => {
         const msg = authError || "Authentication failed";
         ackSafe(ack, { ok: false, message: msg });
         emitServerError(socket, "Authentication failed", msg);
+        return;
+      }
+
+      const duelSanction = await getBlockingSanction(supabase, userId, ["duels"]);
+      if (duelSanction) {
+        const msg = formatSanctionMessage(duelSanction, "Duel access is temporarily restricted.");
+        ackSafe(ack, { ok: false, message: msg });
+        emitServerError(socket, "Duel access restricted", msg);
         return;
       }
 
@@ -351,13 +514,23 @@ io.on("connection", (socket) => {
         socket.userId = duelUser.id;
         socket.sessionEvidence = sessionEvidence;
         socket.join(`user:${duelUser.id}`);
+        await duelStateStore?.upsertPresence?.({
+          userId: duelUser.id,
+          username: safeUsername,
+          rating: safeRating,
+          socketId: socket.id,
+          matchType: connectedPlayers.get(socket.id)?.matchType || "ranked",
+          sessionEvidence,
+          connectionRiskFlags,
+        });
         matchController?.handlePlayerReconnect?.(duelUser.id);
+        await notifyRemoteReconnect(duelUser.id);
         ackSafe(ack, { ok: true, rating: safeRating, username: safeUsername });
         return;
       }
 
       if (matchmakingService) {
-        matchmakingService.removeFromQueue(duelUser.id);
+        await matchmakingService.removeFromQueue(duelUser.id);
       }
 
       for (const [existingSocketId, existingPlayer] of connectedPlayers.entries()) {
@@ -380,7 +553,17 @@ io.on("connection", (socket) => {
       socket.userId = duelUser.id;
       socket.sessionEvidence = sessionEvidence;
       socket.join(`user:${duelUser.id}`);
+      await duelStateStore?.upsertPresence?.({
+        userId: duelUser.id,
+        username: safeUsername,
+        rating: safeRating,
+        socketId: socket.id,
+        matchType: "ranked",
+        sessionEvidence,
+        connectionRiskFlags,
+      });
       matchController?.handlePlayerReconnect?.(duelUser.id);
+      await notifyRemoteReconnect(duelUser.id);
 
       console.log(`Player registered: ${safeUsername} (${duelUser.id}) rating=${safeRating}`);
       ackSafe(ack, { ok: true, rating: safeRating, username: safeUsername });
@@ -410,7 +593,8 @@ io.on("connection", (socket) => {
       }
 
       player.matchType = data?.matchType || "ranked";
-      if (matchmakingService.isQueued(player.userId, player.matchType)) {
+      await duelStateStore?.upsertPresence?.({ ...player, socketId: socket.id, matchType: player.matchType });
+      if (await matchmakingService.isQueued(player.userId, player.matchType)) {
         socket.emit("queue_joined", { message: "Already searching for an opponent.", status: "searching" });
         return;
       }
@@ -422,13 +606,14 @@ io.on("connection", (socket) => {
     }
   });
 
-  socket.on("leave_matchmaking", () => {
+  socket.on("leave_matchmaking", async () => {
     try {
       const player = connectedPlayers.get(socket.id);
       if (!player) return;
       if (!isLatestSocketForUser(player.userId, socket.id)) return;
 
-      if (matchmakingService) matchmakingService.removeFromQueue(player.userId);
+      if (matchmakingService) await matchmakingService.removeFromQueue(player.userId);
+      await duelStateStore?.upsertPresence?.({ ...player, socketId: socket.id, matchType: player.matchType || "ranked" });
       socket.emit("queue_left", { message: "Left matchmaking queue" });
     } catch (e) {
       emitServerError(socket, "Failed to leave matchmaking", e?.message);
@@ -451,6 +636,11 @@ io.on("connection", (socket) => {
       if (!code.trim()) throw new Error("Empty code submission");
       if (code.length > 100_000) throw new Error("Code too large (max 100k chars)");
 
+      const handledRemotely = await forwardRuntimeAction(matchId, "submit_code", { matchId, userId, language, code }, userId);
+      if (handledRemotely) {
+        return;
+      }
+
       await matchController.handleSubmission(matchId, userId, language, code, socket);
     } catch (err) {
       console.error("Submission error:", err);
@@ -464,6 +654,11 @@ io.on("connection", (socket) => {
       const userId = socket.userId;
       if (!userId) return;
       if (!isLatestSocketForUser(userId, socket.id)) return;
+
+      const handledRemotely = await forwardRuntimeAction(data?.matchId, "code_snapshot", { matchId: data?.matchId, userId, code: data?.code }, userId);
+      if (handledRemotely) {
+        return;
+      }
 
       const result = await matchController.recordCodeSnapshot(data?.matchId, userId, data?.code);
       if (!result?.ok && result?.reason && result.reason !== "unchanged" && result.reason !== "inactive_match") {
@@ -480,6 +675,16 @@ io.on("connection", (socket) => {
       const userId = socket.userId;
       if (!userId) return;
       if (!isLatestSocketForUser(userId, socket.id)) return;
+
+      const handledRemotely = await forwardRuntimeAction(
+        data?.matchId,
+        "editor_telemetry",
+        { matchId: data?.matchId, userId, telemetry: data?.telemetry, sessionEvidence: socket.sessionEvidence || null },
+        userId
+      );
+      if (handledRemotely) {
+        return;
+      }
 
       const result = await matchController.recordEditorTelemetry(
         data?.matchId,
@@ -511,39 +716,17 @@ io.on("connection", (socket) => {
         return;
       }
 
-      if (matchmakingService) matchmakingService.removeFromQueue(player.userId);
+      if (matchmakingService) await matchmakingService.removeFromQueue(player.userId);
+      await duelStateStore?.removePresence?.(player.userId);
 
       console.log(`Player disconnected: ${player.username} (${player.userId})`);
 
       if (!matchController) return;
 
-      const pendingEntry = (matchController.pendingMatches?.entries?.() ?? []).find(([, match]) => {
-        if (!match || match.winnerId || match.ending) return false;
-        return match.playerA?.userId === player.userId || match.playerB?.userId === player.userId;
-      });
-
-      if (pendingEntry) {
-        const [matchId, match] = pendingEntry;
-        if (match.countdownHandle) {
-          clearTimeout(match.countdownHandle);
-          match.countdownHandle = null;
-        }
-
-        const opponentId = match.playerA.userId === player.userId ? match.playerB.userId : match.playerA.userId;
-        await matchController.endMatch(matchId, opponentId, "disconnect_before_start", null);
-        return;
+      const handledLocal = await matchController.handlePlayerDisconnectLifecycle?.(player.userId);
+      if (!handledLocal) {
+        await notifyRemoteDisconnect(player.userId);
       }
-
-      const activeEntry = (matchController.activeMatches?.entries?.() ?? []).find(([, match]) => {
-        if (!match || match.winnerId || match.ending) return false;
-        return match.playerA?.userId === player.userId || match.playerB?.userId === player.userId;
-      });
-
-      if (!activeEntry) return;
-
-      const [matchId, match] = activeEntry;
-      const opponentId = match.playerA.userId === player.userId ? match.playerB.userId : match.playerA.userId;
-      await matchController.endMatch(matchId, opponentId, "disconnect_during_match", null);
     } catch (e) {
       console.error("Disconnect forfeit error:", e);
     }
@@ -554,5 +737,5 @@ app.get("/", (_req, res) => res.status(200).send("duel-server ok"));
 app.get("/health", (_req, res) => res.json({ status: "ok", timestamp: new Date().toISOString() }));
 
 httpServer.listen(PORT, "0.0.0.0", () => {
-  console.log(`Duel server running on port ${PORT}`);
+  console.log(`Duel server running on port ${PORT} (${SERVER_INSTANCE_ID})`);
 });

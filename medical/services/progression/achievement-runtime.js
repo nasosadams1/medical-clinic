@@ -1,0 +1,34 @@
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import { getAllLessonMeta, getLessonsByLanguage } from './lesson-catalog.js';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const achievementsSourcePath = path.resolve(__dirname, '../../src/data/achievements.ts');
+
+const allLessons = getAllLessonMeta();
+
+function loadAchievementsModule() {
+  const source = fs.readFileSync(achievementsSourcePath, 'utf8');
+
+  const transformed = source
+    .replace(/^import .*$/gm, '')
+    .replace(/export interface Achievement[\s\S]*?}\n\n/, '')
+    .replace(/export const achievements\s*:\s*Achievement\[\]\s*=/g, 'const achievements =')
+    .replace(
+      /export const checkAchievements = \(user:[\s\S]*?}, completedLessons: string\[\]\): Achievement\[\] => \{/m,
+      'const checkAchievements = (user, completedLessons) => {'
+    )
+    .replace(/const newAchievements\s*:\s*Achievement\[\]\s*=/g, 'const newAchievements =')
+    .replace(/: lesson is Lesson/g, '')
+    .replace(/\s+as\s+keyof typeof [A-Za-z_][A-Za-z0-9_]*/g, '');
+
+  const factory = new Function('allLessons', 'getLessonsByLanguage', `${transformed}\nreturn { achievements, checkAchievements };`);
+  return factory(allLessons, getLessonsByLanguage);
+}
+
+const runtime = loadAchievementsModule();
+
+export const achievements = runtime.achievements;
+export const checkAchievements = runtime.checkAchievements;

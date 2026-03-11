@@ -26,13 +26,19 @@ export function registerAuth(app, db) {
     // add columns if they don't exist (SQLite: we'll try to alter and ignore errors)
     try {
       db.run(`ALTER TABLE users ADD COLUMN password_hash TEXT`);
-    } catch (e) {}
+    } catch {
+      // Column likely already exists in SQLite; safe to ignore.
+    }
     try {
       db.run(`ALTER TABLE users ADD COLUMN is_verified INTEGER DEFAULT 0`);
-    } catch (e) {}
+    } catch {
+      // Column likely already exists in SQLite; safe to ignore.
+    }
     try {
       db.run(`ALTER TABLE users ADD COLUMN verification_code TEXT`);
-    } catch (e) {}
+    } catch {
+      // Column likely already exists in SQLite; safe to ignore.
+    }
   });
 
   // helper: generate JWT
@@ -42,7 +48,7 @@ export function registerAuth(app, db) {
   // body: { name, email (optional), password }
   app.post("/api/auth/signup", async (req, res) => {
     try {
-      const { name, password, avatar = "👤", badge = "Beginner" } = req.body;
+      const { name, password, avatar = "ðŸ‘¤", badge = "Beginner" } = req.body;
       if (!name || !password) return res.status(400).json({ error: "Name and password required" });
 
       // check existence
@@ -117,7 +123,7 @@ export function registerAuth(app, db) {
       const decoded = await promisify(jwt.verify)(token, JWT_SECRET);
       req.user = decoded;
       next();
-    } catch (err) {
+    } catch {
       return res.status(401).json({ error: "Invalid token" });
     }
   }

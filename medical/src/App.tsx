@@ -1,22 +1,33 @@
-import React, { useMemo, useState } from 'react';
+import React, { Suspense, lazy, useMemo, useState } from 'react';
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import { AuthProvider } from './context/AuthContext';
 import { UserProvider } from './context/UserContext';
-import AuthContainer from './components/auth/AuthContainer';
 import Sidebar from './components/Sidebar';
 import Learn from './components/Learn';
-import Store from './components/Store';
-import RealTimeLeaderboard from './components/Leaderboard';
-import Profile from './components/Profile';
-import Account from './components/Account';
-import DuelsDashboard from './components/DuelsDashboard';
 import { useAuth } from './context/AuthContext';
 import { BookOpen, Menu, ShoppingBag, Swords, Trophy, User as UserIcon, Settings, X } from 'lucide-react';
-import AuthConfirm from './components/AuthConfirm';
-import ResetPasswordPage from './components/ResetPasswordPage';
-import LegalDocumentPage from './components/legal/LegalDocumentPage';
 
 type SectionId = 'learn' | 'duels' | 'store' | 'leaderboard' | 'profile' | 'account';
+
+const AuthContainer = lazy(() => import('./components/auth/AuthContainer'));
+const Store = lazy(() => import('./components/Store'));
+const RealTimeLeaderboard = lazy(() => import('./components/Leaderboard'));
+const Profile = lazy(() => import('./components/Profile'));
+const Account = lazy(() => import('./components/Account'));
+const DuelsDashboard = lazy(() => import('./components/DuelsDashboard'));
+const AuthConfirm = lazy(() => import('./components/AuthConfirm'));
+const ResetPasswordPage = lazy(() => import('./components/ResetPasswordPage'));
+const LegalDocumentPage = lazy(() => import('./components/legal/LegalDocumentPage'));
+
+const SectionFallback = () => (
+  <div className="flex min-h-[40vh] items-center justify-center px-6 py-16 text-sm font-medium text-slate-500">
+    Loading...
+  </div>
+);
+
+const withSuspense = (node: React.ReactNode) => (
+  <Suspense fallback={<SectionFallback />}>{node}</Suspense>
+);
 
 function AppContent() {
   const [currentSection, setCurrentSection] = useState<SectionId>('learn');
@@ -47,31 +58,36 @@ function AppContent() {
     }
   }, [currentSection, isAuthenticated]);
 
-  const currentLabel = navItems.find((item) => item.id === currentSection)?.label || 'Codhak';
+  const learnView = (
+    <Learn
+      setCurrentSection={(section) => setCurrentSection(section as SectionId)}
+      openAuthModal={() => setShowAuthModal(true)}
+      isAuthenticated={isAuthenticated}
+    />
+  );
 
   const renderSection = () => {
     switch (currentSection) {
       case 'duels':
-        return isAuthenticated ? <DuelsDashboard /> : <Learn setCurrentSection={setCurrentSection} openAuthModal={() => setShowAuthModal(true)} isAuthenticated={isAuthenticated} />;
+        return isAuthenticated ? withSuspense(<DuelsDashboard />) : learnView;
       case 'learn':
-        return <Learn setCurrentSection={setCurrentSection} openAuthModal={() => setShowAuthModal(true)} isAuthenticated={isAuthenticated} />;
+        return learnView;
       case 'store':
-        return isAuthenticated ? <Store /> : <Learn setCurrentSection={setCurrentSection} openAuthModal={() => setShowAuthModal(true)} isAuthenticated={isAuthenticated} />;
+        return isAuthenticated ? withSuspense(<Store />) : learnView;
       case 'leaderboard':
-        return isAuthenticated ? (
-          <div className="p-2 sm:p-4 lg:p-6 xl:p-8">
-            <RealTimeLeaderboard
-              currentUserId={user?.id || 'guest'}
-              serverUrl="http://localhost:4000"
-            />
-          </div>
-        ) : <Learn setCurrentSection={setCurrentSection} openAuthModal={() => setShowAuthModal(true)} isAuthenticated={isAuthenticated} />;
+        return isAuthenticated
+          ? withSuspense(
+              <div className="p-2 sm:p-4 lg:p-6 xl:p-8">
+                <RealTimeLeaderboard currentUserId={user?.id || 'guest'} />
+              </div>
+            )
+          : learnView;
       case 'profile':
-        return isAuthenticated ? <Profile /> : <Learn setCurrentSection={setCurrentSection} openAuthModal={() => setShowAuthModal(true)} isAuthenticated={isAuthenticated} />;
+        return isAuthenticated ? withSuspense(<Profile />) : learnView;
       case 'account':
-        return isAuthenticated ? <Account /> : <Learn setCurrentSection={setCurrentSection} openAuthModal={() => setShowAuthModal(true)} isAuthenticated={isAuthenticated} />;
+        return isAuthenticated ? withSuspense(<Account />) : learnView;
       default:
-        return <Learn setCurrentSection={setCurrentSection} openAuthModal={() => setShowAuthModal(true)} isAuthenticated={isAuthenticated} />;
+        return learnView;
     }
   };
 
@@ -91,7 +107,7 @@ function AppContent() {
 
   return (
     <div className="min-h-screen bg-gray-50 text-gray-900">
-      <div className="lg:hidden fixed inset-x-0 top-0 z-50 border-b border-gray-200 bg-white/95 backdrop-blur">
+      <div className="fixed inset-x-0 top-0 z-50 border-b border-gray-200 bg-white/95 backdrop-blur lg:hidden">
         <div className="flex h-16 items-center justify-between px-4">
           <button
             onClick={() => setSidebarOpen((open) => !open)}
@@ -104,15 +120,12 @@ function AppContent() {
       </div>
 
       {sidebarOpen && (
-        <div
-          className="fixed inset-0 z-40 bg-black/50 lg:hidden"
-          onClick={() => setSidebarOpen(false)}
-        />
+        <div className="fixed inset-0 z-40 bg-black/50 lg:hidden" onClick={() => setSidebarOpen(false)} />
       )}
 
       <Sidebar
         currentSection={currentSection}
-        setCurrentSection={setCurrentSection}
+        setCurrentSection={(section) => setCurrentSection(section as SectionId)}
         openAuthModal={() => setShowAuthModal(true)}
         isOpen={sidebarOpen}
         onClose={() => setSidebarOpen(false)}
@@ -146,10 +159,9 @@ function AppContent() {
         </ul>
       </nav>
 
-      <AuthContainer
-        open={showAuthModal}
-        onClose={() => setShowAuthModal(false)}
-      />
+      {withSuspense(
+        <AuthContainer open={showAuthModal} onClose={() => setShowAuthModal(false)} />
+      )}
     </div>
   );
 }
@@ -159,14 +171,16 @@ function App() {
     <AuthProvider>
       <UserProvider>
         <Router>
-          <Routes>
-            <Route path="/" element={<AppContent />} />
-            <Route path="/auth/confirm" element={<AuthConfirm />} />
-            <Route path="/auth/reset-password" element={<ResetPasswordPage />} />
-            <Route path="/terms" element={<LegalDocumentPage slug="terms" />} />
-            <Route path="/privacy" element={<LegalDocumentPage slug="privacy" />} />
-            <Route path="/refunds" element={<LegalDocumentPage slug="refunds" />} />
-          </Routes>
+          <Suspense fallback={<SectionFallback />}>
+            <Routes>
+              <Route path="/" element={<AppContent />} />
+              <Route path="/auth/confirm" element={<AuthConfirm />} />
+              <Route path="/auth/reset-password" element={<ResetPasswordPage />} />
+              <Route path="/terms" element={<LegalDocumentPage slug="terms" />} />
+              <Route path="/privacy" element={<LegalDocumentPage slug="privacy" />} />
+              <Route path="/refunds" element={<LegalDocumentPage slug="refunds" />} />
+            </Routes>
+          </Suspense>
         </Router>
       </UserProvider>
     </AuthProvider>
@@ -174,4 +188,3 @@ function App() {
 }
 
 export default App;
-

@@ -124,7 +124,9 @@ export class DuelJudgeHandler {
       if (typeof tc === "string") {
         try {
           tc = JSON.parse(tc);
-        } catch {}
+        } catch {
+          // Ignore malformed JSON and fall back to other loaders.
+        }
       }
       if (Array.isArray(tc)) return tc;
     }
@@ -137,7 +139,9 @@ export class DuelJudgeHandler {
         .eq("problem_id", problemId)
         .order("order_index", { ascending: true });
       if (!e2 && Array.isArray(data) && data.length) return data;
-    } catch {}
+    } catch {
+      // Ignore optional fallback load failures and return an empty list.
+    }
 
     return [];
   }

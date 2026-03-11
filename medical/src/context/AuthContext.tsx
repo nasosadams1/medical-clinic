@@ -45,6 +45,7 @@ interface AuthContextType {
   resetPassword: (email: string) => Promise<{ error: any }>;
   updateEmail: (email: string) => Promise<{ error: any }>;
   updateProfile: (updates: Partial<UserProfile>) => Promise<void>;
+  applyAuthoritativeProfile: (profile: UserProfile) => Promise<void>;
   refetchProfile: () => Promise<void>;
   setNavigationCallback: (callback: () => void) => void;
   confirmUser: (email: string) => Promise<{ error: any }>;
@@ -590,6 +591,11 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }
   };
 
+  const applyAuthoritativeProfile = useCallback(async (profileData: UserProfile) => {
+    setProfile(profileData);
+    await syncProfileToLeaderboard(profileData);
+  }, [syncProfileToLeaderboard]);
+
   const setNavigationCallback = (callback: () => void) => {
     navigationCallbackRef.current = callback;
   };
@@ -608,6 +614,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         resetPassword,
         updateEmail,
         updateProfile,
+        applyAuthoritativeProfile,
         refetchProfile,
         setNavigationCallback,
         confirmUser,

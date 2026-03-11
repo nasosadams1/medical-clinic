@@ -9,10 +9,36 @@ import {
   DUEL_ADMIN_WRITE_MAX,
   DUEL_ADMIN_WRITE_WINDOW_MS,
 } from './config.js';
+import {
+  assignCaseCluster,
+  invalidateMatchForCase,
+  issueSanctionForCase,
+  loadClusterMap,
+  rollbackRatingsForCase,
+} from './case-management.js';
 
 const AdminStatusUpdateSchema = z.object({
   status: z.enum(['new', 'in_review', 'resolved', 'dismissed']),
   note: z.string().trim().max(1000).optional(),
+});
+
+const InvalidateMatchSchema = z.object({
+  reason: z.string().trim().max(300).optional(),
+  note: z.string().trim().max(1000).optional(),
+  rollbackRatings: z.boolean().optional(),
+});
+
+const RollbackRatingsSchema = z.object({
+  note: z.string().trim().max(1000).optional(),
+});
+
+const IssueSanctionSchema = z.object({
+  scope: z.enum(['duels', 'progression', 'all']).optional(),
+  action: z.enum(['suspend', 'review_hold', 'watch']).optional(),
+  target: z.enum(['player_a', 'player_b', 'both']),
+  reason: z.string().trim().min(3).max(500),
+  note: z.string().trim().max(1000).optional(),
+  durationHours: z.number().int().min(1).max(24 * 365).optional(),
 });
 
 const getBearerToken = (req) => {
@@ -68,8 +94,10 @@ const createLimiter = (windowMs, max) =>
     },
   });
 
+const distinct = (items) => [...new Set(items.filter(Boolean))];
+
 const loadProfiles = async (supabaseAdmin, userIds) => {
-  const ids = [...new Set(userIds.filter(Boolean))];
+  const ids = distinct(userIds);
   if (ids.length === 0) return new Map();
 
   const { data, error } = await supabaseAdmin
@@ -86,7 +114,7 @@ const loadProfiles = async (supabaseAdmin, userIds) => {
 };
 
 const loadMatches = async (supabaseAdmin, matchIds) => {
-  const ids = [...new Set(matchIds.filter(Boolean))];
+  const ids = distinct(matchIds);
   if (ids.length === 0) return new Map();
 
   const { data, error } = await supabaseAdmin
@@ -102,7 +130,7 @@ const loadMatches = async (supabaseAdmin, matchIds) => {
 };
 
 const loadProblems = async (supabaseAdmin, problemIds) => {
-  const ids = [...new Set(problemIds.filter(Boolean))];
+  const ids = distinct(problemIds);
   if (ids.length === 0) return new Map();
 
   const { data, error } = await supabaseAdmin
@@ -125,8 +153,12 @@ const enrichCases = async (supabaseAdmin, cases) => {
   );
   const profilesById = await loadProfiles(
     supabaseAdmin,
-    [...matchesById.values()].flatMap((match) => [match.player_a_id, match.player_b_id, match.winner_id]).filter(Boolean)
+    [
+      ...[...matchesById.values()].flatMap((match) => [match.player_a_id, match.player_b_id, match.winner_id]),
+      ...cases.map((entry) => entry.reviewed_by),
+    ]
   );
+  const clusterMap = await loadClusterMap(supabaseAdmin, cases.map((entry) => entry.cluster_id));
 
   return cases.map((entry) => {
     const match = matchesById.get(entry.match_id) || null;
@@ -138,6 +170,11 @@ const enrichCases = async (supabaseAdmin, cases) => {
             id: match.id,
             status: match.status,
             match_type: match.match_type,
+            integrity_status: match.integrity_status,
+            invalidation_reason: match.invalidation_reason,
+            invalidated_at: match.invalidated_at,
+            rating_reverted_at: match.rating_reverted_at,
+            moderation_note: match.moderation_note,
             problem_difficulty: match.problem_difficulty,
             duel_result_strength: match.duel_result_strength,
             created_at: match.created_at,
@@ -149,9 +186,29 @@ const enrichCases = async (supabaseAdmin, cases) => {
           }
         : null,
       problem,
+      cluster: entry.cluster_id ? clusterMap.get(entry.cluster_id) || { id: entry.cluster_id } : null,
       reviewed_by_profile: entry.reviewed_by ? profilesById.get(entry.reviewed_by) || null : null,
     };
   });
+};
+
+const loadEnrichedCaseById = async (supabaseAdmin, caseId) => {
+  const { data, error } = await supabaseAdmin.from('anti_cheat_cases').select('*').eq('id', caseId).single();
+  if (error) {
+    throw new Error(error.message || 'Could not load duel moderation case.');
+  }
+
+  if (!data.cluster_id) {
+    await assignCaseCluster(supabaseAdmin, data).catch((clusterError) => {
+      console.error('Could not assign case cluster after moderation action:', clusterError);
+    });
+    const refreshed = await supabaseAdmin.from('anti_cheat_cases').select('*').eq('id', caseId).single();
+    if (!refreshed.error && refreshed.data) {
+      return (await enrichCases(supabaseAdmin, [refreshed.data]))[0];
+    }
+  }
+
+  return (await enrichCases(supabaseAdmin, [data]))[0];
 };
 
 export const createDuelAdminRouter = ({ supabaseAdmin }) => {
@@ -213,6 +270,7 @@ export const createDuelAdminRouter = ({ supabaseAdmin }) => {
         supabaseAdmin,
         [matchRow?.player_a_id, matchRow?.player_b_id, ...(caseRows || []).map((entry) => entry.reviewed_by)].filter(Boolean)
       );
+      const clusterMap = await loadClusterMap(supabaseAdmin, (caseRows || []).map((entry) => entry.cluster_id));
 
       return res.json({
         replay: replayRow,
@@ -220,6 +278,7 @@ export const createDuelAdminRouter = ({ supabaseAdmin }) => {
         events: eventRows || [],
         cases: (caseRows || []).map((entry) => ({
           ...entry,
+          cluster: entry.cluster_id ? clusterMap.get(entry.cluster_id) || { id: entry.cluster_id } : null,
           reviewed_by_profile: entry.reviewed_by ? profilesById.get(entry.reviewed_by) || null : null,
         })),
         match: matchRow
@@ -272,10 +331,69 @@ export const createDuelAdminRouter = ({ supabaseAdmin }) => {
         console.error('Could not persist anti-cheat case event:', eventError);
       }
 
-      return res.json({ entry: data });
+      const entry = await loadEnrichedCaseById(supabaseAdmin, data.id);
+      return res.json({ entry });
     } catch (error) {
       console.error('Duel moderation status update error:', error);
       return res.status(400).json({ error: error.message || 'Could not update moderation case.' });
+    }
+  });
+
+  router.post('/cases/:caseId/invalidate-match', requireAuth, requireAdmin, writeLimiter, async (req, res) => {
+    try {
+      const parsed = InvalidateMatchSchema.parse(req.body || {});
+      const { caseId } = req.params;
+      const result = await invalidateMatchForCase(supabaseAdmin, {
+        caseId,
+        actorUserId: req.duelAdminUser.id,
+        reason: parsed.reason,
+        note: parsed.note,
+        rollbackRatings: parsed.rollbackRatings ?? true,
+      });
+      const entry = await loadEnrichedCaseById(supabaseAdmin, caseId);
+      return res.json({ entry, result });
+    } catch (error) {
+      console.error('Duel match invalidation error:', error);
+      return res.status(400).json({ error: error.message || 'Could not invalidate duel match.' });
+    }
+  });
+
+  router.post('/cases/:caseId/rollback-ratings', requireAuth, requireAdmin, writeLimiter, async (req, res) => {
+    try {
+      const parsed = RollbackRatingsSchema.parse(req.body || {});
+      const { caseId } = req.params;
+      const result = await rollbackRatingsForCase(supabaseAdmin, {
+        caseId,
+        actorUserId: req.duelAdminUser.id,
+        note: parsed.note,
+      });
+      const entry = await loadEnrichedCaseById(supabaseAdmin, caseId);
+      return res.json({ entry, result });
+    } catch (error) {
+      console.error('Duel rating rollback error:', error);
+      return res.status(400).json({ error: error.message || 'Could not rollback duel ratings.' });
+    }
+  });
+
+  router.post('/cases/:caseId/sanctions', requireAuth, requireAdmin, writeLimiter, async (req, res) => {
+    try {
+      const parsed = IssueSanctionSchema.parse(req.body || {});
+      const { caseId } = req.params;
+      const result = await issueSanctionForCase(supabaseAdmin, {
+        caseId,
+        actorUserId: req.duelAdminUser.id,
+        scope: parsed.scope,
+        action: parsed.action,
+        target: parsed.target,
+        reason: parsed.reason,
+        note: parsed.note,
+        durationHours: parsed.durationHours,
+      });
+      const entry = await loadEnrichedCaseById(supabaseAdmin, caseId);
+      return res.json({ entry, result });
+    } catch (error) {
+      console.error('Duel sanction issue error:', error);
+      return res.status(400).json({ error: error.message || 'Could not issue duel sanction.' });
     }
   });
 

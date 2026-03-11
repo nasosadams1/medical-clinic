@@ -5,14 +5,20 @@ import {
   FEEDBACK_MAX_ATTACHMENTS,
 } from '../../shared/feedback-contract.js';
 
-const CONTROL_CHARACTERS = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g;
 const MULTIPLE_NEWLINES = /\n{3,}/g;
 const MULTIPLE_SPACES = /[ \t]{2,}/g;
 
+const removeControlCharacters = (value) =>
+  Array.from(String(value || ''))
+    .filter((char) => {
+      const code = char.charCodeAt(0);
+      return code === 0x09 || code === 0x0A || code === 0x0D || (code >= 0x20 && code !== 0x7F);
+    })
+    .join('');
+
 export const normalizeText = (value, maxLength) => {
-  const normalized = String(value || '')
+  const normalized = removeControlCharacters(value)
     .replace(/\r\n?/g, '\n')
-    .replace(CONTROL_CHARACTERS, '')
     .replace(MULTIPLE_SPACES, ' ')
     .replace(MULTIPLE_NEWLINES, '\n\n')
     .trim();

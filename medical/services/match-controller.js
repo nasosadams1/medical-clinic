@@ -1,17 +1,19 @@
 import { createHash } from "crypto";
 import { analyzeMatchForAntiCheat } from "./anti-cheat.js";
 import { computeSubmissionMetrics, resolveResultStrength, resolveTimeLimitSeconds, normalizeDifficulty } from "./duel-competition.js";
+import { assignCaseCluster } from "./duel-admin/case-management.js";
 // services/match-controller.js
 const DEBUG_DUEL = process.env.DEBUG_DUEL === "1";
 function debugMatch(...args) {
   if (DEBUG_DUEL) console.log("[match]", ...args);
 }
 export class MatchController {
-  constructor(supabase, io, judgeService, eloRatingService) {
+  constructor(supabase, io, judgeService, eloRatingService, sharedStateStore = null) {
     this.supabase = supabase;
     this.io = io;
     this.judgeService = judgeService;
     this.eloRatingService = eloRatingService;
+    this.sharedStateStore = sharedStateStore;
 
     /** @type {Map<string, any>} */
     this.activeMatches = new Map();
@@ -75,6 +77,8 @@ export class MatchController {
     };
 
     this.activeMatches.set(matchId, matchData);
+    await this.sharedStateStore?.setPresenceActiveMatch?.([playerA?.userId, playerB?.userId], matchId);
+    await this._syncRuntimeMatch(matchId, matchData, "ACTIVE");
 
     await this._safeUpdate("matches", { id: matchId }, {
       status: "ACTIVE",
@@ -552,6 +556,14 @@ export class MatchController {
       player_b_rating_after: playerBRating.ratingAfter,
       player_a_rating_change: playerARating.ratingChange ?? 0,
       player_b_rating_change: playerBRating.ratingChange ?? 0,
+      player_a_subrating_field: playerARating.subratingField ?? null,
+      player_b_subrating_field: playerBRating.subratingField ?? null,
+      player_a_subrating_before: playerARating.subratingBefore ?? null,
+      player_b_subrating_before: playerBRating.subratingBefore ?? null,
+      player_a_subrating_after: playerARating.subratingAfter ?? null,
+      player_b_subrating_after: playerBRating.subratingAfter ?? null,
+      player_a_subrating_change: playerARating.subratingChange ?? 0,
+      player_b_subrating_change: playerBRating.subratingChange ?? 0,
       player_a_score: playerAMatchScore,
       player_b_score: playerBMatchScore,
       player_a_partial_score: playerAMatchScore,
@@ -646,12 +658,31 @@ export class MatchController {
 
     this.activeMatches.delete(matchId);
     this.pendingMatches.delete(matchId);
+    await this._clearRuntimeMatch(matchId, match);
     console.log(`Match ${matchId} ended. Winner: ${winnerId || "Draw"}`);
   }
 
   /**
-   * Disconnect handling: grace period; if not reconnected, opponent wins.
+   * Disconnect handling: countdown forfeits immediately, active matches use a grace period.
    */
+  async handlePlayerDisconnectLifecycle(userId) {
+    for (const [matchId, match] of this.pendingMatches.entries()) {
+      if (!match || match.winnerId || match.ending) continue;
+      if (userId !== match.playerA?.userId && userId !== match.playerB?.userId) continue;
+
+      if (match.countdownHandle) {
+        clearTimeout(match.countdownHandle);
+        match.countdownHandle = null;
+      }
+
+      const opponentId = userId === match.playerA.userId ? match.playerB.userId : match.playerA.userId;
+      await this.endMatch(matchId, opponentId, "disconnect_before_start", null);
+      return true;
+    }
+
+    return this.handlePlayerDisconnect(userId);
+  }
+
   async handlePlayerDisconnect(userId) {
     for (const [matchId, match] of this.activeMatches.entries()) {
       if (!match || match.winnerId || match.ending) continue;
@@ -659,7 +690,7 @@ export class MatchController {
       const inMatch = userId === match.playerA.userId || userId === match.playerB.userId;
       if (!inMatch) continue;
 
-      if (this.disconnectTimers.has(userId)) return;
+      if (this.disconnectTimers.has(userId)) return true;
 
       console.log(`Player ${userId} disconnected (grace ${this.RECONNECT_GRACE_PERIOD_MS}ms)`);
 
@@ -685,8 +716,10 @@ export class MatchController {
       }, this.RECONNECT_GRACE_PERIOD_MS);
 
       this.disconnectTimers.set(userId, timer);
-      break;
+      return true;
     }
+
+    return false;
   }
 
   handlePlayerReconnect(userId) {
@@ -695,7 +728,9 @@ export class MatchController {
       clearTimeout(timer);
       this.disconnectTimers.delete(userId);
       console.log(`Player ${userId} reconnected in time`);
+      return true;
     }
+    return false;
   }
 
   async createReplay(matchId, match) {
@@ -824,24 +859,43 @@ export class MatchController {
       return null;
     }
 
-    const [{ data: existingCase, error: existingError }, { data: eventRows, error: eventError }] = await Promise.all([
+    const [existingCaseRes, eventRes, submissionRes, snapshotRes] = await Promise.all([
       this.supabase.from("anti_cheat_cases").select("id").eq("match_id", matchId).maybeSingle(),
       this.supabase
         .from("match_events")
         .select("*")
         .eq("match_id", matchId)
         .order("created_at", { ascending: true }),
+      this.supabase
+        .from("submissions")
+        .select("*")
+        .eq("match_id", matchId)
+        .order("submitted_at", { ascending: true }),
+      this.supabase
+        .from("code_snapshots")
+        .select("*")
+        .eq("match_id", matchId)
+        .order("timestamp", { ascending: true }),
     ]);
 
-    if (existingError) {
-      console.error("Anti-cheat case existence check failed:", existingError);
+    const existingCase = existingCaseRes.data;
+    if (existingCaseRes.error) {
+      console.error("Anti-cheat case existence check failed:", existingCaseRes.error);
       return null;
     }
     if (existingCase?.id) {
       return existingCase.id;
     }
-    if (eventError) {
-      console.error("Anti-cheat event load failed:", eventError);
+    if (eventRes.error) {
+      console.error("Anti-cheat event load failed:", eventRes.error);
+      return null;
+    }
+    if (submissionRes.error) {
+      console.error("Anti-cheat submission load failed:", submissionRes.error);
+      return null;
+    }
+    if (snapshotRes.error) {
+      console.error("Anti-cheat snapshot load failed:", snapshotRes.error);
       return null;
     }
 
@@ -851,7 +905,9 @@ export class MatchController {
       playerB: match.playerB,
       playerASubmission: finalSubmissionA,
       playerBSubmission: finalSubmissionB,
-      matchEvents: eventRows ?? [],
+      matchEvents: eventRes.data ?? [],
+      submissions: submissionRes.data ?? [],
+      snapshots: snapshotRes.data ?? [],
     });
 
     if (!analysis.shouldCreateCase) {
@@ -867,13 +923,17 @@ export class MatchController {
         evidence: analysis.evidence,
         status: "new",
       })
-      .select("id")
+      .select("*")
       .single();
 
-    if (insertError) {
+    if (insertError || !insertedCase) {
       console.error("Anti-cheat case insert failed:", insertError);
       return null;
     }
+
+    await assignCaseCluster(this.supabase, insertedCase).catch((clusterError) => {
+      console.error("Anti-cheat case clustering failed:", clusterError);
+    });
 
     await this._safeInsert("anti_cheat_case_events", {
       case_id: insertedCase.id,
@@ -883,6 +943,7 @@ export class MatchController {
         risk_score: analysis.riskScore,
         summary: analysis.summary,
         flags: analysis.evidence?.flags ?? [],
+        history_samples: analysis.evidence?.longitudinal?.historySamples ?? 0,
       },
     });
 
@@ -925,11 +986,15 @@ export class MatchController {
       if (!problemErr && problemData?.test_cases) {
         let tc = problemData.test_cases;
         if (typeof tc === "string") {
-          try { tc = JSON.parse(tc); } catch {}
+          try { tc = JSON.parse(tc); } catch {
+            // Ignore malformed JSON and keep the raw test-case payload.
+          }
         }
         if (Array.isArray(tc)) return tc;
       }
-    } catch {}
+    } catch {
+      // Ignore primary test-case load failures and try the fallback table.
+    }
 
     try {
       const { data, error } = await this.supabase
@@ -939,7 +1004,9 @@ export class MatchController {
         .order("order_index", { ascending: true });
 
       if (!error && Array.isArray(data) && data.length) return data;
-    } catch {}
+    } catch {
+      // Ignore fallback test-case load failures and return an empty list.
+    }
 
     return [];
   }
@@ -1282,10 +1349,48 @@ export class MatchController {
 
     return base;
   }
-  // ÃƒÂ¢Ã…â€œÃ¢â‚¬Â¦ FIX: room-based emit (reconnect-safe)
+  // ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã¢â‚¬Å“ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ FIX: room-based emit (reconnect-safe)
+  async _syncRuntimeMatch(matchId, match, status = null) {
+    if (!this.sharedStateStore?.upsertRuntimeMatch || !matchId || !match) return;
+    const nextStatus = status || match.status || "UNKNOWN";
+    await this.sharedStateStore.upsertRuntimeMatch(matchId, {
+      status: nextStatus,
+      leaseExpiresAt: new Date(Date.now() + 30_000).toISOString(),
+      matchType: match.matchType || "ranked",
+      difficulty: match.difficulty || null,
+      problemId: match.problem?.id || null,
+      playerAUserId: match.playerA?.userId || null,
+      playerBUserId: match.playerB?.userId || null,
+      state: {
+        matchId,
+        status: nextStatus,
+        matchType: match.matchType || "ranked",
+        difficulty: match.difficulty || null,
+        startTimeMs: match.startTimeMs || null,
+        timeLimitSec: match.timeLimitSec || null,
+        playerA: match.playerA ? { userId: match.playerA.userId, username: match.playerA.username, rating: match.playerA.rating ?? 500 } : null,
+        playerB: match.playerB ? { userId: match.playerB.userId, username: match.playerB.username, rating: match.playerB.rating ?? 500 } : null,
+        problem: match.problem ? { id: match.problem.id, title: match.problem.title, difficulty: match.problem.difficulty || match.difficulty || null } : null,
+      },
+    });
+  }
+
+  async _clearRuntimeMatch(matchId, match) {
+    await this.sharedStateStore?.clearPresenceActiveMatch?.([match?.playerA?.userId, match?.playerB?.userId]);
+    await this.sharedStateStore?.removeRuntimeMatch?.(matchId);
+  }
+
+  async syncRuntimeLeases() {
+    if (!this.sharedStateStore?.upsertRuntimeMatch) return;
+
+    const entries = [ ...this.pendingMatches.entries(), ...this.activeMatches.entries() ];
+    await Promise.all(entries.map(([matchId, match]) => this._syncRuntimeMatch(matchId, match, match?.status || null)));
+  }
+
   _emitToPlayer(player, event, payload) {
     if (!player?.userId) return;
     this.io?.to?.(`user:${player.userId}`)?.emit?.(event, payload);
+    void this.sharedStateStore?.dispatchSocketEventToUser?.(player.userId, event, payload);
   }
 
   _emitToUser(userId, match, event, payload) {

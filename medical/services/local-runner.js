@@ -12,7 +12,7 @@ function getParamNames(fn) {
       .replace(/\/\/.*$/gm, "");
 
     const m =
-      src.match(/^[\s\(]*function[^\(]*\(([^)]*)\)/) ||
+      src.match(/^[\s(]*function[^()]*\(([^)]*)\)/) ||
       src.match(/^\s*\(([^)]*)\)\s*=>/) ||
       src.match(/^\s*([^=()\s,]+)\s*=>/);
 
@@ -142,7 +142,7 @@ export function runInLocalJsSandbox({
   try {
     const out = JSON.stringify(context.__result);
     return { stdout: out + "\n", stderr: "", exitCode: 0, timeout: false };
-  } catch (e) {
+  } catch {
     return {
       stdout: "",
       stderr: `Runtime Error: Output is not JSON-serializable`,

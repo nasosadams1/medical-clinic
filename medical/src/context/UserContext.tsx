@@ -6,6 +6,16 @@ import { UserProfile, getUserProfile, getDisplayName, supabase } from '../lib/su
 import { checkAchievements, Achievement } from '../data/achievements';
 import { avatars } from '../data/avatars';
 import { getLessonsByLanguage, getLessonById } from '../data/lessons';
+import {
+  buyHeartsProgression,
+  completeLessonProgression,
+  consumeHeartProgression,
+  equipAvatarProgression,
+  purchaseAvatarProgression,
+  recomputeAchievements,
+  refreshProgressionState,
+  type ProgressionResponse,
+} from '../lib/progression';
 
 import NotificationDisplay from '../components/NotificationDisplay.tsx';
 
@@ -70,7 +80,7 @@ interface UserContextType {
   user: User;
   isLoading: boolean;
   updateUser: (updates: Partial<User>) => Promise<void>;
-  completeLesson: (lessonId: string, xpReward: number, coinsReward: number) => Promise<void>;
+  completeLesson: (lessonId: string, xpReward: number, coinsReward: number, actualTimeMinutes?: number) => Promise<void>;
   loseHeart: () => void;
   buyHearts: (amount: number) => Promise<boolean>;
   buyAvatar: (avatarId: string) => Promise<boolean>;
@@ -124,12 +134,45 @@ const defaultGuestUser: User = {
   projects: 0
 };
 
+const AUTHENTICATED_MUTABLE_USER_FIELDS = new Set<keyof User>(['name']);
+
+const mapProfileToUser = (profile: UserProfile): User => ({
+  id: profile.id,
+  name: profile.name,
+  coins: profile.coins,
+  totalCoinsEarned: profile.total_coins_earned,
+  xp: profile.xp,
+  completedLessons: profile.completed_lessons || [],
+  lifetimeCompletedLessons: profile.lifetime_completed_lessons || profile.completed_lessons || [],
+  level: profile.level,
+  hearts: profile.hearts,
+  maxHearts: profile.max_hearts,
+  lastHeartReset: profile.last_heart_reset,
+  currentAvatar: profile.current_avatar,
+  ownedAvatars: profile.owned_avatars || ['default'],
+  unlockedAchievements: profile.unlocked_achievements || [],
+  currentStreak: profile.current_streak,
+  lastLoginDate: profile.last_login_date,
+  totalLessonsCompleted: profile.total_lessons_completed,
+  unlimitedHeartsActive: false,
+  xpBoostMultiplier: profile.xp_boost_multiplier || 1,
+  xpBoostExpiresAt: profile.xp_boost_expires_at || 0,
+  unlimitedHeartsExpiresAt: profile.unlimited_hearts_expires_at || 0,
+  projects: 0,
+});
+
 export const UserContext = createContext<UserContextType | undefined>(undefined);
 
 export const UserProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User>(defaultGuestUser);
   const [isInitialized, setIsInitialized] = useState(false);
-  const { updateProfile: updateSupabaseProfile, user: authUser, profile: authProfile, loading: authLoading } = useAuth();
+  const {
+    updateProfile: updateSupabaseProfile,
+    applyAuthoritativeProfile,
+    user: authUser,
+    profile: authProfile,
+    loading: authLoading,
+  } = useAuth();
   const [heartLostThisQuestion, setHeartLostThisQuestion] = useState(false);
   const [notifications, setNotifications] = useState<Notification[]>([]);
   
@@ -161,6 +204,51 @@ export const UserProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }, 5000); // Notifications disappear after 5 seconds
   }, []);
 
+  const isAuthenticatedSessionUser = !!authUser?.id && authUser.id !== 'guest';
+
+  const pushAchievementNotifications = useCallback((entries: Array<Record<string, any>> = []) => {
+    entries.forEach((achievement) => {
+      if (!achievement?.name) return;
+      const xpReward = Number(achievement?.reward?.xp || 0);
+      const rewardSuffix = xpReward > 0 ? ` +${xpReward} XP` : '';
+      addNotification(`Achievement Unlocked: ${achievement.name}!${rewardSuffix}`, achievement.icon, 'success');
+    });
+  }, [addNotification]);
+
+  const applyProgressionResponse = useCallback(async (response: ProgressionResponse, options: { notifyAchievements?: boolean } = {}) => {
+    if (!response?.profile) return;
+
+    await applyAuthoritativeProfile(response.profile);
+    setUser(mapProfileToUser(response.profile));
+    lastUpdateTimestamp.current = Date.now();
+
+    if (options.notifyAchievements !== false) {
+      pushAchievementNotifications(response.newlyUnlockedAchievements || []);
+    }
+  }, [applyAuthoritativeProfile, pushAchievementNotifications]);
+
+  const refreshAuthoritativeProfile = useCallback(async () => {
+    if (!authUser?.id || authUser.id === 'guest') {
+      return;
+    }
+
+    try {
+      const { data, error } = await getUserProfile(authUser.id);
+      if (error) {
+        console.error('Database refresh failed:', error);
+        return;
+      }
+
+      if (data) {
+        await applyAuthoritativeProfile(data);
+        setUser(mapProfileToUser(data));
+        lastUpdateTimestamp.current = Date.now();
+      }
+    } catch (error) {
+      console.error('Force refresh error:', error);
+    }
+  }, [applyAuthoritativeProfile, authUser?.id]);
+
   // Atomic transaction processor
   const processTransactionQueue = useCallback(async () => {
     if (isProcessingTransaction.current || transactionQueue.current.length === 0) {
@@ -168,84 +256,65 @@ export const UserProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }
 
     isProcessingTransaction.current = true;
-    
+    let transactions: Transaction[] = [];
+
     try {
-      const transactions = [...transactionQueue.current];
-      transactionQueue.current = []; // Clear queue before processing
+      transactions = [...transactionQueue.current];
+      transactionQueue.current = [];
 
       if (transactions.length === 0) {
         isProcessingTransaction.current = false;
         return;
       }
 
-      // Merge all updates into a single atomic operation for local state
       const mergedUpdates: Partial<User> = {};
       let currentState = { ...user };
-      
+
       for (const transaction of transactions) {
         currentState = { ...currentState, ...transaction.updates };
         Object.assign(mergedUpdates, transaction.updates);
       }
 
-      // Validate the final state to prevent negative values
-      const finalState = { ...user, ...mergedUpdates };
+      const effectiveUpdates = isAuthenticatedSessionUser
+        ? Object.fromEntries(
+            Object.entries(mergedUpdates).filter(([key]) => AUTHENTICATED_MUTABLE_USER_FIELDS.has(key as keyof User))
+          ) as Partial<User>
+        : mergedUpdates;
+
+      const blockedKeys = isAuthenticatedSessionUser
+        ? Object.keys(mergedUpdates).filter((key) => !AUTHENTICATED_MUTABLE_USER_FIELDS.has(key as keyof User))
+        : [];
+
+      if (blockedKeys.length > 0) {
+        console.warn('Authoritative progression blocked client-side updates for authenticated user:', blockedKeys);
+      }
+
+      const finalState = { ...user, ...effectiveUpdates };
       if (finalState.coins < 0) finalState.coins = 0;
       if (finalState.hearts < 0) finalState.hearts = 0;
       if (finalState.xp < 0) finalState.xp = 0;
 
-      // Update local state immediately
       setUser(finalState);
       lastUpdateTimestamp.current = Date.now();
 
-      // Sync to database if authenticated
-      const supabaseUserId = authUser?.id;
-      const hasSupabaseFunction = typeof updateSupabaseProfile === 'function';
-      const isUserAuthenticated = supabaseUserId && supabaseUserId !== 'guest';
-
-      if (isUserAuthenticated && hasSupabaseFunction && Object.keys(mergedUpdates).length > 0) {
+      if (isAuthenticatedSessionUser && typeof updateSupabaseProfile === 'function' && Object.keys(effectiveUpdates).length > 0) {
         const profileUpdates: Partial<UserProfile> = {};
-        
-        // Map local user updates to Supabase UserProfile fields
-        if (mergedUpdates.name !== undefined) profileUpdates.name = finalState.name;
-        if (mergedUpdates.coins !== undefined) profileUpdates.coins = finalState.coins;
-        if (mergedUpdates.totalCoinsEarned !== undefined) profileUpdates.total_coins_earned = finalState.totalCoinsEarned;
-        if (mergedUpdates.xp !== undefined) profileUpdates.xp = finalState.xp;
-        if (mergedUpdates.completedLessons !== undefined) profileUpdates.completed_lessons = finalState.completedLessons;
-        if (mergedUpdates.lifetimeCompletedLessons !== undefined) profileUpdates.lifetime_completed_lessons = finalState.lifetimeCompletedLessons;
-        if (mergedUpdates.level !== undefined) profileUpdates.level = finalState.level;
-        if (mergedUpdates.hearts !== undefined) profileUpdates.hearts = finalState.hearts;
-        if (mergedUpdates.currentAvatar !== undefined) profileUpdates.current_avatar = finalState.currentAvatar;
-        if (mergedUpdates.ownedAvatars !== undefined) profileUpdates.owned_avatars = finalState.ownedAvatars;
-        if (mergedUpdates.unlockedAchievements !== undefined) profileUpdates.unlocked_achievements = finalState.unlockedAchievements;
-        if (mergedUpdates.currentStreak !== undefined) profileUpdates.current_streak = finalState.currentStreak;
-        if (mergedUpdates.lastLoginDate !== undefined) profileUpdates.last_login_date = finalState.lastLoginDate;
-        if (mergedUpdates.totalLessonsCompleted !== undefined) profileUpdates.total_lessons_completed = finalState.totalLessonsCompleted;
-        if (mergedUpdates.lastHeartReset !== undefined) profileUpdates.last_heart_reset = finalState.lastHeartReset;
-        if (mergedUpdates.xpBoostMultiplier !== undefined) profileUpdates.xp_boost_multiplier = finalState.xpBoostMultiplier;
-        if (mergedUpdates.xpBoostExpiresAt !== undefined) profileUpdates.xp_boost_expires_at = finalState.xpBoostExpiresAt;
-        if (mergedUpdates.unlimitedHeartsExpiresAt !== undefined) profileUpdates.unlimited_hearts_expires_at = finalState.unlimitedHeartsExpiresAt;
-
-        await updateSupabaseProfile(profileUpdates); // Sync to Supabase
+        if (effectiveUpdates.name !== undefined) profileUpdates.name = finalState.name;
+        await updateSupabaseProfile(profileUpdates);
       }
 
-      transactions.forEach(transaction => transaction.resolve()); // Resolve all transactions
-      
+      transactions.forEach(transaction => transaction.resolve());
     } catch (error) {
-      console.error('❌ Transaction processing failed:', error);
-      
-      const transactions = [...transactionQueue.current];
-      transactionQueue.current = [];
-      transactions.forEach(transaction => transaction.reject(error)); // Reject all on error
-      
+      console.error('Transaction processing failed:', error);
+      transactions.forEach(transaction => transaction.reject(error));
     } finally {
       isProcessingTransaction.current = false;
-      
-      // Process any new transactions that arrived during processing
+
       if (transactionQueue.current.length > 0) {
         setTimeout(() => processTransactionQueue(), 0);
       }
     }
-  }, [user, updateSupabaseProfile, authUser]);
+  }, [isAuthenticatedSessionUser, updateSupabaseProfile, user]);
 
   // Debounced batch update function (queues updates)
   const queueUpdate = useCallback((updates: Partial<User>): Promise<void> => {
@@ -280,13 +349,13 @@ export const UserProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     if (!user || user.id === 'guest' || !authUser?.id) return
 
     try {
-      console.log('🔄 UserContext: Refreshing display name from auth...')
+      console.log('ðŸ”„ UserContext: Refreshing display name from auth...')
       const displayName = await getDisplayName(authUser.id)
       
       if (displayName && displayName !== user.name && displayName !== 'Unknown User') {
-        console.log('🔄 UserContext: Updating display name:', displayName, '(was:', user.name, ')')
+        console.log('ðŸ”„ UserContext: Updating display name:', displayName, '(was:', user.name, ')')
         await updateUser({ name: displayName }) // Use the atomic updateUser
-        addNotification('Display name updated!', '👤', 'info')
+        addNotification('Display name updated!', 'ðŸ‘¤', 'info')
       }
     } catch (error) {
       console.error('Error refreshing display name:', error)
@@ -295,7 +364,7 @@ export const UserProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   // Effect for initializing user state from AuthContext
   useEffect(() => {
-    console.log('🔧 UserContext: Initialization effect triggered:', {
+    console.log('UserContext: Initialization effect triggered:', {
       authLoading,
       hasAuthUser: !!authUser,
       hasProfile: !!authProfile,
@@ -304,84 +373,21 @@ export const UserProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     });
 
     if (authLoading) {
-      console.log('🔧 UserContext: AuthContext still loading, waiting...');
+      console.log('UserContext: AuthContext still loading, waiting...');
       return;
     }
 
     if (authUser && authProfile) {
-      console.log('🔧 UserContext: INITIALIZING with authenticated user and display name:', authProfile.name);
-      
-      const authenticatedUser: User = {
-        id: authProfile.id,
-        name: authProfile.name, // Use display name from auth profile
-        coins: authProfile.coins,
-        totalCoinsEarned: authProfile.total_coins_earned,
-        xp: authProfile.xp,
-        completedLessons: authProfile.completed_lessons || [],
-        lifetimeCompletedLessons: authProfile.lifetime_completed_lessons || authProfile.completed_lessons || [],
-        level: authProfile.level,
-        hearts: authProfile.hearts,
-        maxHearts: authProfile.max_hearts,
-        lastHeartReset: authProfile.last_heart_reset,
-        currentAvatar: authProfile.current_avatar,
-        ownedAvatars: authProfile.owned_avatars || ['default'],
-        unlockedAchievements: authProfile.unlocked_achievements || [],
-        currentStreak: authProfile.current_streak,
-        lastLoginDate: authProfile.last_login_date,
-        totalLessonsCompleted: authProfile.total_lessons_completed,
-        unlimitedHeartsActive: false, // Managed by boost expiration
-        xpBoostMultiplier: authProfile.xp_boost_multiplier || 1,
-        xpBoostExpiresAt: authProfile.xp_boost_expires_at || 0,
-        unlimitedHeartsExpiresAt: authProfile.unlimited_hearts_expires_at || 0,
-        projects: 0, // Placeholder
-      };
-
-      setUser(authenticatedUser);
+      setUser(mapProfileToUser(authProfile));
       setIsInitialized(true);
-    } else if (!authUser && (user.id !== 'guest' || !isInitialized)) {
-      console.log('🔧 UserContext: INITIALIZING with guest user');
+      return;
+    }
+
+    if (!authUser && (user.id !== 'guest' || !isInitialized)) {
       setUser(defaultGuestUser);
       setIsInitialized(true);
-    } else if (isInitialized && authUser && authProfile && user?.id === authProfile.id) {
-      // If already initialized and authenticated, check for profile changes from AuthContext
-      const hasChanges = 
-        user.name !== authProfile.name ||
-        user.xp !== authProfile.xp ||
-        user.totalLessonsCompleted !== authProfile.total_lessons_completed ||
-        (user.lifetimeCompletedLessons?.length || 0) !== ((authProfile.lifetime_completed_lessons || authProfile.completed_lessons || []).length) ||
-        user.coins !== authProfile.coins ||
-        user.xpBoostMultiplier !== (authProfile.xp_boost_multiplier || 1) ||
-        user.xpBoostExpiresAt !== (authProfile.xp_boost_expires_at || 0) ||
-        user.unlimitedHeartsExpiresAt !== (authProfile.unlimited_hearts_expires_at || 0);
-
-      if (hasChanges) {
-        console.log('🔧 UserContext: Profile updated, syncing changes including display name');
-        setUser(prev => ({
-          ...prev,
-          name: authProfile.name, // Sync display name
-          coins: authProfile.coins,
-          totalCoinsEarned: authProfile.total_coins_earned,
-          xp: authProfile.xp,
-          completedLessons: authProfile.completed_lessons || [],
-          lifetimeCompletedLessons: authProfile.lifetime_completed_lessons || authProfile.completed_lessons || [],
-          level: authProfile.level,
-          hearts: authProfile.hearts,
-          maxHearts: authProfile.max_hearts,
-          lastHeartReset: authProfile.last_heart_reset,
-          currentAvatar: authProfile.current_avatar,
-          ownedAvatars: authProfile.owned_avatars || ['default'],
-          unlockedAchievements: authProfile.unlocked_achievements || [],
-          currentStreak: authProfile.current_streak,
-          lastLoginDate: authProfile.last_login_date,
-          totalLessonsCompleted: authProfile.total_lessons_completed,
-          xpBoostMultiplier: authProfile.xp_boost_multiplier || 1,
-          xpBoostExpiresAt: authProfile.xp_boost_expires_at || 0,
-          unlimitedHeartsExpiresAt: authProfile.unlimited_hearts_expires_at || 0,
-          projects: 0,
-        }));
-      }
     }
-  }, [authUser, authProfile, authLoading, isInitialized, user?.id, user?.name, user?.xp, user?.totalLessonsCompleted, user?.lifetimeCompletedLessons, user?.coins, user?.xpBoostMultiplier, user?.xpBoostExpiresAt, user?.unlimitedHeartsExpiresAt]);
+  }, [authUser, authProfile, authLoading, isInitialized, user?.id]);
 
   const isLoading = authLoading && !isInitialized;
 
@@ -400,75 +406,135 @@ export const UserProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   useEffect(() => {
     if (!isInitialized || user.id === 'guest') return;
 
-    const checkBoosts = () => {
+    let cancelled = false;
+
+    const checkBoosts = async () => {
+      if (isAuthenticatedSessionUser) {
+        try {
+          const response = await refreshProgressionState();
+          if (!cancelled) {
+            await applyProgressionResponse(response, { notifyAchievements: false });
+          }
+        } catch (error) {
+          console.error('Could not refresh authoritative progression state:', error);
+        }
+        return;
+      }
+
       const now = Date.now();
       let needsUpdate = false;
       const updates: Partial<User> = {};
 
-      // Check XP boost expiration
       if (user.xpBoostExpiresAt && user.xpBoostExpiresAt <= now && user.xpBoostMultiplier && user.xpBoostMultiplier > 1) {
-        console.log('⚡ XP Boost expired');
         updates.xpBoostMultiplier = 1;
         updates.xpBoostExpiresAt = 0;
         needsUpdate = true;
-        addNotification('XP Boost expired', '⚡', 'info');
+        addNotification('XP Boost expired', '\u26A1', 'info');
       }
 
-      // Check unlimited hearts expiration
       if (user.unlimitedHeartsExpiresAt && user.unlimitedHeartsExpiresAt <= now) {
-        console.log('💖 Unlimited Hearts expired');
         updates.unlimitedHeartsExpiresAt = 0;
         needsUpdate = true;
-        addNotification('Unlimited Hearts expired', '💖', 'info');
+        addNotification('Unlimited Hearts expired', '\u{1F496}', 'info');
       }
 
-      // CRITICAL: Maintain unlimited hearts at maximum while active
       const unlimitedActive = user.unlimitedHeartsExpiresAt && user.unlimitedHeartsExpiresAt > now;
       if (unlimitedActive && user.hearts < user.maxHearts) {
-        console.log('💖 Maintaining unlimited hearts at maximum');
         updates.hearts = user.maxHearts;
         needsUpdate = true;
       }
 
       if (needsUpdate) {
-        console.log('🔄 Applying boost updates:', updates);
-        queueUpdate(updates); // Apply updates using the atomic queue
+        await queueUpdate(updates);
       }
     };
 
-    checkBoosts(); // Check immediately on mount/dependency change
+    void checkBoosts();
 
-    const interval = setInterval(checkBoosts, 3000); // Check every 3 seconds
-    
-    return () => clearInterval(interval); // Cleanup interval
-  }, [isInitialized, user.id, user.xpBoostExpiresAt, user.unlimitedHeartsExpiresAt, user.xpBoostMultiplier, user.hearts, user.maxHearts, addNotification, queueUpdate]);
+    const interval = setInterval(() => {
+      void checkBoosts();
+    }, 3000);
+
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [
+    addNotification,
+    applyProgressionResponse,
+    isAuthenticatedSessionUser,
+    isInitialized,
+    queueUpdate,
+    user.hearts,
+    user.id,
+    user.maxHearts,
+    user.unlimitedHeartsExpiresAt,
+    user.xpBoostExpiresAt,
+    user.xpBoostMultiplier,
+  ]);
 
   const buyHearts = useCallback(async (amount: number): Promise<boolean> => {
-    const cost = amount * 20; // Example cost
-    
+    if (isAuthenticatedSessionUser) {
+      try {
+        const response = await buyHeartsProgression(amount);
+        await applyProgressionResponse(response);
+        const purchased = Number(response.heartsPurchased || 0);
+        if (purchased > 0) {
+          addNotification(`Purchased ${purchased} heart${purchased > 1 ? 's' : ''}!`, '\u2764\uFE0F', 'success');
+          return true;
+        }
+        return false;
+      } catch (error) {
+        console.error('Heart purchase failed:', error);
+        return false;
+      }
+    }
+
+    const cost = amount * 20;
     if (user.coins < cost || user.hearts >= user.maxHearts) {
       return false;
     }
+
     const heartsToAdd = Math.min(amount, user.maxHearts - user.hearts);
     const actualCost = heartsToAdd * 20;
-    
+
     try {
       await queueUpdate({
         coins: user.coins - actualCost,
         hearts: user.hearts + heartsToAdd,
       });
-      
-      addNotification(`Purchased ${heartsToAdd} heart${heartsToAdd > 1 ? 's' : ''}!`, '❤️', 'success');
+
+      addNotification(`Purchased ${heartsToAdd} heart${heartsToAdd > 1 ? 's' : ''}!`, '\u2764\uFE0F', 'success');
       return true;
     } catch (error) {
-      console.error('❌ Heart purchase failed:', error);
+      console.error('Heart purchase failed:', error);
       return false;
     }
-  }, [user.coins, user.hearts, user.maxHearts, queueUpdate, addNotification]);
+  }, [addNotification, applyProgressionResponse, isAuthenticatedSessionUser, queueUpdate, user.coins, user.hearts, user.maxHearts]);
 
   const buyAvatar = useCallback(async (avatarId: string): Promise<boolean> => {
     const avatar = avatars.find(a => a.id === avatarId);
-    if (!avatar || user.ownedAvatars.includes(avatarId) || user.coins < avatar.price) {
+    if (!avatar) {
+      return false;
+    }
+
+    if (isAuthenticatedSessionUser) {
+      try {
+        const response = await purchaseAvatarProgression(avatarId);
+        await applyProgressionResponse(response);
+        if (response.alreadyOwned) {
+          return false;
+        }
+
+        addNotification('Avatar Purchased', '\u{1F3AD}', 'success');
+        return true;
+      } catch (error) {
+        console.error('Avatar purchase failed:', error);
+        return false;
+      }
+    }
+
+    if (user.ownedAvatars.includes(avatarId) || user.coins < avatar.price) {
       return false;
     }
 
@@ -478,76 +544,99 @@ export const UserProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         ownedAvatars: [...user.ownedAvatars, avatarId],
         currentAvatar: avatarId,
       });
-      
-      addNotification(`Avatar Purchased`, '🎭', 'success');
+
+      addNotification('Avatar Purchased', '\u{1F3AD}', 'success');
       return true;
     } catch (error) {
-      console.error('❌ Avatar purchase failed:', error);
+      console.error('Avatar purchase failed:', error);
       return false;
     }
-  }, [user.ownedAvatars, user.coins, queueUpdate, addNotification]);
+  }, [addNotification, applyProgressionResponse, isAuthenticatedSessionUser, queueUpdate, user.coins, user.ownedAvatars]);
 
   const purchaseWithCoins = useCallback(async (amount: number): Promise<boolean> => {
+    if (isAuthenticatedSessionUser) {
+      console.warn('Direct authenticated coin spending is disabled.');
+      return false;
+    }
+
     if (user.coins < amount) return false;
-    
+
     try {
       await queueUpdate({ coins: user.coins - amount });
       return true;
     } catch (error) {
-      console.error('❌ Coin purchase failed:', error);
+      console.error('Coin purchase failed:', error);
       return false;
     }
-  }, [user.coins, queueUpdate]);
+  }, [isAuthenticatedSessionUser, queueUpdate, user.coins]);
 
   const addCoins = useCallback(async (amount: number): Promise<void> => {
+    if (isAuthenticatedSessionUser) {
+      console.warn('Direct authenticated coin grants are disabled.');
+      await refreshAuthoritativeProfile();
+      return;
+    }
+
     await queueUpdate({
       coins: user.coins + amount,
       totalCoinsEarned: user.totalCoinsEarned + amount,
     });
-  }, [user.coins, user.totalCoinsEarned, queueUpdate]);
+  }, [isAuthenticatedSessionUser, queueUpdate, refreshAuthoritativeProfile, user.coins, user.totalCoinsEarned]);
 
   const activateXPBoost = useCallback(async (multiplier: number, durationHours: number) => {
+    if (isAuthenticatedSessionUser) {
+      console.warn('Authoritative XP boost activation is not available from the client helper.');
+      await refreshAuthoritativeProfile();
+      return;
+    }
+
     const expiresAt = Date.now() + (durationHours * 60 * 60 * 1000);
-    
-    console.log(`⚡ ACTIVATING XP BOOST: ${multiplier}x for ${durationHours} hours, expires at:`, new Date(expiresAt));
-    
     await queueUpdate({
       xpBoostMultiplier: multiplier,
       xpBoostExpiresAt: expiresAt
     });
-    
+
     addNotification(
       `${multiplier}x XP Boost activated for ${durationHours} hour${durationHours > 1 ? 's' : ''}!`,
-      '⚡',
+      '\u26A1',
       'success'
     );
-  }, [queueUpdate, addNotification]);
+  }, [addNotification, isAuthenticatedSessionUser, queueUpdate, refreshAuthoritativeProfile]);
 
   const activateUnlimitedHearts = useCallback(async (durationHours: number) => {
+    if (isAuthenticatedSessionUser) {
+      console.warn('Authoritative unlimited hearts activation is not available from the client helper.');
+      await refreshAuthoritativeProfile();
+      return;
+    }
+
     const expiresAt = Date.now() + (durationHours * 60 * 60 * 1000);
-    
-    console.log(`💖 ACTIVATING UNLIMITED HEARTS: ${durationHours} hours, expires at:`, new Date(expiresAt));
-    
     await queueUpdate({
       unlimitedHeartsExpiresAt: expiresAt,
-      hearts: user.maxHearts // Refill hearts to max when unlimited is activated
+      hearts: user.maxHearts
     });
-    
+
     addNotification(
       `Unlimited Hearts activated for ${durationHours} hour${durationHours > 1 ? 's' : ''}!`,
-      '💖',
+      '\u{1F496}',
       'success'
     );
-  }, [queueUpdate, user.maxHearts, addNotification]);
+  }, [addNotification, isAuthenticatedSessionUser, queueUpdate, refreshAuthoritativeProfile, user.maxHearts]);
 
   const refillHearts = useCallback(async () => {
-    console.log(`❤️ Refilling hearts from ${user.hearts} to ${user.maxHearts}`);
+    if (isAuthenticatedSessionUser) {
+      console.warn('Authoritative heart refills are not available from the client helper.');
+      const response = await refreshProgressionState();
+      await applyProgressionResponse(response, { notifyAchievements: false });
+      return;
+    }
+
     await queueUpdate({ hearts: user.maxHearts });
-    addNotification('Hearts refilled!', '❤️', 'success');
-  }, [queueUpdate, user.maxHearts, user.hearts, addNotification]);
+    addNotification('Hearts refilled!', '\u2764\uFE0F', 'success');
+  }, [addNotification, applyProgressionResponse, isAuthenticatedSessionUser, queueUpdate, user.maxHearts]);
 
   const debugUserState = useCallback(() => {
-    console.log('🔍 FULL DEBUG STATE:', {
+    console.log('ðŸ” FULL DEBUG STATE:', {
       timestamp: new Date().toISOString(),
       userContext: {
         id: user?.id,
@@ -580,71 +669,14 @@ export const UserProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     });
   }, [user, authUser, authProfile, isLoading, isInitialized, authLoading, isUnlimitedHeartsActive, isXPBoostActive]);
 
-  const forceRefreshFromDatabase = useCallback(async () => {
-    if (!authUser?.id || authUser.id === 'guest') {
-      console.log('🔄 Cannot refresh - no authenticated user');
-      return;
-    }
+  const forceRefreshFromDatabase = refreshAuthoritativeProfile;
 
-    try {
-      console.log('🔄 FORCING DATABASE REFRESH for user:', authUser.id);
-      const { data, error } = await getUserProfile(authUser.id); // Fetches and syncs display name
-      
-      if (error) {
-        console.error('❌ Database refresh failed:', error);
-        return;
-      }
-
-      if (data) {
-        console.log('🔄 FRESH DATABASE DATA with display name:', {
-          id: data.id,
-          name: data.name,
-          xp: data.xp,
-          totalLessons: data.total_lessons_completed,
-          coins: data.coins,
-          completedLessons: data.completed_lessons?.length || 0,
-          xpBoostMultiplier: data.xp_boost_multiplier,
-          xpBoostExpiresAt: data.xp_boost_expires_at,
-          unlimitedHeartsExpiresAt: data.unlimited_hearts_expires_at
-        });
-
-        setUser({
-          id: data.id,
-          name: data.name,
-          coins: data.coins,
-          totalCoinsEarned: data.total_coins_earned,
-          xp: data.xp,
-          completedLessons: data.completed_lessons || [],
-          lifetimeCompletedLessons: data.lifetime_completed_lessons || data.completed_lessons || [],
-          level: data.level,
-          hearts: data.hearts,
-          maxHearts: data.max_hearts,
-          lastHeartReset: data.last_heart_reset,
-          currentAvatar: data.current_avatar,
-          ownedAvatars: data.owned_avatars || ['default'],
-          unlockedAchievements: data.unlocked_achievements || [],
-          currentStreak: data.current_streak,
-          lastLoginDate: data.last_login_date,
-          totalLessonsCompleted: data.total_lessons_completed,
-          unlimitedHeartsActive: false,
-          xpBoostMultiplier: data.xp_boost_multiplier || 1,
-          xpBoostExpiresAt: data.xp_boost_expires_at || 0,
-          unlimitedHeartsExpiresAt: data.unlimited_hearts_expires_at || 0,
-          projects: 0,
-        });
-
-        console.log('✅ USER STATE FORCE UPDATED FROM DATABASE WITH DISPLAY NAME');
-      }
-    } catch (error) {
-      console.error('❌ Force refresh error:', error);
-    }
-  }, [authUser?.id]);
 
   const verifyDatabaseSync = useCallback(async () => {
     if (!authUser?.id || authUser.id === 'guest') return;
 
     try {
-      console.log('🔍 VERIFYING DATABASE SYNC...');
+      console.log('ðŸ” VERIFYING DATABASE SYNC...');
       const { data } = await getUserProfile(authUser.id);
       if (data) {
         const hasDiscrepancy = 
@@ -658,25 +690,25 @@ export const UserProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           (data.unlimited_hearts_expires_at || 0) !== (user.unlimitedHeartsExpiresAt || 0);
 
         if (hasDiscrepancy) {
-          console.warn('⚠️ DATABASE MISMATCH DETECTED! Auto-syncing from database...');
+          console.warn('âš ï¸ DATABASE MISMATCH DETECTED! Auto-syncing from database...');
           await forceRefreshFromDatabase();
         } else {
-          console.log('✅ DATABASE SYNC VERIFIED - All data matches including display name');
+          console.log('âœ… DATABASE SYNC VERIFIED - All data matches including display name');
         }
       }
     } catch (error) {
-      console.error('❌ Database verification failed: ', error);
+      console.error('âŒ Database verification failed: ', error);
     }
   }, [authUser?.id, user, forceRefreshFromDatabase]);
 
   const setAuthenticatedUser = useCallback((userData: Partial<User>) => {
-    console.warn('⚠️ setAuthenticatedUser is deprecated - initialization is now automatic. Do not use this function.');
+    console.warn('âš ï¸ setAuthenticatedUser is deprecated - initialization is now automatic. Do not use this function.');
     // This function is deprecated as user initialization is now handled by AuthContext and this effect.
     // If you need to update user data, use `updateUser`.
   }, []);
 
   const resetToGuestUser = useCallback(() => {
-    console.log('🔧 RESETTING TO GUEST USER');
+    console.log('ðŸ”§ RESETTING TO GUEST USER');
     setUser(defaultGuestUser);
     setHeartLostThisQuestion(false);
     transactionQueue.current = []; // Clear transaction queue
@@ -691,12 +723,19 @@ export const UserProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   const checkAndUnlockAchievements = useCallback(async () => {
     if (!user || user.id === 'guest' || !user.unlockedAchievements) {
-      console.log('🏆 Skipping achievement check - user not authenticated or data not ready.');
       return;
     }
 
-    console.log('🏆 Checking achievements for user:', user.name);
-    
+    if (isAuthenticatedSessionUser) {
+      try {
+        const response = await recomputeAchievements();
+        await applyProgressionResponse(response);
+      } catch (error) {
+        console.error('Could not recompute authoritative achievements:', error);
+      }
+      return;
+    }
+
     const unlockedSet = new Set(user.unlockedAchievements || []);
     const newlyUnlockedAchievements = checkAchievements(user, user.lifetimeCompletedLessons).filter(
       (achievement) => !unlockedSet.has(achievement.id)
@@ -711,8 +750,8 @@ export const UserProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         updatedUnlockedAchievements.add(achievement.id);
 
         addNotification(
-          `Achievement Unlocked: ${achievement.name}! +${achievement.reward.xp} XP`, 
-          achievement.icon, 
+          `Achievement Unlocked: ${achievement.name}! +${achievement.reward.xp} XP`,
+          achievement.icon,
           'success'
         );
       });
@@ -722,14 +761,26 @@ export const UserProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         unlockedAchievements: Array.from(updatedUnlockedAchievements),
         level: calculateLevelFromXP(user.xp + totalXPFromAchievements),
       });
-
-      console.log(`🎉 Awarded ${totalXPFromAchievements} XP for new achievements.`);
     }
-  }, [user, queueUpdate, addNotification, isAuthenticated]);
+  }, [addNotification, applyProgressionResponse, isAuthenticatedSessionUser, queueUpdate, user]);
 
-  const completeLesson = useCallback(async (lessonId: string, xpReward: number, coinsReward: number) => {
+  const completeLesson = useCallback(async (lessonId: string, xpReward: number, coinsReward: number, actualTimeMinutes?: number) => {
+    if (isAuthenticatedSessionUser) {
+      try {
+        const response = await completeLessonProgression({
+          lessonId,
+          actualTimeMinutes,
+        });
+        await applyProgressionResponse(response);
+        return;
+      } catch (error) {
+        console.error('Authoritative lesson completion failed:', error);
+        throw error;
+      }
+    }
+
     const timestamp = new Date().toISOString();
-    console.log('🎓 LESSON COMPLETION STARTED:', {
+    console.log('LESSON COMPLETION STARTED:', {
       timestamp,
       lessonId,
       xpReward,
@@ -744,10 +795,8 @@ export const UserProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     });
 
     if (user.completedLessons.includes(lessonId)) {
-      console.warn('⚠️ LESSON ALREADY COMPLETED:', lessonId);
       return;
     }
-
 
     const today = getLocalDateKey();
     const yesterday = getPreviousDateKey();
@@ -779,30 +828,7 @@ export const UserProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       lastLoginDate: today,
     };
 
-    console.log('🎓 LESSON COMPLETION UPDATES:', {
-      timestamp,
-      lessonId,
-      lessonUpdates,
-      calculations: {
-        oldXP: user.xp,
-        xpReward,
-        boostedXP,
-        newXP,
-        oldCoins: user.coins,
-        coinsReward,
-        newCoins,
-        oldTotalLessons: user.totalLessonsCompleted,
-        newTotalLessons,
-        newLevel,
-        oldCompletedLessons: user.completedLessons.length,
-        newCompletedLessonsCount: updatedCompletedLessons.length,
-        oldLifetimeCompletedLessons: user.lifetimeCompletedLessons.length,
-        newLifetimeCompletedLessons: updatedLifetimeCompletedLessons.length
-      }
-    });
-
     try {
-      // CRITICAL FIX: Update lesson completion first
       await queueUpdate(lessonUpdates);
 
       try {
@@ -815,37 +841,19 @@ export const UserProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       } catch (eventError) {
         console.error('Failed to record lesson completion event:', eventError);
       }
-      console.log('✅ LESSON COMPLETION SUCCESS:', {
-        timestamp,
-        lessonId,
-        newTotalCompleted: newTotalLessons,
-        newCompletedLessonsArray: updatedCompletedLessons
-      });
 
-      // CRITICAL FIX: Check achievements with the UPDATED user state
-      // Create a temporary updated user object for achievement checking
       const updatedUserForAchievements = {
         ...user,
         ...lessonUpdates
       };
 
-      console.log('🏆 Checking achievements with updated state:', {
-        xp: updatedUserForAchievements.xp,
-        level: updatedUserForAchievements.level,
-        totalLessons: updatedUserForAchievements.totalLessonsCompleted,
-        completedLessons: updatedUserForAchievements.completedLessons.length,
-        lifetimeCompletedLessons: updatedUserForAchievements.lifetimeCompletedLessons.length
-      });
-
       const unlockedSet = new Set(updatedUserForAchievements.unlockedAchievements || []);
       const newlyUnlockedAchievements = checkAchievements(
-        updatedUserForAchievements, 
+        updatedUserForAchievements,
         updatedUserForAchievements.lifetimeCompletedLessons
       ).filter((achievement) => !unlockedSet.has(achievement.id));
 
       if (newlyUnlockedAchievements.length > 0) {
-        console.log('🎉 NEW ACHIEVEMENTS UNLOCKED:', newlyUnlockedAchievements.map(a => a.name));
-        
         let totalAchievementXP = 0;
         const updatedUnlockedAchievements = new Set(updatedUserForAchievements.unlockedAchievements || []);
 
@@ -854,36 +862,23 @@ export const UserProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           updatedUnlockedAchievements.add(achievement.id);
 
           addNotification(
-            `Achievement Unlocked: ${achievement.name}! +${achievement.reward.xp} XP`, 
-            achievement.icon, 
+            `Achievement Unlocked: ${achievement.name}! +${achievement.reward.xp} XP`,
+            achievement.icon,
             'success'
           );
         });
 
-        // CRITICAL FIX: Add achievement XP on top of lesson XP
         const finalXP = newXP + totalAchievementXP;
         const finalLevel = calculateLevelFromXP(finalXP);
-
-        console.log('🎉 ADDING ACHIEVEMENT XP:', {
-          lessonXP: newXP,
-          achievementXP: totalAchievementXP,
-          finalXP,
-          finalLevel
-        });
 
         await queueUpdate({
           xp: finalXP,
           level: finalLevel,
           unlockedAchievements: Array.from(updatedUnlockedAchievements),
         });
-
-        console.log(`✅ Awarded ${totalAchievementXP} XP for ${newlyUnlockedAchievements.length} achievement(s).`);
-      } else {
-        console.log('ℹ️ No new achievements unlocked');
       }
-      
     } catch (error) {
-      console.error('❌ LESSON COMPLETION FAILED:', {
+      console.error('LESSON COMPLETION FAILED:', {
         timestamp,
         error,
         lessonId,
@@ -891,13 +886,19 @@ export const UserProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       });
       throw error;
     }
-  }, [user, queueUpdate, isXPBoostActive, addNotification]); // Removed checkAndUnlockAchievements as it's called internally now
+  }, [addNotification, applyProgressionResponse, isAuthenticatedSessionUser, isXPBoostActive, queueUpdate, user]);
 
   const resetHeartLoss = useCallback(() => {
     setHeartLostThisQuestion(false);
   }, []);
 
   const resetHeartsIfNeeded = useCallback(async () => {
+    if (isAuthenticatedSessionUser) {
+      const response = await refreshProgressionState();
+      await applyProgressionResponse(response, { notifyAchievements: false });
+      return;
+    }
+
     const today = new Date().toDateString();
     if (user.lastHeartReset !== today) {
       await queueUpdate({
@@ -905,30 +906,59 @@ export const UserProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         lastHeartReset: today,
       });
     }
-  }, [user.lastHeartReset, user.maxHearts, queueUpdate]);
+  }, [applyProgressionResponse, isAuthenticatedSessionUser, queueUpdate, user.lastHeartReset, user.maxHearts]);
 
   const loseHeart = useCallback(() => {
-    if (isUnlimitedHeartsActive()) {
-      console.log('💖 Unlimited hearts active - preventing heart loss and maintaining at maximum');
-      if (user.hearts < user.maxHearts) {
-        queueUpdate({ hearts: user.maxHearts });
-      }
-      return; 
-    }
-    
     if (heartLostThisQuestion) return;
 
-    console.log('💔 LOSING HEART:', user.hearts);
+    if (isAuthenticatedSessionUser) {
+      setHeartLostThisQuestion(true);
+      void (async () => {
+        try {
+          const response = await consumeHeartProgression(1);
+          await applyProgressionResponse(response, { notifyAchievements: false });
+        } catch (error) {
+          console.error('Authoritative heart consumption failed:', error);
+          setHeartLostThisQuestion(false);
+        }
+      })();
+      return;
+    }
+
+    if (isUnlimitedHeartsActive()) {
+      if (user.hearts < user.maxHearts) {
+        void queueUpdate({ hearts: user.maxHearts });
+      }
+      return;
+    }
+
     setHeartLostThisQuestion(true);
-    queueUpdate({ hearts: Math.max(0, user.hearts - 1) });
-  }, [heartLostThisQuestion, queueUpdate, isUnlimitedHeartsActive, user.hearts, user.maxHearts]);
+    void queueUpdate({ hearts: Math.max(0, user.hearts - 1) });
+  }, [applyProgressionResponse, heartLostThisQuestion, isAuthenticatedSessionUser, isUnlimitedHeartsActive, queueUpdate, user.hearts, user.maxHearts]);
 
   const setAvatar = useCallback((avatarId: string) => {
-    if (!user.ownedAvatars.includes(avatarId)) return;
-    queueUpdate({ currentAvatar: avatarId });
-  }, [user.ownedAvatars, queueUpdate]);
+    if (isAuthenticatedSessionUser) {
+      void (async () => {
+        try {
+          const response = await equipAvatarProgression(avatarId);
+          await applyProgressionResponse(response, { notifyAchievements: false });
+        } catch (error) {
+          console.error('Authoritative avatar equip failed:', error);
+        }
+      })();
+      return;
+    }
 
-  const unlockAchievement = useCallback(async (achievementId: string, xpReward: number) => { 
+    if (!user.ownedAvatars.includes(avatarId)) return;
+    void queueUpdate({ currentAvatar: avatarId });
+  }, [applyProgressionResponse, isAuthenticatedSessionUser, queueUpdate, user.ownedAvatars]);
+
+  const unlockAchievement = useCallback(async (achievementId: string, xpReward: number) => {
+    if (isAuthenticatedSessionUser) {
+      await checkAndUnlockAchievements();
+      return;
+    }
+
     if (!isAuthenticated()) return;
     if (user.unlockedAchievements.includes(achievementId)) return;
 
@@ -945,12 +975,12 @@ export const UserProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     const unlockedAch = checkAchievements(user, user.completedLessons).find(a => a.id === achievementId);
     if (unlockedAch) {
       addNotification(
-        `Achievement Unlocked: ${unlockedAch.name}! +${xpReward} XP`, 
-        unlockedAch.icon, 
+        `Achievement Unlocked: ${unlockedAch.name}! +${xpReward} XP`,
+        unlockedAch.icon,
         'success'
       );
     }
-  }, [user, queueUpdate, addNotification, isAuthenticated]);
+  }, [addNotification, checkAndUnlockAchievements, isAuthenticated, isAuthenticatedSessionUser, queueUpdate, user]);
   const getActiveBoosts = useCallback(() => {
     const boosts: { xpBoost?: { multiplier: number; expiresAt: number }; unlimitedHearts?: { expiresAt: number } } = {};
     
@@ -1051,14 +1081,6 @@ export const useUser = () => {
   }
   return context;
 };
-
-
-
-
-
-
-
-
 
 
 

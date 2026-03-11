@@ -96,7 +96,6 @@ export function resolveResultStrength({
   reason,
   winnerId,
   playerAId,
-  playerBId,
   playerASubmission,
   playerBSubmission,
 }) {

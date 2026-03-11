@@ -1,10 +1,11 @@
 import { normalizeDifficulty, resolveTimeLimitSeconds } from "./duel-competition.js";
 
 export class MatchmakingService {
-  constructor(supabase, io, matchController = null) {
+  constructor(supabase, io, matchController = null, stateStore = null) {
     this.supabase = supabase;
     this.io = io;
     this.matchController = matchController;
+    this.stateStore = stateStore;
 
     this.queues = { ranked: [], casual: [] };
 
@@ -30,7 +31,7 @@ export class MatchmakingService {
     }, this.MATCHMAKING_TICK_MS);
 
     this._qTimer = setInterval(() => {
-      this.broadcastQueueStatus();
+      this.broadcastQueueStatus().catch((e) => console.error("broadcastQueueStatus error:", e));
     }, this.QUEUE_UPDATE_TICK_MS);
   }
 
@@ -49,21 +50,33 @@ export class MatchmakingService {
     return this.io.sockets.sockets.get(socketId);
   }
 
+  async _emitPlayerEvent(player, event, payload) {
+    if (!player?.userId) return;
+    const socket = this._socket(player.socketId);
+    if (socket) socket.emit(event, payload);
+    await this.stateStore?.dispatchSocketEventToUser?.(player.userId, event, payload);
+  }
+
   pruneDeadSockets(matchType) {
     const q = this.getQueue(matchType);
-    for (let i = q.length - 1; i >= 0; i--) {
-      if (!this._socket(q[i].socketId)) q.splice(i, 1);
+    for (let index = q.length - 1; index >= 0; index -= 1) {
+      if (!this._socket(q[index].socketId)) q.splice(index, 1);
     }
   }
 
   _computeRange(joinedAt) {
-    const elapsedSeconds = Math.floor((Date.now() - joinedAt) / 1000);
+    const joinedAtMs = joinedAt instanceof Date ? joinedAt.getTime() : Date.parse(joinedAt) || Number(joinedAt) || Date.now();
+    const elapsedSeconds = Math.floor((Date.now() - joinedAtMs) / 1000);
     return Math.min(this.MAX_RANGE, this.BASE_RANGE + elapsedSeconds * this.RANGE_GROW_PER_SEC);
+  }
+
+  async _getSharedQueue(matchType) {
+    return this.stateStore ? this.stateStore.listQueue(matchType) : this.getQueue(matchType);
   }
 
   async addToQueue(player) {
     const matchType = player.matchType || "ranked";
-    this.removeFromQueue(player.userId);
+    await this.removeFromQueue(player.userId);
 
     const queuedPlayer = {
       userId: player.userId,
@@ -76,47 +89,63 @@ export class MatchmakingService {
       joinedAt: Date.now(),
     };
 
-    this.getQueue(matchType).push(queuedPlayer);
+    if (this.stateStore) {
+      await this.stateStore.enqueuePlayer(queuedPlayer);
+    } else {
+      this.getQueue(matchType).push(queuedPlayer);
+    }
 
-    console.log(`Player ${queuedPlayer.username} joined ${matchType} queue (${this.getQueue(matchType).length})`);
+    console.log(`Player ${queuedPlayer.username} joined ${matchType} queue`);
 
     await this.processQueue(matchType);
     return null;
   }
 
-  removeFromQueue(userId) {
-    for (const t of ["ranked", "casual"]) {
-      const q = this.getQueue(t);
-      for (let i = q.length - 1; i >= 0; i--) {
-        if (q[i].userId === userId) q.splice(i, 1);
+  async removeFromQueue(userId) {
+    if (this.stateStore) {
+      await this.stateStore.removeFromQueue(userId);
+      return;
+    }
+
+    for (const type of ["ranked", "casual"]) {
+      const q = this.getQueue(type);
+      for (let index = q.length - 1; index >= 0; index -= 1) {
+        if (q[index].userId === userId) q.splice(index, 1);
       }
     }
   }
 
-  isQueued(userId, matchType = null) {
+  async isQueued(userId, matchType = null) {
+    if (this.stateStore) {
+      return this.stateStore.isQueued(userId, matchType);
+    }
+
     const types = matchType ? [matchType] : ["ranked", "casual"];
     return types.some((type) => this.getQueue(type).some((player) => player.userId === userId));
   }
 
-  broadcastQueueStatus() {
+  async broadcastQueueStatus() {
     const now = Date.now();
 
     for (const matchType of ["ranked", "casual"]) {
-      this.pruneDeadSockets(matchType);
+      if (!this.stateStore) {
+        this.pruneDeadSockets(matchType);
+      }
 
-      const q = this.getQueue(matchType);
-      q.forEach((p, idx) => {
-        const sock = this._socket(p.socketId);
-        if (!sock) return;
+      const queue = await this._getSharedQueue(matchType);
+      queue.forEach((player, index) => {
+        const socketId = player.socket_id || player.socketId;
+        const socket = this._socket(socketId);
+        if (!socket) return;
 
-        const waitTime = Math.floor((now - p.joinedAt) / 1000);
-        const ratingRange = this._computeRange(p.joinedAt);
+        const waitTime = Math.floor((now - (Date.parse(player.joined_at || player.joinedAt) || now)) / 1000);
+        const ratingRange = this._computeRange(player.joined_at || player.joinedAt);
 
-        sock.emit("queue_update", {
+        socket.emit("queue_update", {
           matchType,
           waitTime,
-          queuePosition: idx + 1,
-          queueSize: q.length,
+          queuePosition: index + 1,
+          queueSize: queue.length,
           ratingRange,
         });
       });
@@ -128,40 +157,84 @@ export class MatchmakingService {
     await this.processQueue("casual");
   }
 
+  async _claimSharedPair(matchType) {
+    const claimed = await this.stateStore.claimMatchPair(matchType, {
+      baseRange: this.BASE_RANGE,
+      maxRange: this.MAX_RANGE,
+      rangeGrowPerSec: this.RANGE_GROW_PER_SEC,
+    });
+
+    if (!claimed?.playerA?.user_id || !claimed?.playerB?.user_id) {
+      return null;
+    }
+
+    return {
+      a: {
+        userId: claimed.playerA.user_id,
+        username: claimed.playerA.username,
+        rating: claimed.playerA.rating,
+        socketId: claimed.playerA.socket_id,
+        sessionEvidence: claimed.playerA.session_evidence || null,
+        connectionRiskFlags: claimed.playerA.connection_risk_flags || [],
+        matchType: claimed.playerA.match_type || matchType,
+        joinedAt: claimed.playerA.joined_at,
+      },
+      b: {
+        userId: claimed.playerB.user_id,
+        username: claimed.playerB.username,
+        rating: claimed.playerB.rating,
+        socketId: claimed.playerB.socket_id,
+        sessionEvidence: claimed.playerB.session_evidence || null,
+        connectionRiskFlags: claimed.playerB.connection_risk_flags || [],
+        matchType: claimed.playerB.match_type || matchType,
+        joinedAt: claimed.playerB.joined_at,
+      },
+    };
+  }
+
   async processQueue(matchType) {
-    this.pruneDeadSockets(matchType);
+    if (!this.stateStore) {
+      this.pruneDeadSockets(matchType);
+    }
 
-    const q = this.getQueue(matchType);
-    if (q.length < 2) return;
+    const queue = await this._getSharedQueue(matchType);
+    if (queue.length < 2) return;
 
-    const enriched = q.map((p) => ({
-      ...p,
-      ratingRange: this._computeRange(p.joinedAt),
+    if (this.stateStore) {
+      const claimedPair = await this._claimSharedPair(matchType);
+      if (!claimedPair) return;
+      await this.createMatch(claimedPair.a, claimedPair.b, matchType);
+      return;
+    }
+
+    const enriched = queue.map((player) => ({
+      ...player,
+      ratingRange: this._computeRange(player.joinedAt),
     }));
 
-    enriched.sort((a, b) => a.rating - b.rating);
+    enriched.sort((left, right) => left.rating - right.rating);
 
-    for (let i = 0; i < enriched.length - 1; i++) {
-      const a = enriched[i];
-      const b = enriched[i + 1];
+    for (let index = 0; index < enriched.length - 1; index += 1) {
+      const a = enriched[index];
+      const b = enriched[index + 1];
 
-      const aInQ = q.find((x) => x.userId === a.userId);
-      const bInQ = q.find((x) => x.userId === b.userId);
-      if (!aInQ || !bInQ) continue;
+      const aInQueue = queue.find((entry) => entry.userId === a.userId);
+      const bInQueue = queue.find((entry) => entry.userId === b.userId);
+      if (!aInQueue || !bInQueue) continue;
       if (this.inFlight.has(a.userId) || this.inFlight.has(b.userId)) continue;
 
-      const diff = Math.abs(a.rating - b.rating);
-      const range = Math.max(a.ratingRange ?? this.BASE_RANGE, b.ratingRange ?? this.BASE_RANGE);
-      if (diff > range) continue;
+      const ratingDiff = Math.abs(a.rating - b.rating);
+      const ratingRange = Math.max(a.ratingRange ?? this.BASE_RANGE, b.ratingRange ?? this.BASE_RANGE);
+      if (ratingDiff > ratingRange) continue;
 
       this.inFlight.add(a.userId);
       this.inFlight.add(b.userId);
 
       try {
-        const ok = await this.createMatch(aInQ, bInQ, matchType);
+        const ok = await this.createMatch(aInQueue, bInQueue, matchType);
         if (ok) {
-          this.removeFromQueue(a.userId);
-          this.removeFromQueue(b.userId);
+          await this.removeFromQueue(a.userId);
+          await this.removeFromQueue(b.userId);
         }
       } finally {
         this.inFlight.delete(a.userId);
@@ -173,19 +246,35 @@ export class MatchmakingService {
   }
 
   async createMatch(playerA, playerB, matchType) {
-    const sockA = this._socket(playerA.socketId);
-    const sockB = this._socket(playerB.socketId);
+    const socketA = this._socket(playerA.socketId);
+    const socketB = this._socket(playerB.socketId);
 
-    if (!sockA || !sockB) {
+    if (!this.stateStore && (!socketA || !socketB)) {
       console.warn("createMatch: socket missing");
+      await this.removeFromQueue(playerA.userId);
+      await this.removeFromQueue(playerB.userId);
       return false;
+    }
+
+    if (this.stateStore) {
+      const [presenceA, presenceB] = await Promise.all([
+        this.stateStore.getPresence(playerA.userId),
+        this.stateStore.getPresence(playerB.userId),
+      ]);
+
+      if (!presenceA || !presenceB) {
+        console.warn("createMatch: runtime presence missing", { playerA: !!presenceA, playerB: !!presenceB });
+        await this.removeFromQueue(playerA.userId);
+        await this.removeFromQueue(playerB.userId);
+        return false;
+      }
     }
 
     let problem;
     try {
       problem = await this.selectProblem(matchType, playerA.rating, playerB.rating);
-    } catch (e) {
-      console.error("Problem selection failed:", e);
+    } catch (error) {
+      console.error("Problem selection failed:", error);
       return false;
     }
 
@@ -214,7 +303,7 @@ export class MatchmakingService {
     const match = await this._insertMatchRecord({
       matchType,
       playerA: { ...playerA },
-          playerB: { ...playerB },
+      playerB: { ...playerB },
       safeA,
       safeB,
       problem,
@@ -232,15 +321,17 @@ export class MatchmakingService {
       countdown,
     };
 
-    sockA.emit("match_found", {
+    await this._emitPlayerEvent(playerA, "match_found", {
       ...payload,
       opponent: { username: safeB.username, rating: safeB.rating },
     });
 
-    sockB.emit("match_found", {
+    await this._emitPlayerEvent(playerB, "match_found", {
       ...payload,
       opponent: { username: safeA.username, rating: safeA.rating },
     });
+
+    await this.stateStore?.setPresenceActiveMatch?.([playerA.userId, playerB.userId], match.id);
 
     if (this.matchController?.startMatch) {
       const countdownHandle = setTimeout(() => {
@@ -249,37 +340,57 @@ export class MatchmakingService {
         }
         this.matchController
           .startMatch(match.id, playerA, playerB, problem)
-          .catch((e) => console.error("startMatch error:", e));
+          .catch((error) => console.error("startMatch error:", error));
       }, countdown * 1000);
 
+      const pendingMatch = {
+        matchId: match.id,
+        playerA: { ...playerA },
+        playerB: { ...playerB },
+        problem: { ...problem, difficulty, time_limit_seconds: timeLimit },
+        difficulty,
+        startTimeMs: Date.now(),
+        timeLimitMs: Math.max(5, timeLimit) * 1000,
+        timeLimitSec: timeLimit,
+        submissions: new Map(),
+        attempts: new Map(),
+        wrongSubmissions: new Map(),
+        lastSubmissionAtMs: new Map(),
+        submissionLocks: new Set(),
+        submissionSequence: new Map(),
+        lastSubmissionHashes: new Map(),
+        lastSnapshotHashes: new Map(),
+        winnerId: null,
+        resultStrength: "draw",
+        status: "COUNTDOWN",
+        matchType,
+        isRanked: matchType === "ranked",
+        ending: false,
+        timeoutHandle: null,
+        countdownHandle,
+      };
+
       if (this.matchController?.pendingMatches) {
-        this.matchController.pendingMatches.set(match.id, {
-          matchId: match.id,
-          playerA: { ...playerA },
-          playerB: { ...playerB },
-          problem: { ...problem, difficulty, time_limit_seconds: timeLimit },
-          difficulty,
-          startTimeMs: Date.now(),
-          timeLimitMs: Math.max(5, timeLimit) * 1000,
-          timeLimitSec: timeLimit,
-          submissions: new Map(),
-          attempts: new Map(),
-          wrongSubmissions: new Map(),
-          lastSubmissionAtMs: new Map(),
-          submissionLocks: new Set(),
-          submissionSequence: new Map(),
-          lastSubmissionHashes: new Map(),
-          lastSnapshotHashes: new Map(),
-          winnerId: null,
-          resultStrength: "draw",
-          status: "COUNTDOWN",
-          matchType,
-          isRanked: matchType === "ranked",
-          ending: false,
-          timeoutHandle: null,
-          countdownHandle,
-        });
+        this.matchController.pendingMatches.set(match.id, pendingMatch);
       }
+
+      await this.stateStore?.upsertRuntimeMatch?.(match.id, {
+        status: "COUNTDOWN",
+        leaseExpiresAt: new Date(Date.now() + 30_000).toISOString(),
+        matchType,
+        difficulty,
+        problemId: problem.id,
+        playerAUserId: playerA.userId,
+        playerBUserId: playerB.userId,
+        state: {
+          matchType,
+          difficulty,
+          countdown,
+          playerA: { userId: playerA.userId, username: playerA.username, rating: safeA.rating },
+          playerB: { userId: playerB.userId, username: playerB.username, rating: safeB.rating },
+          problem: { id: problem.id, title: problem.title, difficulty },
+        },
+      });
     }
 
     return true;
@@ -343,6 +454,9 @@ export class MatchmakingService {
   }
 
   async selectProblem(matchType, ratingA, ratingB) {
+    void matchType;
+    void ratingA;
+    void ratingB;
     const { data: problems, error } = await this.supabase
       .from("problems")
       .select("id, title, statement, difficulty, time_limit_seconds, memory_limit_mb, supported_languages, starter_code, tags, short_story, input_format, output_format, constraints_text, solution_explanation, estimated_time_minutes, rating_weight, is_active, created_at")

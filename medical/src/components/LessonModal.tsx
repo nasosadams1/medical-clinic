@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import {
   X,
   CheckCircle,
@@ -19,7 +19,7 @@ interface LessonModalProps {
   onClose: () => void;
   onHeartLoss?: () => void;
   onRedirectToLearn?: () => void;
-  completeLesson?: (id: string, xp: number, coins: number) => void;
+  completeLesson?: (id: string, xp: number, coins: number, actualTimeMinutes?: number) => void | Promise<void>;
   calculateXPOverride?: typeof calculateXP;
   loseHeartOverride?: (count?: number) => void;
   resetHeartLossOverride?: () => void;
@@ -191,7 +191,7 @@ const LessonModal: React.FC<LessonModalProps> = ({
     if (!user.completedLessons.includes(lesson.id)) {
       try {
         if (completeLessonFn) {
-          await completeLessonFn(lesson.id, earnedXP, 0);
+          await completeLessonFn(lesson.id, earnedXP, 0, actualTime);
         }
       } catch (error) {
         console.error("Lesson completion failed:", error);
@@ -823,10 +823,3 @@ const LessonModal: React.FC<LessonModalProps> = ({
 }
 
 export default LessonModal;
-
-
-
-
-
-
-

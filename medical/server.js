@@ -13,6 +13,7 @@ import { createFeedbackRouter } from './services/feedback/routes.js';
 import { createLegalRouter } from './services/legal/routes.js';
 import { createDuelAdminRouter } from './services/duel-admin/routes.js';
 import { createDuelProblemAdminRouter } from './services/duel-problems/routes.js';
+import { createProgressionRouter } from './services/progression/routes.js';
 
 dotenv.config();
 
@@ -271,7 +272,7 @@ db.serialize(() => {
     CREATE TABLE IF NOT EXISTS users (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT UNIQUE NOT NULL,
-      avatar TEXT DEFAULT 'ðŸ‘¤',
+      avatar TEXT DEFAULT 'default',
       badge TEXT DEFAULT 'Beginner',
       external_id TEXT UNIQUE,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
@@ -386,6 +387,7 @@ const getDateWindow = (frame) => {
 
 // Get total player count
 const getTotalPlayerCount = (frame = 'all', callback) => {
+  void frame;
   let sql = `
     SELECT COUNT(DISTINCT u.id) as total 
     FROM users u 
@@ -663,7 +665,7 @@ const getPaginatedLeaderboard = (frame = 'all', page = 1, limit = 100, sortBy = 
 
   db.all(sql, params, (err, results) => {
     if (err) {
-      console.error('getPaginatedLeaderboard error:', err);
+      console.error('Leaderboard error:', err);
       console.error('SQL:', sql);
       console.error('Params:', params);
       return callback(err, []);
@@ -885,6 +887,7 @@ app.use('/api/feedback', createFeedbackRouter({ supabaseAdmin }));
 app.use('/api/legal', createLegalRouter({ supabaseAdmin }));
 app.use('/api/duel/admin', createDuelAdminRouter({ supabaseAdmin }));
 app.use('/api/duel/problems', createDuelProblemAdminRouter({ supabaseAdmin }));
+app.use('/api/progression', createProgressionRouter({ supabaseAdmin }));
 
 // REST API Endpoints
 app.get('/', (req, res) => {
@@ -915,18 +918,17 @@ app.post('/leaderboard/paginated', (req, res) => {
     userId,
     sortBy = 'xp'
   } = req.body || {};
-
-  console.log('ðŸ“Š Leaderboard request:', { frame, page, limit, userId, sortBy });
+  console.log('Leaderboard request:', { frame, page, limit, userId, sortBy });
 
   getPaginatedLeaderboard(frame, page, limit, sortBy, (err, players) => {
     if (err) {
-      console.error('âŒ Leaderboard error:', err);
+      console.error('Leaderboard error:', err);
       return res.status(500).json({ error: err.message });
     }
 
     getTotalPlayerCount(frame, (countErr, totalPlayers) => {
       if (countErr) {
-        console.error('âŒ Player count error:', countErr);
+        console.error('Player count error:', countErr);
         return res.status(500).json({ error: countErr.message });
       }
 
@@ -937,8 +939,7 @@ app.post('/leaderboard/paginated', (req, res) => {
           new Promise(resolve => getUserRank(userId, 'achievements', frame, (err, rank) => resolve(err ? 0 : rank))),
           new Promise(resolve => getUserStats(userId, frame, (err, stats) => resolve(err ? null : stats)))
         ]).then(([yourRank, yourLessonsRank, yourAchievementsRank, yourStats]) => {
-          
-          console.log('âœ… Leaderboard response:', {
+          console.log('Leaderboard response:', {
             frame,
             playersCount: players?.length || 0,
             totalPlayers,
@@ -965,7 +966,7 @@ app.post('/leaderboard/paginated', (req, res) => {
           });
         });
       } else {
-        console.log('âœ… Leaderboard response (no user):', {
+        console.log('Leaderboard response (no user):', {
           playersCount: players?.length || 0,
           totalPlayers
         });
@@ -1070,8 +1071,8 @@ io.on('connection', (socket) => {
 
 const PORT = process.env.PORT || 4000;
 server.listen(PORT, () => {
-  console.log(`ðŸš€ Leaderboard API + WebSocket server running on http://localhost:${PORT}`);
-  console.log('ðŸ“Š Database initialized with proper schema');
-  console.log('ðŸ”„ Real-time updates enabled via Socket.IO');
-  console.log(`ðŸ” Debug endpoint available at http://localhost:${PORT}/debug/:userId`);
+  console.log(`ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸Ãƒâ€¦Ã‚Â¡ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ Leaderboard API + WebSocket server running on http://localhost:${PORT}`);
+  console.log('Database initialized with proper schema');
+  console.log('Real-time updates enabled via Socket.IO');
+  console.log(`ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒâ€šÃ‚Â Debug endpoint available at http://localhost:${PORT}/debug/:userId`);
 });

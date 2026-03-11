@@ -37,7 +37,8 @@ async function clearTableIfExists(tableName) {
 }
 
 function toDatabaseProblem(problem) {
-  const { judge_contract, ...dbProblem } = problem;
+  const dbProblem = { ...problem };
+  delete dbProblem.judge_contract;
   return dbProblem;
 }
 
