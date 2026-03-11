@@ -14,22 +14,15 @@ import { createLegalRouter } from './services/legal/routes.js';
 import { createDuelAdminRouter } from './services/duel-admin/routes.js';
 import { createDuelProblemAdminRouter } from './services/duel-problems/routes.js';
 import { createProgressionRouter } from './services/progression/routes.js';
+import { formatAllowedOriginsError, isAllowedOrigin, resolveAllowedOrigins } from './services/allowed-origins.js';
 
 dotenv.config();
 
 const NODE_ENV = (process.env.NODE_ENV || 'development').toLowerCase();
 const IS_PRODUCTION = NODE_ENV === 'production';
 const ALLOW_LEGACY_UNAUTHENTICATED_SCORE_SUBMIT = process.env.ALLOW_LEGACY_UNAUTHENTICATED_SCORE_SUBMIT === '1';
-const allowedOrigins = (process.env.API_ALLOWED_ORIGINS || process.env.DUEL_ALLOWED_ORIGINS || '')
-  .split(',')
-  .map((origin) => origin.trim())
-  .filter(Boolean);
-
-function isAllowedOrigin(origin) {
-  if (!origin) return true;
-  if (allowedOrigins.length === 0) return !IS_PRODUCTION;
-  return allowedOrigins.includes(origin);
-}
+const API_ALLOWED_ORIGIN_ENV_KEYS = ['API_ALLOWED_ORIGINS', 'DUEL_ALLOWED_ORIGINS', 'FRONTEND_URL'];
+const { origins: allowedOrigins, sourceEnv: allowedOriginsSourceEnv } = resolveAllowedOrigins(API_ALLOWED_ORIGIN_ENV_KEYS);
 
 const corsOptions = {
   origin(origin, callback) {
@@ -43,7 +36,7 @@ const corsOptions = {
 };
 
 if (IS_PRODUCTION && allowedOrigins.length === 0) {
-  console.error('API_ALLOWED_ORIGINS must be set explicitly in production');
+  console.error(formatAllowedOriginsError('API server', API_ALLOWED_ORIGIN_ENV_KEYS));
   process.exit(1);
 }
 
@@ -67,6 +60,10 @@ app.set('trust proxy', 1);
 app.use(helmet({ crossOriginResourcePolicy: false }));
 app.use(cors(corsOptions));
 app.use(bodyParser.json({ limit: process.env.API_JSON_LIMIT || '20mb' }));
+
+if (allowedOrigins.length > 0) {
+  console.log(`API server CORS origins loaded from ${allowedOriginsSourceEnv}: ${allowedOrigins.join(', ')}`);
+}
 
 
 

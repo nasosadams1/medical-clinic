@@ -13,6 +13,7 @@ import { MatchController } from "./services/match-controller.js";
 import { EloRatingService } from "./services/elo-rating.js";
 import { SharedDuelStateStore } from "./services/shared-duel-state.js";
 import { getBlockingSanction, formatSanctionMessage } from "./services/sanctions.js";
+import { formatAllowedOriginsError, isAllowedOrigin, resolveAllowedOrigins } from "./services/allowed-origins.js";
 
 dotenv.config();
 
@@ -20,16 +21,8 @@ const NODE_ENV = (process.env.NODE_ENV || "development").toLowerCase();
 const IS_PRODUCTION = NODE_ENV === "production";
 const ALLOW_INSECURE_LOCAL_JUDGE = process.env.ALLOW_INSECURE_LOCAL_JUDGE === "1";
 
-const allowedOrigins = (process.env.DUEL_ALLOWED_ORIGINS || "")
-  .split(",")
-  .map((origin) => origin.trim())
-  .filter(Boolean);
-
-function isAllowedOrigin(origin) {
-  if (!origin) return true;
-  if (allowedOrigins.length === 0) return !IS_PRODUCTION;
-  return allowedOrigins.includes(origin);
-}
+const DUEL_ALLOWED_ORIGIN_ENV_KEYS = ["DUEL_ALLOWED_ORIGINS", "API_ALLOWED_ORIGINS", "FRONTEND_URL"];
+const { origins: allowedOrigins, sourceEnv: allowedOriginsSourceEnv } = resolveAllowedOrigins(DUEL_ALLOWED_ORIGIN_ENV_KEYS);
 
 const corsOptions = {
   origin(origin, callback) {
@@ -85,7 +78,7 @@ if (JUDGE_PROVIDER === "judge0" && !JUDGE0_URL) {
   process.exit(1);
 }
 if (IS_PRODUCTION && allowedOrigins.length === 0) {
-  console.error("DUEL_ALLOWED_ORIGINS must be set explicitly in production");
+  console.error(formatAllowedOriginsError("Duel server", DUEL_ALLOWED_ORIGIN_ENV_KEYS));
   process.exit(1);
 }
 if (IS_PRODUCTION && JUDGE_PROVIDER === "local" && !ALLOW_INSECURE_LOCAL_JUDGE) {
@@ -122,6 +115,10 @@ if (JUDGE_PROVIDER === "remote") {
 } else {
   judgeService = new JudgeService();
   console.log("Using local judge service");
+}
+
+if (allowedOrigins.length > 0) {
+  console.log(`Duel server CORS origins loaded from ${allowedOriginsSourceEnv}: ${allowedOrigins.join(", ")}`);
 }
 
 const eloRatingService = new EloRatingService();
