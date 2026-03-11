@@ -19,14 +19,15 @@ dotenv.config();
 
 const NODE_ENV = (process.env.NODE_ENV || "development").toLowerCase();
 const IS_PRODUCTION = NODE_ENV === "production";
+const IS_RENDER = Boolean(process.env.RENDER || process.env.RENDER_EXTERNAL_URL || process.env.RENDER_SERVICE_ID);
 const ALLOW_INSECURE_LOCAL_JUDGE = process.env.ALLOW_INSECURE_LOCAL_JUDGE === "1";
 
-const DUEL_ALLOWED_ORIGIN_ENV_KEYS = ["DUEL_ALLOWED_ORIGINS", "API_ALLOWED_ORIGINS", "FRONTEND_URL"];
+const DUEL_ALLOWED_ORIGIN_ENV_KEYS = ["DUEL_ALLOWED_ORIGINS", "API_ALLOWED_ORIGINS", "FRONTEND_URL", "RENDER_EXTERNAL_URL"];
 const { origins: allowedOrigins, sourceEnv: allowedOriginsSourceEnv } = resolveAllowedOrigins(DUEL_ALLOWED_ORIGIN_ENV_KEYS);
 
 const corsOptions = {
   origin(origin, callback) {
-    if (isAllowedOrigin(origin)) {
+    if (isAllowedOrigin(origin, allowedOrigins, IS_PRODUCTION)) {
       callback(null, true);
       return;
     }
@@ -44,7 +45,7 @@ const httpServer = createServer(app);
 const io = new Server(httpServer, {
   cors: {
     origin(origin, callback) {
-      if (isAllowedOrigin(origin)) {
+      if (isAllowedOrigin(origin, allowedOrigins, IS_PRODUCTION)) {
         callback(null, true);
         return;
       }
@@ -82,10 +83,16 @@ if (IS_PRODUCTION && allowedOrigins.length === 0) {
   process.exit(1);
 }
 if (IS_PRODUCTION && JUDGE_PROVIDER === "local" && !ALLOW_INSECURE_LOCAL_JUDGE) {
-  console.error(
-    "Refusing to start duel-server in production with the insecure local judge. Use JUDGE_PROVIDER=remote or JUDGE_PROVIDER=judge0."
-  );
-  process.exit(1);
+  if (IS_RENDER) {
+    console.warn(
+      "Starting duel-server on Render with the insecure local judge because no external judge was configured. Set JUDGE_PROVIDER=remote or JUDGE_PROVIDER=judge0 for production isolation."
+    );
+  } else {
+    console.error(
+      "Refusing to start duel-server in production with the insecure local judge. Use JUDGE_PROVIDER=remote or JUDGE_PROVIDER=judge0."
+    );
+    process.exit(1);
+  }
 }
 
 let supabase = null;

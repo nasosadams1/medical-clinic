@@ -21,12 +21,12 @@ dotenv.config();
 const NODE_ENV = (process.env.NODE_ENV || 'development').toLowerCase();
 const IS_PRODUCTION = NODE_ENV === 'production';
 const ALLOW_LEGACY_UNAUTHENTICATED_SCORE_SUBMIT = process.env.ALLOW_LEGACY_UNAUTHENTICATED_SCORE_SUBMIT === '1';
-const API_ALLOWED_ORIGIN_ENV_KEYS = ['API_ALLOWED_ORIGINS', 'DUEL_ALLOWED_ORIGINS', 'FRONTEND_URL'];
+const API_ALLOWED_ORIGIN_ENV_KEYS = ['API_ALLOWED_ORIGINS', 'DUEL_ALLOWED_ORIGINS', 'FRONTEND_URL', 'RENDER_EXTERNAL_URL'];
 const { origins: allowedOrigins, sourceEnv: allowedOriginsSourceEnv } = resolveAllowedOrigins(API_ALLOWED_ORIGIN_ENV_KEYS);
 
 const corsOptions = {
   origin(origin, callback) {
-    if (isAllowedOrigin(origin)) {
+    if (isAllowedOrigin(origin, allowedOrigins, IS_PRODUCTION)) {
       callback(null, true);
       return;
     }
@@ -45,7 +45,7 @@ const server = http.createServer(app);
 const io = new Server(server, {
   cors: {
     origin(origin, callback) {
-      if (isAllowedOrigin(origin)) {
+      if (isAllowedOrigin(origin, allowedOrigins, IS_PRODUCTION)) {
         callback(null, true);
         return;
       }
