@@ -132,6 +132,10 @@ const RUNTIME_LEASE_HEARTBEAT_MS = 5_000;
 const connectedPlayers = new Map();
 const latestSocketByUserId = new Map();
 
+if (matchmakingService) {
+  matchmakingService.getOnlinePlayerCount = () => latestSocketByUserId.size;
+}
+
 function emitServerError(socket, message, details) {
   console.error("server_error:", message, details || "");
   socket.emit("server_error", { message, details });

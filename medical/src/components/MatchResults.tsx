@@ -11,6 +11,7 @@ interface MatchResultsProps {
 export default function MatchResults({ matchData, userId, onClose, onViewReplay }: MatchResultsProps) {
   const isWinner = matchData.winnerId === userId;
   const isDraw = !matchData.winnerId;
+  const isRankedMatch = (matchData.matchType ?? 'ranked') === 'ranked';
   const playerData = matchData.playerA.userId === userId ? matchData.playerA : matchData.playerB;
   const opponentData = matchData.playerA.userId === userId ? matchData.playerB : matchData.playerA;
 
@@ -69,40 +70,42 @@ export default function MatchResults({ matchData, userId, onClose, onViewReplay 
             </div>
           </div>
 
-          <div className="mb-6">
-            <h3 className="mb-4 text-lg font-semibold text-gray-800">Rating Changes</h3>
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-              <div className={`${isWinner ? 'border-green-500 bg-green-50' : isDraw ? 'border-gray-300 bg-gray-50' : 'border-red-500 bg-red-50'} rounded-lg border-2 p-4`}>
-                <div className="mb-1 text-sm text-gray-600">You</div>
-                <div className="mb-2 flex items-center justify-between gap-3">
-                  <span className="text-2xl font-bold text-gray-800">{playerData.ratingBefore}</span>
-                  <ArrowRight className="h-5 w-5 text-gray-400" />
-                  <span className="text-2xl font-bold text-gray-800">{playerData.ratingAfter}</span>
+          {isRankedMatch && (
+            <div className="mb-6">
+              <h3 className="mb-4 text-lg font-semibold text-gray-800">Rating Changes</h3>
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                <div className={`${isWinner ? 'border-green-500 bg-green-50' : isDraw ? 'border-gray-300 bg-gray-50' : 'border-red-500 bg-red-50'} rounded-lg border-2 p-4`}>
+                  <div className="mb-1 text-sm text-gray-600">You</div>
+                  <div className="mb-2 flex items-center justify-between gap-3">
+                    <span className="text-2xl font-bold text-gray-800">{playerData.ratingBefore}</span>
+                    <ArrowRight className="h-5 w-5 text-gray-400" />
+                    <span className="text-2xl font-bold text-gray-800">{playerData.ratingAfter}</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {getRatingChangeIcon(playerData.ratingChange)}
+                    <span className={`font-semibold ${getRatingChangeColor(playerData.ratingChange)}`}>
+                      {playerData.ratingChange > 0 ? '+' : ''}{playerData.ratingChange}
+                    </span>
+                  </div>
                 </div>
-                <div className="flex items-center gap-2">
-                  {getRatingChangeIcon(playerData.ratingChange)}
-                  <span className={`font-semibold ${getRatingChangeColor(playerData.ratingChange)}`}>
-                    {playerData.ratingChange > 0 ? '+' : ''}{playerData.ratingChange}
-                  </span>
-                </div>
-              </div>
 
-              <div className="rounded-lg border-2 border-gray-300 bg-gray-50 p-4">
-                <div className="mb-1 text-sm text-gray-600">Opponent</div>
-                <div className="mb-2 flex items-center justify-between gap-3">
-                  <span className="text-2xl font-bold text-gray-800">{opponentData.ratingBefore}</span>
-                  <ArrowRight className="h-5 w-5 text-gray-400" />
-                  <span className="text-2xl font-bold text-gray-800">{opponentData.ratingAfter}</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  {getRatingChangeIcon(opponentData.ratingChange)}
-                  <span className={`font-semibold ${getRatingChangeColor(opponentData.ratingChange)}`}>
-                    {opponentData.ratingChange > 0 ? '+' : ''}{opponentData.ratingChange}
-                  </span>
+                <div className="rounded-lg border-2 border-gray-300 bg-gray-50 p-4">
+                  <div className="mb-1 text-sm text-gray-600">Opponent</div>
+                  <div className="mb-2 flex items-center justify-between gap-3">
+                    <span className="text-2xl font-bold text-gray-800">{opponentData.ratingBefore}</span>
+                    <ArrowRight className="h-5 w-5 text-gray-400" />
+                    <span className="text-2xl font-bold text-gray-800">{opponentData.ratingAfter}</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {getRatingChangeIcon(opponentData.ratingChange)}
+                    <span className={`font-semibold ${getRatingChangeColor(opponentData.ratingChange)}`}>
+                      {opponentData.ratingChange > 0 ? '+' : ''}{opponentData.ratingChange}
+                    </span>
+                  </div>
                 </div>
               </div>
             </div>
-          </div>
+          )}
 
           <div className="mb-6">
             <h3 className="mb-4 text-lg font-semibold text-gray-800">Performance</h3>

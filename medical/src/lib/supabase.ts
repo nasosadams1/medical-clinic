@@ -6,6 +6,13 @@ const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string
 const appUrl = (import.meta.env.VITE_APP_URL as string | undefined)?.trim()
 const authStorageKey = 'codhak-auth'
+const isSupabaseDebugEnabled = import.meta.env.DEV && import.meta.env.VITE_DEBUG_SUPABASE === '1'
+
+const supabaseDebugError = (...args: any[]) => {
+  if (isSupabaseDebugEnabled) {
+    console.error(...args)
+  }
+}
 
 const getBaseUrl = () => {
   if (typeof window !== 'undefined' && window.location?.origin) {
@@ -447,7 +454,7 @@ export const getLeaderboardData = async (
         error.message?.includes('schema cache')
 
       if (!missingRpc) {
-        console.error('Database error getting leaderboard:', error)
+        supabaseDebugError('Database error getting leaderboard:', error)
         return { data: null, error }
       }
 
@@ -466,7 +473,7 @@ export const getLeaderboardData = async (
         .range(offset, offset + limit - 1)
 
       if (fallbackError) {
-        console.error('Fallback leaderboard query failed:', fallbackError)
+        supabaseDebugError('Fallback leaderboard query failed:', fallbackError)
         return { data: null, error: fallbackError }
       }
 
@@ -505,7 +512,7 @@ export const getLeaderboardData = async (
 
     return { data: transformedData, error: null }
   } catch (error) {
-    console.error('Exception getting leaderboard:', error)
+    supabaseDebugError('Exception getting leaderboard:', error)
     return { data: null, error }
   }
 };
@@ -543,7 +550,7 @@ export const getUserRank = async (
 
     return { data: data ?? 0, error: null }
   } catch (error) {
-    console.error('Exception getting user rank:', error)
+    supabaseDebugError('Exception getting user rank:', error)
     return { data: null, error }
   }
 };
@@ -740,6 +747,5 @@ export const getClientInfo = () => ({
   supabaseUrl: supabaseUrl ? 'âœ… Set' : 'âŒ Missing',
   supabaseKey: supabaseAnonKey ? 'âœ… Set' : 'âŒ Missing'
 })
-
 
 

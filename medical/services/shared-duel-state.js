@@ -146,6 +146,21 @@ export class SharedDuelStateStore {
     return data || [];
   }
 
+  async countPresence() {
+    if (!this.supabase) return 0;
+
+    const { count, error } = await this.supabase
+      .from('duel_runtime_presence')
+      .select('user_id', { count: 'exact', head: true });
+
+    if (error) {
+      console.error('Could not count duel runtime presence:', error);
+      return 0;
+    }
+
+    return Number(count) || 0;
+  }
+
   async claimMatchPair(matchType, options = {}) {
     if (!this.supabase) return null;
     const settings = {

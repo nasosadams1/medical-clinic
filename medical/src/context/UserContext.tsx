@@ -11,6 +11,7 @@ import {
   completeLessonProgression,
   consumeHeartProgression,
   equipAvatarProgression,
+  isProgressionApiUnavailableError,
   purchaseAvatarProgression,
   recomputeAchievements,
   refreshProgressionState,
@@ -18,6 +19,14 @@ import {
 } from '../lib/progression';
 
 import NotificationDisplay from '../components/NotificationDisplay.tsx';
+
+const isUserDebugEnabled = import.meta.env.DEV && import.meta.env.VITE_DEBUG_USER_CONTEXT === '1';
+
+const userDebugLog = (...args: any[]) => {
+  if (isUserDebugEnabled) {
+    console.log(...args);
+  }
+};
 
 // Define User interface for local state
 export interface User {
@@ -206,6 +215,14 @@ export const UserProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   const isAuthenticatedSessionUser = !!authUser?.id && authUser.id !== 'guest';
 
+  const logUnexpectedProgressionError = useCallback((message: string, error: unknown) => {
+    if (isProgressionApiUnavailableError(error)) {
+      return;
+    }
+
+    console.error(message, error);
+  }, []);
+
   const pushAchievementNotifications = useCallback((entries: Array<Record<string, any>> = []) => {
     entries.forEach((achievement) => {
       if (!achievement?.name) return;
@@ -364,7 +381,7 @@ export const UserProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   // Effect for initializing user state from AuthContext
   useEffect(() => {
-    console.log('UserContext: Initialization effect triggered:', {
+    userDebugLog('UserContext: Initialization effect triggered:', {
       authLoading,
       hasAuthUser: !!authUser,
       hasProfile: !!authProfile,
@@ -373,7 +390,7 @@ export const UserProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     });
 
     if (authLoading) {
-      console.log('UserContext: AuthContext still loading, waiting...');
+      userDebugLog('UserContext: AuthContext still loading, waiting...');
       return;
     }
 
@@ -407,6 +424,7 @@ export const UserProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     if (!isInitialized || user.id === 'guest') return;
 
     let cancelled = false;
+    const refreshIntervalMs = isAuthenticatedSessionUser ? 30_000 : 3_000;
 
     const checkBoosts = async () => {
       if (isAuthenticatedSessionUser) {
@@ -416,7 +434,7 @@ export const UserProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             await applyProgressionResponse(response, { notifyAchievements: false });
           }
         } catch (error) {
-          console.error('Could not refresh authoritative progression state:', error);
+          logUnexpectedProgressionError('Could not refresh authoritative progression state:', error);
         }
         return;
       }
@@ -453,7 +471,7 @@ export const UserProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
     const interval = setInterval(() => {
       void checkBoosts();
-    }, 3000);
+    }, refreshIntervalMs);
 
     return () => {
       cancelled = true;
@@ -464,6 +482,7 @@ export const UserProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     applyProgressionResponse,
     isAuthenticatedSessionUser,
     isInitialized,
+    logUnexpectedProgressionError,
     queueUpdate,
     user.hearts,
     user.id,
@@ -626,14 +645,19 @@ export const UserProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const refillHearts = useCallback(async () => {
     if (isAuthenticatedSessionUser) {
       console.warn('Authoritative heart refills are not available from the client helper.');
-      const response = await refreshProgressionState();
-      await applyProgressionResponse(response, { notifyAchievements: false });
+      try {
+        const response = await refreshProgressionState();
+        await applyProgressionResponse(response, { notifyAchievements: false });
+      } catch (error) {
+        logUnexpectedProgressionError('Could not refresh authoritative progression state:', error);
+        throw error;
+      }
       return;
     }
 
     await queueUpdate({ hearts: user.maxHearts });
     addNotification('Hearts refilled!', '\u2764\uFE0F', 'success');
-  }, [addNotification, applyProgressionResponse, isAuthenticatedSessionUser, queueUpdate, user.maxHearts]);
+  }, [addNotification, applyProgressionResponse, isAuthenticatedSessionUser, logUnexpectedProgressionError, queueUpdate, user.maxHearts]);
 
   const debugUserState = useCallback(() => {
     console.log('ðŸ” FULL DEBUG STATE:', {
@@ -894,8 +918,12 @@ export const UserProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   const resetHeartsIfNeeded = useCallback(async () => {
     if (isAuthenticatedSessionUser) {
-      const response = await refreshProgressionState();
-      await applyProgressionResponse(response, { notifyAchievements: false });
+      try {
+        const response = await refreshProgressionState();
+        await applyProgressionResponse(response, { notifyAchievements: false });
+      } catch (error) {
+        logUnexpectedProgressionError('Could not refresh hearts from authoritative progression state:', error);
+      }
       return;
     }
 
@@ -906,7 +934,7 @@ export const UserProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         lastHeartReset: today,
       });
     }
-  }, [applyProgressionResponse, isAuthenticatedSessionUser, queueUpdate, user.lastHeartReset, user.maxHearts]);
+  }, [applyProgressionResponse, isAuthenticatedSessionUser, logUnexpectedProgressionError, queueUpdate, user.lastHeartReset, user.maxHearts]);
 
   const loseHeart = useCallback(() => {
     if (heartLostThisQuestion) return;

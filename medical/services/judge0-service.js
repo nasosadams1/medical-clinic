@@ -1,4 +1,4 @@
-import { deepEqual } from "./validators.js";
+import { deepEqual, normalizeOutput, validators } from "./validators.js";
 
 function safeJsonParse(s) {
   try {
@@ -17,19 +17,7 @@ function coerceJsonMaybe(v) {
 }
 
 function normalizeLooseOutput(raw) {
-  const s = (raw ?? "").toString().trim();
-  if (!s) return s;
-
-  if (s.startsWith("(") && s.endsWith(")")) return `[${s.slice(1, -1)}]`;
-
-  if (/^-?\d+\s+-?\d+$/.test(s)) {
-    const parts = s.split(/\s+/);
-    return `[${parts[0]},${parts[1]}]`;
-  }
-
-  if (/^-?\d+\s*,\s*-?\d+$/.test(s)) return `[${s}]`;
-
-  return s;
+  return normalizeOutput(raw);
 }
 
 function extractLastNonEmptyLine(stdout) {
@@ -41,44 +29,36 @@ function extractLastNonEmptyLine(stdout) {
   return lines.length ? lines[lines.length - 1] : "";
 }
 
-const INTERNAL_VALIDATORS = {
-  two_sum: (actualStdout, inputJson) => {
-    const normalized = normalizeLooseOutput(actualStdout);
-    const parsed = safeJsonParse(normalized);
-    if (!parsed.ok) return { ok: false, reason: "Output is not valid JSON (expected [i,j])" };
-
-    const out = parsed.value;
-    let i;
-    let j;
-
-    if (Array.isArray(out) && out.length === 2) {
-      i = out[0];
-      j = out[1];
-    } else if (out && typeof out === "object" && Number.isInteger(out.i) && Number.isInteger(out.j)) {
-      i = out.i;
-      j = out.j;
-    } else {
-      return { ok: false, reason: "Output must be [i,j] or {i,j}" };
-    }
-
-    const nums = inputJson?.nums;
-    const target = inputJson?.target;
-
-    if (!Array.isArray(nums) || target === undefined) return { ok: false, reason: "Bad input_json" };
-    if (!Number.isInteger(i) || !Number.isInteger(j)) return { ok: false, reason: "Indices must be integers" };
-    if (i === j) return { ok: false, reason: "Indices must be different" };
-    if (i < 0 || j < 0 || i >= nums.length || j >= nums.length) return { ok: false, reason: "Index out of bounds" };
-    if (nums[i] + nums[j] !== target) return { ok: false, reason: "Does not sum to target" };
-
-    return { ok: true, reason: "OK" };
-  },
-};
-
-function compareActualToExpected({ actualRaw, expectedJson, expectedOutputLegacy }) {
+function compareActualToExpected({ actualRaw, expectedJson, expectedOutputLegacy, compareMode, inputJson }) {
   const actualNorm = normalizeLooseOutput(actualRaw);
 
+  if (compareMode && validators[compareMode]) {
+    const verdict = validators[compareMode](actualNorm, {
+      ...inputJson,
+      expected: expectedJson,
+    });
+    return { ok: !!verdict?.ok, reason: verdict?.reason || "Wrong Answer" };
+  }
+
   if (expectedJson !== undefined) {
-    if (typeof expectedJson !== "object" && actualNorm === String(expectedJson)) {
+    if (typeof expectedJson === "number") {
+      const numeric = Number(actualNorm);
+      if (Number.isFinite(numeric) && numeric === expectedJson) {
+        return { ok: true, reason: "OK" };
+      }
+    }
+
+    if (typeof expectedJson === "boolean") {
+      const lowered = actualNorm.toLowerCase();
+      if (lowered === "true" || lowered === "false") {
+        return {
+          ok: (lowered === "true") === expectedJson,
+          reason: (lowered === "true") === expectedJson ? "OK" : "Wrong Answer",
+        };
+      }
+    }
+
+    if (typeof expectedJson === "string" && actualNorm === expectedJson.trim()) {
       return { ok: true, reason: "OK" };
     }
 
@@ -108,6 +88,7 @@ function upgradeTestCase(raw) {
       expected_json: raw.expected_json === undefined ? undefined : coerceJsonMaybe(raw.expected_json),
       expected_output: raw.expected_output !== undefined ? String(raw.expected_output) : undefined,
       validator: raw.validator ?? null,
+      compare_mode: raw.compare_mode ?? null,
       hidden: !!raw.hidden,
       time_limit_ms: raw.time_limit_ms ?? (raw.time_limit_seconds ? Number(raw.time_limit_seconds) * 1000 : null),
     };
@@ -147,8 +128,11 @@ function getParamNames(f) {
       .replace(/\\/\\*[\\s\\S]*?\\*\\//g, "")
       .replace(/\\/\\/.*$/gm, "");
     const m =
+      src.match(/^[\\s\\(]*async\\s+function[^\\(]*\\(([^)]*)\\)/) ||
       src.match(/^[\\s\\(]*function[^\\(]*\\(([^)]*)\\)/) ||
+      src.match(/^\\s*async\\s*\\(([^)]*)\\)\\s*=>/) ||
       src.match(/^\\s*\\(([^)]*)\\)\\s*=>/) ||
+      src.match(/^\\s*async\\s+([^=()\\s,]+)\\s*=>/) ||
       src.match(/^\\s*([^=()\\s,]+)\\s*=>/);
     if (!m) return [];
     const raw = (m[1] ?? "").trim();
@@ -179,9 +163,15 @@ function callWithBestEffort(fn, input) {
 try {
   const fn = pickFn();
   if (!fn) throw new Error("No entry function found (solution/solve)");
-  const result = callWithBestEffort(fn, inputData);
-  const out = JSON.stringify(result);
-  process.stdout.write(out === undefined ? "null" : out);
+  Promise.resolve(callWithBestEffort(fn, inputData))
+    .then((result) => {
+      const out = JSON.stringify(result);
+      process.stdout.write(out === undefined ? "null" : out);
+    })
+    .catch((e) => {
+      process.stderr.write((e && e.stack ? e.stack : String(e)) + "\\n");
+      process.exit(1);
+    });
 } catch (e) {
   process.stderr.write((e && e.stack ? e.stack : String(e)) + "\\n");
   process.exit(1);
@@ -394,9 +384,11 @@ export class Judge0Service {
       } else if ((res.exitCode ?? 0) !== 0) {
         reason = "Runtime Error";
       } else {
-        const v = INTERNAL_VALIDATORS[t.validator];
-        if (v) {
-          const verdict = v(actualRaw, t.input_json);
+        if (t.validator && validators[t.validator]) {
+          const verdict = validators[t.validator](actualRaw, {
+            ...(t.input_json && typeof t.input_json === "object" ? t.input_json : {}),
+            expected: t.expected_json,
+          });
           ok = !!verdict?.ok;
           reason = ok ? "OK" : verdict?.reason || "Wrong Answer";
         } else {
@@ -404,6 +396,8 @@ export class Judge0Service {
             actualRaw,
             expectedJson: t.expected_json,
             expectedOutputLegacy: t.expected_output,
+            compareMode: t.compare_mode,
+            inputJson: t.input_json,
           });
           ok = cmp.ok;
           reason = ok ? "OK" : cmp.reason;

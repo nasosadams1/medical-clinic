@@ -1,5 +1,6 @@
 export const STARTER_CODE = {
   javascript: "function solution(input) {\n  // Write your solution here\n}\n",
+  python: "def solution(input):\n    # Write your solution here\n    return None\n",
 };
 
 export function buildStatement(problemStatement, inputFormat, outputFormat, constraintsText) {
@@ -88,7 +89,7 @@ export function problem({
     test_cases: testCases,
     judge_contract: judgeContract ?? inferJudgeContract(testCases),
     starter_code: STARTER_CODE,
-    supported_languages: ["javascript"],
+    supported_languages: ["javascript", "python"],
     is_active: true,
     statement: buildStatement(problemStatement, inputFormat, outputFormat, constraintsText),
   };

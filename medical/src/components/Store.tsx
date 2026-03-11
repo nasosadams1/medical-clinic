@@ -250,11 +250,11 @@ const Store: React.FC = () => {
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50 px-3 py-4 sm:px-4 lg:px-8 lg:py-8">
       <div className="mx-auto max-w-7xl">
         <div className="mb-8 flex justify-center lg:mb-10">
-          <div className="flex w-full max-w-[26rem] flex-col items-center rounded-[2.25rem] bg-white px-8 py-5 text-center shadow-lg ring-1 ring-slate-200/70 sm:max-w-[30rem] sm:px-10 sm:py-6">
-            <div className="h-20 w-20 sm:h-24 sm:w-24 lg:h-28 lg:w-28">
-              <MascotIcon mascot="learn" className="h-full w-full" imageClassName="drop-shadow-md" />
+          <div className="flex w-full max-w-[26rem] flex-col items-center px-4 py-2 text-center sm:max-w-[30rem]">
+            <div className="h-32 w-32 sm:h-36 sm:w-36 lg:h-40 lg:w-40">
+              <MascotIcon mascot="store" className="h-full w-full" imageClassName="drop-shadow-md" />
             </div>
-            <span className="mt-3 text-lg font-semibold text-slate-800 sm:text-xl">Store</span>
+            <span className="mt-3 text-2xl font-semibold text-slate-800 sm:text-3xl">Store</span>
           </div>
         </div>
 

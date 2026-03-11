@@ -18,7 +18,8 @@ export default function MascotIcon({
     <div className={`overflow-hidden ${className}`}>
       <img
         src={asset.src}
-        alt={asset.alt}
+        alt=""
+        aria-hidden="true"
         className={`h-full w-full object-contain object-center ${imageClassName}`}
         loading="lazy"
       />

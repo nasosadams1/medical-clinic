@@ -1,9 +1,111 @@
 // services/local-runner.js
-// Lightweight, non-Docker sandbox for JavaScript only.
-// Uses Node's vm with a hard timeout. This is NOT a secure sandbox for untrusted code.
-// Use ONLY when Docker sandbox is unavailable (e.g., Render free instances without Docker).
+// Lightweight, non-Docker sandboxes for JavaScript and Python.
+// These are NOT secure sandboxes for untrusted code.
+// Use ONLY when Docker sandbox is unavailable (e.g., local dev verification).
 
+import { spawn } from "child_process";
+import { mkdtemp, rm, writeFile } from "fs/promises";
+import os from "os";
+import path from "path";
 import vm from "vm";
+
+let localPythonCommandPromise = null;
+
+function spawnProcess({ command, args = [], cwd, stdin = "", timeLimitMs = 2000 }) {
+  return new Promise((resolve) => {
+    const child = spawn(command, args, {
+      cwd,
+      stdio: ["pipe", "pipe", "pipe"],
+      windowsHide: true,
+    });
+
+    let stdout = "";
+    let stderr = "";
+    let timeout = false;
+    let settled = false;
+
+    const finish = (result) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve(result);
+    };
+
+    const timer = setTimeout(() => {
+      timeout = true;
+      try {
+        child.kill();
+      } catch {
+        // Ignore kill failures and rely on the close/error handlers.
+      }
+    }, Math.max(1, timeLimitMs) + 50);
+
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk.toString();
+    });
+
+    child.stderr.on("data", (chunk) => {
+      stderr += chunk.toString();
+    });
+
+    child.on("error", (error) => {
+      finish({
+        stdout,
+        stderr: error?.message || String(error),
+        exitCode: 1,
+        timeout: false,
+      });
+    });
+
+    child.on("close", (code) => {
+      finish({
+        stdout,
+        stderr: timeout && !stderr ? "Time Limit Exceeded" : stderr,
+        exitCode: timeout ? 124 : (code ?? 1),
+        timeout,
+      });
+    });
+
+    child.stdin.on("error", () => {
+      // Ignore broken pipe errors when the child exits early.
+    });
+    child.stdin.end(stdin);
+  });
+}
+
+async function resolveLocalPythonCommand() {
+  if (localPythonCommandPromise) return localPythonCommandPromise;
+
+  const candidates =
+    process.platform === "win32"
+      ? [
+          { command: "py", args: ["-3"] },
+          { command: "python", args: [] },
+          { command: "python3", args: [] },
+        ]
+      : [
+          { command: "python3", args: [] },
+          { command: "python", args: [] },
+        ];
+
+  localPythonCommandPromise = (async () => {
+    for (const candidate of candidates) {
+      const probe = await spawnProcess({
+        command: candidate.command,
+        args: [...candidate.args, "--version"],
+        timeLimitMs: 2000,
+      }).catch(() => null);
+
+      if (probe && !probe.timeout && probe.exitCode === 0) {
+        return candidate;
+      }
+    }
+
+    return null;
+  })();
+
+  return localPythonCommandPromise;
+}
 
 function getParamNames(fn) {
   try {
@@ -12,8 +114,11 @@ function getParamNames(fn) {
       .replace(/\/\/.*$/gm, "");
 
     const m =
+      src.match(/^[\s(]*async\s+function[^()]*\(([^)]*)\)/) ||
       src.match(/^[\s(]*function[^()]*\(([^)]*)\)/) ||
+      src.match(/^\s*async\s*\(([^)]*)\)\s*=>/) ||
       src.match(/^\s*\(([^)]*)\)\s*=>/) ||
+      src.match(/^\s*async\s+([^=()\s,]+)\s*=>/) ||
       src.match(/^\s*([^=()\s,]+)\s*=>/);
 
     if (!m) return [];
@@ -35,7 +140,56 @@ function getParamNames(fn) {
   }
 }
 
-export function runInLocalJsSandbox({
+function pickFnFromModule(mod, entries) {
+  if (!mod) return null;
+  if (typeof mod === "function") return mod;
+
+  for (const name of entries) {
+    if (typeof mod[name] === "function") return mod[name];
+  }
+  if (typeof mod.default === "function") return mod.default;
+  return null;
+}
+
+function pickFnFromVmContext(context, entries, timeLimitMs) {
+  for (const name of entries) {
+    if (!/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(name)) continue;
+
+    try {
+      const candidate = vm.runInContext(
+        `typeof ${name} === "function" ? ${name} : undefined`,
+        context,
+        { timeout: Math.max(1, Math.min(timeLimitMs, 5000)) },
+      );
+      if (typeof candidate === "function") return candidate;
+    } catch {
+      // Ignore and continue probing.
+    }
+  }
+
+  return null;
+}
+
+function awaitVmResult(result, timeLimitMs) {
+  if (!result || typeof result.then !== "function") {
+    return Promise.resolve({ value: result, timedOut: false });
+  }
+
+  let timer = null;
+
+  return new Promise((resolve, reject) => {
+    timer = setTimeout(() => resolve({ value: undefined, timedOut: true }), Math.max(1, timeLimitMs));
+
+    Promise.resolve(result)
+      .then((value) => resolve({ value, timedOut: false }))
+      .catch(reject)
+      .finally(() => {
+        clearTimeout(timer);
+      });
+  });
+}
+
+export async function runInLocalJsSandbox({
   userCode,
   stdinJson,
   timeLimitMs = 2000,
@@ -67,19 +221,9 @@ export function runInLocalJsSandbox({
     };
   }
 
-  // 2) Pick entry function: solve/solution or exports/default
-  const pickFnFromModule = (mod) => {
-    if (!mod) return null;
-    for (const name of entries) {
-      if (typeof mod[name] === "function") return mod[name];
-    }
-    if (typeof mod.default === "function") return mod.default;
-    return null;
-  };
-
   let fn =
-    pickFnFromModule(context.module.exports) ||
-    pickFnFromModule(context.exports) ||
+    pickFnFromModule(context.module.exports, entries) ||
+    pickFnFromModule(context.exports, entries) ||
     null;
 
   if (!fn) {
@@ -89,6 +233,10 @@ export function runInLocalJsSandbox({
         break;
       }
     }
+  }
+
+  if (!fn) {
+    fn = pickFnFromVmContext(context, entries, timeLimitMs);
   }
 
   if (typeof fn !== "function") {
@@ -139,9 +287,30 @@ export function runInLocalJsSandbox({
     };
   }
 
+  let awaited;
   try {
-    const out = JSON.stringify(context.__result);
-    return { stdout: out + "\n", stderr: "", exitCode: 0, timeout: false };
+    awaited = await awaitVmResult(context.__result, timeLimitMs);
+  } catch (e) {
+    return {
+      stdout: "",
+      stderr: `Runtime Error: ${e?.message || String(e)}`,
+      exitCode: 1,
+      timeout: false,
+    };
+  }
+
+  if (awaited.timedOut) {
+    return {
+      stdout: "",
+      stderr: "Time Limit Exceeded",
+      exitCode: 124,
+      timeout: true,
+    };
+  }
+
+  try {
+    const out = JSON.stringify(awaited.value);
+    return { stdout: (out === undefined ? "null" : out) + "\n", stderr: "", exitCode: 0, timeout: false };
   } catch {
     return {
       stdout: "",
@@ -149,5 +318,39 @@ export function runInLocalJsSandbox({
       exitCode: 1,
       timeout: false,
     };
+  }
+}
+
+export async function runInLocalPythonSandbox({
+  userCode,
+  harnessCode,
+  stdinJson,
+  timeLimitMs = 2000,
+}) {
+  const python = await resolveLocalPythonCommand();
+  if (!python) {
+    return {
+      stdout: "",
+      stderr: "Python is not available in the local judge environment",
+      exitCode: 1,
+      timeout: false,
+    };
+  }
+
+  const tempDir = await mkdtemp(path.join(os.tmpdir(), "duel-python-"));
+
+  try {
+    await writeFile(path.join(tempDir, "user.py"), userCode, "utf8");
+    await writeFile(path.join(tempDir, "harness.py"), harnessCode, "utf8");
+
+    return await spawnProcess({
+      command: python.command,
+      args: [...python.args, "harness.py"],
+      cwd: tempDir,
+      stdin: stdinJson,
+      timeLimitMs,
+    });
+  } finally {
+    await rm(tempDir, { recursive: true, force: true }).catch(() => {});
   }
 }

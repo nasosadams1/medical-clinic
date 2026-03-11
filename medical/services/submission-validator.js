@@ -110,7 +110,7 @@ export class SubmissionValidator {
     if (probErr || !problem) return { ok: false, message: "Problem not found" };
 
     const supported = Array.isArray(problem.supported_languages)
-      ? new Set(problem.supported_languages.map((x) => String(x).toLowerCase()))
+      ? new Set(problem.supported_languages.map((x) => normalizeLang(x)).filter(Boolean))
       : new Set(["javascript", "python"]);
 
     if (!supported.has(lang)) {

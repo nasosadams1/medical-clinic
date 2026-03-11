@@ -12,11 +12,13 @@ interface DuelArenaProps {
     difficulty: string;
     timeLimit: number;
     supportedLanguages: string[];
+    starterCode?: Record<string, string> | string | null;
   };
   opponent: {
     username: string;
     rating: number;
   };
+  matchType?: 'ranked' | 'casual';
   socket: any;
   userId: string;
   onMatchEnd: (result: any) => void;
@@ -38,22 +40,73 @@ const createEmptyTelemetry = (): EditorTelemetryState => ({
   focusLosses: 0,
 });
 
+type DuelLanguage = 'javascript' | 'python';
+
+const DEFAULT_STARTER_CODE: Record<DuelLanguage, string> = {
+  javascript: '// Write your solution here\nfunction solution(input) {\n  \n}\n',
+  python: 'def solution(input):\n    # Write your solution here\n    return None\n',
+};
+
+const normalizeDuelLanguage = (value: unknown): DuelLanguage | null => {
+  const normalized = String(value ?? '').trim().toLowerCase();
+  if (normalized === 'javascript' || normalized === 'js') return 'javascript';
+  if (normalized === 'python' || normalized === 'py') return 'python';
+  return null;
+};
+
+const getSupportedLanguages = (value: unknown): DuelLanguage[] => {
+  const normalized = Array.isArray(value)
+    ? [...new Set(value.map(normalizeDuelLanguage).filter(Boolean))]
+    : [];
+
+  return normalized.length ? normalized : ['javascript', 'python'];
+};
+
+const getStarterCodeMap = (value: unknown): Record<DuelLanguage, string> => {
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    const provided = value as Record<string, unknown>;
+    return {
+      javascript: typeof provided.javascript === 'string' ? provided.javascript : DEFAULT_STARTER_CODE.javascript,
+      python: typeof provided.python === 'string' ? provided.python : DEFAULT_STARTER_CODE.python,
+    };
+  }
+
+  if (typeof value === 'string' && value.trim()) {
+    return {
+      javascript: value,
+      python: DEFAULT_STARTER_CODE.python,
+    };
+  }
+
+  return { ...DEFAULT_STARTER_CODE };
+};
+
+const formatLanguageLabel = (language: DuelLanguage) => (
+  language === 'python' ? 'Python' : 'JavaScript'
+);
+
 export default function DuelArena({
   matchId,
   problem,
   opponent,
+  matchType = 'ranked',
   socket,
   userId,
   onMatchEnd,
 }: DuelArenaProps) {
-  const [code, setCode] = useState('// Write your solution here\nfunction solution(input) {\n  \n}');
-  const [language] = useState('javascript');
+  const supportedLanguages = React.useMemo(() => getSupportedLanguages(problem.supportedLanguages), [problem.supportedLanguages]);
+  const starterCodeByLanguage = React.useMemo(() => getStarterCodeMap(problem.starterCode), [problem.starterCode]);
+  const [language, setLanguage] = useState<DuelLanguage>(supportedLanguages[0] ?? 'javascript');
+  const [codeByLanguage, setCodeByLanguage] = useState<Record<DuelLanguage, string>>(() => ({
+    javascript: starterCodeByLanguage.javascript,
+    python: starterCodeByLanguage.python,
+  }));
   const [timeRemaining, setTimeRemaining] = useState(problem.timeLimit);
-  const uiLanguages = ['javascript'];
   const [testResults, setTestResults] = useState<any>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [opponentStatus, setOpponentStatus] = useState<any>(null);
   const [matchStarted, setMatchStarted] = useState(false);
+  const code = codeByLanguage[language] ?? starterCodeByLanguage[language];
 
   const codeRef = useRef(code);
   const editorRef = useRef<any>(null);
@@ -64,6 +117,12 @@ export default function DuelArena({
   useEffect(() => {
     codeRef.current = code;
   }, [code]);
+
+  useEffect(() => {
+    if (!supportedLanguages.includes(language)) {
+      setLanguage(supportedLanguages[0] ?? 'javascript');
+    }
+  }, [language, supportedLanguages]);
 
   const flushTelemetry = useCallback((reason: 'interval' | 'submit' | 'cleanup' | 'blur') => {
     const snapshot = telemetryRef.current;
@@ -249,6 +308,8 @@ export default function DuelArena({
     }
   };
 
+  const isRankedMatch = matchType === 'ranked';
+
   return (
     <div className="min-h-screen bg-gray-50 px-3 py-4 sm:px-4 lg:p-6">
       <div className="mx-auto max-w-7xl">
@@ -270,7 +331,9 @@ export default function DuelArena({
                   <Target className="h-5 w-5" />
                   <div className="text-sm">
                     <div className="font-semibold">vs {opponent.username}</div>
-                    <div className="text-xs text-blue-200">Rating: {opponent.rating}</div>
+                    <div className="text-xs text-blue-200">
+                      {isRankedMatch ? `Rating: ${opponent.rating}` : 'Casual 1v1'}
+                    </div>
                   </div>
                 </div>
 
@@ -360,13 +423,13 @@ export default function DuelArena({
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <select
                   value={language}
-                  disabled
-                  title="Only JavaScript is currently supported"
+                  onChange={(event) => setLanguage(normalizeDuelLanguage(event.target.value) ?? 'javascript')}
+                  title="Choose the language for this duel submission"
                   className="rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
-                  {uiLanguages.map((lang) => (
+                  {supportedLanguages.map((lang) => (
                     <option key={lang} value={lang}>
-                      {lang.charAt(0).toUpperCase() + lang.slice(1)}
+                      {formatLanguageLabel(lang)}
                     </option>
                   ))}
                 </select>
@@ -387,7 +450,12 @@ export default function DuelArena({
                   language={language}
                   value={code}
                   onMount={handleEditorMount}
-                  onChange={(value: string | undefined) => setCode(value || '')}
+                  onChange={(value: string | undefined) => {
+                    setCodeByLanguage((previous) => ({
+                      ...previous,
+                      [language]: value || '',
+                    }));
+                  }}
                   theme="vs-dark"
                   options={{
                     minimap: { enabled: false },

@@ -7,6 +7,48 @@ const DEBUG_DUEL = process.env.DEBUG_DUEL === "1";
 function debugMatch(...args) {
   if (DEBUG_DUEL) console.log("[match]", ...args);
 }
+
+const DUEL_LANGUAGE_ALIASES = new Map([
+  ["javascript", "javascript"],
+  ["js", "javascript"],
+  ["python", "python"],
+  ["py", "python"],
+]);
+
+function normalizeDuelLanguage(value) {
+  return DUEL_LANGUAGE_ALIASES.get(String(value ?? "").trim().toLowerCase()) ?? null;
+}
+
+function formatDuelLanguageLabel(language) {
+  if (language === "javascript") return "JavaScript";
+  if (language === "python") return "Python";
+  return language;
+}
+
+function getProblemSupportedLanguages(problem) {
+  const rawLanguages = Array.isArray(problem?.supported_languages)
+    ? problem.supported_languages
+    : Array.isArray(problem?.supportedLanguages)
+      ? problem.supportedLanguages
+      : [];
+
+  const normalized = [...new Set(rawLanguages.map(normalizeDuelLanguage).filter(Boolean))];
+
+  if (!normalized.length) {
+    return ["javascript", "python"];
+  }
+
+  if (!normalized.includes("javascript")) {
+    normalized.unshift("javascript");
+  }
+
+  if (!normalized.includes("python")) {
+    normalized.push("python");
+  }
+
+  return normalized;
+}
+
 export class MatchController {
   constructor(supabase, io, judgeService, eloRatingService, sharedStateStore = null) {
     this.supabase = supabase;
@@ -46,9 +88,13 @@ export class MatchController {
     const timeLimitSec = resolveTimeLimitSeconds(problem);
     const timeLimitMs = Math.max(5, timeLimitSec) * 1000;
 
-    const supportedLanguages = (Array.isArray(problem?.supported_languages) ? problem.supported_languages : [])
-      .map((x) => String(x).toLowerCase())
-      .filter((x) => x === "javascript" || x === "js");
+    const supportedLanguages = getProblemSupportedLanguages(problem);
+    const starterCode =
+      problem?.starter_code && typeof problem.starter_code === "object"
+        ? problem.starter_code
+        : typeof problem?.starter_code === "string"
+          ? { javascript: problem.starter_code }
+          : null;
 
     const matchData = {
       matchId,
@@ -112,7 +158,8 @@ export class MatchController {
         statement: problem.statement,
         difficulty,
         timeLimit: timeLimitSec,
-        supportedLanguages: supportedLanguages.length ? supportedLanguages : ["javascript"],
+        supportedLanguages,
+        starterCode,
       },
     };
 
@@ -161,11 +208,14 @@ export class MatchController {
 
     console.log(`Submission for match ${matchId} from user ${userId}`);
 
-    const lang = (language ?? "").toString().toLowerCase();
-    const allowed = new Set(["javascript", "js"]);
-    if (!allowed.has(lang)) {
+    const lang = normalizeDuelLanguage(language);
+    const allowedLanguages = getProblemSupportedLanguages(match.problem);
+    const allowed = new Set(allowedLanguages);
+    if (!lang || !allowed.has(lang)) {
       await this.logSecurityEvent(matchId, userId, "submission_invalid_language", { language: lang });
-      socket?.emit?.("submission_error", { message: "Only JavaScript is currently supported." });
+      socket?.emit?.("submission_error", {
+        message: `This duel supports ${allowedLanguages.map(formatDuelLanguageLabel).join(" and ")}.`,
+      });
       return;
     }
 
@@ -276,7 +326,7 @@ export class MatchController {
         userId,
         code: normalizedCode,
         codeHash,
-        language,
+        language: lang,
         judgeResults,
         testCasesCount: testCases.length,
         submissionSequence,

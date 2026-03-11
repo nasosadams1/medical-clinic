@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Loader2, Trophy, Users } from 'lucide-react';
+import { Loader2, Trophy, Users, Swords } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { supabase } from '../lib/supabase';
 import MascotIcon from './branding/MascotIcon';
@@ -12,6 +12,8 @@ interface MatchmakingQueueProps {
   onMatchFound: (matchData: any) => void;
   onMatchEnd: (result: any) => void;
 }
+
+type MatchType = 'ranked' | 'casual';
 
 const DEVICE_CLUSTER_STORAGE_KEY = 'codhak-device-cluster-id';
 
@@ -56,6 +58,15 @@ const buildClientMeta = () => {
   };
 };
 
+const normalizeMatchType = (value: unknown): MatchType => (value === 'casual' ? 'casual' : 'ranked');
+
+const formatQueueTime = (seconds: number) => {
+  const safeSeconds = Math.max(0, Math.floor(seconds));
+  const minutes = Math.floor(safeSeconds / 60);
+  const remainingSeconds = safeSeconds % 60;
+  return `${minutes}:${remainingSeconds.toString().padStart(2, '0')}`;
+};
+
 export default function MatchmakingQueue({
   socket,
   userId,
@@ -64,15 +75,26 @@ export default function MatchmakingQueue({
   onMatchFound,
   onMatchEnd,
 }: MatchmakingQueueProps) {
+  const [selectedMatchType, setSelectedMatchType] = useState<MatchType>('casual');
+  const [activeMatchType, setActiveMatchType] = useState<MatchType>('casual');
   const [inQueue, setInQueue] = useState(false);
   const [countdown, setCountdown] = useState<number | null>(null);
-  const [queueSize, setQueueSize] = useState(1);
+  const [playersOnline, setPlayersOnline] = useState(0);
+  const [queueWaitTime, setQueueWaitTime] = useState(0);
   const [isJoining, setIsJoining] = useState(false);
 
   const countdownIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const pendingMatchRef = useRef<any>(null);
   const pendingMatchEndRef = useRef<any>(null);
   const registeredSocketKeyRef = useRef<string | null>(null);
+  const selectedMatchTypeRef = useRef<MatchType>('casual');
+
+  useEffect(() => {
+    selectedMatchTypeRef.current = selectedMatchType;
+    if (!inQueue && !isJoining && countdown === null) {
+      setActiveMatchType(selectedMatchType);
+    }
+  }, [countdown, inQueue, isJoining, selectedMatchType]);
 
   useEffect(() => {
     if (!socket) return;
@@ -89,10 +111,13 @@ export default function MatchmakingQueue({
       pendingMatchRef.current = null;
       pendingMatchEndRef.current = null;
       setCountdown(null);
+      setQueueWaitTime(0);
     };
 
     const onQueueUpdate = (data: any) => {
-      setQueueSize(data.queueSize ?? 1);
+      setActiveMatchType(normalizeMatchType(data?.matchType));
+      setPlayersOnline(data.onlinePlayers ?? data.queueSize ?? 0);
+      setQueueWaitTime(data.waitTime ?? 0);
     };
 
     const onDisconnectEvent = () => {
@@ -100,10 +125,13 @@ export default function MatchmakingQueue({
       resetPendingState();
       setInQueue(false);
       setIsJoining(false);
+      setActiveMatchType(selectedMatchTypeRef.current);
     };
 
     const onQueueJoined = (data: any) => {
       toast.success(data.message || 'Joined queue');
+      setActiveMatchType(normalizeMatchType(data?.matchType ?? selectedMatchTypeRef.current));
+      setQueueWaitTime(0);
       setInQueue(true);
       setIsJoining(false);
     };
@@ -117,7 +145,10 @@ export default function MatchmakingQueue({
 
     const onMatchFoundEvent = (data: any) => {
       toast.success(`Match found! Opponent: ${data?.opponent?.username ?? 'Unknown'}`);
-      pendingMatchRef.current = data;
+      pendingMatchRef.current = {
+        ...data,
+        matchType: normalizeMatchType(data?.matchType ?? selectedMatchTypeRef.current),
+      };
       pendingMatchEndRef.current = null;
       setInQueue(false);
       setIsJoining(false);
@@ -209,11 +240,14 @@ export default function MatchmakingQueue({
     if (!socket) return toast.error('Socket not ready');
     if (!socket.connected) return toast.error('Not connected to duel server');
     if (inQueue || isJoining) return;
+    const matchType = selectedMatchTypeRef.current;
 
     const registrationKey = `${socket.id}:${userId}`;
     if (registeredSocketKeyRef.current === registrationKey) {
       setIsJoining(true);
-      socket.emit('join_matchmaking', { matchType: 'ranked' });
+      setActiveMatchType(matchType);
+      setQueueWaitTime(0);
+      socket.emit('join_matchmaking', { matchType });
       return;
     }
 
@@ -248,7 +282,9 @@ export default function MatchmakingQueue({
         }
 
         registeredSocketKeyRef.current = registrationKey;
-        socket.emit('join_matchmaking', { matchType: 'ranked' });
+        setActiveMatchType(matchType);
+        setQueueWaitTime(0);
+        socket.emit('join_matchmaking', { matchType });
       });
   };
 
@@ -265,8 +301,12 @@ export default function MatchmakingQueue({
     socket.emit('leave_matchmaking');
     setInQueue(false);
     setIsJoining(false);
+    setQueueWaitTime(0);
+    setActiveMatchType(selectedMatchTypeRef.current);
   };
 
+  const displayedMatchType = inQueue ? activeMatchType : selectedMatchType;
+  const isRankedMode = displayedMatchType === 'ranked';
 
   if (countdown !== null) {
     return (
@@ -292,19 +332,59 @@ export default function MatchmakingQueue({
           </div>
 
           <h2 className="mb-3 text-3xl font-bold text-gray-800 sm:text-4xl">Code Duels</h2>
-          <p className="mb-8 text-gray-600">Compete against another player in a real-time coding battle</p>
+          <p className="mb-6 text-gray-600">
+            {isRankedMode
+              ? 'Compete against another player in a real-time coding battle'
+              : 'Jump into a casual 1v1 coding battle with no ranking changes'}
+          </p>
+
+          <div className="mb-8 grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <button
+              type="button"
+              onClick={() => setSelectedMatchType('casual')}
+              disabled={inQueue || isJoining}
+              className={`rounded-2xl border px-5 py-4 text-left transition-all ${
+                selectedMatchType === 'casual'
+                  ? 'border-slate-700 bg-slate-50 shadow-sm'
+                  : 'border-gray-200 bg-white hover:border-slate-300 hover:bg-slate-50'
+              } disabled:cursor-not-allowed disabled:opacity-70`}
+            >
+              <div className="text-base font-semibold text-gray-900">Casual</div>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setSelectedMatchType('ranked')}
+              disabled={inQueue || isJoining}
+              className={`rounded-2xl border px-5 py-4 text-left transition-all ${
+                selectedMatchType === 'ranked'
+                  ? 'border-blue-600 bg-blue-50 shadow-sm'
+                  : 'border-gray-200 bg-white hover:border-blue-300 hover:bg-blue-50/50'
+              } disabled:cursor-not-allowed disabled:opacity-70`}
+            >
+              <div className="text-base font-semibold text-gray-900">Ranked</div>
+            </button>
+          </div>
 
           <div className="mb-8 grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <div className="rounded-lg bg-blue-50 p-6">
-              <Trophy className="mx-auto mb-2 h-8 w-8 text-blue-600" />
-              <div className="text-2xl font-bold text-blue-600">{rating}</div>
-              <div className="text-sm text-gray-600">Your Rating</div>
-            </div>
+            {isRankedMode ? (
+              <div className="rounded-lg bg-blue-50 p-6">
+                <Trophy className="mx-auto mb-2 h-8 w-8 text-blue-600" />
+                <div className="text-2xl font-bold text-blue-600">{rating}</div>
+                <div className="text-sm text-gray-600">Your Rating</div>
+              </div>
+            ) : (
+              <div className="rounded-lg bg-slate-50 p-6">
+                <Swords className="mx-auto mb-2 h-8 w-8 text-slate-700" />
+                <div className="text-2xl font-bold text-slate-700">Casual 1v1</div>
+                <div className="text-sm text-gray-600">Head-to-head practice duel</div>
+              </div>
+            )}
 
             <div className="rounded-lg bg-green-50 p-6">
               <Users className="mx-auto mb-2 h-8 w-8 text-green-600" />
-              <div className="text-2xl font-bold text-green-600">{queueSize}</div>
-              <div className="text-sm text-gray-600">Players Online</div>
+              <div className="text-2xl font-bold text-green-600">{playersOnline}</div>
+              <div className="text-sm text-gray-600">Coding</div>
             </div>
           </div>
 
@@ -316,7 +396,10 @@ export default function MatchmakingQueue({
                 <span className="text-xl font-semibold text-gray-700">Searching for opponent...</span>
               </div>
 
-              <p className="text-gray-600">You&apos;re in queue. A duel will begin automatically when a match is found.</p>
+              <div className="mx-auto flex w-fit min-w-[180px] flex-col items-center rounded-2xl bg-blue-50 px-8 py-5 shadow-sm">
+                <div className="text-sm font-semibold uppercase tracking-[0.2em] text-blue-600">Queue Time</div>
+                <div className="mt-2 text-3xl font-bold tracking-tight text-blue-700">{formatQueueTime(queueWaitTime)}</div>
+              </div>
 
               <button
                 onClick={handleLeaveQueue}

@@ -7,7 +7,7 @@
 // - optional { hidden }
 
 import { runInDockerSandbox, isDockerAvailable } from "./sandbox-runner.js";
-import { runInLocalJsSandbox } from "./local-runner.js";
+import { runInLocalJsSandbox, runInLocalPythonSandbox } from "./local-runner.js";
 import { pythonHarness, jsHarness } from "./harness.js";
 import { deepEqual, normalizeOutput, validators } from "./validators.js";
 
@@ -34,6 +34,13 @@ function coerceJsonMaybe(v) {
     if (parsed.ok) return parsed.value;
   }
   return v;
+}
+
+function normalizeJudgeLanguage(language) {
+  const value = String(language ?? "").trim().toLowerCase();
+  if (value === "javascript" || value === "js") return "javascript";
+  if (value === "python" || value === "py") return "python";
+  return null;
 }
 
 function extractLastNonEmptyLine(stdout) {
@@ -123,7 +130,10 @@ export class JudgeService {
     const cases = Array.isArray(testCases) ? testCases : [];
     const total = cases.length;
 
-    const lang = (language || "").toLowerCase().startsWith("py") ? "python" : "javascript";
+    const lang = normalizeJudgeLanguage(language);
+    if (!lang) {
+      throw new Error(`Unsupported judge language: ${language}`);
+    }
     const dockerOk = await isDockerAvailable().catch(() => false);
     debugJudge("start", { lang, total, dockerOk, codeChars: (code ?? "").length });
 
@@ -133,6 +143,7 @@ export class JudgeService {
     let sawWrongAnswer = false;
     let sawRuntimeError = false;
     let sawTimeout = false;
+    let failureStderr = "";
 
     for (let idx = 0; idx < total; idx++) {
       const t = upgradeTestCase(cases[idx]);
@@ -146,7 +157,7 @@ export class JudgeService {
 
       const harness =
         lang === "python"
-          ? pythonHarness({ entry: "solve", userFile: "user.py" })
+          ? pythonHarness({ entries: ["solution", "solve"], userFile: "user.py" })
           : jsHarness({ entries: ["solution", "solve"], userFile: "user.js" });
 
       let res;
@@ -169,7 +180,7 @@ export class JudgeService {
         res =
           lang === "javascript"
             ? await runInLocalJsSandbox({ userCode: code, harnessCode: harness, stdinJson, timeLimitMs })
-            : { stderr: "Python requires Docker", exitCode: 1, stdout: "" };
+            : await runInLocalPythonSandbox({ userCode: code, harnessCode: harness, stdinJson, timeLimitMs });
       }
 
       const actualRaw = extractLastNonEmptyLine(res.stdout);
@@ -216,6 +227,10 @@ export class JudgeService {
       } else {
         sawWrongAnswer = true;
       }
+
+      if (!ok && res.stderr) {
+        failureStderr = String(res.stderr).slice(0, 1000);
+      }
     }
 
     if (passed === total) {
@@ -235,6 +250,7 @@ export class JudgeService {
       total,
       testResults,
       runtimeMs: Date.now() - startedAt,
+      stderr: failureStderr,
     };
   }
 }

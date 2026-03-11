@@ -3,7 +3,6 @@ import { Trophy, Play, Lock, BookOpen, Code, Database, Globe, Link2 } from 'luci
 import toast from 'react-hot-toast';
 import { useUser } from '../context/UserContext';
 import LessonModal from './LessonModal';
-import MascotIcon from './branding/MascotIcon';
 import { getLessonsByLanguage, getTotalLessonsByLanguage, getCompletedLessonsByLanguage, formatLessonDisplayName } from '../data/lessons';
 
 type Language = 'python' | 'javascript' | 'cpp' | 'java';
@@ -161,14 +160,9 @@ const Learn: React.FC<LearnProps> = ({ setCurrentSection, openAuthModal, isAuthe
   return (
     <div className="px-3 py-4 sm:px-4 lg:px-8 lg:py-8">
       <div className="mb-6 lg:mb-8">
-        <div className="flex items-start gap-3">
-          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-white shadow-sm ring-1 ring-slate-200/70">
-            <MascotIcon mascot="learn" className="h-10 w-10" imageClassName="drop-shadow-sm" />
-          </div>
-          <div>
-            <h1 className="mb-2 text-2xl font-bold text-gray-900 sm:text-3xl">Learn Programming</h1>
-            <p className="text-gray-600">Master coding fundamentals with interactive lessons</p>
-          </div>
+        <div>
+          <h1 className="mb-2 text-2xl font-bold text-gray-900 sm:text-3xl">Learn Programming</h1>
+          <p className="text-gray-600">Master coding fundamentals with interactive lessons</p>
         </div>
       </div>
 
@@ -352,7 +346,5 @@ const Learn: React.FC<LearnProps> = ({ setCurrentSection, openAuthModal, isAuthe
 };
 
 export default Learn;
-
-
 
 

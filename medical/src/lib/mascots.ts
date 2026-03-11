@@ -7,6 +7,10 @@ export const mascots = {
     src: '/mascots/duelsmascot.png',
     alt: 'Fox mascot typing in battle mode',
   },
+  store: {
+    src: '/mascots/storemascot.png',
+    alt: 'Fox mascot for the Codhak store',
+  },
   leaderboard: {
     src: '/mascots/leaderboardmascot.png',
     alt: 'Fox mascot holding a trophy',

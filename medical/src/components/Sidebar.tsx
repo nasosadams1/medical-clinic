@@ -34,7 +34,7 @@ const Sidebar: React.FC<SidebarProps> = ({
 
   useEffect(() => {
     if (authUser && resetHeartsIfNeeded) {
-      resetHeartsIfNeeded();
+      void resetHeartsIfNeeded();
     }
   }, [authUser, resetHeartsIfNeeded]);
 
@@ -105,7 +105,7 @@ const Sidebar: React.FC<SidebarProps> = ({
           </div>
 
           <div className="mb-4 flex items-center gap-4 lg:mb-6">
-            <div className="flex h-14 w-14 shrink-0 items-center justify-center lg:h-16 lg:w-16">
+            <div className="flex h-16 w-16 shrink-0 items-center justify-center lg:h-[4.5rem] lg:w-[4.5rem]">
               <MascotIcon mascot="learn" className="h-full w-full" imageClassName="drop-shadow-lg" />
             </div>
             <div className="min-w-0">
@@ -118,7 +118,7 @@ const Sidebar: React.FC<SidebarProps> = ({
             {authUser && user ? (
               <>
                 <div className="mb-3 flex items-center gap-3">
-                  <div className="flex h-10 w-10 items-center justify-center rounded-full bg-gradient-to-br from-blue-400 to-purple-500 text-lg shadow-sm">
+                  <div className="flex h-14 w-14 items-center justify-center rounded-full bg-gradient-to-br from-blue-400 to-purple-500 text-2xl shadow-sm">
                     {currentAvatar?.emoji || '\u{1F464}'}
                   </div>
                   <div className="min-w-0 flex-1">

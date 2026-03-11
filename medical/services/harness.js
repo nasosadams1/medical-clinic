@@ -24,10 +24,26 @@ const inputData = JSON.parse(fs.readFileSync(0, 'utf-8'));
 
 function pickFnFromModule(mod) {
   if (!mod) return null;
+  if (typeof mod === 'function') return mod;
   for (const name of ${entriesJson}) {
     if (typeof mod[name] === 'function') return mod[name];
   }
   if (typeof mod.default === 'function') return mod.default;
+  return null;
+}
+
+function pickFnFromContext(context) {
+  for (const name of ${entriesJson}) {
+    if (!/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(name)) continue;
+    try {
+      const candidate = vm.runInContext(
+        \`typeof \${name} === "function" ? \${name} : undefined\`,
+        context,
+        { timeout: 1000 }
+      );
+      if (typeof candidate === 'function') return candidate;
+    } catch (e) {}
+  }
   return null;
 }
 
@@ -58,6 +74,10 @@ if (!fn) {
       if (typeof context[name] === 'function') { fn = context[name]; break; }
     }
   }
+
+  if (!fn) {
+    fn = pickFnFromContext(context);
+  }
 }
 
 if (!fn) {
@@ -72,8 +92,11 @@ function getParamNames(f) {
       .replace(/\\/\\/.*$/gm, '');
 
     const m =
+      src.match(/^[\\s\\(]*async\\s+function[^\\(]*\\(([^)]*)\\)/) ||
       src.match(/^[\\s\\(]*function[^\\(]*\\(([^)]*)\\)/) ||
+      src.match(/^\\s*async\\s*\\(([^)]*)\\)\\s*=>/) ||
       src.match(/^\\s*\\(([^)]*)\\)\\s*=>/) ||
+      src.match(/^\\s*async\\s+([^=()\\s,]+)\\s*=>/) ||
       src.match(/^\\s*([^=()\\s,]+)\\s*=>/);
 
     if (!m) return [];
@@ -118,21 +141,49 @@ function callWithBestEffort(fn, input) {
   return fn(input);
 }
 
-try {
-  const result = callWithBestEffort(fn, inputData);
-
-  // JSON.stringify(undefined) returns undefined (not a string) -> must handle
-  const out = JSON.stringify(result);
-  process.stdout.write(out === undefined ? 'null' : out);
-} catch (error) {
-  process.exit(1);
-}
+Promise.resolve()
+  .then(() => callWithBestEffort(fn, inputData))
+  .then((result) => {
+    // JSON.stringify(undefined) returns undefined (not a string) -> must handle
+    const out = JSON.stringify(result);
+    process.stdout.write(out === undefined ? 'null' : out);
+  })
+  .catch(() => {
+    process.exit(1);
+  });
 `;
 }
 
-export function pythonHarness({ entry = "solve", userFile = "user.py" }) {
-  return `import sys, json, inspect
-from ${userFile.replace(".py", "")} import ${entry}
+export function pythonHarness({ entries = ["solution", "solve"], userFile = "user.py" }) {
+  const entriesJson = JSON.stringify(entries);
+
+  return `import sys, json, inspect, builtins, importlib
+
+def _debug_print(*args, **kwargs):
+    sep = kwargs.get("sep", " ")
+    end = kwargs.get("end", "\\n")
+    file = kwargs.get("file", sys.stderr)
+    file.write(sep.join(str(arg) for arg in args) + end)
+
+builtins.print = _debug_print
+
+module = importlib.import_module("${userFile.replace(".py", "")}")
+
+def _pick_fn(mod):
+    for name in ${entriesJson}:
+        candidate = getattr(mod, name, None)
+        if callable(candidate):
+            return candidate
+
+    default = getattr(mod, "default", None)
+    if callable(default):
+        return default
+
+    return None
+
+fn = _pick_fn(module)
+if fn is None:
+    sys.exit(1)
 
 def _call(fn, data):
     try:
@@ -166,7 +217,7 @@ def _call(fn, data):
 if __name__ == "__main__":
     try:
         data = json.loads(sys.stdin.read())
-        print(json.dumps(_call(${entry}, data)))
+        sys.stdout.write(json.dumps(_call(fn, data)))
     except Exception:
         sys.exit(1)
 `;

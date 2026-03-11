@@ -16,6 +16,7 @@ export class MatchmakingService {
     this.RANGE_GROW_PER_SEC = 2;
 
     this.inFlight = new Set();
+    this.getOnlinePlayerCount = null;
 
     this._mmTimer = null;
     this._qTimer = null;
@@ -74,6 +75,19 @@ export class MatchmakingService {
     return this.stateStore ? this.stateStore.listQueue(matchType) : this.getQueue(matchType);
   }
 
+  async _getOnlinePlayerCount() {
+    if (typeof this.getOnlinePlayerCount === "function") {
+      const value = await this.getOnlinePlayerCount();
+      return Number(value) || 0;
+    }
+
+    if (this.stateStore?.countPresence) {
+      return this.stateStore.countPresence();
+    }
+
+    return this.io?.sockets?.sockets?.size ?? 0;
+  }
+
   async addToQueue(player) {
     const matchType = player.matchType || "ranked";
     await this.removeFromQueue(player.userId);
@@ -126,6 +140,7 @@ export class MatchmakingService {
 
   async broadcastQueueStatus() {
     const now = Date.now();
+    const onlinePlayers = await this._getOnlinePlayerCount();
 
     for (const matchType of ["ranked", "casual"]) {
       if (!this.stateStore) {
@@ -146,6 +161,7 @@ export class MatchmakingService {
           waitTime,
           queuePosition: index + 1,
           queueSize: queue.length,
+          onlinePlayers,
           ratingRange,
         });
       });

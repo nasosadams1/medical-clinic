@@ -25,6 +25,20 @@ import { achievements } from '../data/achievements';
 import { allLessons, getTotalLessonsByLanguage, getCompletedLessonsByLanguage } from '../data/lessons';
 import { motion, AnimatePresence } from 'framer-motion';
 
+const isProfileDebugEnabled = import.meta.env.DEV && import.meta.env.VITE_DEBUG_PROFILE === '1';
+
+const profileDebugLog = (...args: any[]) => {
+  if (isProfileDebugEnabled) {
+    console.log(...args);
+  }
+};
+
+const profileDebugError = (...args: any[]) => {
+  if (isProfileDebugEnabled) {
+    console.error(...args);
+  }
+};
+
 const Profile: React.FC = () => {
   const { 
     user, 
@@ -81,11 +95,21 @@ const Profile: React.FC = () => {
     let cancelled = false;
 
     const loadDuelRating = async () => {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from('duel_users')
         .select('rating')
         .eq('id', user.id)
         .maybeSingle();
+
+      if (cancelled) {
+        return;
+      }
+
+      if (error) {
+        profileDebugError('Failed to load duel rating:', error);
+        setDuelRating(500);
+        return;
+      }
 
       if (!cancelled) {
         setDuelRating(data?.rating ?? 500);
@@ -125,7 +149,7 @@ const Profile: React.FC = () => {
       }
 
       if (error) {
-        console.error('Failed to load recent lesson activity:', error);
+        profileDebugError('Failed to load recent lesson activity:', error);
         setRecentLessonEvents([]);
         return;
       }
@@ -185,11 +209,11 @@ const Profile: React.FC = () => {
       // More importantly, `fetchProfile` (which `refetchProfile` calls)
       // will call `syncProfileToLeaderboard` with this absolutely fresh data.
       if (user.id !== 'guest') { // Only refetch if authenticated
-        console.log('🔄 Profile name changed, forcing AuthContext profile refetch and leaderboard sync...');
+        profileDebugLog('Profile name changed, forcing AuthContext profile refetch and leaderboard sync...');
         await refetchProfile(); 
-        console.log('✅ Profile name updated and leaderboard sync re-triggered.');
+        profileDebugLog('Profile name updated and leaderboard sync re-triggered.');
       } else {
-        console.log('Guest user, skipping leaderboard sync for name change.');
+        profileDebugLog('Guest user, skipping leaderboard sync for name change.');
       }
       
       setIsEditing(false);
@@ -341,7 +365,10 @@ const Profile: React.FC = () => {
 
   // Debug information (can be removed in production)
   React.useEffect(() => {
-    console.log('📊 Profile Progress Debug:', {
+    if (!isProfileDebugEnabled) {
+      return;
+    }
+    profileDebugLog('Profile Progress Debug:', {
       userStoredTotal: user.totalLessonsCompleted,
       calculatedTotal: calculatedTotalCompleted,
       completedLessonsArray: user.completedLessons.length,

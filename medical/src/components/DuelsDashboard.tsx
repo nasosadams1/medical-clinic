@@ -123,7 +123,10 @@ export default function DuelsDashboard() {
   };
 
   const handleMatchEnd = (results: any) => {
-    setMatchResults(results);
+    setMatchResults({
+      ...results,
+      matchType: results?.matchType ?? matchData?.matchType ?? "ranked",
+    });
     setCurrentView("results");
   };
 
@@ -138,7 +141,7 @@ export default function DuelsDashboard() {
       <div className="min-h-screen bg-gray-50 px-6 py-10">
         <div className="mx-auto max-w-4xl rounded-3xl border border-gray-200 bg-white p-8 shadow-sm">
           <div className="mb-6 inline-flex items-center gap-2 rounded-full bg-blue-100 px-3 py-1 text-sm font-semibold text-blue-700">
-            <div className="h-7 w-7 rounded-full bg-white/80 p-1 shadow-sm">
+            <div className="h-7 w-7">
               <MascotIcon mascot="duel" className="h-full w-full" imageClassName="drop-shadow-sm" />
             </div>
             <span>1v1 Duels</span>
@@ -173,7 +176,7 @@ export default function DuelsDashboard() {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center px-6">
         <div className="w-full max-w-md rounded-3xl border border-gray-200 bg-white p-8 text-center shadow-sm">
-          <div className="mx-auto mb-4 h-20 w-20 rounded-[1.5rem] bg-gradient-to-br from-sky-50 to-blue-100 p-3 shadow-sm">
+          <div className="mx-auto mb-4 h-20 w-20">
             <MascotIcon mascot="duel" className="h-full w-full" imageClassName="drop-shadow-md" />
           </div>
           <div className="mx-auto mb-4 h-10 w-10 animate-spin rounded-full border-4 border-blue-500 border-t-transparent" />
@@ -201,6 +204,7 @@ export default function DuelsDashboard() {
           matchId={matchData.matchId}
           problem={matchData.problem}
           opponent={matchData.opponent}
+          matchType={matchData.matchType}
           socket={socket}
           userId={duelUser.id}
           onMatchEnd={handleMatchEnd}

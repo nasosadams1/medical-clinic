@@ -1,11 +1,106 @@
 import { supabase, UserProfile } from './supabase';
 
-const apiBaseUrl =
+const configuredApiBaseUrl =
   (import.meta.env.VITE_API_SERVER_URL as string | undefined)?.trim() ||
   (import.meta.env.VITE_LEADERBOARD_API_URL as string | undefined)?.trim() ||
-  'http://localhost:4000';
+  '';
+
+const apiBaseUrl = configuredApiBaseUrl || (import.meta.env.DEV ? 'http://localhost:4000' : '');
+const isUsingDevFallbackApiBaseUrl = !configuredApiBaseUrl && import.meta.env.DEV;
+const PROGRESSION_API_RETRY_COOLDOWN_MS = 15_000;
+
+type ProgressionApiUnavailableReason = 'unconfigured' | 'offline';
+
+export class ProgressionApiUnavailableError extends Error {
+  readonly reason: ProgressionApiUnavailableReason;
+
+  constructor(message: string, reason: ProgressionApiUnavailableReason) {
+    super(message);
+    this.name = 'ProgressionApiUnavailableError';
+    this.reason = reason;
+  }
+}
+
+let hasWarnedAboutMissingProgressionApi = false;
+let hasWarnedAboutUnavailableProgressionApi = false;
+let progressionApiUnavailableUntil = 0;
+let progressionApiDisabledForSession = false;
+const inFlightProgressionRequests = new Map<string, Promise<unknown>>();
 
 const buildProgressionApiUrl = (path = '') => `${apiBaseUrl.replace(/\/$/, '')}/api/progression${path}`;
+
+const warnMissingProgressionApiConfiguration = () => {
+  if (hasWarnedAboutMissingProgressionApi) {
+    return;
+  }
+
+  hasWarnedAboutMissingProgressionApi = true;
+  console.warn(
+    'Progression API not configured. Set VITE_API_SERVER_URL for production or run the local API server during development.'
+  );
+};
+
+const markProgressionApiUnavailable = (path: string) => {
+  if (isUsingDevFallbackApiBaseUrl) {
+    progressionApiDisabledForSession = true;
+  } else {
+    progressionApiUnavailableUntil = Date.now() + PROGRESSION_API_RETRY_COOLDOWN_MS;
+  }
+
+  if (hasWarnedAboutUnavailableProgressionApi) {
+    return;
+  }
+
+  hasWarnedAboutUnavailableProgressionApi = true;
+  if (isUsingDevFallbackApiBaseUrl) {
+    console.warn(
+      `Progression API is unreachable at ${buildProgressionApiUrl(
+        path
+      )}. Background progression sync is disabled until reload. Start the local API server, then refresh.`
+    );
+    return;
+  }
+
+  console.warn(
+    `Progression API is unreachable at ${buildProgressionApiUrl(
+      path
+    )}. Retrying in ${Math.round(PROGRESSION_API_RETRY_COOLDOWN_MS / 1000)}s.`
+  );
+};
+
+const clearProgressionApiUnavailableState = () => {
+  progressionApiUnavailableUntil = 0;
+  hasWarnedAboutUnavailableProgressionApi = false;
+  progressionApiDisabledForSession = false;
+};
+
+const ensureProgressionApiReady = () => {
+  if (!apiBaseUrl) {
+    warnMissingProgressionApiConfiguration();
+    throw new ProgressionApiUnavailableError(
+      'Progression API is not configured for this environment.',
+      'unconfigured'
+    );
+  }
+
+  if (progressionApiDisabledForSession) {
+    throw new ProgressionApiUnavailableError(
+      'Progression API is disabled for this session because the local API server is unavailable.',
+      'offline'
+    );
+  }
+
+  if (Date.now() < progressionApiUnavailableUntil) {
+    throw new ProgressionApiUnavailableError(
+      'Progression API is temporarily unavailable. Waiting before retrying.',
+      'offline'
+    );
+  }
+};
+
+export const isProgressionApiUnavailableError = (
+  error: unknown
+): error is ProgressionApiUnavailableError => error instanceof ProgressionApiUnavailableError;
 
 async function getAuthHeaders() {
   const { data } = await supabase.auth.getSession();
@@ -22,20 +117,56 @@ async function getAuthHeaders() {
 }
 
 async function authorizedProgressionFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
-  const response = await fetch(buildProgressionApiUrl(path), {
-    ...init,
-    headers: {
-      ...(await getAuthHeaders()),
-      ...(init.headers || {}),
-    },
-  });
+  ensureProgressionApiReady();
 
-  const payload = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    throw new Error((payload as any)?.error || 'Progression request failed.');
+  const requestKey = `${(init.method || 'GET').toUpperCase()} ${path}`;
+  const existingRequest = inFlightProgressionRequests.get(requestKey);
+  if (existingRequest) {
+    return existingRequest as Promise<T>;
   }
 
-  return payload as T;
+  let requestPromise: Promise<T>;
+  requestPromise = (async () => {
+    try {
+      const response = await fetch(buildProgressionApiUrl(path), {
+        ...init,
+        headers: {
+          ...(await getAuthHeaders()),
+          ...(init.headers || {}),
+        },
+      });
+
+      clearProgressionApiUnavailableState();
+
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error((payload as any)?.error || 'Progression request failed.');
+      }
+
+      return payload as T;
+    } catch (error) {
+      if (isProgressionApiUnavailableError(error)) {
+        throw error;
+      }
+
+      if (error instanceof TypeError) {
+        markProgressionApiUnavailable(path);
+        throw new ProgressionApiUnavailableError(
+          `Could not reach the progression API at ${apiBaseUrl}.`,
+          'offline'
+        );
+      }
+
+      throw error;
+    } finally {
+      if (inFlightProgressionRequests.get(requestKey) === requestPromise) {
+        inFlightProgressionRequests.delete(requestKey);
+      }
+    }
+  })();
+
+  inFlightProgressionRequests.set(requestKey, requestPromise);
+  return requestPromise;
 }
 
 export interface ProgressionResponse {

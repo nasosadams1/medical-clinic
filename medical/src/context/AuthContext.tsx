@@ -92,6 +92,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const navigationCallbackRef = useRef<(() => void) | null>(null);
   const leaderboardSyncTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastSyncDataRef = useRef<string>("");
+  const hasWarnedMissingLeaderboardApiRef = useRef(false);
 
   useEffect(() => {
     const checkConnection = async () => {
@@ -117,6 +118,16 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   // Enhanced leaderboard sync with proper data mapping and change detection
   const syncProfileToLeaderboard = useCallback(async (profileData: UserProfile) => {
+    if (!LEADERBOARD_API_URL) {
+      if (import.meta.env.DEV && !hasWarnedMissingLeaderboardApiRef.current) {
+        hasWarnedMissingLeaderboardApiRef.current = true;
+        console.warn(
+          "Leaderboard API not configured (VITE_LEADERBOARD_API_URL). Skipping leaderboard sync."
+        );
+      }
+      return;
+    }
+
     if (!profileData || !profileData.id || profileData.id === "guest") {
       console.warn(
         "âš ï¸ AuthContext: Skipping leaderboard sync due to invalid profile data or guest user."

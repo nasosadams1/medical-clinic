@@ -18,6 +18,8 @@
     "seed": "node seed-problems.js",
     "start:judge-service": "node judge-service.js",
     "start:duel-with-remote-judge": "node duel-server.js",
+    "test:duel-problems": "node scripts/verify-duel-problems.js",
+    "test:duel-judge-contracts": "node scripts/audit-duel-problem-judging.js",
     "test:feedback": "node scripts/test-feedback.js",
     "test:store": "node scripts/test-store.js",
     "test:legal": "node scripts/test-legal.js",

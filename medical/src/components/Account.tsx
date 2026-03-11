@@ -17,7 +17,6 @@ import { useAuth } from '../context/AuthContext';
 import AccountFeedbackPanel from './account/AccountFeedbackPanel';
 import AccountFeedbackAdminPanel from './account/AccountFeedbackAdminPanel';
 import AccountDuelModerationPanel from './account/AccountDuelModerationPanel';
-import MascotIcon from './branding/MascotIcon';
 import { acceptLatestLegalDocuments, fetchLegalStatus, getLegalDocumentLinks, type LegalStatusResponse } from '../lib/legal';
 
 const USERNAME_REGEX = /^[a-zA-Z0-9_]+$/;
@@ -270,13 +269,7 @@ const Account: React.FC = () => {
         <div className="mb-8 rounded-3xl border border-slate-200 bg-white p-6 shadow-[0_20px_60px_rgba(15,23,42,0.08)] sm:p-8">
           <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
             <div className="max-w-2xl">
-              <div className="inline-flex items-center gap-2 rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-slate-600">
-                <div className="h-4 w-4">
-                  <MascotIcon mascot="learn" className="h-full w-full" imageClassName="drop-shadow-sm" />
-                </div>
-                Account
-              </div>
-              <h1 className="mt-4 text-3xl font-semibold text-slate-900 sm:text-4xl">Account management</h1>
+              <h1 className="text-3xl font-semibold text-slate-900 sm:text-4xl">Account management</h1>
               <p className="mt-3 text-sm leading-6 text-slate-600 sm:text-base">
                 Manage your identity, email ownership, and account recovery from one place.
               </p>
@@ -523,8 +516,6 @@ const Account: React.FC = () => {
 };
 
 export default Account;
-
-
 
 
 

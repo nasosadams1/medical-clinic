@@ -29,6 +29,15 @@ import {
 import { getEloRankInfo } from "../lib/eloRanks";
 import MascotIcon from './branding/MascotIcon';
 
+const isLeaderboardDebugEnabled =
+  import.meta.env.DEV && import.meta.env.VITE_DEBUG_LEADERBOARD === '1';
+
+const leaderboardDebugError = (...args: any[]) => {
+  if (isLeaderboardDebugEnabled) {
+    console.error(...args);
+  }
+};
+
 type RankingCategory = LeaderboardSort;
 
 type Player = {
@@ -374,7 +383,7 @@ function useLiveLeaderboard(period: LeaderboardPeriod, page: number, userId?: st
           yourStats,
         });
       } catch (fetchError: any) {
-        console.error('Failed to fetch leaderboard:', fetchError);
+        leaderboardDebugError('Failed to fetch leaderboard:', fetchError);
         setError(fetchError.message || 'Failed to load leaderboard');
       } finally {
         setLoading(false);
@@ -707,14 +716,12 @@ export default function RealTimeLeaderboard({ currentUserId }: { currentUserId?:
     <div className="min-h-screen bg-gray-50 px-3 py-4 sm:px-4 sm:py-5 lg:px-6 lg:py-6 xl:px-10 xl:py-10">
       <div className="mx-auto max-w-6xl">
         <div className="mb-6 text-center lg:mb-8">
-          <div className="mb-3 inline-flex items-center gap-2 rounded-full bg-amber-50 px-3 py-1 text-sm font-semibold text-amber-700 shadow-sm">
-            <div className="h-6 w-6">
-              <MascotIcon mascot="leaderboard" className="h-full w-full" imageClassName="drop-shadow-sm" />
+          <div className="mx-auto flex w-full max-w-[22rem] flex-col items-center px-4 py-2 text-center sm:max-w-[26rem]">
+            <div className="h-24 w-24 sm:h-28 sm:w-28 lg:h-32 lg:w-32">
+              <MascotIcon mascot="leaderboard" className="h-full w-full" imageClassName="drop-shadow-md" />
             </div>
-            <span>Leaderboard</span>
+            <span className="mt-3 text-xl font-semibold text-slate-800 sm:text-2xl">Leaderboard</span>
           </div>
-          <h1 className="mb-2 text-2xl font-bold text-gray-900 lg:text-3xl">Global Leaderboard</h1>
-          <p className="text-gray-600">Compete with learners worldwide and track your progress.</p>
         </div>
 
         <div className="grid gap-4 xl:grid-cols-4 xl:gap-6">
@@ -858,6 +865,3 @@ export default function RealTimeLeaderboard({ currentUserId }: { currentUserId?:
     </div>
   );
 }
-
-
-
