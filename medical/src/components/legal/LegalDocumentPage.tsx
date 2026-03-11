@@ -3,6 +3,7 @@ import { ArrowLeft, FileText } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { getLegalDocumentBySlug } from '../../../shared/legal-documents.js';
 import { LEGAL_CONTENT } from '../../legal/legalContent';
+import BrandLockup from '../branding/BrandLockup';
 
 interface LegalDocumentPageProps {
   slug: 'terms' | 'privacy' | 'refunds';
@@ -19,16 +20,23 @@ const LegalDocumentPage: React.FC<LegalDocumentPageProps> = ({ slug }) => {
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-blue-50 px-4 py-8 sm:px-6 lg:px-8">
       <div className="mx-auto max-w-4xl">
-        <div className="mb-6 flex items-center justify-between gap-4">
-          <Link
-            to="/"
-            className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 shadow-sm transition hover:border-slate-300 hover:bg-slate-50"
-          >
-            <ArrowLeft className="h-4 w-4" />
-            Return to Codhak
-          </Link>
-          <div className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
-            Version {content.version}
+        <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <BrandLockup
+            title="Codhak Legal"
+            subtitle="Policies for account use, purchases, privacy, and support activity."
+            className="max-w-lg"
+          />
+          <div className="flex flex-wrap items-center gap-3">
+            <Link
+              to="/"
+              className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 shadow-sm transition hover:border-slate-300 hover:bg-slate-50"
+            >
+              <ArrowLeft className="h-4 w-4" />
+              Return to Codhak
+            </Link>
+            <div className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+              Version {content.version}
+            </div>
           </div>
         </div>
 
@@ -66,3 +74,4 @@ const LegalDocumentPage: React.FC<LegalDocumentPageProps> = ({ slug }) => {
 };
 
 export default LegalDocumentPage;
+

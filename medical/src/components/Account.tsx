@@ -17,6 +17,7 @@ import { useAuth } from '../context/AuthContext';
 import AccountFeedbackPanel from './account/AccountFeedbackPanel';
 import AccountFeedbackAdminPanel from './account/AccountFeedbackAdminPanel';
 import AccountDuelModerationPanel from './account/AccountDuelModerationPanel';
+import MascotIcon from './branding/MascotIcon';
 import { acceptLatestLegalDocuments, fetchLegalStatus, getLegalDocumentLinks, type LegalStatusResponse } from '../lib/legal';
 
 const USERNAME_REGEX = /^[a-zA-Z0-9_]+$/;
@@ -76,7 +77,6 @@ const Account: React.FC = () => {
       minute: '2-digit',
     });
   }, [authUser?.last_sign_in_at]);
-
 
   useEffect(() => {
     let cancelled = false;
@@ -271,7 +271,9 @@ const Account: React.FC = () => {
           <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
             <div className="max-w-2xl">
               <div className="inline-flex items-center gap-2 rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-slate-600">
-                <ShieldCheck className="h-4 w-4" />
+                <div className="h-4 w-4">
+                  <MascotIcon mascot="learn" className="h-full w-full" imageClassName="drop-shadow-sm" />
+                </div>
                 Account
               </div>
               <h1 className="mt-4 text-3xl font-semibold text-slate-900 sm:text-4xl">Account management</h1>
@@ -521,6 +523,7 @@ const Account: React.FC = () => {
 };
 
 export default Account;
+
 
 
 

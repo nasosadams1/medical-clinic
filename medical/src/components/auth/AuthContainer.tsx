@@ -3,8 +3,9 @@ import { useAuth } from '../../context/AuthContext'
 import LoginForm from './LoginForm'
 import SignUpForm from './SignUpForm'
 import ForgotPasswordForm from './ForgotPassword'
-import { Code, X, AlertCircle, CheckCircle, Mail, RefreshCw, ArrowLeft, ShieldCheck } from 'lucide-react'
+import { X, AlertCircle, CheckCircle, Mail, RefreshCw, ArrowLeft, ShieldCheck } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
+import BrandLockup from '../branding/BrandLockup'
 
 type AuthView = 'login' | 'signup' | 'forgot-password' | 'email-verification'
 
@@ -156,33 +157,26 @@ const AuthContainer: React.FC<AuthContainerProps> = ({ open, onClose }) => {
             <X className="w-5 h-5" />
           </button>
 
-          <div className="text-center pt-4 pb-6 px-4 sm:px-8 bg-gradient-to-br from-blue-50 to-purple-50">
+          <div className="relative overflow-hidden px-4 pb-6 pt-4 sm:px-8 bg-[radial-gradient(circle_at_top,_rgba(34,211,238,0.18),_transparent_34%),linear-gradient(135deg,_#f8fafc_0%,_#ecfeff_45%,_#eff6ff_100%)]">
+            <div className="absolute -left-10 top-6 h-24 w-24 rounded-full bg-cyan-200/30 blur-2xl" />
+            <div className="absolute -right-8 top-10 h-20 w-20 rounded-full bg-blue-200/35 blur-2xl" />
+
             <motion.div
-              className="flex items-center justify-center mb-4"
-              initial={{ scale: 0 }}
-              animate={{ scale: 1 }}
-              transition={{ delay: 0.2, type: 'spring', stiffness: 300 }}
+              className="relative"
+              initial={{ opacity: 0, y: 18 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.2, duration: 0.35 }}
             >
-              <div className="w-12 h-12 sm:w-16 sm:h-16 bg-gradient-to-r from-blue-500 to-purple-600 rounded-2xl flex items-center justify-center shadow-lg">
-                <Code className="w-6 h-6 sm:w-8 sm:h-8 text-white" />
-              </div>
+              <BrandLockup
+                mascot="learn"
+                title="Codhak"
+                subtitle="Sign in to save lessons, duels, and progress."
+                className="flex-col items-center justify-center gap-2 text-center"
+                iconWrapperClassName="mx-auto h-12 w-12 sm:h-14 sm:w-14"
+                titleClassName="text-2xl sm:text-3xl"
+                subtitleClassName="max-w-sm text-sm text-slate-600"
+              />
             </motion.div>
-            <motion.h2
-              className="text-2xl sm:text-3xl font-bold text-gray-900 mb-2"
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.3 }}
-            >
-              Codhak
-            </motion.h2>
-            <motion.p
-              className="text-gray-600 text-sm"
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.4 }}
-            >
-              Learn coding through interactive lessons
-            </motion.p>
           </div>
 
           <AnimatePresence>
@@ -305,5 +299,8 @@ const AuthContainer: React.FC<AuthContainerProps> = ({ open, onClose }) => {
 }
 
 export default AuthContainer
+
+
+
 
 

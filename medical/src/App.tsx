@@ -6,8 +6,19 @@ import Sidebar from './components/Sidebar';
 import Learn from './components/Learn';
 import { useAuth } from './context/AuthContext';
 import { BookOpen, Menu, ShoppingBag, Swords, Trophy, User as UserIcon, Settings, X } from 'lucide-react';
+import MascotIcon from './components/branding/MascotIcon';
+import type { MascotKey } from './lib/mascots';
 
 type SectionId = 'learn' | 'duels' | 'store' | 'leaderboard' | 'profile' | 'account';
+
+const sectionMascots: Record<SectionId, MascotKey> = {
+  learn: 'learn',
+  duels: 'duel',
+  store: 'learn',
+  leaderboard: 'leaderboard',
+  profile: 'learn',
+  account: 'learn',
+};
 
 const AuthContainer = lazy(() => import('./components/auth/AuthContainer'));
 const Store = lazy(() => import('./components/Store'));
@@ -49,6 +60,10 @@ function AppContent() {
           ]
         : [{ id: 'learn' as SectionId, label: 'Learn', icon: BookOpen }],
     [isAuthenticated]
+  );
+  const activeNavLabel = useMemo(
+    () => navItems.find((item) => item.id === currentSection)?.label ?? 'Learn',
+    [currentSection, navItems]
   );
 
   React.useEffect(() => {
@@ -108,7 +123,7 @@ function AppContent() {
   return (
     <div className="min-h-screen bg-gray-50 text-gray-900">
       <div className="fixed inset-x-0 top-0 z-50 border-b border-gray-200 bg-white/95 backdrop-blur lg:hidden">
-        <div className="flex h-16 items-center justify-between px-4">
+        <div className="flex h-16 items-center gap-3 px-4">
           <button
             onClick={() => setSidebarOpen((open) => !open)}
             className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-gray-200 bg-white text-gray-700 shadow-sm"
@@ -116,6 +131,17 @@ function AppContent() {
           >
             {sidebarOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
           </button>
+          <div className="min-w-0 flex-1">
+            <div className="flex min-w-0 items-center gap-2">
+              <div className="h-8 w-8 shrink-0">
+                <MascotIcon mascot={sectionMascots[currentSection]} className="h-full w-full" imageClassName="drop-shadow-sm" />
+              </div>
+              <span className="truncate text-sm font-semibold text-slate-900">Codhak</span>
+            </div>
+          </div>
+          <div className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-600">
+            {activeNavLabel}
+          </div>
         </div>
       </div>
 

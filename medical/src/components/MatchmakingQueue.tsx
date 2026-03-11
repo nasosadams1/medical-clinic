@@ -1,7 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Swords, Loader2, Trophy, Users } from 'lucide-react';
+import { Loader2, Trophy, Users } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { supabase } from '../lib/supabase';
+import MascotIcon from './branding/MascotIcon';
 
 interface MatchmakingQueueProps {
   socket: any;
@@ -272,7 +273,7 @@ export default function MatchmakingQueue({
       <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-blue-500 to-blue-700 px-4 py-6 sm:px-6">
         <div className="w-full max-w-md rounded-2xl bg-white p-6 text-center shadow-2xl sm:p-10 lg:p-12">
           <div className="mb-8">
-            <Swords className="mx-auto h-16 w-16 animate-bounce text-blue-600 sm:h-20 sm:w-20 lg:h-24 lg:w-24" />
+            <div className="mx-auto h-16 w-16 animate-bounce sm:h-20 sm:w-20 lg:h-24 lg:w-24"><MascotIcon mascot="duel" className="h-full w-full" imageClassName="drop-shadow-md" /></div>
           </div>
           <h2 className="mb-4 text-3xl font-bold text-gray-800 sm:text-4xl">Match Starting!</h2>
           <div className="mb-4 text-6xl font-bold text-blue-600 sm:text-7xl lg:text-8xl">{countdown}</div>
@@ -287,7 +288,7 @@ export default function MatchmakingQueue({
       <div className="w-full max-w-2xl rounded-2xl bg-white p-6 shadow-2xl sm:p-8 lg:p-12">
         <div className="text-center">
           <div className="mb-6">
-            <Swords className="mx-auto h-16 w-16 text-blue-600 sm:h-20 sm:w-20" />
+            <div className="mx-auto h-16 w-16 sm:h-20 sm:w-20"><MascotIcon mascot="duel" className="h-full w-full" imageClassName="drop-shadow-md" /></div>
           </div>
 
           <h2 className="mb-3 text-3xl font-bold text-gray-800 sm:text-4xl">Code Duels</h2>
@@ -338,3 +339,6 @@ export default function MatchmakingQueue({
     </div>
   );
 }
+
+
+

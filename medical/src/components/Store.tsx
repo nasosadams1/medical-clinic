@@ -3,7 +3,6 @@ import {
   Coins,
   Gift,
   Heart,
-  ShoppingCart,
   Star,
   Zap,
   Crown,
@@ -11,6 +10,7 @@ import {
 import { useUser } from '../context/UserContext';
 import { useAuth } from '../context/AuthContext';
 import StripeCheckout from './StripeCheckout';
+import MascotIcon from './branding/MascotIcon';
 import { purchaseStoreItem } from '../lib/store';
 import { STORE_ITEMS } from '../../shared/store-catalog.js';
 
@@ -249,17 +249,12 @@ const Store: React.FC = () => {
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50 px-3 py-4 sm:px-4 lg:px-8 lg:py-8">
       <div className="mx-auto max-w-7xl">
-        <div className="mb-8 text-center lg:mb-12">
-          <div className="mb-5 inline-flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-r from-blue-500 to-purple-600 shadow-lg sm:mb-6 sm:h-20 sm:w-20">
-            <ShoppingCart className="h-8 w-8 text-white sm:h-10 sm:w-10" />
-          </div>
-          <h1 className="mb-4 text-2xl font-bold text-gray-900 lg:text-4xl">Codhak Store</h1>
-          <p className="mx-auto max-w-2xl px-4 text-base text-gray-600 lg:text-xl">
-            Securely purchase coins, boosts, and hearts with server-authoritative fulfillment.
-          </p>
-          <div className="mt-6 inline-flex items-center space-x-2 rounded-full bg-white px-4 py-2 shadow-md">
-            <Coins className="h-5 w-5 text-yellow-500" />
-            <span className="font-semibold text-gray-900">{user.coins} coins</span>
+        <div className="mb-8 flex justify-center lg:mb-10">
+          <div className="flex w-full max-w-[26rem] flex-col items-center rounded-[2.25rem] bg-white px-8 py-5 text-center shadow-lg ring-1 ring-slate-200/70 sm:max-w-[30rem] sm:px-10 sm:py-6">
+            <div className="h-20 w-20 sm:h-24 sm:w-24 lg:h-28 lg:w-28">
+              <MascotIcon mascot="learn" className="h-full w-full" imageClassName="drop-shadow-md" />
+            </div>
+            <span className="mt-3 text-lg font-semibold text-slate-800 sm:text-xl">Store</span>
           </div>
         </div>
 

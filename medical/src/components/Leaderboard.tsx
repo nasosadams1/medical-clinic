@@ -1,4 +1,4 @@
-﻿import React, { useEffect, useMemo, useState, useCallback } from "react";
+import React, { useEffect, useMemo, useState, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Crown,
@@ -27,6 +27,7 @@ import {
   LeaderboardSort,
 } from "../lib/supabase";
 import { getEloRankInfo } from "../lib/eloRanks";
+import MascotIcon from './branding/MascotIcon';
 
 type RankingCategory = LeaderboardSort;
 
@@ -706,6 +707,12 @@ export default function RealTimeLeaderboard({ currentUserId }: { currentUserId?:
     <div className="min-h-screen bg-gray-50 px-3 py-4 sm:px-4 sm:py-5 lg:px-6 lg:py-6 xl:px-10 xl:py-10">
       <div className="mx-auto max-w-6xl">
         <div className="mb-6 text-center lg:mb-8">
+          <div className="mb-3 inline-flex items-center gap-2 rounded-full bg-amber-50 px-3 py-1 text-sm font-semibold text-amber-700 shadow-sm">
+            <div className="h-6 w-6">
+              <MascotIcon mascot="leaderboard" className="h-full w-full" imageClassName="drop-shadow-sm" />
+            </div>
+            <span>Leaderboard</span>
+          </div>
           <h1 className="mb-2 text-2xl font-bold text-gray-900 lg:text-3xl">Global Leaderboard</h1>
           <p className="text-gray-600">Compete with learners worldwide and track your progress.</p>
         </div>
@@ -851,3 +858,6 @@ export default function RealTimeLeaderboard({ currentUserId }: { currentUserId?:
     </div>
   );
 }
+
+
+

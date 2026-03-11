@@ -3,6 +3,7 @@ import { BookOpen, Trophy, User as UserIcon, Zap, Heart, Store, LogOut, Loader2,
 import { useUser } from '../context/UserContext';
 import { useAuth } from '../context/AuthContext';
 import { avatars } from '../data/avatars';
+import MascotIcon from './branding/MascotIcon';
 
 interface SidebarProps {
   currentSection: string;
@@ -103,13 +104,13 @@ const Sidebar: React.FC<SidebarProps> = ({
             </button>
           </div>
 
-          <div className="mb-4 flex items-center gap-3 lg:mb-6">
-            <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-gradient-to-br from-green-400 to-green-600 shadow-md">
-              <Zap className="h-6 w-6 text-white" />
+          <div className="mb-4 flex items-center gap-4 lg:mb-6">
+            <div className="flex h-14 w-14 shrink-0 items-center justify-center lg:h-16 lg:w-16">
+              <MascotIcon mascot="learn" className="h-full w-full" imageClassName="drop-shadow-lg" />
             </div>
-            <div>
-              <h1 className="text-xl font-bold text-gray-800">Codhak</h1>
-              <p className="text-xs text-gray-500">Code, rank, and progress</p>
+            <div className="min-w-0">
+              <h1 className="text-2xl font-bold leading-tight text-gray-900">Codhak</h1>
+              <p className="mt-1 text-sm text-gray-500">Code, rank, and progress</p>
             </div>
           </div>
 
@@ -189,7 +190,9 @@ const Sidebar: React.FC<SidebarProps> = ({
             ) : (
               <>
                 <div className="mb-3 flex items-center gap-3">
-                  <div className="flex h-10 w-10 items-center justify-center rounded-full bg-gray-200 text-lg">?</div>
+                  <div className="flex h-11 w-11 items-center justify-center">
+                    <MascotIcon mascot="learn" className="h-full w-full" imageClassName="drop-shadow-md" />
+                  </div>
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-semibold text-gray-900">Guest</p>
                     <p className="text-xs text-gray-500">Create an account to start learning</p>
@@ -249,4 +252,8 @@ const Sidebar: React.FC<SidebarProps> = ({
 };
 
 export default Sidebar;
+
+
+
+
 

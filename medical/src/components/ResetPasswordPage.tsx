@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { AlertTriangle, ArrowRight, CheckCircle2, Loader2, Lock, ShieldCheck } from 'lucide-react';
+import BrandLockup from './branding/BrandLockup';;
 
 type ResetStatus = 'loading' | 'ready' | 'success' | 'error';
 
@@ -133,7 +134,14 @@ const ResetPasswordPage: React.FC = () => {
       <div className="mx-auto flex min-h-[calc(100vh-5rem)] max-w-5xl items-center justify-center">
         <div className="grid w-full max-w-4xl overflow-hidden rounded-3xl border border-white/70 bg-white/90 shadow-[0_30px_80px_rgba(15,23,42,0.12)] backdrop-blur sm:grid-cols-[1.05fr_0.95fr]">
           <div className="bg-slate-950 px-8 py-10 text-white sm:px-10 sm:py-12">
-            <div className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/5 px-3 py-1 text-xs font-medium uppercase tracking-[0.2em] text-slate-200">
+            <BrandLockup
+              mascot="learn"
+              subtitle="Safe account recovery with the same mascot and brand language as the rest of the app."
+              iconWrapperClassName="h-16 w-16"
+              titleClassName="text-white"
+              subtitleClassName="text-slate-300"
+            />
+            <div className="mt-6 inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/5 px-3 py-1 text-xs font-medium uppercase tracking-[0.2em] text-slate-200">
               <ShieldCheck className="h-4 w-4" />
               Account Recovery
             </div>
@@ -250,3 +258,5 @@ const ResetPasswordPage: React.FC = () => {
 };
 
 export default ResetPasswordPage;
+
+
