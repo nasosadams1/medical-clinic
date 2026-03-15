@@ -15,13 +15,24 @@ const supabaseDebugError = (...args: any[]) => {
   }
 }
 
+const isLocalhostUrl = (value: string) => /^https?:\/\/(?:localhost|127\.0\.0\.1|0\.0\.0\.0)(?::\d+)?$/i.test(value)
+
 const getBaseUrl = () => {
+  const browserOrigin =
+    typeof window !== 'undefined' && window.location?.origin
+      ? window.location.origin.replace(/\/+$/, '')
+      : ''
+
+  if (browserOrigin && !isLocalhostUrl(browserOrigin) && (!normalizedAppUrl || isLocalhostUrl(normalizedAppUrl))) {
+    return browserOrigin
+  }
+
   if (normalizedAppUrl) {
     return normalizedAppUrl
   }
 
-  if (typeof window !== 'undefined' && window.location?.origin) {
-    return window.location.origin
+  if (browserOrigin) {
+    return browserOrigin
   }
 
   return 'http://localhost:5173'
