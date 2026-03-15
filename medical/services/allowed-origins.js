@@ -11,17 +11,25 @@ const dedupeOrigins = (origins = []) => [...new Set(origins.filter(Boolean))];
 
 export function resolveAllowedOrigins(envKeys = [], options = {}) {
   const { isProduction = false } = options;
+  const configuredOrigins = [];
+  const sourceEnvKeys = [];
+
   for (const envKey of envKeys) {
     const rawValue = String(process.env[envKey] || "").trim();
     if (!rawValue) continue;
 
-    const configuredOrigins = rawValue
-      .split(",")
-      .map((origin) => origin.trim())
-      .filter(Boolean);
+    sourceEnvKeys.push(envKey);
+    configuredOrigins.push(
+      ...rawValue
+        .split(",")
+        .map((origin) => origin.trim())
+        .filter(Boolean)
+    );
+  }
 
+  if (configuredOrigins.length > 0) {
     return {
-      sourceEnv: envKey,
+      sourceEnv: sourceEnvKeys.join(", "),
       origins: isProduction
         ? dedupeOrigins(configuredOrigins)
         : dedupeOrigins([...configuredOrigins, ...DEV_ALLOWED_ORIGINS]),
