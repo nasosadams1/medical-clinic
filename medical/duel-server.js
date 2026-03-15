@@ -23,7 +23,9 @@ const IS_RENDER = Boolean(process.env.RENDER || process.env.RENDER_EXTERNAL_URL 
 const ALLOW_INSECURE_LOCAL_JUDGE = process.env.ALLOW_INSECURE_LOCAL_JUDGE === "1";
 
 const DUEL_ALLOWED_ORIGIN_ENV_KEYS = ["DUEL_ALLOWED_ORIGINS", "API_ALLOWED_ORIGINS", "FRONTEND_URL", "RENDER_EXTERNAL_URL"];
-const { origins: allowedOrigins, sourceEnv: allowedOriginsSourceEnv } = resolveAllowedOrigins(DUEL_ALLOWED_ORIGIN_ENV_KEYS);
+const { origins: allowedOrigins, sourceEnv: allowedOriginsSourceEnv } = resolveAllowedOrigins(DUEL_ALLOWED_ORIGIN_ENV_KEYS, {
+  isProduction: IS_PRODUCTION,
+});
 
 const corsOptions = {
   origin(origin, callback) {

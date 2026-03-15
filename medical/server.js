@@ -22,7 +22,9 @@ const NODE_ENV = (process.env.NODE_ENV || 'development').toLowerCase();
 const IS_PRODUCTION = NODE_ENV === 'production';
 const ALLOW_LEGACY_UNAUTHENTICATED_SCORE_SUBMIT = process.env.ALLOW_LEGACY_UNAUTHENTICATED_SCORE_SUBMIT === '1';
 const API_ALLOWED_ORIGIN_ENV_KEYS = ['API_ALLOWED_ORIGINS', 'DUEL_ALLOWED_ORIGINS', 'FRONTEND_URL', 'RENDER_EXTERNAL_URL'];
-const { origins: allowedOrigins, sourceEnv: allowedOriginsSourceEnv } = resolveAllowedOrigins(API_ALLOWED_ORIGIN_ENV_KEYS);
+const { origins: allowedOrigins, sourceEnv: allowedOriginsSourceEnv } = resolveAllowedOrigins(API_ALLOWED_ORIGIN_ENV_KEYS, {
+  isProduction: IS_PRODUCTION,
+});
 
 const corsOptions = {
   origin(origin, callback) {

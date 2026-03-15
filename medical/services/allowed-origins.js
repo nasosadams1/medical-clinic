@@ -1,20 +1,36 @@
-export function resolveAllowedOrigins(envKeys = []) {
+const DEV_ALLOWED_ORIGINS = [
+  "http://localhost:5173",
+  "http://localhost:5174",
+  "http://127.0.0.1:5173",
+  "http://127.0.0.1:5174",
+  "http://localhost:4173",
+  "http://127.0.0.1:4173",
+];
+
+const dedupeOrigins = (origins = []) => [...new Set(origins.filter(Boolean))];
+
+export function resolveAllowedOrigins(envKeys = [], options = {}) {
+  const { isProduction = false } = options;
   for (const envKey of envKeys) {
     const rawValue = String(process.env[envKey] || "").trim();
     if (!rawValue) continue;
 
+    const configuredOrigins = rawValue
+      .split(",")
+      .map((origin) => origin.trim())
+      .filter(Boolean);
+
     return {
       sourceEnv: envKey,
-      origins: rawValue
-        .split(",")
-        .map((origin) => origin.trim())
-        .filter(Boolean),
+      origins: isProduction
+        ? dedupeOrigins(configuredOrigins)
+        : dedupeOrigins([...configuredOrigins, ...DEV_ALLOWED_ORIGINS]),
     };
   }
 
   return {
     sourceEnv: null,
-    origins: [],
+    origins: isProduction ? [] : [...DEV_ALLOWED_ORIGINS],
   };
 }
 

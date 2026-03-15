@@ -1,9 +1,19 @@
 // src/lib/socket.ts
 import { io } from "socket.io-client";
 
-const DUEL_SERVER_URL =
+const configuredDuelServerUrl =
   (import.meta.env.VITE_DUEL_SERVER_URL as string | undefined)?.trim() ||
-  "http://localhost:5000";
+  "";
+
+const configuredDevDuelServerUrl =
+  (import.meta.env.VITE_DUEL_SERVER_URL_DEV as string | undefined)?.trim() ||
+  "";
+
+const DUEL_SERVER_URL =
+  configuredDevDuelServerUrl ||
+  (import.meta.env.DEV
+    ? "http://localhost:5000"
+    : configuredDuelServerUrl || "http://localhost:5000");
 
 const normalizedDuelServerUrl = DUEL_SERVER_URL.replace(/\/+$/, "");
 
