@@ -51,7 +51,7 @@ const LegalDocumentPage: React.FC<LegalDocumentPageProps> = ({ slug }) => {
 
           <div className="mt-4 flex flex-wrap gap-3 text-sm text-slate-500">
             <span>Updated {content.updatedAt}</span>
-            <span>•</span>
+            <span>/</span>
             <span>Applies to account use, purchases, and support activity</span>
           </div>
 

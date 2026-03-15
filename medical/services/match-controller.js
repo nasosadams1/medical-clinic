@@ -87,6 +87,7 @@ export class MatchController {
     const difficulty = normalizeDifficulty(problem?.difficulty);
     const timeLimitSec = resolveTimeLimitSeconds(problem);
     const timeLimitMs = Math.max(5, timeLimitSec) * 1000;
+    const endTimeMs = nowMs + timeLimitMs;
 
     const supportedLanguages = getProblemSupportedLanguages(problem);
     const starterCode =
@@ -103,6 +104,7 @@ export class MatchController {
       problem: { ...problem, difficulty, time_limit_seconds: timeLimitSec },
       difficulty,
       startTimeMs: nowMs,
+      endTimeMs,
       timeLimitMs,
       timeLimitSec,
       submissions: new Map(),
@@ -149,7 +151,9 @@ export class MatchController {
 
     const payload = {
       matchId,
+      serverNow: nowMs,
       startTime: matchData.startTimeMs,
+      endTime: matchData.endTimeMs,
       timeLimit: timeLimitSec,
       matchType,
       problem: {
@@ -1417,6 +1421,7 @@ export class MatchController {
         matchType: match.matchType || "ranked",
         difficulty: match.difficulty || null,
         startTimeMs: match.startTimeMs || null,
+        endTimeMs: match.endTimeMs || null,
         timeLimitSec: match.timeLimitSec || null,
         playerA: match.playerA ? { userId: match.playerA.userId, username: match.playerA.username, rating: match.playerA.rating ?? 500 } : null,
         playerB: match.playerB ? { userId: match.playerB.userId, username: match.playerB.username, rating: match.playerB.rating ?? 500 } : null,

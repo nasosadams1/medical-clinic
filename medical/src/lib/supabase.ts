@@ -5,6 +5,7 @@ import { createClient } from '@supabase/supabase-js'
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string
 const appUrl = (import.meta.env.VITE_APP_URL as string | undefined)?.trim()
+const normalizedAppUrl = appUrl?.replace(/\/+$/, '') || ''
 const authStorageKey = 'codhak-auth'
 const isSupabaseDebugEnabled = import.meta.env.DEV && import.meta.env.VITE_DEBUG_SUPABASE === '1'
 
@@ -15,11 +16,15 @@ const supabaseDebugError = (...args: any[]) => {
 }
 
 const getBaseUrl = () => {
+  if (normalizedAppUrl) {
+    return normalizedAppUrl
+  }
+
   if (typeof window !== 'undefined' && window.location?.origin) {
     return window.location.origin
   }
 
-  return appUrl || 'http://localhost:5173'
+  return 'http://localhost:5173'
 }
 
 const buildRedirectUrl = (path: string) => {
@@ -764,4 +769,3 @@ export const getClientInfo = () => ({
   supabaseUrl: supabaseUrl ? 'âœ… Set' : 'âŒ Missing',
   supabaseKey: supabaseAnonKey ? 'âœ… Set' : 'âŒ Missing'
 })
-

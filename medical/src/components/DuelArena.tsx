@@ -21,6 +21,9 @@ interface DuelArenaProps {
   matchType?: 'ranked' | 'casual';
   socket: any;
   userId: string;
+  startTime?: number | null;
+  endTime?: number | null;
+  serverNow?: number | null;
   onMatchEnd: (result: any) => void;
 }
 
@@ -85,6 +88,45 @@ const formatLanguageLabel = (language: DuelLanguage) => (
   language === 'python' ? 'Python' : 'JavaScript'
 );
 
+const toFiniteNumber = (value: unknown): number | null => {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+};
+
+const resolveClockOffsetMs = (serverNow: unknown): number | null => {
+  const parsedServerNow = toFiniteNumber(serverNow);
+  if (parsedServerNow === null) return null;
+  return parsedServerNow - Date.now();
+};
+
+const resolveMatchDeadlineMs = ({
+  startTime,
+  endTime,
+  timeLimitSeconds,
+}: {
+  startTime?: unknown;
+  endTime?: unknown;
+  timeLimitSeconds?: unknown;
+}): number | null => {
+  const parsedEndTime = toFiniteNumber(endTime);
+  if (parsedEndTime !== null) return parsedEndTime;
+
+  const parsedStartTime = toFiniteNumber(startTime);
+  const parsedTimeLimitSeconds = toFiniteNumber(timeLimitSeconds);
+  if (parsedStartTime === null || parsedTimeLimitSeconds === null) return null;
+
+  return parsedStartTime + Math.max(0, parsedTimeLimitSeconds) * 1000;
+};
+
+const computeRemainingSeconds = (deadlineMs: number | null, clockOffsetMs: number, fallbackSeconds: number) => {
+  if (deadlineMs === null) {
+    return Math.max(0, Math.floor(fallbackSeconds));
+  }
+
+  const adjustedNow = Date.now() + clockOffsetMs;
+  return Math.max(0, Math.ceil((deadlineMs - adjustedNow) / 1000));
+};
+
 export default function DuelArena({
   matchId,
   problem,
@@ -92,20 +134,30 @@ export default function DuelArena({
   matchType = 'ranked',
   socket,
   userId,
+  startTime = null,
+  endTime = null,
+  serverNow = null,
   onMatchEnd,
 }: DuelArenaProps) {
   const supportedLanguages = React.useMemo(() => getSupportedLanguages(problem.supportedLanguages), [problem.supportedLanguages]);
   const starterCodeByLanguage = React.useMemo(() => getStarterCodeMap(problem.starterCode), [problem.starterCode]);
+  const initialClockOffsetMs = React.useMemo(() => resolveClockOffsetMs(serverNow) ?? 0, [serverNow]);
+  const initialDeadlineMs = React.useMemo(
+    () => resolveMatchDeadlineMs({ startTime, endTime, timeLimitSeconds: problem.timeLimit }),
+    [endTime, problem.timeLimit, startTime]
+  );
   const [language, setLanguage] = useState<DuelLanguage>(supportedLanguages[0] ?? 'javascript');
   const [codeByLanguage, setCodeByLanguage] = useState<Record<DuelLanguage, string>>(() => ({
     javascript: starterCodeByLanguage.javascript,
     python: starterCodeByLanguage.python,
   }));
-  const [timeRemaining, setTimeRemaining] = useState(problem.timeLimit);
+  const [serverClockOffsetMs, setServerClockOffsetMs] = useState(initialClockOffsetMs);
+  const [matchDeadlineMs, setMatchDeadlineMs] = useState<number | null>(initialDeadlineMs);
+  const [timeRemaining, setTimeRemaining] = useState(() => computeRemainingSeconds(initialDeadlineMs, initialClockOffsetMs, problem.timeLimit));
   const [testResults, setTestResults] = useState<any>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [opponentStatus, setOpponentStatus] = useState<any>(null);
-  const [matchStarted, setMatchStarted] = useState(false);
+  const [matchStarted, setMatchStarted] = useState(initialDeadlineMs !== null);
   const code = codeByLanguage[language] ?? starterCodeByLanguage[language];
 
   const codeRef = useRef(code);
@@ -117,6 +169,24 @@ export default function DuelArena({
   useEffect(() => {
     codeRef.current = code;
   }, [code]);
+
+  useEffect(() => {
+    const nextClockOffsetMs = resolveClockOffsetMs(serverNow);
+    const resolvedClockOffsetMs = nextClockOffsetMs ?? serverClockOffsetMs;
+    if (nextClockOffsetMs !== null) {
+      setServerClockOffsetMs(nextClockOffsetMs);
+    }
+
+    const nextDeadlineMs = resolveMatchDeadlineMs({
+      startTime,
+      endTime,
+      timeLimitSeconds: problem.timeLimit,
+    });
+
+    setMatchDeadlineMs(nextDeadlineMs);
+    setTimeRemaining(computeRemainingSeconds(nextDeadlineMs, resolvedClockOffsetMs, problem.timeLimit));
+    setMatchStarted(nextDeadlineMs !== null);
+  }, [endTime, problem.timeLimit, serverClockOffsetMs, serverNow, startTime]);
 
   useEffect(() => {
     if (!supportedLanguages.includes(language)) {
@@ -147,6 +217,25 @@ export default function DuelArena({
   useEffect(() => {
     const onDuelStarted = (data: any) => {
       if (data.matchId === matchId) {
+        const nextClockOffsetMs = resolveClockOffsetMs(data?.serverNow);
+        if (nextClockOffsetMs !== null) {
+          setServerClockOffsetMs(nextClockOffsetMs);
+        }
+
+        const nextDeadlineMs = resolveMatchDeadlineMs({
+          startTime: data?.startTime,
+          endTime: data?.endTime,
+          timeLimitSeconds: data?.timeLimit ?? problem.timeLimit,
+        });
+
+        setMatchDeadlineMs(nextDeadlineMs);
+        setTimeRemaining(
+          computeRemainingSeconds(
+            nextDeadlineMs,
+            nextClockOffsetMs ?? serverClockOffsetMs,
+            data?.timeLimit ?? problem.timeLimit
+          )
+        );
         setMatchStarted(true);
         toast.success('Duel started! Good luck!');
       }
@@ -211,20 +300,22 @@ export default function DuelArena({
       if (telemetryIntervalRef.current) clearInterval(telemetryIntervalRef.current);
       flushTelemetry('cleanup');
     };
-  }, [flushTelemetry, matchId, onMatchEnd, socket]);
+  }, [flushTelemetry, matchId, onMatchEnd, problem.timeLimit, serverClockOffsetMs, socket]);
 
   useEffect(() => {
     if (!matchStarted) return;
 
-    const timer = setInterval(() => {
-      setTimeRemaining((prev) => {
-        if (prev <= 1) {
-          clearInterval(timer);
-          return 0;
-        }
-        return prev - 1;
-      });
-    }, 1000);
+    const syncTimeRemaining = () => {
+      if (matchDeadlineMs !== null) {
+        setTimeRemaining(computeRemainingSeconds(matchDeadlineMs, serverClockOffsetMs, problem.timeLimit));
+        return;
+      }
+
+      setTimeRemaining((prev) => Math.max(prev - 1, 0));
+    };
+
+    syncTimeRemaining();
+    const timer = setInterval(syncTimeRemaining, 1000);
 
     snapshotIntervalRef.current = setInterval(() => {
       socket.emit('code_snapshot', {
@@ -252,7 +343,7 @@ export default function DuelArena({
       window.removeEventListener('blur', onWindowBlur);
       flushTelemetry('cleanup');
     };
-  }, [flushTelemetry, matchId, matchStarted, socket, userId]);
+  }, [flushTelemetry, matchDeadlineMs, matchId, matchStarted, problem.timeLimit, serverClockOffsetMs, socket, userId]);
 
   const handleEditorMount = useCallback((editor: any) => {
     editorRef.current = editor;

@@ -392,9 +392,9 @@ const CheckoutForm: React.FC<StripeCheckoutProps> = ({
         <div className="px-4 pb-4 sm:px-6 sm:pb-6">
           <div className="flex flex-wrap items-center justify-center gap-2 text-xs text-gray-500 sm:gap-4">
             <span>Powered by Stripe</span>
-            <span>•</span>
+            <span>/</span>
             <span>Encrypted</span>
-            <span>•</span>
+            <span>/</span>
             <span>PCI Compliant</span>
           </div>
         </div>

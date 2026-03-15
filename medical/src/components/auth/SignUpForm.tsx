@@ -193,7 +193,7 @@ const SignUpForm: React.FC<SignUpFormProps> = ({ onToggleForm, onEmailVerificati
 
   const getErrorMessage = (error: string): string => {
     const errorMap: { [key: string]: string } = {
-      'User already registered': 'An account with this email already exists. Try signing in instead.',
+      'User already registered': 'An account with this email already exists. Try signing in instead. If the profile was deleted, signing in will recreate it.',
       'Username already taken': 'This username is already taken. Please choose a different one.',
       'Email rate limit exceeded': 'Too many signup attempts. Please wait a few minutes before trying again.',
       'Signup disabled': 'New registrations are temporarily disabled. Please try again later.',

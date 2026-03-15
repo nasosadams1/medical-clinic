@@ -207,6 +207,9 @@ export default function DuelsDashboard() {
           matchType={matchData.matchType}
           socket={socket}
           userId={duelUser.id}
+          startTime={matchData.startTime}
+          endTime={matchData.endTime}
+          serverNow={matchData.serverNow}
           onMatchEnd={handleMatchEnd}
         />
       )}
