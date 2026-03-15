@@ -616,6 +616,23 @@ export const signUpWithEmail = async (email: string, password: string, username:
       return { data: null, error }
     }
 
+    const identities = Array.isArray((data?.user as any)?.identities)
+      ? ((data?.user as any)?.identities as Array<unknown>)
+      : null
+    const looksLikeObfuscatedExistingUser =
+      !!data?.user &&
+      !data?.session &&
+      !data?.user?.email_confirmed_at &&
+      Array.isArray(identities) &&
+      identities.length === 0
+
+    if (looksLikeObfuscatedExistingUser) {
+      return {
+        data: null,
+        error: { message: 'User already registered' }
+      }
+    }
+
     if (data.user && (data.session || data.user.email_confirmed_at)) {
       const profileResult = await supabase.from('user_profiles').upsert({
         id: data.user.id,
@@ -747,5 +764,4 @@ export const getClientInfo = () => ({
   supabaseUrl: supabaseUrl ? 'âœ… Set' : 'âŒ Missing',
   supabaseKey: supabaseAnonKey ? 'âœ… Set' : 'âŒ Missing'
 })
-
 
