@@ -233,9 +233,12 @@ const SignUpForm: React.FC<SignUpFormProps> = ({ onToggleForm, onEmailVerificati
         onMessage('error', friendlyMessage)
       } else {
         console.log('SignUp successful with username:', name.trim())
-        // Show email verification screen
-        onEmailVerification(email.trim())
-        onMessage('success', `Account created. Check your inbox to verify your email and finish setup.`)
+        if (result?.needsConfirmation) {
+          onEmailVerification(email.trim())
+          onMessage('success', `Account created. Check your inbox to verify your email and finish setup.`)
+        } else {
+          onMessage('success', 'Account created successfully.')
+        }
       }
     } catch (err: any) {
       clearPendingLegalAcceptance()
