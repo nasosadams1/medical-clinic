@@ -7,15 +7,16 @@ import { X, AlertCircle, CheckCircle, Mail, RefreshCw, ArrowLeft, ShieldCheck } 
 import { motion, AnimatePresence } from 'framer-motion'
 import BrandLockup from '../branding/BrandLockup'
 
-type AuthView = 'login' | 'signup' | 'forgot-password' | 'email-verification'
+export type AuthView = 'login' | 'signup' | 'forgot-password' | 'email-verification'
 
 interface AuthContainerProps {
   open: boolean
   onClose: () => void
+  initialView?: AuthView
 }
 
-const AuthContainer: React.FC<AuthContainerProps> = ({ open, onClose }) => {
-  const [currentView, setCurrentView] = useState<AuthView>('login')
+const AuthContainer: React.FC<AuthContainerProps> = ({ open, onClose, initialView = 'login' }) => {
+  const [currentView, setCurrentView] = useState<AuthView>(initialView)
   const [email, setEmail] = useState('')
   const [globalMessage, setGlobalMessage] = useState<{
     type: 'success' | 'error' | 'info'
@@ -39,14 +40,20 @@ const AuthContainer: React.FC<AuthContainerProps> = ({ open, onClose }) => {
   }, [user, onClose])
 
   useEffect(() => {
+    if (open) {
+      setCurrentView(initialView)
+    }
+  }, [initialView, open])
+
+  useEffect(() => {
     if (!open) {
-      setCurrentView('login')
+      setCurrentView(initialView)
       setEmail('')
       setGlobalMessage(null)
       setIsResending(false)
       setResendCooldown(0)
     }
-  }, [open])
+  }, [initialView, open])
 
   useEffect(() => {
     if (resendCooldown <= 0) return
@@ -299,7 +306,6 @@ const AuthContainer: React.FC<AuthContainerProps> = ({ open, onClose }) => {
 }
 
 export default AuthContainer
-
 
 
 

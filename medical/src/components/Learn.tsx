@@ -10,7 +10,7 @@ type DifficultyTier = 'Beginner' | 'Intermediate' | 'Advanced';
 
 interface LearnProps {
   setCurrentSection?: (section: string) => void;
-  openAuthModal?: () => void;
+  openAuthModal?: (view?: 'login' | 'signup') => void;
   isAuthenticated?: boolean;
 }
 
@@ -141,7 +141,7 @@ const Learn: React.FC<LearnProps> = ({ setCurrentSection, openAuthModal, isAuthe
 
   const handleStartLesson = (lesson: any) => {
     if (!isAuthenticated) {
-      openAuthModal?.();
+      openAuthModal?.('signup');
       return;
     }
 
@@ -346,5 +346,4 @@ const Learn: React.FC<LearnProps> = ({ setCurrentSection, openAuthModal, isAuthe
 };
 
 export default Learn;
-
 

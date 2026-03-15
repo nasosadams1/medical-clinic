@@ -8,7 +8,7 @@ import MascotIcon from './branding/MascotIcon';
 interface SidebarProps {
   currentSection: string;
   setCurrentSection: React.Dispatch<React.SetStateAction<string>>;
-  openAuthModal: () => void;
+  openAuthModal: (view?: 'login' | 'signup') => void;
   isOpen?: boolean;
   onClose?: () => void;
 }
@@ -198,12 +198,20 @@ const Sidebar: React.FC<SidebarProps> = ({
                     <p className="text-xs text-gray-500">Create an account to start learning</p>
                   </div>
                 </div>
-                <button
-                  onClick={openAuthModal}
-                  className="w-full rounded-xl bg-blue-500 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-blue-600"
-                >
-                  Sign In / Sign Up
-                </button>
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                  <button
+                    onClick={() => openAuthModal('signup')}
+                    className="w-full rounded-xl bg-blue-500 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-blue-600"
+                  >
+                    Sign Up
+                  </button>
+                  <button
+                    onClick={() => openAuthModal('login')}
+                    className="w-full rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm font-medium text-gray-700 transition hover:bg-gray-100"
+                  >
+                    Sign In
+                  </button>
+                </div>
               </>
             )}
           </div>

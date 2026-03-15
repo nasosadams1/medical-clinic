@@ -5,9 +5,10 @@ import { UserProvider } from './context/UserContext';
 import Sidebar from './components/Sidebar';
 import Learn from './components/Learn';
 import { useAuth } from './context/AuthContext';
-import { BookOpen, ShoppingBag, Swords, Trophy, User as UserIcon, Settings } from 'lucide-react';
+import { BookOpen, ShoppingBag, Swords, Trophy, User as UserIcon, Settings, UserPlus } from 'lucide-react';
 
 type SectionId = 'learn' | 'duels' | 'store' | 'leaderboard' | 'profile' | 'account';
+type AuthModalView = 'login' | 'signup';
 
 const AuthContainer = lazy(() => import('./components/auth/AuthContainer'));
 const Store = lazy(() => import('./components/Store'));
@@ -32,9 +33,15 @@ const withSuspense = (node: React.ReactNode) => (
 function AppContent() {
   const [currentSection, setCurrentSection] = useState<SectionId>('learn');
   const [showAuthModal, setShowAuthModal] = useState(false);
+  const [authInitialView, setAuthInitialView] = useState<AuthModalView>('login');
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const { user } = useAuth();
   const isAuthenticated = !!user;
+
+  const openAuthModal = (view: AuthModalView = 'login') => {
+    setAuthInitialView(view);
+    setShowAuthModal(true);
+  };
 
   const navItems = useMemo(
     () =>
@@ -47,7 +54,10 @@ function AppContent() {
             { id: 'profile' as SectionId, label: 'Profile', icon: UserIcon },
             { id: 'account' as SectionId, label: 'Account', icon: Settings },
           ]
-        : [{ id: 'learn' as SectionId, label: 'Learn', icon: BookOpen }],
+        : [
+            { id: 'learn' as SectionId, label: 'Learn', icon: BookOpen },
+            { id: 'signup' as const, label: 'Sign Up', icon: UserPlus },
+          ],
     [isAuthenticated]
   );
 
@@ -61,7 +71,7 @@ function AppContent() {
   const learnView = (
     <Learn
       setCurrentSection={(section) => setCurrentSection(section as SectionId)}
-      openAuthModal={() => setShowAuthModal(true)}
+      openAuthModal={openAuthModal}
       isAuthenticated={isAuthenticated}
     />
   );
@@ -95,7 +105,7 @@ function AppContent() {
     if (!isAuthenticated && section !== 'learn') {
       setCurrentSection('learn');
       setSidebarOpen(false);
-      setShowAuthModal(true);
+      openAuthModal('signup');
       window.scrollTo({ top: 0, behavior: 'smooth' });
       return;
     }
@@ -114,7 +124,7 @@ function AppContent() {
       <Sidebar
         currentSection={currentSection}
         setCurrentSection={(section) => setCurrentSection(section as SectionId)}
-        openAuthModal={() => setShowAuthModal(true)}
+        openAuthModal={openAuthModal}
         isOpen={sidebarOpen}
         onClose={() => setSidebarOpen(false)}
       />
@@ -127,11 +137,17 @@ function AppContent() {
         <ul className="grid gap-1" style={{ gridTemplateColumns: `repeat(${navItems.length}, minmax(0, 1fr))` }}>
           {navItems.map((item) => {
             const Icon = item.icon;
-            const isActive = currentSection === item.id;
+            const isActive = item.id === 'signup' ? false : currentSection === item.id;
             return (
               <li key={item.id}>
                 <button
-                  onClick={() => handleSectionChange(item.id)}
+                  onClick={() => {
+                    if (item.id === 'signup') {
+                      openAuthModal('signup');
+                      return;
+                    }
+                    handleSectionChange(item.id);
+                  }}
                   className={`flex w-full flex-col items-center justify-center rounded-2xl px-2 py-2 text-[11px] font-medium transition ${
                     isActive
                       ? 'bg-gradient-to-br from-green-400 to-blue-500 text-white shadow-md'
@@ -148,7 +164,11 @@ function AppContent() {
       </nav>
 
       {withSuspense(
-        <AuthContainer open={showAuthModal} onClose={() => setShowAuthModal(false)} />
+        <AuthContainer
+          open={showAuthModal}
+          initialView={authInitialView}
+          onClose={() => setShowAuthModal(false)}
+        />
       )}
     </div>
   );
