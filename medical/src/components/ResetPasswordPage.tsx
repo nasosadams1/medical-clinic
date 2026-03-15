@@ -7,6 +7,7 @@ import BrandLockup from './branding/BrandLockup';;
 type ResetStatus = 'loading' | 'ready' | 'success' | 'error';
 
 const PASSWORD_MIN_LENGTH = 8;
+const PKCE_MISSING_VERIFIER_MESSAGE = 'PKCE code verifier not found in storage.';
 
 const ResetPasswordPage: React.FC = () => {
   const navigate = useNavigate();
@@ -85,10 +86,15 @@ const ResetPasswordPage: React.FC = () => {
         setTitle('Create a new password');
         setMessage('Choose a strong password for your account. Once saved, you can sign in immediately with the new password.');
       } catch (error: any) {
+        const rawMessage = error?.message || '';
+        const friendlyMessage = rawMessage.includes(PKCE_MISSING_VERIFIER_MESSAGE)
+          ? 'This reset link was generated with an older secure flow and can no longer be completed in this browser. Request a fresh reset email and use the newest link.'
+          : rawMessage;
+
         if (cancelled) return;
         setStatus('error');
         setTitle('Password reset link is not valid');
-        setMessage(error?.message || 'We could not start a secure password reset session. Request a new reset email and try again.');
+        setMessage(friendlyMessage || 'We could not start a secure password reset session. Request a new reset email and try again.');
       }
     };
 
@@ -258,5 +264,4 @@ const ResetPasswordPage: React.FC = () => {
 };
 
 export default ResetPasswordPage;
-
 

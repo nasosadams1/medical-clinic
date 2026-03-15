@@ -7,6 +7,7 @@ import BrandLockup from './branding/BrandLockup'
 type ConfirmStatus = 'loading' | 'success' | 'error'
 
 const REDIRECT_DELAY_MS = 2200
+const PKCE_MISSING_VERIFIER_MESSAGE = 'PKCE code verifier not found in storage.'
 
 const AuthConfirm: React.FC = () => {
   const navigate = useNavigate()
@@ -87,9 +88,14 @@ const AuthConfirm: React.FC = () => {
             : 'We could not find a valid verification session for this page. Open the newest confirmation email and try again.'
         )
       } catch (error: any) {
+        const rawMessage = error?.message || ''
+        const friendlyMessage = rawMessage.includes(PKCE_MISSING_VERIFIER_MESSAGE)
+          ? 'This confirmation link was generated with an older secure flow and can no longer be completed in this browser. Request a fresh verification email and use the newest link.'
+          : rawMessage
+
         setStatus('error')
         setTitle('Verification could not be completed')
-        setMessage(error?.message || 'An unexpected error interrupted verification. Try the link again or request a new email from the sign up screen.')
+        setMessage(friendlyMessage || 'An unexpected error interrupted verification. Try the link again or request a new email from the sign up screen.')
       }
     }
 
@@ -209,5 +215,4 @@ const AuthConfirm: React.FC = () => {
 }
 
 export default AuthConfirm
-
 
