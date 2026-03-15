@@ -4,17 +4,55 @@ const DEFAULT_QUEUE_RANGE = {
   rangeGrowPerSec: 2,
 };
 
+const SHARED_STATE_RETRY_COOLDOWN_MS = 15_000;
+const MAX_SHARED_STATE_ERROR_MESSAGE_LENGTH = 240;
+
 const nowIso = () => new Date().toISOString();
 const uniqueUserIds = (userIds) => [...new Set((Array.isArray(userIds) ? userIds : [userIds]).filter(Boolean))];
+
+const compactSharedStateError = (error) => {
+  if (!error || typeof error !== 'object') return error;
+
+  const compact = { ...error };
+  if (typeof compact.message === 'string') {
+    compact.message = compact.message.replace(/\s+/g, ' ').trim().slice(0, MAX_SHARED_STATE_ERROR_MESSAGE_LENGTH);
+  }
+
+  return compact;
+};
 
 export class SharedDuelStateStore {
   constructor(supabase, instanceId) {
     this.supabase = supabase;
     this.instanceId = instanceId;
+    this.retryCooldowns = new Map();
+    this.logCooldowns = new Map();
   }
 
   static isEnabled(supabase) {
     return Boolean(supabase && (process.env.DUEL_SHARED_STATE_MODE || 'database').toLowerCase() !== 'memory');
+  }
+
+  _isRetryCooldownActive(key) {
+    return Number(this.retryCooldowns.get(key) || 0) > Date.now();
+  }
+
+  _markRetryCooldown(key, durationMs = SHARED_STATE_RETRY_COOLDOWN_MS) {
+    this.retryCooldowns.set(key, Date.now() + durationMs);
+  }
+
+  _clearRetryCooldown(key) {
+    this.retryCooldowns.delete(key);
+  }
+
+  _logWithCooldown(key, message, error, durationMs = SHARED_STATE_RETRY_COOLDOWN_MS) {
+    const cooldownUntil = Number(this.logCooldowns.get(key) || 0);
+    if (cooldownUntil > Date.now()) {
+      return;
+    }
+
+    this.logCooldowns.set(key, Date.now() + durationMs);
+    console.error(message, compactSharedStateError(error));
   }
 
   async upsertPresence(player) {
@@ -132,6 +170,8 @@ export class SharedDuelStateStore {
 
   async listQueue(matchType) {
     if (!this.supabase) return [];
+    if (this._isRetryCooldownActive('list_queue')) return [];
+
     const { data, error } = await this.supabase
       .from('duel_matchmaking_queue')
       .select('*')
@@ -139,30 +179,37 @@ export class SharedDuelStateStore {
       .order('joined_at', { ascending: true });
 
     if (error) {
-      console.error('Could not load shared duel queue:', error);
+      this._markRetryCooldown('list_queue');
+      this._logWithCooldown('list_queue', 'Could not load shared duel queue. Retrying in 15s.', error);
       return [];
     }
 
+    this._clearRetryCooldown('list_queue');
     return data || [];
   }
 
   async countPresence() {
     if (!this.supabase) return 0;
+    if (this._isRetryCooldownActive('count_presence')) return 0;
 
     const { count, error } = await this.supabase
       .from('duel_runtime_presence')
       .select('user_id', { count: 'exact', head: true });
 
     if (error) {
-      console.error('Could not count duel runtime presence:', error);
+      this._markRetryCooldown('count_presence');
+      this._logWithCooldown('count_presence', 'Could not count duel runtime presence. Retrying in 15s.', error);
       return 0;
     }
 
+    this._clearRetryCooldown('count_presence');
     return Number(count) || 0;
   }
 
   async claimMatchPair(matchType, options = {}) {
     if (!this.supabase) return null;
+    if (this._isRetryCooldownActive('claim_match_pair')) return null;
+
     const settings = {
       ...DEFAULT_QUEUE_RANGE,
       ...options,
@@ -177,10 +224,12 @@ export class SharedDuelStateStore {
     });
 
     if (error) {
-      console.error('Could not claim duel matchmaking pair:', error);
+      this._markRetryCooldown('claim_match_pair');
+      this._logWithCooldown('claim_match_pair', 'Could not claim duel matchmaking pair. Retrying in 15s.', error);
       return null;
     }
 
+    this._clearRetryCooldown('claim_match_pair');
     return data || null;
   }
 
@@ -287,6 +336,8 @@ export class SharedDuelStateStore {
 
   async consumeRuntimeMessages(limit = 50) {
     if (!this.supabase) return [];
+    if (this._isRetryCooldownActive('consume_runtime_messages')) return [];
+
     const now = nowIso();
     const { data, error } = await this.supabase
       .from('duel_runtime_messages')
@@ -299,10 +350,16 @@ export class SharedDuelStateStore {
       .limit(limit);
 
     if (error) {
-      console.error('Could not consume duel runtime messages:', error);
+      this._markRetryCooldown('consume_runtime_messages');
+      this._logWithCooldown(
+        'consume_runtime_messages',
+        'Could not consume duel runtime messages. Retrying in 15s.',
+        error
+      );
       return [];
     }
 
+    this._clearRetryCooldown('consume_runtime_messages');
     return data || [];
   }
 
