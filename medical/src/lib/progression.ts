@@ -1,13 +1,8 @@
 import { supabase, UserProfile } from './supabase';
+import { hasConfiguredApiBaseUrl, resolveApiBaseUrl } from './apiBase';
 
-const configuredApiBaseUrl =
-  (import.meta.env.VITE_API_SERVER_URL as string | undefined)?.trim() ||
-  (import.meta.env.VITE_DUEL_SERVER_URL as string | undefined)?.trim() ||
-  (import.meta.env.VITE_LEADERBOARD_API_URL as string | undefined)?.trim() ||
-  '';
-
-const apiBaseUrl = configuredApiBaseUrl || (import.meta.env.DEV ? 'http://localhost:4000' : '');
-const isUsingDevFallbackApiBaseUrl = !configuredApiBaseUrl && import.meta.env.DEV;
+const apiBaseUrl = resolveApiBaseUrl();
+const isUsingDevFallbackApiBaseUrl = !hasConfiguredApiBaseUrl && import.meta.env.DEV;
 const PROGRESSION_API_RETRY_COOLDOWN_MS = 15_000;
 
 type ProgressionApiUnavailableReason = 'unconfigured' | 'offline';
@@ -136,6 +131,14 @@ async function authorizedProgressionFetch<T>(path: string, init: RequestInit = {
           ...(init.headers || {}),
         },
       });
+
+      if (response.status === 404 || response.status >= 500) {
+        markProgressionApiUnavailable(path);
+        throw new ProgressionApiUnavailableError(
+          `Progression API is unavailable at ${buildProgressionApiUrl(path)}.`,
+          'offline'
+        );
+      }
 
       clearProgressionApiUnavailableState();
 

@@ -7,6 +7,7 @@ import {
   useStripe,
 } from '@stripe/react-stripe-js';
 import { AlertCircle, CheckCircle2, Lock, Shield, X } from 'lucide-react';
+import { resolveApiBaseUrl } from '../lib/apiBase';
 import { supabase } from '../lib/supabase';
 import { acceptLatestLegalDocuments, fetchLegalStatus, type LegalStatusResponse } from '../lib/legal';
 import LegalLinksInline from './legal/LegalLinksInline';
@@ -22,7 +23,7 @@ interface StripeCheckoutProps {
 }
 
 const STRIPE_PUBLISHABLE_KEY = import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY || '';
-const STRIPE_SERVER_URL = import.meta.env.VITE_STRIPE_SERVER_URL || 'http://localhost:3001';
+const STRIPE_SERVER_URL = (import.meta.env.VITE_STRIPE_SERVER_URL as string | undefined)?.trim() || resolveApiBaseUrl();
 const stripePromise = STRIPE_PUBLISHABLE_KEY ? loadStripe(STRIPE_PUBLISHABLE_KEY) : Promise.resolve(null);
 
 const cardElementOptions = {

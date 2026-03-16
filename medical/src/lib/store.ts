@@ -1,6 +1,9 @@
 import { supabase } from './supabase';
+import { resolveApiBaseUrl } from './apiBase';
 
-const STORE_SERVER_URL = (import.meta.env.VITE_STRIPE_SERVER_URL as string | undefined)?.trim() || 'http://localhost:3001';
+const STORE_SERVER_URL =
+  (import.meta.env.VITE_STRIPE_SERVER_URL as string | undefined)?.trim() ||
+  resolveApiBaseUrl();
 
 export interface StorePurchaseResponse {
   success: boolean;

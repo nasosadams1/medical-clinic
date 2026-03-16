@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { loadStripe } from '@stripe/stripe-js';
 import { X, CreditCard, Lock, Shield } from 'lucide-react';
+import { resolveApiBaseUrl } from '../lib/apiBase';
 
 interface PaymentProcessorProps {
   amount: number;
@@ -12,6 +13,7 @@ interface PaymentProcessorProps {
 }
 
 const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY || '');
+const STRIPE_SERVER_URL = resolveApiBaseUrl();
 
 const PaymentProcessor: React.FC<PaymentProcessorProps> = ({
   amount,
@@ -56,7 +58,7 @@ const PaymentProcessor: React.FC<PaymentProcessorProps> = ({
 
     try {
       // Create payment intent
-      const response = await fetch('/api/create-payment-intent', {
+      const response = await fetch(`${STRIPE_SERVER_URL}/api/create-payment-intent`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

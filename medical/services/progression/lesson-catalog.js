@@ -42,6 +42,12 @@ for (const [language, lessons] of lessonsByLanguage.entries()) {
 }
 
 const lessonById = new Map(allLessons.map((lesson) => [lesson.id, Object.freeze({ ...lesson })]));
+export const LESSON_COUNTS_BY_LANGUAGE = Object.freeze(
+  Object.fromEntries(
+    [...lessonsByLanguage.entries()].map(([language, lessons]) => [language, lessons.length])
+  )
+);
+export const TOTAL_LESSON_COUNT = allLessons.length;
 
 export function getLessonMeta(lessonId) {
   return lessonById.get(lessonId) || null;
@@ -53,6 +59,10 @@ export function getLessonsByLanguage(language) {
 
 export function getAllLessonMeta() {
   return allLessons.map((lesson) => ({ ...lesson }));
+}
+
+export function countCompletedLessonsByLanguage(language, completedLessons = []) {
+  return completedLessons.filter((lessonId) => getLessonMeta(lessonId)?.language === language).length;
 }
 
 export function calculateLessonXp({ lessonId, actualTimeMinutes = null }) {
