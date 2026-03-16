@@ -1,7 +1,6 @@
 import { CURRENT_LEGAL_VERSIONS, LEGAL_DOCUMENT_LIST } from '../../shared/legal-documents.js';
 import { supabase } from './supabase';
-
-const LEGAL_API_BASE = (import.meta.env.VITE_API_SERVER_URL as string | undefined)?.trim() || 'http://localhost:4000';
+import { buildApiUrl, isApiNetworkError } from './apiBase';
 const PENDING_LEGAL_ACCEPTANCE_KEY = 'codhak-pending-legal-acceptance';
 
 export type LegalSource = 'signup' | 'checkout' | 'account';
@@ -60,10 +59,20 @@ export function clearPendingLegalAcceptance() {
 }
 
 export async function fetchLegalStatus(): Promise<LegalStatusResponse> {
-  const response = await fetch(`${LEGAL_API_BASE}/api/legal/status`, {
-    method: 'GET',
-    headers: await getAuthHeaders(),
-  });
+  let response: Response;
+
+  try {
+    response = await fetch(buildApiUrl('/api/legal/status'), {
+      method: 'GET',
+      headers: await getAuthHeaders(),
+    });
+  } catch (error) {
+    if (isApiNetworkError(error)) {
+      throw new Error('Could not reach the legal service.');
+    }
+
+    throw error;
+  }
 
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
@@ -74,11 +83,21 @@ export async function fetchLegalStatus(): Promise<LegalStatusResponse> {
 }
 
 export async function acceptLatestLegalDocuments(source: LegalSource, documentKeys?: string[]) {
-  const response = await fetch(`${LEGAL_API_BASE}/api/legal/accept`, {
-    method: 'POST',
-    headers: await getAuthHeaders(),
-    body: JSON.stringify({ source, documentKeys }),
-  });
+  let response: Response;
+
+  try {
+    response = await fetch(buildApiUrl('/api/legal/accept'), {
+      method: 'POST',
+      headers: await getAuthHeaders(),
+      body: JSON.stringify({ source, documentKeys }),
+    });
+  } catch (error) {
+    if (isApiNetworkError(error)) {
+      throw new Error('Could not reach the legal service.');
+    }
+
+    throw error;
+  }
 
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {

@@ -141,9 +141,21 @@ const AccountDuelModerationPanel: React.FC = () => {
         setCases([]);
         setSelectedCaseId('');
         setSelectedReplay(null);
+        setError('');
         return;
       }
+    } catch {
+      setCanReview(false);
+      setCases([]);
+      setSelectedCaseId('');
+      setSelectedReplay(null);
+      setError('');
+      setIsLoading(false);
+      setIsRefreshing(false);
+      return;
+    }
 
+    try {
       const entries = await fetchDuelAntiCheatCases(session.access_token, {
         status: statusFilter,
         limit: 50,
@@ -314,7 +326,7 @@ const AccountDuelModerationPanel: React.FC = () => {
     }
   };
 
-  if (canReview === false && !isLoading) {
+  if (canReview !== true) {
     return null;
   }
 

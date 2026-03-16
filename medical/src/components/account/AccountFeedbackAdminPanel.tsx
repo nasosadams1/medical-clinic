@@ -78,9 +78,19 @@ const AccountFeedbackAdminPanel: React.FC = () => {
 
       if (!capability.canReview) {
         setEntries([]);
+        setError('');
         return;
       }
+    } catch {
+      setEntries([]);
+      setCanReview(false);
+      setError('');
+      setIsLoading(false);
+      setIsRefreshing(false);
+      return;
+    }
 
+    try {
       const nextEntries = await fetchAdminFeedbackEntries(session.access_token, {
         status: statusFilter,
         type: typeFilter,
@@ -130,7 +140,7 @@ const AccountFeedbackAdminPanel: React.FC = () => {
     }
   };
 
-  if (canReview === false && !isLoading) {
+  if (canReview !== true) {
     return null;
   }
 

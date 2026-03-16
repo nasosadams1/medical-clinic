@@ -18,6 +18,8 @@ import AccountFeedbackPanel from './account/AccountFeedbackPanel';
 import AccountFeedbackAdminPanel from './account/AccountFeedbackAdminPanel';
 import AccountDuelModerationPanel from './account/AccountDuelModerationPanel';
 import { acceptLatestLegalDocuments, fetchLegalStatus, getLegalDocumentLinks, type LegalStatusResponse } from '../lib/legal';
+import { fetchDuelAdminCapabilities } from '../lib/duelAdmin';
+import { fetchFeedbackAdminCapabilities } from '../lib/feedback';
 
 const USERNAME_REGEX = /^[a-zA-Z0-9_]+$/;
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -26,6 +28,7 @@ const Account: React.FC = () => {
   const { user, updateUser, addNotification, isAuthenticated } = useUser();
   const {
     user: authUser,
+    session,
     resetPassword,
     updateEmail,
     confirmUser,
@@ -45,6 +48,7 @@ const Account: React.FC = () => {
   const [legalStatus, setLegalStatus] = useState<LegalStatusResponse | null>(null);
   const [isLoadingLegal, setIsLoadingLegal] = useState(true);
   const [isAcceptingLegal, setIsAcceptingLegal] = useState(false);
+  const [canAccessAdminPanels, setCanAccessAdminPanels] = useState(false);
 
   useEffect(() => {
     if (isSavingName) return;
@@ -106,6 +110,38 @@ const Account: React.FC = () => {
       cancelled = true;
     };
   }, [authUser?.id]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadAdminCapabilities = async () => {
+      if (!session?.access_token) {
+        if (!cancelled) {
+          setCanAccessAdminPanels(false);
+        }
+        return;
+      }
+
+      const [duelCapability, feedbackCapability] = await Promise.allSettled([
+        fetchDuelAdminCapabilities(session.access_token),
+        fetchFeedbackAdminCapabilities(session.access_token),
+      ]);
+
+      if (cancelled) {
+        return;
+      }
+
+      const canReviewDuels = duelCapability.status === 'fulfilled' && duelCapability.value.canReview;
+      const canReviewFeedback = feedbackCapability.status === 'fulfilled' && feedbackCapability.value.canReview;
+      setCanAccessAdminPanels(canReviewDuels || canReviewFeedback);
+    };
+
+    void loadAdminCapabilities();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [session?.access_token]);
   if (!user || !authUser || !isAuthenticated()) {
     return null;
   }
@@ -506,8 +542,8 @@ const Account: React.FC = () => {
         </section>
 
         <div className="mt-6 space-y-6">
-          <AccountDuelModerationPanel />
-          <AccountFeedbackAdminPanel />
+          {canAccessAdminPanels && <AccountDuelModerationPanel />}
+          {canAccessAdminPanels && <AccountFeedbackAdminPanel />}
           <AccountFeedbackPanel />
         </div>
       </div>
@@ -516,7 +552,6 @@ const Account: React.FC = () => {
 };
 
 export default Account;
-
 
 
 

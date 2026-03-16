@@ -9,6 +9,7 @@ import {
   FEEDBACK_TYPES,
   FeedbackSubmissionSchema,
 } from '../../shared/feedback-contract.js';
+import { buildApiUrl, isApiNetworkError } from './apiBase';
 
 export type FeedbackType = 'bug_report' | 'feature_request' | 'general_feedback';
 export type FeedbackStatus = 'new' | 'in_review' | 'resolved';
@@ -73,11 +74,6 @@ export interface FeedbackAdminEntry extends FeedbackHistoryEntry {
   } | null;
 }
 
-const apiBaseUrl =
-  (import.meta.env.VITE_API_SERVER_URL as string | undefined)?.trim() ||
-  (import.meta.env.VITE_LEADERBOARD_API_URL as string | undefined)?.trim() ||
-  'http://localhost:4000';
-
 export const feedbackConfig = {
   types: FEEDBACK_TYPES as FeedbackType[],
   allowedAttachmentTypes: FEEDBACK_ALLOWED_ATTACHMENT_TYPES,
@@ -89,7 +85,7 @@ export const feedbackConfig = {
   maxMessageLength: FEEDBACK_MAX_MESSAGE_LENGTH,
 };
 
-const buildFeedbackApiUrl = (path = '') => `${apiBaseUrl.replace(/\/$/, '')}/api/feedback${path}`;
+const buildFeedbackApiUrl = (path = '') => buildApiUrl(`/api/feedback${path}`);
 
 const toBase64 = (file: File) =>
   new Promise<string>((resolve, reject) => {
@@ -132,14 +128,24 @@ export const serializeFeedbackFiles = async (files: File[]): Promise<FeedbackAtt
 };
 
 const authorizedFetch = async (path: string, sessionToken: string, init: RequestInit = {}) => {
-  const response = await fetch(buildFeedbackApiUrl(path), {
-    ...init,
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${sessionToken}`,
-      ...(init.headers || {}),
-    },
-  });
+  let response: Response;
+
+  try {
+    response = await fetch(buildFeedbackApiUrl(path), {
+      ...init,
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${sessionToken}`,
+        ...(init.headers || {}),
+      },
+    });
+  } catch (error) {
+    if (isApiNetworkError(error)) {
+      throw new Error('Could not reach the feedback service. Please try again in a moment.');
+    }
+
+    throw error;
+  }
 
   const isJson = response.headers.get('content-type')?.includes('application/json');
   const payload = isJson ? await response.json().catch(() => ({})) : {};
