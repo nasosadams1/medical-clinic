@@ -5,7 +5,7 @@ import { useAuth } from './AuthContext';
 import { UserProfile, getUserProfile, getDisplayName, supabase } from '../lib/supabase';
 import { checkAchievements, Achievement } from '../data/achievements';
 import { avatars } from '../data/avatars';
-import { getLessonsByLanguage, getLessonById } from '../data/lessons';
+import { countCompletedLessonsByLanguage, getLessonCountByLanguage } from '../data/lessonCatalog';
 import {
   buyHeartsProgression,
   completeLessonProgression,
@@ -1036,19 +1036,14 @@ export const UserProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       console.warn(`Invalid language: ${language}. Returning empty progress.`);
       return { completed: 0, total: 0, percentage: 0 };
     }
-    
-    const languageLessons = getLessonsByLanguage(language as ValidLanguage);
-    const totalLessons = languageLessons.length;
-    
-    const completed = user.completedLessons.filter(lessonId => {
-      const lesson = getLessonById(lessonId);
-      return lesson && lesson.language === language;
-    }).length;
+
+    const totalLessons = getLessonCountByLanguage(language as ValidLanguage);
+    const completed = countCompletedLessonsByLanguage(language as ValidLanguage, user.completedLessons);
 
     return {
       completed,
       total: totalLessons,
-      percentage: Math.round((completed / totalLessons) * 100)
+      percentage: totalLessons > 0 ? Math.round((completed / totalLessons) * 100) : 0
     };
   }, [user.completedLessons]);
 

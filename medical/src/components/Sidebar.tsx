@@ -7,8 +7,9 @@ import MascotIcon from './branding/MascotIcon';
 
 interface SidebarProps {
   currentSection: string;
-  setCurrentSection: React.Dispatch<React.SetStateAction<string>>;
+  setCurrentSection: (section: string) => void;
   openAuthModal: (view?: 'login' | 'signup') => void;
+  preloadSection?: (section: string) => void;
   isOpen?: boolean;
   onClose?: () => void;
 }
@@ -17,6 +18,7 @@ const Sidebar: React.FC<SidebarProps> = ({
   currentSection,
   setCurrentSection,
   openAuthModal,
+  preloadSection,
   isOpen = true,
   onClose,
 }) => {
@@ -24,13 +26,6 @@ const Sidebar: React.FC<SidebarProps> = ({
   const { user, resetHeartsIfNeeded, getActiveBoosts } = useUser();
   const [signingOut, setSigningOut] = useState(false);
   const [currentTime, setCurrentTime] = useState(Date.now());
-
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setCurrentTime(Date.now());
-    }, 1000);
-    return () => clearInterval(interval);
-  }, []);
 
   useEffect(() => {
     if (authUser && resetHeartsIfNeeded) {
@@ -69,6 +64,32 @@ const Sidebar: React.FC<SidebarProps> = ({
 
   const currentAvatar = authUser && user ? (avatars.find((a) => a.id === user.currentAvatar) || avatars[0]) : null;
   const activeBoosts = authUser && user ? getActiveBoosts() : {};
+  const xpBoostExpiresAt = activeBoosts.xpBoost?.expiresAt ?? null;
+  const unlimitedHeartsExpiresAt = activeBoosts.unlimitedHearts?.expiresAt ?? null;
+
+  useEffect(() => {
+    if (!xpBoostExpiresAt && !unlimitedHeartsExpiresAt) {
+      return;
+    }
+
+    let intervalId = 0;
+    const tick = () => {
+      const now = Date.now();
+      setCurrentTime(now);
+
+      const hasActiveCountdown = [xpBoostExpiresAt, unlimitedHeartsExpiresAt].some(
+        (expiresAt) => typeof expiresAt === 'number' && expiresAt > now
+      );
+
+      if (!hasActiveCountdown && intervalId) {
+        window.clearInterval(intervalId);
+      }
+    };
+
+    tick();
+    intervalId = window.setInterval(tick, 1000);
+    return () => window.clearInterval(intervalId);
+  }, [xpBoostExpiresAt, unlimitedHeartsExpiresAt]);
 
   const formatTimeRemaining = (expiresAt: number) => {
     const remaining = Math.max(0, expiresAt - currentTime);
@@ -201,12 +222,16 @@ const Sidebar: React.FC<SidebarProps> = ({
                 <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                   <button
                     onClick={() => openAuthModal('signup')}
+                    onMouseEnter={() => preloadSection?.('signup')}
+                    onFocus={() => preloadSection?.('signup')}
                     className="w-full rounded-xl bg-blue-500 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-blue-600"
                   >
                     Sign Up
                   </button>
                   <button
                     onClick={() => openAuthModal('login')}
+                    onMouseEnter={() => preloadSection?.('signup')}
+                    onFocus={() => preloadSection?.('signup')}
                     className="w-full rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm font-medium text-gray-700 transition hover:bg-gray-100"
                   >
                     Sign In
@@ -237,6 +262,8 @@ const Sidebar: React.FC<SidebarProps> = ({
                 <li key={item.id}>
                   <button
                     onClick={() => handleNavigation(item.id)}
+                    onMouseEnter={() => preloadSection?.(item.id)}
+                    onFocus={() => preloadSection?.(item.id)}
                     className={`flex w-full items-center gap-3 rounded-2xl px-4 py-3 text-left transition-all duration-200 ${
                       isActive
                         ? 'bg-gradient-to-r from-green-400 to-blue-500 text-white shadow-md'

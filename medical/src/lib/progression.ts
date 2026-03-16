@@ -2,6 +2,7 @@ import { supabase, UserProfile } from './supabase';
 
 const configuredApiBaseUrl =
   (import.meta.env.VITE_API_SERVER_URL as string | undefined)?.trim() ||
+  (import.meta.env.VITE_DUEL_SERVER_URL as string | undefined)?.trim() ||
   (import.meta.env.VITE_LEADERBOARD_API_URL as string | undefined)?.trim() ||
   '';
 

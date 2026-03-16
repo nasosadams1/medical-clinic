@@ -1,4 +1,8 @@
-import { allLessons, getLessonsByLanguage, Lesson } from './lessons';
+import {
+  countCompletedLessonsByLanguage,
+  LESSON_COUNTS_BY_LANGUAGE,
+  TOTAL_LESSON_COUNT,
+} from './lessonCatalog';
 
 export interface Achievement {
   id: string;
@@ -25,10 +29,10 @@ export interface Achievement {
 }
 
 const TOTALS = {
-  python: getLessonsByLanguage('python').length,
-  javascript: getLessonsByLanguage('javascript').length,
-  cpp: getLessonsByLanguage('cpp').length,
-  java: getLessonsByLanguage('java').length,
+  python: LESSON_COUNTS_BY_LANGUAGE.python,
+  javascript: LESSON_COUNTS_BY_LANGUAGE.javascript,
+  cpp: LESSON_COUNTS_BY_LANGUAGE.cpp,
+  java: LESSON_COUNTS_BY_LANGUAGE.java,
 };
 
 export const achievements: Achievement[] = [
@@ -83,7 +87,7 @@ export const achievements: Achievement[] = [
     description: 'Complete every lesson currently in the app.',
     icon: '\u{1F393}',
     category: 'special',
-    requirement: { type: 'lessons_completed', value: allLessons.length },
+    requirement: { type: 'lessons_completed', value: TOTAL_LESSON_COUNT },
     reward: { xp: 1500 },
   },
 
@@ -360,15 +364,11 @@ export const checkAchievements = (user: {
   const newAchievements: Achievement[] = [];
   const userUnlockedAchievements = user.unlockedAchievements || [];
 
-  const validCompletedLessonObjects = completedLessons
-    .map((lessonId) => allLessons.find((lesson) => lesson.id === lessonId))
-    .filter((lesson): lesson is Lesson => Boolean(lesson));
-
   const countsByLanguage = {
-    python: validCompletedLessonObjects.filter((lesson) => lesson.language === 'python').length,
-    javascript: validCompletedLessonObjects.filter((lesson) => lesson.language === 'javascript').length,
-    cpp: validCompletedLessonObjects.filter((lesson) => lesson.language === 'cpp').length,
-    java: validCompletedLessonObjects.filter((lesson) => lesson.language === 'java').length,
+    python: countCompletedLessonsByLanguage('python', completedLessons),
+    javascript: countCompletedLessonsByLanguage('javascript', completedLessons),
+    cpp: countCompletedLessonsByLanguage('cpp', completedLessons),
+    java: countCompletedLessonsByLanguage('java', completedLessons),
   };
 
   const languagesTried = Object.entries(countsByLanguage)

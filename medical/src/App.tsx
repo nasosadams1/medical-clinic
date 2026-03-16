@@ -1,4 +1,4 @@
-import React, { Suspense, lazy, useMemo, useState } from 'react';
+import React, { Suspense, startTransition, useMemo, useState } from 'react';
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import { AuthProvider } from './context/AuthContext';
 import { UserProvider } from './context/UserContext';
@@ -6,19 +6,21 @@ import Sidebar from './components/Sidebar';
 import Learn from './components/Learn';
 import { useAuth } from './context/AuthContext';
 import { BookOpen, ShoppingBag, Swords, Trophy, User as UserIcon, Settings, UserPlus } from 'lucide-react';
+import { preloadLessonsModule } from './data/lessonsLoader';
+import { lazyWithPreload } from './lib/lazyWithPreload';
 
 type SectionId = 'learn' | 'duels' | 'store' | 'leaderboard' | 'profile' | 'account';
 type AuthModalView = 'login' | 'signup';
 
-const AuthContainer = lazy(() => import('./components/auth/AuthContainer'));
-const Store = lazy(() => import('./components/Store'));
-const RealTimeLeaderboard = lazy(() => import('./components/Leaderboard'));
-const Profile = lazy(() => import('./components/Profile'));
-const Account = lazy(() => import('./components/Account'));
-const DuelsDashboard = lazy(() => import('./components/DuelsDashboard'));
-const AuthConfirm = lazy(() => import('./components/AuthConfirm'));
-const ResetPasswordPage = lazy(() => import('./components/ResetPasswordPage'));
-const LegalDocumentPage = lazy(() => import('./components/legal/LegalDocumentPage'));
+const AuthContainer = lazyWithPreload(() => import('./components/auth/AuthContainer'));
+const Store = lazyWithPreload(() => import('./components/Store'));
+const RealTimeLeaderboard = lazyWithPreload(() => import('./components/Leaderboard'));
+const Profile = lazyWithPreload(() => import('./components/Profile'));
+const Account = lazyWithPreload(() => import('./components/Account'));
+const DuelsDashboard = lazyWithPreload(() => import('./components/DuelsDashboard'));
+const AuthConfirm = lazyWithPreload(() => import('./components/AuthConfirm'));
+const ResetPasswordPage = lazyWithPreload(() => import('./components/ResetPasswordPage'));
+const LegalDocumentPage = lazyWithPreload(() => import('./components/legal/LegalDocumentPage'));
 
 const SectionFallback = () => (
   <div className="flex min-h-[40vh] items-center justify-center px-6 py-16 text-sm font-medium text-slate-500">
@@ -39,8 +41,26 @@ function AppContent() {
   const isAuthenticated = !!user;
 
   const openAuthModal = (view: AuthModalView = 'login') => {
+    void AuthContainer.preload();
     setAuthInitialView(view);
     setShowAuthModal(true);
+  };
+
+  const preloadSection = (section: SectionId) => {
+    if (section === 'learn') {
+      preloadLessonsModule();
+      return;
+    }
+
+    const sectionPreloader = {
+      duels: DuelsDashboard,
+      store: Store,
+      leaderboard: RealTimeLeaderboard,
+      profile: Profile,
+      account: Account,
+    }[section];
+
+    void sectionPreloader?.preload();
   };
 
   const navItems = useMemo(
@@ -68,9 +88,34 @@ function AppContent() {
     }
   }, [currentSection, isAuthenticated]);
 
+  React.useEffect(() => {
+    const preloadLikelyViews = () => {
+      preloadLessonsModule();
+      void AuthContainer.preload();
+
+      if (isAuthenticated) {
+        void DuelsDashboard.preload();
+        void Store.preload();
+        void RealTimeLeaderboard.preload();
+        void Profile.preload();
+        void Account.preload();
+      }
+    };
+
+    const timeoutId = window.setTimeout(preloadLikelyViews, 150);
+    return () => window.clearTimeout(timeoutId);
+  }, [isAuthenticated]);
+
   const learnView = (
     <Learn
-      setCurrentSection={(section) => setCurrentSection(section as SectionId)}
+      setCurrentSection={(section) => {
+        if (section === 'learn') {
+          preloadLessonsModule();
+          startTransition(() => setCurrentSection('learn'));
+          setSidebarOpen(false);
+          window.scrollTo({ top: 0, behavior: 'auto' });
+        }
+      }}
       openAuthModal={openAuthModal}
       isAuthenticated={isAuthenticated}
     />
@@ -102,17 +147,21 @@ function AppContent() {
   };
 
   const handleSectionChange = (section: SectionId) => {
+    preloadSection(section);
+
     if (!isAuthenticated && section !== 'learn') {
       setCurrentSection('learn');
       setSidebarOpen(false);
       openAuthModal('signup');
-      window.scrollTo({ top: 0, behavior: 'smooth' });
+      window.scrollTo({ top: 0, behavior: 'auto' });
       return;
     }
 
-    setCurrentSection(section);
+    startTransition(() => {
+      setCurrentSection(section);
+    });
     setSidebarOpen(false);
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    window.scrollTo({ top: 0, behavior: 'auto' });
   };
 
   return (
@@ -123,8 +172,9 @@ function AppContent() {
 
       <Sidebar
         currentSection={currentSection}
-        setCurrentSection={(section) => setCurrentSection(section as SectionId)}
+        setCurrentSection={(section) => handleSectionChange(section as SectionId)}
         openAuthModal={openAuthModal}
+        preloadSection={(section) => preloadSection(section as SectionId)}
         isOpen={sidebarOpen}
         onClose={() => setSidebarOpen(false)}
       />
@@ -147,6 +197,22 @@ function AppContent() {
                       return;
                     }
                     handleSectionChange(item.id);
+                  }}
+                  onMouseEnter={() => {
+                    if (item.id === 'signup') {
+                      void AuthContainer.preload();
+                      return;
+                    }
+
+                    preloadSection(item.id);
+                  }}
+                  onFocus={() => {
+                    if (item.id === 'signup') {
+                      void AuthContainer.preload();
+                      return;
+                    }
+
+                    preloadSection(item.id);
                   }}
                   className={`flex w-full flex-col items-center justify-center rounded-2xl px-2 py-2 text-[11px] font-medium transition ${
                     isActive

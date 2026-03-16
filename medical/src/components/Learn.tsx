@@ -1,11 +1,17 @@
-import React, { useState, useMemo } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Trophy, Play, Lock, BookOpen, Code, Database, Globe, Link2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useUser } from '../context/UserContext';
 import LessonModal from './LessonModal';
-import { getLessonsByLanguage, getTotalLessonsByLanguage, getCompletedLessonsByLanguage, formatLessonDisplayName } from '../data/lessons';
+import {
+  countCompletedLessonsByLanguage,
+  formatLessonIdAsDisplayName,
+  getLessonCountByLanguage,
+  LessonLanguage,
+} from '../data/lessonCatalog';
+import { loadLessonsModule } from '../data/lessonsLoader';
 
-type Language = 'python' | 'javascript' | 'cpp' | 'java';
+type Language = LessonLanguage;
 type DifficultyTier = 'Beginner' | 'Intermediate' | 'Advanced';
 
 interface LearnProps {
@@ -14,11 +20,60 @@ interface LearnProps {
   isAuthenticated?: boolean;
 }
 
+interface LessonPreview {
+  id: string;
+  title: string;
+  description: string;
+  difficulty: string;
+  baseXP: number;
+  baselineTime: number;
+  language: Language;
+  category: string;
+  isLocked: boolean;
+  prerequisite?: string;
+  content?: {
+    steps?: any[];
+    quiz?: any[];
+  };
+}
+
+type VisibleLesson = LessonPreview & {
+  tier: DifficultyTier;
+  sortIndex: number;
+};
+
 const Learn: React.FC<LearnProps> = ({ setCurrentSection, openAuthModal, isAuthenticated = false }) => {
   const { user, isUnlimitedHeartsActive } = useUser();
   const [selectedLanguage, setSelectedLanguage] = useState<Language>('python');
   const [filter, setFilter] = useState('Available');
-  const [selectedLesson, setSelectedLesson] = useState<any>(null);
+  const [selectedLesson, setSelectedLesson] = useState<LessonPreview | null>(null);
+  const [lessonsModule, setLessonsModule] = useState<Awaited<ReturnType<typeof loadLessonsModule>> | null>(null);
+  const [isLessonsLoading, setIsLessonsLoading] = useState(true);
+  const [lessonsError, setLessonsError] = useState<string | null>(null);
+  const [lessonsReloadKey, setLessonsReloadKey] = useState(0);
+
+  useEffect(() => {
+    let isActive = true;
+    setLessonsError(null);
+    setIsLessonsLoading(true);
+
+    void loadLessonsModule()
+      .then((module) => {
+        if (!isActive) return;
+        setLessonsModule(module);
+        setIsLessonsLoading(false);
+      })
+      .catch((error) => {
+        if (!isActive) return;
+        console.error('Failed to load lessons:', error);
+        setLessonsError('Lessons failed to load. Please try again.');
+        setIsLessonsLoading(false);
+      });
+
+    return () => {
+      isActive = false;
+    };
+  }, [lessonsReloadKey]);
 
   const languages = [
     { id: 'python' as Language, name: 'Python', icon: Code, color: 'from-blue-400 to-green-500', description: '50 comprehensive Python lessons' },
@@ -34,16 +89,20 @@ const Learn: React.FC<LearnProps> = ({ setCurrentSection, openAuthModal, isAuthe
     return 'Beginner';
   };
 
-  const currentLessons = useMemo(() => {
-    return getLessonsByLanguage(selectedLanguage).map((lesson, index) => ({
+  const currentLessons = useMemo<VisibleLesson[]>(() => {
+    if (!lessonsModule) {
+      return [];
+    }
+
+    return lessonsModule.getLessonsByLanguage(selectedLanguage).map((lesson, index) => ({
       ...lesson,
       tier: normalizeDifficultyTier(lesson.difficulty),
       sortIndex: index,
     }));
-  }, [selectedLanguage]);
+  }, [lessonsModule, selectedLanguage]);
 
   const difficultyUnlocks = useMemo(() => {
-    const lessonGroups: Record<DifficultyTier, any[]> = {
+    const lessonGroups: Record<DifficultyTier, VisibleLesson[]> = {
       Beginner: currentLessons.filter((lesson) => lesson.tier === 'Beginner'),
       Intermediate: currentLessons.filter((lesson) => lesson.tier === 'Intermediate'),
       Advanced: currentLessons.filter((lesson) => lesson.tier === 'Advanced'),
@@ -73,10 +132,10 @@ const Learn: React.FC<LearnProps> = ({ setCurrentSection, openAuthModal, isAuthe
   }, [currentLessons, user.completedLessons]);
 
   const selectedLanguageCompletedCount = useMemo(
-    () => currentLessons.reduce((count, lesson) => count + (user.completedLessons.includes(lesson.id) ? 1 : 0), 0),
-    [currentLessons, user.completedLessons]
+    () => countCompletedLessonsByLanguage(selectedLanguage, user.completedLessons),
+    [selectedLanguage, user.completedLessons]
   );
-
+  const selectedLanguageTotalLessons = getLessonCountByLanguage(selectedLanguage);
 
   const filters = ['All Lessons', 'Available', 'Completed', 'Beginner', 'Intermediate', 'Advanced'];
 
@@ -114,38 +173,32 @@ const Learn: React.FC<LearnProps> = ({ setCurrentSection, openAuthModal, isAuthe
   };
 
   const languageStats = useMemo(() => {
-    return languages.map(language => {
-      const totalLessons = getTotalLessonsByLanguage(language.id);
-      const completedCount = getCompletedLessonsByLanguage(language.id, user.completedLessons);
-      return {
-        ...language,
-        totalLessons,
-        completedCount,
-      };
-    });
+    return languages.map((language) => ({
+      ...language,
+      totalLessons: getLessonCountByLanguage(language.id),
+      completedCount: countCompletedLessonsByLanguage(language.id, user.completedLessons),
+    }));
   }, [user.completedLessons]);
 
   const handleRedirectToLearn = () => {
     setSelectedLesson(null);
-    if (setCurrentSection) {
-      setCurrentSection('learn');
-    }
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    setCurrentSection?.('learn');
+    window.scrollTo({ top: 0, behavior: 'auto' });
   };
 
-  const getVisibleLessonTitle = (lesson: any) => {
+  const getVisibleLessonTitle = (lesson: Pick<LessonPreview, 'id' | 'title'>) => {
     return lesson?.title && !/^[a-z0-9]+(?:[-_][a-z0-9]+)+$/i.test(lesson.title)
       ? lesson.title
-      : formatLessonDisplayName(lesson.id);
+      : formatLessonIdAsDisplayName(lesson.id);
   };
 
-  const handleStartLesson = (lesson: any) => {
+  const handleStartLesson = (lesson: VisibleLesson) => {
     if (!isAuthenticated) {
       openAuthModal?.('signup');
       return;
     }
 
-    const lessonTier = lesson.tier as DifficultyTier;
+    const lessonTier = lesson.tier;
     if (!difficultyUnlocks[lessonTier]) {
       const requiredTier: 'Beginner' | 'Intermediate' = lessonTier === 'Intermediate' ? 'Beginner' : 'Intermediate';
       const progress = difficultyUnlocks.progress[requiredTier];
@@ -199,7 +252,7 @@ const Learn: React.FC<LearnProps> = ({ setCurrentSection, openAuthModal, isAuthe
                   className={`h-2 rounded-full transition-all duration-500 ${
                     selectedLanguage === language.id ? 'bg-white/40' : 'bg-gray-300'
                   }`}
-                  style={{ width: `${(language.completedCount / language.totalLessons) * 100}%` }}
+                  style={{ width: `${(language.completedCount / Math.max(1, language.totalLessons)) * 100}%` }}
                 ></div>
               </div>
             </button>
@@ -229,106 +282,145 @@ const Learn: React.FC<LearnProps> = ({ setCurrentSection, openAuthModal, isAuthe
             <Trophy className="w-6 h-6" />
           </div>
           <div className="mb-1 text-xl font-bold lg:text-2xl">
-            {selectedLanguageCompletedCount}/{currentLessons.length}
+            {selectedLanguageCompletedCount}/{selectedLanguageTotalLessons}
           </div>
           <div className="text-sm text-white/80 lg:text-base">{selectedLanguage.toUpperCase()} Lessons Completed</div>
         </div>
       </div>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 lg:gap-6">
-        {filteredLessons.map((lesson) => {
-          const isCompleted = user.completedLessons.includes(lesson.id);
-          const isDifficultyLocked = !difficultyUnlocks[lesson.tier as DifficultyTier];
-          const canStartLesson = isAuthenticated && !isDifficultyLocked && (user.hearts > 0 || isUnlimitedHeartsActive());
-
-          return (
-            <div
-              key={`${lesson.id}-${selectedLanguage}`}
-              className={`relative overflow-hidden rounded-2xl border bg-white shadow-md transition-all duration-300 ${
-                isDifficultyLocked ? 'border-gray-300 bg-gray-50' : 'border-gray-100 hover:-translate-y-1 hover:shadow-lg'
-              }`}
+        {lessonsError ? (
+          <div className="col-span-full rounded-2xl border border-red-100 bg-red-50 p-6 text-center shadow-sm">
+            <h3 className="text-lg font-semibold text-red-900">Lesson list failed to load</h3>
+            <p className="mt-2 text-sm text-red-700">{lessonsError}</p>
+            <button
+              type="button"
+              onClick={() => setLessonsReloadKey((value) => value + 1)}
+              className="mt-4 rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-red-700"
             >
-              {isDifficultyLocked && <div className="pointer-events-none absolute inset-0 rounded-2xl border-2 border-dashed border-gray-300" />}
+              Try again
+            </button>
+          </div>
+        ) : isLessonsLoading ? (
+          Array.from({ length: 6 }, (_, index) => (
+            <div key={index} className="overflow-hidden rounded-2xl border border-gray-100 bg-white p-4 shadow-md sm:p-5 lg:p-6">
+              <div className="mb-4 flex items-start justify-between gap-3">
+                <div className="flex min-w-0 items-center gap-2">
+                  <div className="h-5 w-5 animate-pulse rounded bg-gray-200" />
+                  <div className="h-6 w-24 animate-pulse rounded-full bg-gray-200" />
+                </div>
+                <div className="h-4 w-14 animate-pulse rounded bg-gray-200" />
+              </div>
+              <div className="mb-2 h-6 w-3/4 animate-pulse rounded bg-gray-200" />
+              <div className="mb-2 h-4 w-full animate-pulse rounded bg-gray-100" />
+              <div className="mb-4 h-4 w-5/6 animate-pulse rounded bg-gray-100" />
+              <div className="mb-4 h-4 w-24 animate-pulse rounded bg-gray-100" />
+              <div className="flex flex-col items-stretch gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <div className="h-8 w-24 animate-pulse rounded-full bg-gray-100" />
+                <div className="h-10 w-full animate-pulse rounded-lg bg-gray-200 sm:w-28" />
+              </div>
+            </div>
+          ))
+        ) : filteredLessons.length === 0 ? (
+          <div className="col-span-full rounded-2xl border border-gray-100 bg-white p-8 text-center shadow-sm">
+            <h3 className="text-lg font-semibold text-gray-900">No lessons match this filter</h3>
+            <p className="mt-2 text-sm text-gray-500">Try switching to another lesson type or language.</p>
+          </div>
+        ) : (
+          filteredLessons.map((lesson) => {
+            const isCompleted = user.completedLessons.includes(lesson.id);
+            const isDifficultyLocked = !difficultyUnlocks[lesson.tier];
+            const canStartLesson = isAuthenticated && !isDifficultyLocked && (user.hearts > 0 || isUnlimitedHeartsActive());
 
-              <div className="p-4 sm:p-5 lg:p-6">
-                <div className="mb-4 flex items-start justify-between gap-3">
-                  <div className="flex min-w-0 items-center gap-2">
-                    <BookOpen className={`w-5 h-5 ${isDifficultyLocked ? 'text-gray-400' : 'text-blue-500'}`} />
-                    <span className={`px-2 py-1 rounded-full text-xs font-medium ${isDifficultyLocked ? 'bg-gray-200 text-gray-600' : getDifficultyColor(lesson.tier)}`}>
-                      {lesson.tier}
+            return (
+              <div
+                key={`${lesson.id}-${selectedLanguage}`}
+                className={`relative overflow-hidden rounded-2xl border bg-white shadow-md transition-all duration-300 ${
+                  isDifficultyLocked ? 'border-gray-300 bg-gray-50' : 'border-gray-100 hover:-translate-y-1 hover:shadow-lg'
+                }`}
+              >
+                {isDifficultyLocked && <div className="pointer-events-none absolute inset-0 rounded-2xl border-2 border-dashed border-gray-300" />}
+
+                <div className="p-4 sm:p-5 lg:p-6">
+                  <div className="mb-4 flex items-start justify-between gap-3">
+                    <div className="flex min-w-0 items-center gap-2">
+                      <BookOpen className={`w-5 h-5 ${isDifficultyLocked ? 'text-gray-400' : 'text-blue-500'}`} />
+                      <span className={`px-2 py-1 rounded-full text-xs font-medium ${isDifficultyLocked ? 'bg-gray-200 text-gray-600' : getDifficultyColor(lesson.tier)}`}>
+                        {lesson.tier}
+                      </span>
+                    </div>
+                    <div className="shrink-0 text-right text-xs text-gray-500">
+                      {isDifficultyLocked && (
+                        <div className="mb-2 inline-flex items-center gap-1 rounded-full bg-gray-200 px-2 py-1 text-[11px] font-medium text-gray-600">
+                          <Link2 className="h-3.5 w-3.5" />
+                          Locked
+                        </div>
+                      )}
+                      <span className="mr-1 h-2 w-2 rounded-full bg-blue-400"></span>
+                      {lesson.baseXP}+ XP
+                    </div>
+                  </div>
+
+                  <h3 className={`mb-2 line-clamp-2 text-base font-semibold lg:text-lg ${isDifficultyLocked ? 'text-gray-700' : 'text-gray-900'}`}>{getVisibleLessonTitle(lesson)}</h3>
+                  <p className={`mb-4 line-clamp-3 text-sm ${isDifficultyLocked ? 'text-gray-500' : 'text-gray-600'}`}>{lesson.description}</p>
+
+                  <div className="mb-4 flex items-center text-xs text-gray-500">
+                    <span>Est. time: {lesson.baselineTime} min</span>
+                  </div>
+
+                  <div className="flex flex-col items-stretch gap-2 sm:flex-row sm:items-center sm:justify-between">
+                    <span className="inline-flex max-w-full items-center rounded-full bg-gray-100 px-3 py-1 text-xs text-gray-700">
+                      {lesson.category}
                     </span>
-                  </div>
-                  <div className="shrink-0 text-right text-xs text-gray-500">
-                    {isDifficultyLocked && (
-                      <div className="mb-2 inline-flex items-center gap-1 rounded-full bg-gray-200 px-2 py-1 text-[11px] font-medium text-gray-600">
-                        <Link2 className="h-3.5 w-3.5" />
-                        Locked
-                      </div>
-                    )}
-                    <span className="mr-1 h-2 w-2 rounded-full bg-blue-400"></span>
-                    {lesson.baseXP}+ XP
-                  </div>
-                </div>
 
-                <h3 className={`mb-2 line-clamp-2 text-base font-semibold lg:text-lg ${isDifficultyLocked ? 'text-gray-700' : 'text-gray-900'}`}>{getVisibleLessonTitle(lesson)}</h3>
-                <p className={`mb-4 line-clamp-3 text-sm ${isDifficultyLocked ? 'text-gray-500' : 'text-gray-600'}`}>{lesson.description}</p>
-
-                <div className="mb-4 flex items-center text-xs text-gray-500">
-                  <span>Est. time: {lesson.baselineTime} min</span>
-                </div>
-
-                <div className="flex flex-col items-stretch gap-2 sm:flex-row sm:items-center sm:justify-between">
-                  <span className="inline-flex max-w-full items-center rounded-full bg-gray-100 px-3 py-1 text-xs text-gray-700">
-                    {lesson.category}
-                  </span>
-
-                  {isCompleted ? (
-                    <button className="w-full cursor-default rounded-lg bg-green-100 px-4 py-2 text-sm font-medium text-green-700 sm:w-auto">
-                      Completed
-                    </button>
-                  ) : isDifficultyLocked ? (
-                    <button className="w-full cursor-not-allowed rounded-lg bg-gray-200 px-4 py-2 text-sm font-medium text-gray-600 sm:w-auto flex items-center justify-center space-x-1">
-                      <Link2 className="w-4 h-4" />
-                      <span>Locked</span>
-                    </button>
-                  ) : lesson.isLocked ? (
-                    <button className="w-full cursor-not-allowed rounded-lg bg-gray-100 px-4 py-2 text-sm font-medium text-gray-500 sm:w-auto flex items-center justify-center space-x-1">
-                      <Lock className="w-4 h-4" />
-                      <span>Locked</span>
-                    </button>
-                  ) : !isAuthenticated ? (
-                    <button
-                      type="button"
-                      onClick={() => handleStartLesson(lesson)}
-                      className="w-full rounded-lg bg-blue-500 px-4 py-2 text-sm font-medium text-white transition hover:bg-blue-600 sm:w-auto"
-                    >
-                      Start lesson
-                    </button>
-                  ) : !canStartLesson ? (
-                    <div className="tooltip">
+                    {isCompleted ? (
+                      <button className="w-full cursor-default rounded-lg bg-green-100 px-4 py-2 text-sm font-medium text-green-700 sm:w-auto">
+                        Completed
+                      </button>
+                    ) : isDifficultyLocked ? (
+                      <button className="w-full cursor-not-allowed rounded-lg bg-gray-200 px-4 py-2 text-sm font-medium text-gray-600 sm:w-auto flex items-center justify-center space-x-1">
+                        <Link2 className="w-4 h-4" />
+                        <span>Locked</span>
+                      </button>
+                    ) : lesson.isLocked ? (
+                      <button className="w-full cursor-not-allowed rounded-lg bg-gray-100 px-4 py-2 text-sm font-medium text-gray-500 sm:w-auto flex items-center justify-center space-x-1">
+                        <Lock className="w-4 h-4" />
+                        <span>Locked</span>
+                      </button>
+                    ) : !isAuthenticated ? (
                       <button
-                        disabled
-                        className="w-full cursor-not-allowed rounded-lg bg-gray-300 px-4 py-2 text-sm font-medium text-gray-600 sm:w-auto flex items-center justify-center space-x-1"
+                        type="button"
+                        onClick={() => handleStartLesson(lesson)}
+                        className="w-full rounded-lg bg-blue-500 px-4 py-2 text-sm font-medium text-white transition hover:bg-blue-600 sm:w-auto"
+                      >
+                        Start lesson
+                      </button>
+                    ) : !canStartLesson ? (
+                      <div className="tooltip">
+                        <button
+                          disabled
+                          className="w-full cursor-not-allowed rounded-lg bg-gray-300 px-4 py-2 text-sm font-medium text-gray-600 sm:w-auto flex items-center justify-center space-x-1"
+                        >
+                          <Play className="w-4 h-4" />
+                          <span>Start</span>
+                        </button>
+                        <span className="tooltiptext">You have no hearts left</span>
+                      </div>
+                    ) : (
+                      <button
+                        onClick={() => handleStartLesson(lesson)}
+                        className="w-full rounded-lg bg-blue-500 px-4 py-2 text-sm font-medium text-white transition hover:bg-blue-600 sm:w-auto flex items-center justify-center space-x-1"
                       >
                         <Play className="w-4 h-4" />
                         <span>Start</span>
                       </button>
-                      <span className="tooltiptext">You have no hearts left</span>
-                    </div>
-                  ) : (
-                    <button
-                      onClick={() => handleStartLesson(lesson)}
-                      className="w-full rounded-lg bg-blue-500 px-4 py-2 text-sm font-medium text-white transition hover:bg-blue-600 sm:w-auto flex items-center justify-center space-x-1"
-                    >
-                      <Play className="w-4 h-4" />
-                      <span>Start</span>
-                    </button>
-                  )}
+                    )}
+                  </div>
                 </div>
               </div>
-            </div>
-          );
-        })}
+            );
+          })
+        )}
       </div>
 
       {selectedLesson && isAuthenticated && (
@@ -346,4 +438,3 @@ const Learn: React.FC<LearnProps> = ({ setCurrentSection, openAuthModal, isAuthe
 };
 
 export default Learn;
-

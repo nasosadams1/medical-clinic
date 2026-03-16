@@ -1,7 +1,4 @@
-const apiBaseUrl =
-  (import.meta.env.VITE_API_SERVER_URL as string | undefined)?.trim() ||
-  (import.meta.env.VITE_LEADERBOARD_API_URL as string | undefined)?.trim() ||
-  'http://localhost:4000';
+import { buildApiUrl, isApiNetworkError } from './apiBase';
 
 export interface DuelProblemTestCase {
   input: string;
@@ -30,17 +27,27 @@ export interface DuelProblemRecord {
   created_at?: string;
 }
 
-const buildDuelProblemApiUrl = (path = '') => `${apiBaseUrl.replace(/\/$/, '')}/api/duel/problems${path}`;
+const buildDuelProblemApiUrl = (path = '') => buildApiUrl(`/api/duel/problems${path}`);
 
 const authorizedFetch = async (path: string, sessionToken: string, init: RequestInit = {}) => {
-  const response = await fetch(buildDuelProblemApiUrl(path), {
-    ...init,
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${sessionToken}`,
-      ...(init.headers || {}),
-    },
-  });
+  let response: Response;
+
+  try {
+    response = await fetch(buildDuelProblemApiUrl(path), {
+      ...init,
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${sessionToken}`,
+        ...(init.headers || {}),
+      },
+    });
+  } catch (error) {
+    if (isApiNetworkError(error)) {
+      throw new Error('Could not reach the duel problem service. Please try again in a moment.');
+    }
+
+    throw error;
+  }
 
   if (response.status === 204) {
     return null;

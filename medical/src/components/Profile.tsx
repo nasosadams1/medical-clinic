@@ -22,7 +22,11 @@ import { supabase } from '../lib/supabase';
 import { getEloRankInfo } from '../lib/eloRanks';
 import { avatars, getRarityColor } from '../data/avatars';
 import { achievements } from '../data/achievements';
-import { allLessons, getTotalLessonsByLanguage, getCompletedLessonsByLanguage } from '../data/lessons';
+import {
+  countCompletedLessonsByLanguage,
+  formatLessonIdAsDisplayName,
+  getLessonCountByLanguage,
+} from '../data/lessonCatalog';
 import { motion, AnimatePresence } from 'framer-motion';
 
 const isProfileDebugEnabled = import.meta.env.DEV && import.meta.env.VITE_DEBUG_PROFILE === '1';
@@ -46,7 +50,6 @@ const Profile: React.FC = () => {
     buyHearts, 
     buyAvatar, 
     setAvatar, 
-    getLanguageProgress, 
     unlockAchievement, 
     checkAndUnlockAchievements,
     isAuthenticated,
@@ -122,11 +125,6 @@ const Profile: React.FC = () => {
       cancelled = true;
     };
   }, [user?.id]);
-
-
-  const lessonTitleById = React.useMemo(() => {
-    return new Map(allLessons.map((lesson) => [lesson.id, lesson.title]));
-  }, []);
 
   useEffect(() => {
     if (!user || user.id === 'guest') {
@@ -310,8 +308,8 @@ const Profile: React.FC = () => {
   
   // Calculate dynamic stats for all 4 languages using robust methods
   const pythonProgress = React.useMemo(() => {
-    const total = getTotalLessonsByLanguage('python');
-    const completed = getCompletedLessonsByLanguage('python', user.completedLessons);
+    const total = getLessonCountByLanguage('python');
+    const completed = countCompletedLessonsByLanguage('python', user.completedLessons);
     return {
       total,
       completed,
@@ -320,8 +318,8 @@ const Profile: React.FC = () => {
   }, [user.completedLessons]);
 
   const javascriptProgress = React.useMemo(() => {
-    const total = getTotalLessonsByLanguage('javascript');
-    const completed = getCompletedLessonsByLanguage('javascript', user.completedLessons);
+    const total = getLessonCountByLanguage('javascript');
+    const completed = countCompletedLessonsByLanguage('javascript', user.completedLessons);
     return {
       total,
       completed,
@@ -330,8 +328,8 @@ const Profile: React.FC = () => {
   }, [user.completedLessons]);
 
   const cppProgress = React.useMemo(() => {
-    const total = getTotalLessonsByLanguage('cpp');
-    const completed = getCompletedLessonsByLanguage('cpp', user.completedLessons);
+    const total = getLessonCountByLanguage('cpp');
+    const completed = countCompletedLessonsByLanguage('cpp', user.completedLessons);
     return {
       total,
       completed,
@@ -340,8 +338,8 @@ const Profile: React.FC = () => {
   }, [user.completedLessons]);
 
   const javaProgress = React.useMemo(() => {
-    const total = getTotalLessonsByLanguage('java');
-    const completed = getCompletedLessonsByLanguage('java', user.completedLessons);
+    const total = getLessonCountByLanguage('java');
+    const completed = countCompletedLessonsByLanguage('java', user.completedLessons);
     return {
       total,
       completed,
@@ -429,9 +427,7 @@ const Profile: React.FC = () => {
   const recentActivity = [
     ...recentLessonEvents.map((entry) => ({
       action: 'Completed lesson',
-      item:
-        lessonTitleById.get(entry.lessonId) ||
-        entry.lessonId.replace(/[-_]/g, ' ').replace(/\b\w/g, (char: string) => char.toUpperCase()),
+      item: formatLessonIdAsDisplayName(entry.lessonId),
       xp: entry.xp,
       time: new Date(entry.completedAt).toLocaleString(undefined, {
         month: 'short',

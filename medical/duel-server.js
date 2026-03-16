@@ -13,6 +13,11 @@ import { MatchController } from "./services/match-controller.js";
 import { EloRatingService } from "./services/elo-rating.js";
 import { SharedDuelStateStore } from "./services/shared-duel-state.js";
 import { getBlockingSanction, formatSanctionMessage } from "./services/sanctions.js";
+import { createFeedbackRouter } from "./services/feedback/routes.js";
+import { createLegalRouter } from "./services/legal/routes.js";
+import { createDuelAdminRouter } from "./services/duel-admin/routes.js";
+import { createDuelProblemAdminRouter } from "./services/duel-problems/routes.js";
+import { createProgressionRouter } from "./services/progression/routes.js";
 import { formatAllowedOriginsError, isAllowedOrigin, resolveAllowedOrigins } from "./services/allowed-origins.js";
 
 dotenv.config();
@@ -40,7 +45,7 @@ const corsOptions = {
 
 const app = express();
 app.use(cors(corsOptions));
-app.use(express.json());
+app.use(express.json({ limit: process.env.API_JSON_LIMIT || "20mb" }));
 
 const httpServer = createServer(app);
 
@@ -141,6 +146,12 @@ const latestSocketByUserId = new Map();
 if (matchmakingService) {
   matchmakingService.getOnlinePlayerCount = () => latestSocketByUserId.size;
 }
+
+app.use("/api/feedback", createFeedbackRouter({ supabaseAdmin: supabase }));
+app.use("/api/legal", createLegalRouter({ supabaseAdmin: supabase }));
+app.use("/api/duel/admin", createDuelAdminRouter({ supabaseAdmin: supabase }));
+app.use("/api/duel/problems", createDuelProblemAdminRouter({ supabaseAdmin: supabase }));
+app.use("/api/progression", createProgressionRouter({ supabaseAdmin: supabase }));
 
 function emitServerError(socket, message, details) {
   console.error("server_error:", message, details || "");
