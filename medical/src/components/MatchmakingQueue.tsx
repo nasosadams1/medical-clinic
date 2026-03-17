@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Loader2, Trophy, Users, Swords } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { supabase } from '../lib/supabase';
@@ -16,6 +16,7 @@ interface MatchmakingQueueProps {
 type MatchType = 'ranked' | 'casual';
 
 const DEVICE_CLUSTER_STORAGE_KEY = 'codhak-device-cluster-id';
+const REGISTRATION_ACK_TIMEOUT_MS = 10_000;
 
 const getOrCreateDeviceClusterId = () => {
   if (typeof window === 'undefined') return null;
@@ -78,40 +79,97 @@ export default function MatchmakingQueue({
   const [selectedMatchType, setSelectedMatchType] = useState<MatchType>('casual');
   const [activeMatchType, setActiveMatchType] = useState<MatchType>('casual');
   const [inQueue, setInQueue] = useState(false);
-  const [countdown, setCountdown] = useState<number | null>(null);
+  const [isMatchStarting, setIsMatchStarting] = useState(false);
   const [playersOnline, setPlayersOnline] = useState(0);
   const [queueWaitTime, setQueueWaitTime] = useState(0);
   const [isJoining, setIsJoining] = useState(false);
 
-  const countdownIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const pendingMatchRef = useRef<any>(null);
-  const pendingMatchEndRef = useRef<any>(null);
   const registeredSocketKeyRef = useRef<string | null>(null);
+  const registrationPromiseRef = useRef<Promise<boolean> | null>(null);
   const selectedMatchTypeRef = useRef<MatchType>('casual');
 
   useEffect(() => {
     selectedMatchTypeRef.current = selectedMatchType;
-    if (!inQueue && !isJoining && countdown === null) {
+    if (!inQueue && !isJoining && !isMatchStarting) {
       setActiveMatchType(selectedMatchType);
     }
-  }, [countdown, inQueue, isJoining, selectedMatchType]);
+  }, [inQueue, isJoining, isMatchStarting, selectedMatchType]);
+
+  const registerPlayer = useCallback(async ({ silent = false } = {}) => {
+    if (!socket?.connected) return false;
+
+    const registrationKey = `${socket.id}:${userId}`;
+    if (registeredSocketKeyRef.current === registrationKey) {
+      return true;
+    }
+
+    if (registrationPromiseRef.current) {
+      return registrationPromiseRef.current;
+    }
+
+    registrationPromiseRef.current = (async () => {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const accessToken = sessionData.session?.access_token;
+
+      if (!accessToken) {
+        if (!silent) {
+          toast.error('Your session expired. Please sign in again.');
+        }
+        return false;
+      }
+
+      const clientMeta = buildClientMeta();
+
+      return new Promise<boolean>((resolve) => {
+        socket
+          .timeout(REGISTRATION_ACK_TIMEOUT_MS)
+          .emit('register_player', { userId, username, accessToken, clientMeta }, (err: any, res: any) => {
+            if (err) {
+              console.error('register_player failed', err);
+              if (!silent) {
+                toast.error('No response from the duel server. Try again in a moment.');
+              }
+              resolve(false);
+              return;
+            }
+
+            if (!res?.ok) {
+              if (!silent) {
+                toast.error(res?.message || 'Failed to register player');
+              }
+              resolve(false);
+              return;
+            }
+
+            registeredSocketKeyRef.current = registrationKey;
+            resolve(true);
+          });
+      });
+    })().finally(() => {
+      registrationPromiseRef.current = null;
+    });
+
+    return registrationPromiseRef.current;
+  }, [socket, userId, username]);
+
+  useEffect(() => {
+    if (!socket?.connected) return;
+    void registerPlayer({ silent: true });
+  }, [registerPlayer, socket]);
 
   useEffect(() => {
     if (!socket) return;
 
-    const clearCountdown = () => {
-      if (countdownIntervalRef.current) {
-        clearInterval(countdownIntervalRef.current);
-        countdownIntervalRef.current = null;
-      }
+    const resetPendingState = () => {
+      pendingMatchRef.current = null;
+      setIsMatchStarting(false);
+      setQueueWaitTime(0);
     };
 
-    const resetPendingState = () => {
-      clearCountdown();
-      pendingMatchRef.current = null;
-      pendingMatchEndRef.current = null;
-      setCountdown(null);
-      setQueueWaitTime(0);
+    const onConnectEvent = () => {
+      if (!userId) return;
+      void registerPlayer({ silent: true });
     };
 
     const onQueueUpdate = (data: any) => {
@@ -122,6 +180,7 @@ export default function MatchmakingQueue({
 
     const onDisconnectEvent = () => {
       registeredSocketKeyRef.current = null;
+      registrationPromiseRef.current = null;
       resetPendingState();
       setInQueue(false);
       setIsJoining(false);
@@ -149,32 +208,13 @@ export default function MatchmakingQueue({
         ...data,
         matchType: normalizeMatchType(data?.matchType ?? selectedMatchTypeRef.current),
       };
-      pendingMatchEndRef.current = null;
       setInQueue(false);
       setIsJoining(false);
-      setCountdown(data.countdown ?? 3);
-
-      clearCountdown();
-      let timeLeft = data.countdown ?? 3;
-      countdownIntervalRef.current = setInterval(() => {
-        timeLeft -= 1;
-        setCountdown(Math.max(timeLeft, 0));
-        if (timeLeft <= 0) {
-          clearCountdown();
-          if (pendingMatchEndRef.current) {
-            const pendingResult = pendingMatchEndRef.current;
-            resetPendingState();
-            setInQueue(false);
-            setIsJoining(false);
-            onMatchEnd(pendingResult);
-          }
-        }
-      }, 1000);
+      setIsMatchStarting(true);
     };
 
     const onDuelStartedEvent = (data: any) => {
       if (pendingMatchRef.current?.matchId !== data?.matchId) return;
-      if (pendingMatchEndRef.current) return;
 
       const merged = {
         ...pendingMatchRef.current,
@@ -189,10 +229,8 @@ export default function MatchmakingQueue({
     const onMatchEndEvent = (data: any) => {
       if (pendingMatchRef.current?.matchId !== data?.matchId) return;
 
-      if (countdownIntervalRef.current && data?.reason === 'disconnect_before_start') {
-        pendingMatchEndRef.current = data;
+      if (data?.reason === 'disconnect_before_start') {
         toast('Opponent disconnected before the duel started.', { icon: '\u26A0' });
-        return;
       }
 
       resetPendingState();
@@ -205,6 +243,7 @@ export default function MatchmakingQueue({
       console.error('server_error:', data?.message, data?.details || data?.error);
       if (data?.message === 'Player not registered' || data?.message === 'Stale duel connection') {
         registeredSocketKeyRef.current = null;
+        registrationPromiseRef.current = null;
       }
       resetPendingState();
       toast.error(data?.message || 'Server error');
@@ -212,7 +251,7 @@ export default function MatchmakingQueue({
       setIsJoining(false);
     };
 
-
+    socket.on('connect', onConnectEvent);
     socket.on('queue_update', onQueueUpdate);
     socket.on('disconnect', onDisconnectEvent);
     socket.on('queue_joined', onQueueJoined);
@@ -223,8 +262,7 @@ export default function MatchmakingQueue({
     socket.on('server_error', onServerError);
 
     return () => {
-      clearCountdown();
-
+      socket.off('connect', onConnectEvent);
       socket.off('queue_update', onQueueUpdate);
       socket.off('disconnect', onDisconnectEvent);
       socket.off('queue_joined', onQueueJoined);
@@ -234,7 +272,7 @@ export default function MatchmakingQueue({
       socket.off('match_end', onMatchEndEvent);
       socket.off('server_error', onServerError);
     };
-  }, [socket, onMatchFound, onMatchEnd]);
+  }, [onMatchEnd, onMatchFound, registerPlayer, socket, userId]);
 
   const handleJoinQueue = async () => {
     if (!socket) return toast.error('Socket not ready');
@@ -242,62 +280,24 @@ export default function MatchmakingQueue({
     if (inQueue || isJoining) return;
     const matchType = selectedMatchTypeRef.current;
 
-    const registrationKey = `${socket.id}:${userId}`;
-    if (registeredSocketKeyRef.current === registrationKey) {
-      setIsJoining(true);
-      setActiveMatchType(matchType);
-      setQueueWaitTime(0);
-      socket.emit('join_matchmaking', { matchType });
-      return;
-    }
-
     setIsJoining(true);
+    setActiveMatchType(matchType);
+    setQueueWaitTime(0);
 
-    const { data: sessionData } = await supabase.auth.getSession();
-    const accessToken = sessionData.session?.access_token;
-
-    if (!accessToken) {
-      toast.error('Your session expired. Please sign in again.');
+    const isRegistered = await registerPlayer();
+    if (!isRegistered) {
       setIsJoining(false);
       return;
     }
 
-    const ACK_TIMEOUT_MS = 20000;
-    const clientMeta = buildClientMeta();
-
-    socket
-      .timeout(ACK_TIMEOUT_MS)
-      .emit('register_player', { userId, username, accessToken, clientMeta }, (err: any, res: any) => {
-        if (err) {
-          console.error('register_player failed', err);
-          toast.error('No response from the duel server. Try again in a moment.');
-          setIsJoining(false);
-          return;
-        }
-
-        if (!res?.ok) {
-          toast.error(res?.message || 'Failed to register player');
-          setIsJoining(false);
-          return;
-        }
-
-        registeredSocketKeyRef.current = registrationKey;
-        setActiveMatchType(matchType);
-        setQueueWaitTime(0);
-        socket.emit('join_matchmaking', { matchType });
-      });
+    socket.emit('join_matchmaking', { matchType });
   };
 
   const handleLeaveQueue = () => {
     if (!socket) return;
 
     pendingMatchRef.current = null;
-    pendingMatchEndRef.current = null;
-    if (countdownIntervalRef.current) {
-      clearInterval(countdownIntervalRef.current);
-      countdownIntervalRef.current = null;
-    }
-    setCountdown(null);
+    setIsMatchStarting(false);
     socket.emit('leave_matchmaking');
     setInQueue(false);
     setIsJoining(false);
@@ -308,7 +308,7 @@ export default function MatchmakingQueue({
   const displayedMatchType = inQueue ? activeMatchType : selectedMatchType;
   const isRankedMode = displayedMatchType === 'ranked';
 
-  if (countdown !== null) {
+  if (isMatchStarting) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-blue-500 to-blue-700 px-4 py-6 sm:px-6">
         <div className="w-full max-w-md rounded-2xl bg-white p-6 text-center shadow-2xl sm:p-10 lg:p-12">
@@ -316,7 +316,6 @@ export default function MatchmakingQueue({
             <div className="mx-auto h-16 w-16 animate-bounce sm:h-20 sm:w-20 lg:h-24 lg:w-24"><MascotIcon mascot="duel" className="h-full w-full" imageClassName="drop-shadow-md" /></div>
           </div>
           <h2 className="mb-4 text-3xl font-bold text-gray-800 sm:text-4xl">Match Starting!</h2>
-          <div className="mb-4 text-6xl font-bold text-blue-600 sm:text-7xl lg:text-8xl">{countdown}</div>
           <p className="text-gray-600">Prepare yourself...</p>
         </div>
       </div>

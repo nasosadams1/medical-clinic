@@ -11,6 +11,7 @@ export class MatchmakingService {
 
     this.MATCHMAKING_TICK_MS = 1000;
     this.QUEUE_UPDATE_TICK_MS = 1000;
+    this.MATCH_START_DELAY_MS = Math.max(0, Number(process.env.DUEL_MATCH_START_DELAY_MS || 250));
     this.BASE_RANGE = 75;
     this.MAX_RANGE = 350;
     this.RANGE_GROW_PER_SEC = 2;
@@ -327,7 +328,8 @@ export class MatchmakingService {
 
     if (!match) return false;
 
-    const countdown = 3;
+    const startDelayMs = this.MATCH_START_DELAY_MS;
+    const countdown = startDelayMs > 0 ? Math.ceil(startDelayMs / 1000) : 0;
     const difficulty = normalizeDifficulty(problem.difficulty);
     const timeLimit = resolveTimeLimitSeconds(problem);
 
@@ -335,6 +337,7 @@ export class MatchmakingService {
       matchId: match.id,
       opponent: null,
       countdown,
+      startDelayMs,
     };
 
     await this._emitPlayerEvent(playerA, "match_found", {
@@ -357,7 +360,7 @@ export class MatchmakingService {
         this.matchController
           .startMatch(match.id, playerA, playerB, problem)
           .catch((error) => console.error("startMatch error:", error));
-      }, countdown * 1000);
+      }, startDelayMs);
 
       const pendingMatch = {
         matchId: match.id,
@@ -402,6 +405,7 @@ export class MatchmakingService {
           matchType,
           difficulty,
           countdown,
+          startDelayMs,
           playerA: { userId: playerA.userId, username: playerA.username, rating: safeA.rating },
           playerB: { userId: playerB.userId, username: playerB.username, rating: safeB.rating },
           problem: { id: problem.id, title: problem.title, difficulty },

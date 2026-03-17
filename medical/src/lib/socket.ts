@@ -18,8 +18,10 @@ const DUEL_SERVER_URL =
 const normalizedDuelServerUrl = DUEL_SERVER_URL.replace(/\/+$/, "");
 
 const socket = io(normalizedDuelServerUrl, {
-  transports: ["polling", "websocket"],
+  transports: ["websocket", "polling"],
+  rememberUpgrade: true,
   autoConnect: true,
+  timeout: 10_000,
 });
 
 export default socket;

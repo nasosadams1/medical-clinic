@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
+import { loader } from "@monaco-editor/react";
 import MatchmakingQueue from "./MatchmakingQueue";
 import DuelArena from "./DuelArena";
 import MatchResults from "./MatchResults";
@@ -18,6 +19,19 @@ export default function DuelsDashboard() {
   const [matchData, setMatchData] = useState<any>(null);
   const [matchResults, setMatchResults] = useState<any>(null);
   const initializedRef = useRef(false);
+
+  useEffect(() => {
+    const preload = loader.init();
+    preload.catch((error: any) => {
+      if (error?.type !== "cancelation") {
+        console.error("Failed to preload Monaco", error);
+      }
+    });
+
+    return () => {
+      preload.cancel();
+    };
+  }, []);
 
   useEffect(() => {
     if (!user) return;

@@ -67,9 +67,9 @@ export class MatchController {
     this.disconnectTimers = new Map();
 
     this.RECONNECT_GRACE_PERIOD_MS = 30_000;
-    this.BASE_SUBMISSION_COOLDOWN_MS = 2_000;
-    this.WRONG_SUBMISSION_COOLDOWN_MS = 750;
-    this.MAX_SUBMISSION_COOLDOWN_MS = 8_000;
+    this.BASE_SUBMISSION_COOLDOWN_MS = 750;
+    this.WRONG_SUBMISSION_COOLDOWN_MS = 400;
+    this.MAX_SUBMISSION_COOLDOWN_MS = 4_000;
     this.MAX_SNAPSHOT_CODE_CHARS = 100_000;
   }
 
