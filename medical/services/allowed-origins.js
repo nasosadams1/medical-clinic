@@ -7,7 +7,25 @@ const DEV_ALLOWED_ORIGINS = [
   "http://127.0.0.1:4173",
 ];
 
-const dedupeOrigins = (origins = []) => [...new Set(origins.filter(Boolean))];
+const normalizeOrigin = (origin = "") => String(origin).trim().replace(/\/+$/, "");
+const escapeRegex = (value) => value.replace(/[|\\{}()[\]^$+?.]/g, "\\$&");
+const dedupeOrigins = (origins = []) => [...new Set(origins.map(normalizeOrigin).filter(Boolean))];
+
+export function matchesAllowedOrigin(origin, allowedOrigin) {
+  const normalizedOrigin = normalizeOrigin(origin);
+  const normalizedAllowedOrigin = normalizeOrigin(allowedOrigin);
+
+  if (!normalizedOrigin || !normalizedAllowedOrigin) {
+    return false;
+  }
+
+  if (!normalizedAllowedOrigin.includes("*")) {
+    return normalizedOrigin === normalizedAllowedOrigin;
+  }
+
+  const pattern = `^${escapeRegex(normalizedAllowedOrigin).replace(/\*/g, "[^/]+")}$`;
+  return new RegExp(pattern).test(normalizedOrigin);
+}
 
 export function resolveAllowedOrigins(envKeys = [], options = {}) {
   const { isProduction = false } = options;
@@ -45,7 +63,7 @@ export function resolveAllowedOrigins(envKeys = [], options = {}) {
 export function isAllowedOrigin(origin, allowedOrigins, isProduction) {
   if (!origin) return true;
   if (allowedOrigins.length === 0) return !isProduction;
-  return allowedOrigins.includes(origin);
+  return allowedOrigins.some((allowedOrigin) => matchesAllowedOrigin(origin, allowedOrigin));
 }
 
 export function formatAllowedOriginsError(serviceLabel, envKeys = []) {

@@ -6,6 +6,7 @@ import helmet from 'helmet';
 import Stripe from 'stripe';
 import { createClient } from '@supabase/supabase-js';
 import { getStoreItem, isCoinStoreItem, isStripeStoreItem, STORE_ITEMS, STRIPE_STORE_ITEMS } from './shared/store-catalog.js';
+import { formatAllowedOriginsError, isAllowedOrigin, resolveAllowedOrigins } from './services/allowed-origins.js';
 import {
   CoinPurchaseSchema,
   ConfirmPaymentSchema,
@@ -20,10 +21,12 @@ const STRIPE_SERVER_PORT = Number(process.env.STRIPE_SERVER_PORT || 3001);
 const SUPABASE_URL = process.env.SUPABASE_URL || '';
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 const API_JSON_LIMIT = process.env.STRIPE_API_JSON_LIMIT || '10mb';
-const ALLOWED_ORIGINS = (process.env.STRIPE_ALLOWED_ORIGINS || 'http://localhost:5173,http://localhost:5174,http://localhost:3000')
-  .split(',')
-  .map((origin) => origin.trim())
-  .filter(Boolean);
+const NODE_ENV = (process.env.NODE_ENV || 'development').toLowerCase();
+const IS_PRODUCTION = NODE_ENV === 'production';
+const STRIPE_ALLOWED_ORIGIN_ENV_KEYS = ['STRIPE_ALLOWED_ORIGINS', 'FRONTEND_URL', 'RENDER_EXTERNAL_URL'];
+const { origins: allowedOrigins, sourceEnv: allowedOriginsSourceEnv } = resolveAllowedOrigins(STRIPE_ALLOWED_ORIGIN_ENV_KEYS, {
+  isProduction: IS_PRODUCTION,
+});
 
 const stripeConfigValid = typeof STRIPE_SECRET_KEY === 'string'
   && (STRIPE_SECRET_KEY.startsWith('sk_test_') || STRIPE_SECRET_KEY.startsWith('sk_live_'));
@@ -35,6 +38,11 @@ if (!stripeConfigValid) {
 
 if (!supabaseConfigValid) {
   console.error('Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY for store fulfillment.');
+}
+
+if (IS_PRODUCTION && allowedOrigins.length === 0) {
+  console.error(formatAllowedOriginsError('Stripe store server', STRIPE_ALLOWED_ORIGIN_ENV_KEYS));
+  process.exit(1);
 }
 
 const stripe = stripeConfigValid ? new Stripe(STRIPE_SECRET_KEY) : null;
@@ -244,7 +252,7 @@ app.post('/webhook', express.raw({ type: 'application/json' }), async (req, res)
 app.use(helmet({ crossOriginResourcePolicy: false }));
 app.use(cors({
   origin(origin, callback) {
-    if (!origin || ALLOWED_ORIGINS.includes(origin)) {
+    if (isAllowedOrigin(origin, allowedOrigins, IS_PRODUCTION)) {
       return callback(null, true);
     }
     return callback(new Error('Origin not allowed by store server CORS'));
@@ -447,6 +455,10 @@ app.listen(STRIPE_SERVER_PORT, () => {
   console.log('- STRIPE_WEBHOOK_SECRET:', STRIPE_WEBHOOK_SECRET ? 'Set' : 'Missing (recommended)');
   console.log('- SUPABASE_URL:', SUPABASE_URL ? 'Set' : 'Missing');
   console.log('- SUPABASE_SERVICE_ROLE_KEY:', SUPABASE_SERVICE_ROLE_KEY ? 'Set' : 'Missing');
-  console.log('- STRIPE_ALLOWED_ORIGINS:', ALLOWED_ORIGINS.join(', '));
+  if (allowedOrigins.length > 0) {
+    console.log(`- STRIPE_ALLOWED_ORIGINS (${allowedOriginsSourceEnv}): ${allowedOrigins.join(', ')}`);
+  } else {
+    console.log('- STRIPE_ALLOWED_ORIGINS: none configured');
+  }
   console.log('- STORE_ITEMS:', STORE_ITEMS.length);
 });
