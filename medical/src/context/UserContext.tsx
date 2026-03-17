@@ -19,6 +19,7 @@ import {
 } from '../lib/progression';
 
 import NotificationDisplay from '../components/NotificationDisplay.tsx';
+import { cacheDuelRating, DEFAULT_DUEL_RATING, getCachedDuelRating } from '../lib/duelRatingCache';
 
 const isUserDebugEnabled = import.meta.env.DEV && import.meta.env.VITE_DEBUG_USER_CONTEXT === '1';
 
@@ -405,6 +406,43 @@ export const UserProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       setIsInitialized(true);
     }
   }, [authUser, authProfile, authLoading, isInitialized, user?.id]);
+
+  useEffect(() => {
+    if (!authUser?.id || authUser.id === 'guest') {
+      return;
+    }
+
+    let cancelled = false;
+
+    const primeDuelRatingCache = async () => {
+      const cachedRating = getCachedDuelRating(authUser.id);
+      if (cachedRating !== null) {
+        return;
+      }
+
+      try {
+        const { data, error } = await supabase
+          .from('duel_users')
+          .select('rating')
+          .eq('id', authUser.id)
+          .maybeSingle();
+
+        if (cancelled || error) {
+          return;
+        }
+
+        cacheDuelRating(authUser.id, data?.rating ?? DEFAULT_DUEL_RATING);
+      } catch (error) {
+        userDebugLog('UserContext: Failed to prime duel rating cache:', error);
+      }
+    };
+
+    void primeDuelRatingCache();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [authUser?.id]);
 
   const isLoading = authLoading && !isInitialized;
 

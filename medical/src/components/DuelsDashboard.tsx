@@ -4,6 +4,7 @@ import DuelArena from "./DuelArena";
 import MatchResults from "./MatchResults";
 import { useAuth } from "../context/AuthContext";
 import { supabase } from "../lib/supabase";
+import { cacheDuelRating } from "../lib/duelRatingCache";
 import toast from "react-hot-toast";
 import socket from "../lib/socket";
 import MascotIcon from "./branding/MascotIcon";
@@ -40,6 +41,7 @@ export default function DuelsDashboard() {
         if (cancelled) return;
 
         if (existingUser) {
+          cacheDuelRating(user.id, existingUser.rating);
           setDuelUser(existingUser);
           return;
         }
@@ -67,7 +69,10 @@ export default function DuelsDashboard() {
           return;
         }
 
-        if (!cancelled) setDuelUser(newUser);
+        if (!cancelled) {
+          cacheDuelRating(user.id, newUser.rating);
+          setDuelUser(newUser);
+        }
       } catch (e: any) {
         console.error("initializeDuelUser exception:", e);
         toast.error(e?.message || "Failed to initialize duel user");
@@ -123,6 +128,21 @@ export default function DuelsDashboard() {
   };
 
   const handleMatchEnd = (results: any) => {
+    const currentPlayer =
+      results?.playerA?.userId === duelUser?.id
+        ? results.playerA
+        : results?.playerB?.userId === duelUser?.id
+        ? results.playerB
+        : null;
+
+    if (currentPlayer && Number.isFinite(Number(currentPlayer.ratingAfter))) {
+      const nextRating = Number(currentPlayer.ratingAfter);
+      cacheDuelRating(duelUser?.id, nextRating);
+      setDuelUser((previous: any) => (
+        previous ? { ...previous, rating: nextRating } : previous
+      ));
+    }
+
     setMatchResults({
       ...results,
       matchType: results?.matchType ?? matchData?.matchType ?? "ranked",

@@ -20,6 +20,7 @@ import { useUser } from '../context/UserContext';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../lib/supabase';
 import { getEloRankInfo } from '../lib/eloRanks';
+import { cacheDuelRating, DEFAULT_DUEL_RATING, getCachedDuelRating } from '../lib/duelRatingCache';
 import { avatars, getRarityColor } from '../data/avatars';
 import { achievements } from '../data/achievements';
 import {
@@ -72,7 +73,9 @@ const Profile: React.FC = () => {
     description: string;
     remainingCoins: number;
   }>(null);
-  const [duelRating, setDuelRating] = useState(500);
+  const [duelRating, setDuelRating] = useState<number | null>(() => (
+    user?.id === 'guest' ? DEFAULT_DUEL_RATING : getCachedDuelRating(user?.id)
+  ));
   const [recentLessonEvents, setRecentLessonEvents] = useState<Array<{ lessonId: string; xp: number; completedAt: string }>>([]);
 
   // Update current time every second for boost timers
@@ -91,7 +94,15 @@ const Profile: React.FC = () => {
 
   useEffect(() => {
     if (!user || user.id === 'guest') {
-      setDuelRating(500);
+      setDuelRating(DEFAULT_DUEL_RATING);
+      return;
+    }
+
+    setDuelRating(getCachedDuelRating(user.id));
+  }, [user?.id]);
+
+  useEffect(() => {
+    if (!user || user.id === 'guest') {
       return;
     }
 
@@ -110,12 +121,16 @@ const Profile: React.FC = () => {
 
       if (error) {
         profileDebugError('Failed to load duel rating:', error);
-        setDuelRating(500);
+        setDuelRating((currentRating) => currentRating ?? DEFAULT_DUEL_RATING);
         return;
       }
 
       if (!cancelled) {
-        setDuelRating(data?.rating ?? 500);
+        const nextRating = Number.isFinite(Number(data?.rating))
+          ? Number(data?.rating)
+          : DEFAULT_DUEL_RATING;
+        cacheDuelRating(user.id, nextRating);
+        setDuelRating(nextRating);
       }
     };
 
@@ -407,7 +422,9 @@ const Profile: React.FC = () => {
 
   const unlockedCount = userAchievements.filter((a) => a.isUnlocked).length;
   const activeBoosts = getActiveBoosts();
-  const duelRank = getEloRankInfo(duelRating);
+  const resolvedDuelRating = duelRating ?? DEFAULT_DUEL_RATING;
+  const duelRank = getEloRankInfo(resolvedDuelRating);
+  const isDuelRatingLoading = duelRating === null;
 
   const formatTimeRemaining = (expiresAt: number) => {
     const remaining = Math.max(0, expiresAt - currentTime);
@@ -713,13 +730,22 @@ const Profile: React.FC = () => {
                 <div className="text-3xl font-bold text-purple-700">{user.ownedAvatars.length}</div>
                 <div className="text-sm text-purple-600">Avatars Owned</div>
               </div>
-              <div className={`${duelRank.bgColor} rounded-lg p-4 text-center border border-gray-200`}>
-                <div className="text-3xl font-bold text-gray-900">{duelRank.icon} {duelRating}</div>
-                <div className={`text-sm ${duelRank.color}`}>{duelRank.tier} Rank</div>
+              <div className={`${isDuelRatingLoading ? 'bg-gray-50' : duelRank.bgColor} rounded-lg border border-gray-200 p-4 text-center`}>
+                {isDuelRatingLoading ? (
+                  <>
+                    <div className="mx-auto h-9 w-24 animate-pulse rounded-md bg-gray-200" />
+                    <div className="mt-2 text-sm text-gray-500">Loading rank...</div>
+                  </>
+                ) : (
+                  <>
+                    <div className="text-3xl font-bold text-gray-900">{duelRank.icon} {resolvedDuelRating}</div>
+                    <div className={`text-sm ${duelRank.color}`}>{duelRank.tier} Rank</div>
+                  </>
+                )}
               </div>
             </div>
           </div>
-      </section>
+        </section>
 
       <section id="profile-progress" className="bg-white rounded-xl shadow-md border border-gray-200 p-8 scroll-mt-24 mb-8">
           <h3 className="text-2xl font-semibold text-gray-900 mb-8 flex items-center">
