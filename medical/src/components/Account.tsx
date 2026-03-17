@@ -17,7 +17,13 @@ import { useAuth } from '../context/AuthContext';
 import AccountFeedbackPanel from './account/AccountFeedbackPanel';
 import AccountFeedbackAdminPanel from './account/AccountFeedbackAdminPanel';
 import AccountDuelModerationPanel from './account/AccountDuelModerationPanel';
-import { acceptLatestLegalDocuments, fetchLegalStatus, getLegalDocumentLinks, type LegalStatusResponse } from '../lib/legal';
+import {
+  acceptLatestLegalDocuments,
+  fetchLegalStatus,
+  getCachedLegalStatus,
+  getLegalDocumentLinks,
+  type LegalStatusResponse,
+} from '../lib/legal';
 import { fetchDuelAdminCapabilities } from '../lib/duelAdmin';
 import { fetchFeedbackAdminCapabilities } from '../lib/feedback';
 
@@ -45,8 +51,8 @@ const Account: React.FC = () => {
   const [isSendingReset, setIsSendingReset] = useState(false);
   const [isResendingVerification, setIsResendingVerification] = useState(false);
   const [isSigningOut, setIsSigningOut] = useState(false);
-  const [legalStatus, setLegalStatus] = useState<LegalStatusResponse | null>(null);
-  const [isLoadingLegal, setIsLoadingLegal] = useState(true);
+  const [legalStatus, setLegalStatus] = useState<LegalStatusResponse | null>(() => getCachedLegalStatus(authUser?.id));
+  const [isLoadingLegal, setIsLoadingLegal] = useState(() => !getCachedLegalStatus(authUser?.id));
   const [isAcceptingLegal, setIsAcceptingLegal] = useState(false);
   const [canAccessAdminPanels, setCanAccessAdminPanels] = useState(false);
 
@@ -61,6 +67,12 @@ const Account: React.FC = () => {
     setPendingEmail(authUser?.email ?? '');
     setEmailError('');
   }, [authUser?.email, isUpdatingEmail]);
+
+  useEffect(() => {
+    const cachedStatus = getCachedLegalStatus(authUser?.id);
+    setLegalStatus(cachedStatus);
+    setIsLoadingLegal(!cachedStatus);
+  }, [authUser?.id]);
 
   const accountEmail = authUser?.email ?? '';
   const isEmailVerified = !!authUser?.email_confirmed_at;
@@ -85,9 +97,10 @@ const Account: React.FC = () => {
     let cancelled = false;
 
     const loadLegalStatus = async () => {
-      setIsLoadingLegal(true);
+      const cachedStatus = getCachedLegalStatus(authUser?.id);
+      setIsLoadingLegal(!cachedStatus);
       try {
-        const nextStatus = await fetchLegalStatus();
+        const nextStatus = await fetchLegalStatus(authUser?.id);
         if (!cancelled) {
           setLegalStatus(nextStatus);
         }
@@ -271,7 +284,7 @@ const Account: React.FC = () => {
 
     setIsAcceptingLegal(true);
     try {
-      const nextStatus = await acceptLatestLegalDocuments('account');
+      const nextStatus = await acceptLatestLegalDocuments('account', undefined, authUser?.id);
       setLegalStatus(nextStatus);
       addNotification({
         message: 'Current legal documents accepted successfully.',
@@ -485,6 +498,7 @@ const Account: React.FC = () => {
           <div className="mt-8 grid gap-4 lg:grid-cols-3">
             {legalDocuments.map((document) => {
               const acceptance = legalStatus?.acceptances?.[document.key];
+              const isAcceptanceKnown = Boolean(legalStatus) || !isLoadingLegal;
               return (
                 <div key={document.key} className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
                   <div className="flex items-start justify-between gap-3">
@@ -492,7 +506,11 @@ const Account: React.FC = () => {
                       <div className="text-sm font-semibold text-slate-900">{document.title}</div>
                       <div className="mt-1 text-xs text-slate-500">Version {document.version}</div>
                     </div>
-                    {acceptance?.isCurrent ? (
+                    {isLoadingLegal && !legalStatus ? (
+                      <div className="rounded-full border border-slate-200 bg-white px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+                        Checking...
+                      </div>
+                    ) : acceptance?.isCurrent ? (
                       <CheckCircle2 className="h-5 w-5 text-emerald-600" />
                     ) : (
                       <div className="rounded-full border border-amber-200 bg-amber-50 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-amber-700">
@@ -502,7 +520,9 @@ const Account: React.FC = () => {
                   </div>
 
                   <div className="mt-3 text-xs text-slate-500">
-                    {acceptance?.isCurrent
+                    {!isAcceptanceKnown
+                      ? 'Checking your acceptance history...'
+                      : acceptance?.isCurrent
                       ? `Accepted ${new Date(acceptance.acceptedAt || '').toLocaleString()}`
                       : 'Not yet accepted on this version.'}
                   </div>
@@ -552,7 +572,6 @@ const Account: React.FC = () => {
 };
 
 export default Account;
-
 
 
 

@@ -2,6 +2,7 @@ import { CURRENT_LEGAL_VERSIONS, LEGAL_DOCUMENT_LIST } from '../../shared/legal-
 import { supabase } from './supabase';
 import { buildApiUrl, isApiNetworkError } from './apiBase';
 const PENDING_LEGAL_ACCEPTANCE_KEY = 'codhak-pending-legal-acceptance';
+const LEGAL_STATUS_CACHE_KEY_PREFIX = 'codhak-legal-status:';
 
 export type LegalSource = 'signup' | 'checkout' | 'account';
 
@@ -18,6 +19,8 @@ export interface LegalStatusResponse {
   allCurrentAccepted: boolean;
   latestAcceptedAt: string | null;
 }
+
+const getLegalStatusCacheKey = (userId: string) => `${LEGAL_STATUS_CACHE_KEY_PREFIX}${userId}`;
 
 async function getAuthHeaders() {
   const { data } = await supabase.auth.getSession();
@@ -58,7 +61,45 @@ export function clearPendingLegalAcceptance() {
   localStorage.removeItem(PENDING_LEGAL_ACCEPTANCE_KEY);
 }
 
-export async function fetchLegalStatus(): Promise<LegalStatusResponse> {
+export function getCachedLegalStatus(userId?: string | null): LegalStatusResponse | null {
+  if (!userId || typeof window === 'undefined') {
+    return null;
+  }
+
+  try {
+    const rawValue = window.localStorage.getItem(getLegalStatusCacheKey(userId));
+    if (!rawValue) {
+      return null;
+    }
+
+    return JSON.parse(rawValue) as LegalStatusResponse;
+  } catch (error) {
+    console.warn('Failed to read cached legal status:', error);
+    return null;
+  }
+}
+
+export function cacheLegalStatus(userId: string | null | undefined, status: LegalStatusResponse | null) {
+  if (!userId || !status || typeof window === 'undefined') {
+    return;
+  }
+
+  try {
+    window.localStorage.setItem(getLegalStatusCacheKey(userId), JSON.stringify(status));
+  } catch (error) {
+    console.warn('Failed to cache legal status:', error);
+  }
+}
+
+export function clearCachedLegalStatus(userId?: string | null) {
+  if (!userId || typeof window === 'undefined') {
+    return;
+  }
+
+  window.localStorage.removeItem(getLegalStatusCacheKey(userId));
+}
+
+export async function fetchLegalStatus(userId?: string | null): Promise<LegalStatusResponse> {
   let response: Response;
 
   try {
@@ -79,10 +120,12 @@ export async function fetchLegalStatus(): Promise<LegalStatusResponse> {
     throw new Error(payload.error || 'Could not load legal status.');
   }
 
-  return payload as LegalStatusResponse;
+  const status = payload as LegalStatusResponse;
+  cacheLegalStatus(userId, status);
+  return status;
 }
 
-export async function acceptLatestLegalDocuments(source: LegalSource, documentKeys?: string[]) {
+export async function acceptLatestLegalDocuments(source: LegalSource, documentKeys?: string[], userId?: string | null) {
   let response: Response;
 
   try {
@@ -105,7 +148,9 @@ export async function acceptLatestLegalDocuments(source: LegalSource, documentKe
   }
 
   clearPendingLegalAcceptance();
-  return payload as LegalStatusResponse;
+  const status = payload as LegalStatusResponse;
+  cacheLegalStatus(userId, status);
+  return status;
 }
 
 export async function flushPendingLegalAcceptanceIfNeeded() {

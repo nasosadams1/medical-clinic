@@ -9,7 +9,13 @@ import {
 import { AlertCircle, CheckCircle2, Lock, Shield, X } from 'lucide-react';
 import { resolveApiBaseUrl } from '../lib/apiBase';
 import { supabase } from '../lib/supabase';
-import { acceptLatestLegalDocuments, fetchLegalStatus, type LegalStatusResponse } from '../lib/legal';
+import { useAuth } from '../context/AuthContext';
+import {
+  acceptLatestLegalDocuments,
+  fetchLegalStatus,
+  getCachedLegalStatus,
+  type LegalStatusResponse,
+} from '../lib/legal';
 import LegalLinksInline from './legal/LegalLinksInline';
 
 interface StripeCheckoutProps {
@@ -54,6 +60,7 @@ const CheckoutForm: React.FC<StripeCheckoutProps> = ({
 }) => {
   const stripe = useStripe();
   const elements = useElements();
+  const { user: authUser } = useAuth();
   const onErrorRef = useRef(onError);
 
   const [processing, setProcessing] = useState(false);
@@ -61,10 +68,18 @@ const CheckoutForm: React.FC<StripeCheckoutProps> = ({
   const [email, setEmail] = useState('');
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [clientSecret, setClientSecret] = useState('');
-  const [legalStatus, setLegalStatus] = useState<LegalStatusResponse | null>(null);
-  const [legalLoading, setLegalLoading] = useState(true);
-  const [legalAccepted, setLegalAccepted] = useState(false);
+  const [legalStatus, setLegalStatus] = useState<LegalStatusResponse | null>(() => getCachedLegalStatus(authUser?.id));
+  const [legalLoading, setLegalLoading] = useState(() => !getCachedLegalStatus(authUser?.id));
+  const [legalAccepted, setLegalAccepted] = useState(() => Boolean(getCachedLegalStatus(authUser?.id)?.allCurrentAccepted));
   const [legalError, setLegalError] = useState('');
+
+  useEffect(() => {
+    const cachedStatus = getCachedLegalStatus(authUser?.id);
+    setLegalStatus(cachedStatus);
+    setLegalAccepted(Boolean(cachedStatus?.allCurrentAccepted));
+    setLegalLoading(!cachedStatus);
+    setLegalError('');
+  }, [authUser?.id]);
 
   useEffect(() => {
     onErrorRef.current = onError;
@@ -96,9 +111,10 @@ const CheckoutForm: React.FC<StripeCheckoutProps> = ({
     let cancelled = false;
 
     const loadLegalStatus = async () => {
-      setLegalLoading(true);
+      const cachedStatus = getCachedLegalStatus(authUser?.id);
+      setLegalLoading(!cachedStatus);
       try {
-        const nextStatus = await fetchLegalStatus();
+        const nextStatus = await fetchLegalStatus(authUser?.id);
         if (!cancelled) {
           setLegalStatus(nextStatus);
           setLegalAccepted(Boolean(nextStatus.allCurrentAccepted));
@@ -121,7 +137,7 @@ const CheckoutForm: React.FC<StripeCheckoutProps> = ({
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [authUser?.id]);
 
   const getAuthHeaders = async () => {
     const { data } = await supabase.auth.getSession();
@@ -211,7 +227,7 @@ const CheckoutForm: React.FC<StripeCheckoutProps> = ({
 
     try {
       if (requiresLegalAcceptance) {
-        const nextStatus = await acceptLatestLegalDocuments('checkout');
+        const nextStatus = await acceptLatestLegalDocuments('checkout', undefined, authUser?.id);
         setLegalStatus(nextStatus);
         setLegalAccepted(true);
         setLegalError('');
