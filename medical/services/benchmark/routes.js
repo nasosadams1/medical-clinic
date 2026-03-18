@@ -128,7 +128,7 @@ export const createBenchmarkRouter = ({ supabaseAdmin }) => {
       const { limit = 8 } = ListReportsQuerySchema.parse(req.query || {});
       const { data, error } = await supabaseAdmin
         .from('benchmark_reports')
-        .select('id, report_payload, created_at')
+        .select('id, report_payload, created_at, is_public, public_token, public_shared_at')
         .eq('user_id', req.authenticatedUser.id)
         .order('created_at', { ascending: false })
         .limit(limit);

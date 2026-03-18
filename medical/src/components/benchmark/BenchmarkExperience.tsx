@@ -23,8 +23,9 @@ import {
   buildSampleBenchmarkReport,
   clearBenchmarkSetupPreset,
   readBenchmarkSetupPreset,
-  readSavedBenchmarkReport,
+  readSavedBenchmarkHistory,
   saveBenchmarkReport,
+  saveBenchmarkReportHistory,
   type BenchmarkGoal,
   type BenchmarkReport,
   type BenchmarkRoleLevel,
@@ -204,6 +205,31 @@ const clearBenchmarkSession = (storageKey: string) => {
   }
 };
 
+const copyTextToClipboard = async (value: string) => {
+  if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(value);
+    return;
+  }
+
+  if (typeof document === 'undefined') {
+    throw new Error('Clipboard is not available.');
+  }
+
+  const textarea = document.createElement('textarea');
+  textarea.value = value;
+  textarea.setAttribute('readonly', 'true');
+  textarea.style.position = 'absolute';
+  textarea.style.left = '-9999px';
+  document.body.appendChild(textarea);
+  textarea.select();
+  const copied = document.execCommand('copy');
+  document.body.removeChild(textarea);
+
+  if (!copied) {
+    throw new Error('Clipboard is not available.');
+  }
+};
+
 export default function BenchmarkExperience({
   mode = 'public',
   presetLanguage,
@@ -264,6 +290,15 @@ export default function BenchmarkExperience({
     }
     return `${window.location.origin}/reports/${report.shareToken}`;
   }, [report?.isPublic, report?.shareToken]);
+  const updateReportSearchParam = (reportId?: string | null) => {
+    const nextParams = new URLSearchParams(searchParams);
+    if (reportId) {
+      nextParams.set('report', reportId);
+    } else {
+      nextParams.delete('report');
+    }
+    setSearchParams(nextParams, { replace: true });
+  };
 
   useEffect(() => {
     if (presetLanguage && setup.language !== presetLanguage) {
@@ -331,20 +366,32 @@ export default function BenchmarkExperience({
     let cancelled = false;
 
     const syncHistory = async () => {
-      const anonymousReport = readSavedBenchmarkReport();
-      const localUserReport = readSavedBenchmarkReport(user?.id);
-      const localHistory = mergeReports([localUserReport], [anonymousReport]);
+      const anonymousHistory = readSavedBenchmarkHistory();
+      const localUserHistory = readSavedBenchmarkHistory(user?.id);
+      const localHistory = mergeReports(localUserHistory, anonymousHistory);
+      const requestedReportId = searchParams.get('report');
 
       setSavedReport(localHistory[0] ?? null);
 
       if (!user?.id) {
         setReportHistory(localHistory);
         setHistoryMessage(null);
+        if (requestedReportId) {
+          const targetReport =
+            requestedReportId === 'latest'
+              ? localHistory[0]
+              : localHistory.find((entry) => entry.id === requestedReportId);
+
+          if (targetReport) {
+            setReport(targetReport);
+            setView('report');
+          }
+        }
         return;
       }
 
-      if (anonymousReport && !localUserReport) {
-        saveBenchmarkReport(anonymousReport, user.id);
+      if (anonymousHistory.length > 0) {
+        saveBenchmarkReportHistory(mergeReports(localUserHistory, anonymousHistory), user.id);
       }
 
       setHistoryLoading(true);
@@ -366,13 +413,16 @@ export default function BenchmarkExperience({
         const merged = mergeReports(remoteHistory, localHistory);
         setReportHistory(merged);
         setSavedReport(merged[0] ?? null);
-        const requestedReportId = searchParams.get('report');
-        if (requestedReportId === 'latest' && merged[0]) {
-          setReport(merged[0]);
-          setView('report');
-          const nextParams = new URLSearchParams(searchParams);
-          nextParams.delete('report');
-          setSearchParams(nextParams, { replace: true });
+        if (requestedReportId) {
+          const targetReport =
+            requestedReportId === 'latest'
+              ? merged[0]
+              : merged.find((entry) => entry.id === requestedReportId);
+
+          if (targetReport) {
+            setReport(targetReport);
+            setView('report');
+          }
         }
         setHistoryMessage(
           merged.length > 0 ? 'Signed-in benchmark history is now connected to your workspace.' : null
@@ -381,16 +431,19 @@ export default function BenchmarkExperience({
         if (cancelled) return;
         setReportHistory(localHistory);
         setSavedReport(localHistory[0] ?? null);
-        const requestedReportId = searchParams.get('report');
-        if (requestedReportId === 'latest' && localHistory[0]) {
-          setReport(localHistory[0]);
-          setView('report');
-          const nextParams = new URLSearchParams(searchParams);
-          nextParams.delete('report');
-          setSearchParams(nextParams, { replace: true });
+        if (requestedReportId) {
+          const targetReport =
+            requestedReportId === 'latest'
+              ? localHistory[0]
+              : localHistory.find((entry) => entry.id === requestedReportId);
+
+          if (targetReport) {
+            setReport(targetReport);
+            setView('report');
+          }
         }
         setHistoryMessage(
-          error instanceof Error ? error.message : 'Benchmark history is temporarily using local storage.'
+          error instanceof Error ? error.message : 'Benchmark history is temporarily using local storage on this device.'
         );
       } finally {
         if (!cancelled) {
@@ -487,12 +540,14 @@ export default function BenchmarkExperience({
   const openReport = (targetReport: BenchmarkReport) => {
     setReport(targetReport);
     setView('report');
+    updateReportSearchParam(targetReport.id);
   };
 
   const applyUpdatedReport = (nextReport: BenchmarkReport) => {
     setReport(nextReport);
     setSavedReport((current) => (current?.id === nextReport.id ? nextReport : current));
     setReportHistory((current) => mergeReports([nextReport], current));
+    updateReportSearchParam(nextReport.id);
   };
 
   const resetBenchmark = () => {
@@ -503,6 +558,7 @@ export default function BenchmarkExperience({
     setSecondsLeft(DURATION_SECONDS);
     setReport(null);
     setIsFinishing(false);
+    updateReportSearchParam(null);
   };
 
   const startBenchmark = () => {
@@ -516,6 +572,7 @@ export default function BenchmarkExperience({
     setReport(null);
     setIsFinishing(false);
     setView('assessment');
+    updateReportSearchParam(null);
     trackEvent('benchmark_start', {
       mode,
       language: setup.language,
@@ -545,6 +602,7 @@ export default function BenchmarkExperience({
     });
 
     const nextReport = buildBenchmarkReport(setup, questions, answerRecords);
+    setHistoryMessage(null);
     saveBenchmarkReport(nextReport);
     if (user?.id) {
       saveBenchmarkReport(nextReport, user.id);
@@ -554,6 +612,7 @@ export default function BenchmarkExperience({
     setReport(nextReport);
     setReportHistory((current) => mergeReports([nextReport], current));
     setView('report');
+    updateReportSearchParam(nextReport.id);
     trackEvent('benchmark_complete', {
       mode,
       language: setup.language,
@@ -575,8 +634,8 @@ export default function BenchmarkExperience({
     } catch (error) {
       setHistoryMessage(
         error instanceof Error
-          ? `${error.message} Local save is still available for this session.`
-          : 'Local save is still available for this session.'
+          ? `${error.message} Local save is still available on this device.`
+          : 'Local save is still available on this device.'
       );
     } finally {
       setIsFinishing(false);
@@ -606,7 +665,7 @@ export default function BenchmarkExperience({
       `Focus next: ${targetReport.weaknesses.join(', ')}`,
     ].join('\n');
     try {
-      await navigator.clipboard.writeText(summary);
+      await copyTextToClipboard(summary);
       toast.success('Report summary copied.');
     } catch {
       toast.error('Could not copy the report summary.');
@@ -670,7 +729,7 @@ export default function BenchmarkExperience({
     if (!sharedReportUrl) return;
 
     try {
-      await navigator.clipboard.writeText(sharedReportUrl);
+      await copyTextToClipboard(sharedReportUrl);
       toast.success('Public report link copied.');
       trackEvent('benchmark_report_shared', {
         action: 'copied',
@@ -701,7 +760,7 @@ export default function BenchmarkExperience({
           : null;
 
       if (nextUrl) {
-        await navigator.clipboard.writeText(nextUrl);
+        await copyTextToClipboard(nextUrl);
         toast.success('Public report published and link copied.');
       } else {
         toast.success('Public report published.');

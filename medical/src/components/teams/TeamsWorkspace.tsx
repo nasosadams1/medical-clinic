@@ -1,11 +1,12 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { BarChart3, CalendarDays, Copy, Crown, Loader2, Mail, Plus, TrendingUp, Users } from 'lucide-react';
+import { BarChart3, CalendarDays, Copy, Loader2, Mail, Plus, Users } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
-import { teamUseCases } from '../../data/siteContent';
+import { interviewTracks, publicProductMetrics, teamUseCases } from '../../data/siteContent';
 import { trackEvent } from '../../lib/analytics';
 import {
+  type BenchmarkLanguage,
   createTeam,
   createTeamAssignment,
   createTeamInvite,
@@ -13,6 +14,8 @@ import {
   joinTeamByCode,
   listTeams,
   shareTeamWorkspace,
+  type TeamAssignmentType,
+  type TeamRole,
   type TeamSummary,
   type TeamUseCase,
   type TeamWorkspaceDetail,
@@ -23,26 +26,6 @@ interface TeamsWorkspaceProps {
   mode?: 'public' | 'app';
 }
 
-const demoMembers = [
-  { name: 'Maya P.', score: 82, status: 'Benchmarked', streak: 7 },
-  { name: 'Jon A.', score: 74, status: 'Practice path active', streak: 5 },
-  { name: 'Priya S.', score: 68, status: 'Needs roadmap review', streak: 3 },
-  { name: 'Noah T.', score: 61, status: 'Benchmark pending follow-up', streak: 2 },
-];
-
-const demoAssignments = [
-  { title: 'Python Fundamentals Benchmark', due: 'This week', type: 'Benchmark' },
-  { title: 'Junior Screening Challenge Pack', due: 'Next week', type: 'Challenge pack' },
-  { title: 'Practice path: Arrays & control flow', due: 'Active', type: 'Roadmap' },
-];
-
-const demoTimeline = [
-  { label: 'Week 1', value: 58 },
-  { label: 'Week 2', value: 63 },
-  { label: 'Week 3', value: 68 },
-  { label: 'Week 4', value: 71 },
-];
-
 const supportEmail = import.meta.env.VITE_SUPPORT_EMAIL || 'support@codhakmailserver.online';
 
 const teamUseCaseOptions: Array<{ value: TeamUseCase; label: string }> = [
@@ -51,6 +34,25 @@ const teamUseCaseOptions: Array<{ value: TeamUseCase; label: string }> = [
   { value: 'coding-clubs', label: 'Coding club' },
   { value: 'upskilling', label: 'Upskilling team' },
   { value: 'general', label: 'General pilot' },
+];
+
+const assignmentTypeOptions: Array<{ value: TeamAssignmentType; label: string }> = [
+  { value: 'benchmark', label: 'Benchmark' },
+  { value: 'challenge_pack', label: 'Challenge pack' },
+  { value: 'roadmap', label: 'Roadmap' },
+];
+
+const benchmarkLanguageOptions: Array<{ value: BenchmarkLanguage; label: string }> = [
+  { value: 'python', label: 'Python' },
+  { value: 'javascript', label: 'JavaScript' },
+  { value: 'java', label: 'Java' },
+  { value: 'cpp', label: 'C++' },
+];
+
+const inviteRoleOptions: Array<{ value: Exclude<TeamRole, 'owner'>; label: string }> = [
+  { value: 'learner', label: 'Learner' },
+  { value: 'coach', label: 'Coach' },
+  { value: 'admin', label: 'Admin' },
 ];
 
 const formatDueLabel = (value: string | null | undefined) => {
@@ -67,6 +69,31 @@ const workspacePrimaryButtonClass =
   'inline-flex items-center justify-center gap-2 rounded-2xl bg-primary px-4 py-3 text-sm font-medium text-primary-foreground shadow-card transition hover:bg-primary/90';
 const workspaceSecondaryButtonClass =
   'inline-flex items-center justify-center gap-2 rounded-2xl border border-border bg-background px-4 py-3 text-sm font-medium text-foreground transition hover:border-primary/30 hover:bg-card';
+
+const copyTextToClipboard = async (value: string) => {
+  if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(value);
+    return;
+  }
+
+  if (typeof document === 'undefined') {
+    throw new Error('Clipboard is not available.');
+  }
+
+  const textarea = document.createElement('textarea');
+  textarea.value = value;
+  textarea.setAttribute('readonly', 'true');
+  textarea.style.position = 'absolute';
+  textarea.style.left = '-9999px';
+  document.body.appendChild(textarea);
+  textarea.select();
+  const copied = document.execCommand('copy');
+  document.body.removeChild(textarea);
+
+  if (!copied) {
+    throw new Error('Clipboard is not available.');
+  }
+};
 
 const renderProgressBars = (entries: Array<{ label: string; value: number | null }>) => (
   <div className="mt-4 space-y-3">
@@ -91,128 +118,137 @@ const PublicTeamsWorkspace = ({ mode }: { mode: 'public' | 'app' }) => {
   const navigate = useNavigate();
 
   return (
-  <div className="grid gap-6 xl:grid-cols-[0.95fr_1.05fr]">
-    <section className={workspaceShellClass}>
-      <div className="flex flex-col gap-4 border-b border-border pb-6 sm:flex-row sm:items-start sm:justify-between">
-        <div>
-          <div className="inline-flex items-center gap-2 rounded-full border border-primary/20 bg-primary/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-primary">
-            {mode === 'public' ? 'Demo cohort workspace' : 'Pilot cohort workspace'}
+    <div className="grid gap-6 xl:grid-cols-[0.95fr_1.05fr]">
+      <section className={workspaceShellClass}>
+        <div className="flex flex-col gap-4 border-b border-border pb-6 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <div className="inline-flex items-center gap-2 rounded-full border border-primary/20 bg-primary/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-primary">
+              {mode === 'public' ? 'Team workflow overview' : 'Team workflow'}
+            </div>
+            <h2 className="mt-4 text-3xl font-semibold tracking-tight text-foreground">Benchmark a cohort. Assign the next path. Prove improvement.</h2>
+            <p className="mt-3 max-w-2xl text-sm leading-6 text-muted-foreground sm:text-base">
+              Codhak teams are built around real benchmark reports, assignments, invite codes, and proof pages. The public surface shows the workflow, not invented cohort numbers.
+            </p>
           </div>
-          <h2 className="mt-4 text-3xl font-semibold tracking-tight text-foreground">Benchmark a cohort. Track proof of progress.</h2>
-          <p className="mt-3 max-w-2xl text-sm leading-6 text-muted-foreground sm:text-base">
-            Use Codhak to benchmark learners quickly, assign practice paths, run competitions, and keep one shared view of improvement over time.
-          </p>
+          <div className="grid gap-3 sm:min-w-[260px]">
+            <button
+              type="button"
+              onClick={() => navigate('/benchmark')}
+              className={workspacePrimaryButtonClass}
+            >
+              <Users className="h-4 w-4" />
+              Start with benchmark
+            </button>
+            <a
+              href={`mailto:${supportEmail}?subject=${encodeURIComponent('Codhak pilot walkthrough request')}`}
+              className={workspaceSecondaryButtonClass}
+            >
+              <Mail className="h-4 w-4" />
+              Request pilot walkthrough
+            </a>
+          </div>
         </div>
-        <div className="grid gap-3 sm:min-w-[220px]">
-          <div className={workspaceMetricClass}>
-            <div className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Active learners</div>
-            <div className="mt-1 text-lg font-semibold text-foreground">24</div>
-          </div>
-          <div className={workspaceMetricClass}>
-            <div className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Median score</div>
-            <div className="mt-1 text-lg font-semibold text-foreground">71/100</div>
-          </div>
-        </div>
-      </div>
 
-      <div className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-        <div className={workspaceMetricClass}>
-          <div className="flex items-center gap-2 text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground"><Users className="h-4 w-4 text-primary" />Benchmark completion</div>
-          <div className="mt-3 text-3xl font-semibold text-foreground">83%</div>
-          <p className="mt-1 text-sm text-muted-foreground">20 of 24 learners have completed the benchmark.</p>
+        <div className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          {publicProductMetrics.map((metric) => (
+            <div key={metric.label} className={workspaceMetricClass}>
+              <div className="text-xs uppercase tracking-[0.18em] text-muted-foreground">{metric.label}</div>
+              <div className="mt-2 text-2xl font-semibold text-foreground">{metric.value}</div>
+              <p className="mt-1 text-sm text-muted-foreground">{metric.helper}</p>
+            </div>
+          ))}
         </div>
-        <div className={workspaceMetricClass}>
-          <div className="flex items-center gap-2 text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground"><TrendingUp className="h-4 w-4 text-xp" />Avg. improvement</div>
-          <div className="mt-3 text-3xl font-semibold text-foreground">+12 pts</div>
-          <p className="mt-1 text-sm text-muted-foreground">Tracked across current practice paths.</p>
-        </div>
-        <div className={workspaceMetricClass}>
-          <div className="flex items-center gap-2 text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground"><Crown className="h-4 w-4 text-primary" />Top performer</div>
-          <div className="mt-3 text-3xl font-semibold text-foreground">Maya P.</div>
-          <p className="mt-1 text-sm text-muted-foreground">82/100 score with a 7-day practice streak.</p>
-        </div>
-      </div>
 
-      <div className="mt-6 grid gap-4 lg:grid-cols-2">
-        <div className={workspacePanelClass}>
-          <div className="flex items-center gap-2 text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground"><BarChart3 className="h-4 w-4 text-primary" />Members</div>
-          <ul className="mt-4 space-y-3">
-            {demoMembers.map((member) => (
-              <li key={member.name} className="rounded-2xl border border-border bg-card px-4 py-3">
-                <div className="flex items-center justify-between gap-3">
-                  <div>
-                    <div className="text-sm font-semibold text-foreground">{member.name}</div>
-                    <div className="mt-1 text-sm text-muted-foreground">{member.status}</div>
-                  </div>
-                  <div className="text-right">
-                    <div className="text-sm font-semibold text-foreground">{member.score}/100</div>
-                    <div className="mt-1 text-xs uppercase tracking-[0.18em] text-muted-foreground">{member.streak}d streak</div>
-                  </div>
+        <div className="mt-6 grid gap-4 lg:grid-cols-2">
+          <div className={workspacePanelClass}>
+            <div className="flex items-center gap-2 text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+              <BarChart3 className="h-4 w-4 text-primary" />
+              What a live team workspace includes
+            </div>
+            <div className="mt-4 space-y-3">
+              {[
+                'Benchmark completion tracking by learner',
+                'Assignment packs for benchmarks, challenge packs, and roadmaps',
+                'Invite-code based cohort onboarding',
+                'Improvement leaders, attention queue, and progress timeline',
+                'Public proof pages when a cohort is ready to share outcomes',
+              ].map((item) => (
+                <div key={item} className="rounded-2xl border border-border bg-card px-4 py-3 text-sm text-foreground">
+                  {item}
                 </div>
-              </li>
-            ))}
-          </ul>
-        </div>
-
-        <div className="grid gap-4">
-          <div className={workspacePanelClass}>
-            <div className="flex items-center gap-2 text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground"><CalendarDays className="h-4 w-4 text-primary" />Assignment packs</div>
-            <ul className="mt-4 space-y-3">
-              {demoAssignments.map((assignment) => (
-                <li key={assignment.title} className="rounded-2xl border border-border bg-card px-4 py-3">
-                  <div className="text-sm font-semibold text-foreground">{assignment.title}</div>
-                  <div className="mt-1 flex items-center justify-between text-sm text-muted-foreground">
-                    <span>{assignment.type}</span>
-                    <span>{assignment.due}</span>
-                  </div>
-                </li>
               ))}
-            </ul>
+            </div>
           </div>
 
-          <div className={workspacePanelClass}>
-            <div className="text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground">Invite and join flow</div>
-            <p className="mt-3 text-sm leading-6 text-muted-foreground">This public view is intentionally a pilot preview. The signed-in workspace now supports real team creation, invites, assignments, and benchmark-derived analytics.</p>
-            <div className="mt-4 flex flex-col gap-3 sm:flex-row">
-              <a
-                href={`mailto:${supportEmail}?subject=${encodeURIComponent('Codhak pilot walkthrough request')}`}
-                className={workspaceSecondaryButtonClass}
-              >
-                <Mail className="h-4 w-4" />
-                Request pilot walkthrough
-              </a>
-              <button
-                type="button"
-                onClick={() => navigate('/benchmark')}
-                className={workspaceSecondaryButtonClass}
-              >
-                <Users className="h-4 w-4" />
-                Start with benchmark
-              </button>
+          <div className="grid gap-4">
+            <div className={workspacePanelClass}>
+              <div className="flex items-center gap-2 text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                <CalendarDays className="h-4 w-4 text-primary" />
+                Team workflow
+              </div>
+              <div className="mt-4 space-y-3">
+                {[
+                  ['1. Benchmark first', 'Start with a short benchmark to create a shared baseline.'],
+                  ['2. Assign follow-up work', 'Create benchmark, challenge-pack, or roadmap assignments based on the results.'],
+                  ['3. Review proof of progress', 'Use score movement, leaderboard shifts, and proof pages to show improvement.'],
+                ].map(([title, description]) => (
+                  <div key={title} className="rounded-2xl border border-border bg-card px-4 py-4">
+                    <div className="text-sm font-semibold text-foreground">{title}</div>
+                    <p className="mt-1 text-sm leading-6 text-muted-foreground">{description}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className={workspacePanelClass}>
+              <div className="text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground">Use cases</div>
+              <div className="mt-4 grid gap-3">
+                {teamUseCases.map((useCase) => (
+                  <button
+                    key={useCase.slug}
+                    type="button"
+                    onClick={() => navigate(`/teams/${useCase.slug}`)}
+                    className="rounded-2xl border border-border bg-card px-4 py-4 text-left transition hover:border-primary/30 hover:bg-background"
+                  >
+                    <div className="text-sm font-semibold text-foreground">{useCase.title}</div>
+                    <p className="mt-1 text-sm leading-6 text-muted-foreground">{useCase.description}</p>
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
         </div>
-      </div>
-    </section>
+      </section>
 
-    <aside className="grid gap-4">
-      <div className={workspacePanelClass}>
-        <div className="text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground">Progress over time</div>
-        {renderProgressBars(demoTimeline)}
-      </div>
-      {teamUseCases.map((useCase) => (
-        <div key={useCase.slug} className={workspacePanelClass}>
-          <div className="text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground">{useCase.title}</div>
-          <p className="mt-3 text-sm leading-6 text-muted-foreground">{useCase.description}</p>
-          <ul className="mt-4 space-y-2 text-sm text-foreground">
-            {useCase.outcomes.map((outcome) => (
-              <li key={outcome} className="rounded-2xl border border-border bg-card px-4 py-3 text-foreground">{outcome}</li>
+      <aside className="grid gap-4">
+        <div className={workspacePanelClass}>
+          <div className="text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground">Practice tracks teams can assign</div>
+          <div className="mt-4 space-y-3">
+            {interviewTracks.slice(0, 4).map((track) => (
+              <div key={track.id} className="rounded-2xl border border-border bg-card px-4 py-4">
+                <div className="text-sm font-semibold text-foreground">{track.title}</div>
+                <div className="mt-1 text-xs uppercase tracking-[0.16em] text-muted-foreground">
+                  {track.language === 'multi' ? 'Multi-language' : track.language.toUpperCase()}
+                </div>
+                <p className="mt-2 text-sm leading-6 text-muted-foreground">{track.description}</p>
+              </div>
             ))}
-          </ul>
+          </div>
         </div>
-      ))}
-    </aside>
-  </div>
+
+        {teamUseCases.map((useCase) => (
+          <div key={useCase.slug} className={workspacePanelClass}>
+            <div className="text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground">{useCase.title}</div>
+            <p className="mt-3 text-sm leading-6 text-muted-foreground">{useCase.description}</p>
+            <ul className="mt-4 space-y-2 text-sm text-foreground">
+              {useCase.outcomes.map((outcome) => (
+                <li key={outcome} className="rounded-2xl border border-border bg-card px-4 py-3 text-foreground">{outcome}</li>
+              ))}
+            </ul>
+          </div>
+        ))}
+      </aside>
+    </div>
   );
 };
 
@@ -224,10 +260,29 @@ export default function TeamsWorkspace({ mode = 'public' }: TeamsWorkspaceProps)
   const [loadingTeams, setLoadingTeams] = useState(false);
   const [loadingDetail, setLoadingDetail] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [creatingTeam, setCreatingTeam] = useState(false);
+  const [joiningTeam, setJoiningTeam] = useState(false);
+  const [creatingInvite, setCreatingInvite] = useState(false);
+  const [creatingAssignment, setCreatingAssignment] = useState(false);
+  const [sharingTeamProof, setSharingTeamProof] = useState(false);
+  const [unsharingTeamProof, setUnsharingTeamProof] = useState(false);
   const [createForm, setCreateForm] = useState({ name: '', description: '', useCase: 'bootcamps' as TeamUseCase, seatLimit: 25 });
   const [joinCode, setJoinCode] = useState('');
-  const [inviteLabel, setInviteLabel] = useState('General learner access');
-  const [assignmentTitle, setAssignmentTitle] = useState('');
+  const [inviteForm, setInviteForm] = useState({
+    label: 'General learner access',
+    email: '',
+    role: 'learner' as Exclude<TeamRole, 'owner'>,
+    maxUses: 25,
+    expiresInDays: 14,
+  });
+  const [assignmentForm, setAssignmentForm] = useState({
+    title: '',
+    description: '',
+    assignmentType: 'benchmark' as TeamAssignmentType,
+    benchmarkLanguage: 'python' as BenchmarkLanguage,
+    trackId: interviewTracks[0]?.id || '',
+    dueAt: '',
+  });
 
   const canManageTeam = useMemo(() => ['owner', 'admin', 'coach'].includes(teamDetail?.team.currentUserRole || ''), [teamDetail?.team.currentUserRole]);
   const improvementLeaders = useMemo(
@@ -253,6 +308,14 @@ export default function TeamsWorkspace({ mode = 'public' }: TeamsWorkspaceProps)
 
     return `${window.location.origin}/teams/proof/${teamDetail.team.shareToken}`;
   }, [teamDetail?.team.isPublic, teamDetail?.team.shareToken]);
+  const availableTrackOptions = useMemo(
+    () =>
+      interviewTracks.map((track) => ({
+        value: track.id,
+        label: track.title,
+      })),
+    []
+  );
 
   useEffect(() => {
     if (mode !== 'app' || !user) return;
@@ -320,16 +383,26 @@ export default function TeamsWorkspace({ mode = 'public' }: TeamsWorkspaceProps)
   }
 
   const refreshTeamsAndSelect = async (preferredTeamId?: string) => {
-    const nextTeams = await listTeams();
-    setTeams(nextTeams);
-    const nextSelectedTeamId = preferredTeamId && nextTeams.some((team) => team.id === preferredTeamId)
-      ? preferredTeamId
-      : nextTeams[0]?.id || '';
-    setSelectedTeamId(nextSelectedTeamId);
-    if (nextSelectedTeamId) {
-      setTeamDetail(await getTeamWorkspace(nextSelectedTeamId));
-    } else {
-      setTeamDetail(null);
+    setLoadingTeams(true);
+    try {
+      const nextTeams = await listTeams();
+      setTeams(nextTeams);
+      const nextSelectedTeamId = preferredTeamId && nextTeams.some((team) => team.id === preferredTeamId)
+        ? preferredTeamId
+        : nextTeams[0]?.id || '';
+      setSelectedTeamId(nextSelectedTeamId);
+      if (nextSelectedTeamId) {
+        setLoadingDetail(true);
+        try {
+          setTeamDetail(await getTeamWorkspace(nextSelectedTeamId));
+        } finally {
+          setLoadingDetail(false);
+        }
+      } else {
+        setTeamDetail(null);
+      }
+    } finally {
+      setLoadingTeams(false);
     }
   };
 
@@ -340,7 +413,7 @@ export default function TeamsWorkspace({ mode = 'public' }: TeamsWorkspaceProps)
     }
 
     try {
-      setLoadingTeams(true);
+      setCreatingTeam(true);
       const team = await createTeam(createForm);
       setCreateForm({ name: '', description: '', useCase: createForm.useCase, seatLimit: createForm.seatLimit });
       await refreshTeamsAndSelect(team.id);
@@ -348,7 +421,7 @@ export default function TeamsWorkspace({ mode = 'public' }: TeamsWorkspaceProps)
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Could not create team.');
     } finally {
-      setLoadingTeams(false);
+      setCreatingTeam(false);
     }
   };
 
@@ -359,7 +432,7 @@ export default function TeamsWorkspace({ mode = 'public' }: TeamsWorkspaceProps)
     }
 
     try {
-      setLoadingTeams(true);
+      setJoiningTeam(true);
       const team = await joinTeamByCode(joinCode.trim().toUpperCase());
       setJoinCode('');
       await refreshTeamsAndSelect(team.id);
@@ -367,41 +440,67 @@ export default function TeamsWorkspace({ mode = 'public' }: TeamsWorkspaceProps)
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Could not join team.');
     } finally {
-      setLoadingTeams(false);
+      setJoiningTeam(false);
     }
   };
 
   const handleCreateInvite = async () => {
     if (!teamDetail) return;
     try {
-      const invite = await createTeamInvite(teamDetail.team.id, { label: inviteLabel });
-      setInviteLabel('General learner access');
+      setCreatingInvite(true);
+      const invite = await createTeamInvite(teamDetail.team.id, {
+        label: inviteForm.label,
+        email: inviteForm.email,
+        role: inviteForm.role,
+        maxUses: inviteForm.maxUses,
+        expiresInDays: inviteForm.expiresInDays,
+      });
+      setInviteForm({
+        label: 'General learner access',
+        email: '',
+        role: 'learner',
+        maxUses: 25,
+        expiresInDays: 14,
+      });
       setTeamDetail((current) => current ? { ...current, invites: [invite, ...current.invites] } : current);
-      await navigator.clipboard.writeText(invite.code);
+      await copyTextToClipboard(invite.code);
       toast.success('Invite code created and copied.');
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Could not create invite.');
+    } finally {
+      setCreatingInvite(false);
     }
   };
 
   const handleCreateAssignment = async () => {
     if (!teamDetail) return;
-    if (!assignmentTitle.trim()) {
+    if (!assignmentForm.title.trim()) {
       toast.error('Assignment title is required.');
       return;
     }
 
     try {
+      setCreatingAssignment(true);
       const assignment = await createTeamAssignment(teamDetail.team.id, {
-        title: assignmentTitle,
-        assignmentType: 'benchmark',
-        benchmarkLanguage: 'python',
+        title: assignmentForm.title,
+        description: assignmentForm.description,
+        assignmentType: assignmentForm.assignmentType,
+        benchmarkLanguage: assignmentForm.assignmentType === 'benchmark' ? assignmentForm.benchmarkLanguage : null,
+        trackId: assignmentForm.assignmentType === 'roadmap' ? assignmentForm.trackId || null : null,
+        dueAt: assignmentForm.dueAt ? new Date(assignmentForm.dueAt).toISOString() : null,
       });
-      setAssignmentTitle('');
+      setAssignmentForm((current) => ({
+        ...current,
+        title: '',
+        description: '',
+        dueAt: '',
+      }));
       setTeamDetail((current) => current ? { ...current, assignments: [assignment, ...current.assignments] } : current);
       toast.success('Assignment added.');
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Could not create assignment.');
+    } finally {
+      setCreatingAssignment(false);
     }
   };
 
@@ -437,6 +536,7 @@ export default function TeamsWorkspace({ mode = 'public' }: TeamsWorkspaceProps)
     if (!teamDetail) return;
 
     try {
+      setSharingTeamProof(true);
       const nextTeam = await shareTeamWorkspace(teamDetail.team.id);
       mergeSharedTeamState(nextTeam);
       const nextUrl =
@@ -447,7 +547,7 @@ export default function TeamsWorkspace({ mode = 'public' }: TeamsWorkspaceProps)
           : '';
 
       if (nextUrl) {
-        await navigator.clipboard.writeText(nextUrl);
+        await copyTextToClipboard(nextUrl);
       }
 
       trackEvent('team_proof_shared', {
@@ -457,6 +557,8 @@ export default function TeamsWorkspace({ mode = 'public' }: TeamsWorkspaceProps)
       toast.success('Team proof page published and copied.');
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Could not publish the team proof page.');
+    } finally {
+      setSharingTeamProof(false);
     }
   };
 
@@ -464,6 +566,7 @@ export default function TeamsWorkspace({ mode = 'public' }: TeamsWorkspaceProps)
     if (!teamDetail) return;
 
     try {
+      setUnsharingTeamProof(true);
       const nextTeam = await unshareTeamWorkspace(teamDetail.team.id);
       mergeSharedTeamState(nextTeam);
       trackEvent('team_proof_unshared', {
@@ -473,6 +576,8 @@ export default function TeamsWorkspace({ mode = 'public' }: TeamsWorkspaceProps)
       toast.success('Team proof page disabled.');
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Could not disable the team proof page.');
+    } finally {
+      setUnsharingTeamProof(false);
     }
   };
 
@@ -480,7 +585,7 @@ export default function TeamsWorkspace({ mode = 'public' }: TeamsWorkspaceProps)
     if (!sharedTeamProofUrl) return;
 
     try {
-      await navigator.clipboard.writeText(sharedTeamProofUrl);
+      await copyTextToClipboard(sharedTeamProofUrl);
       trackEvent('team_proof_link_copied', {
         teamId: teamDetail?.team.id,
         useCase: teamDetail?.team.useCase,
@@ -533,9 +638,9 @@ export default function TeamsWorkspace({ mode = 'public' }: TeamsWorkspaceProps)
                   </select>
                   <input type="number" min={1} max={1000} value={createForm.seatLimit} onChange={(event) => setCreateForm((current) => ({ ...current, seatLimit: Number(event.target.value) || 25 }))} className={workspaceInputClass} />
                 </div>
-                <button type="button" onClick={handleCreateTeam} className={workspacePrimaryButtonClass}>
-                  <Plus className="h-4 w-4" />
-                  Create team workspace
+                <button type="button" onClick={handleCreateTeam} disabled={creatingTeam} className={workspacePrimaryButtonClass}>
+                  {creatingTeam ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+                  {creatingTeam ? 'Creating team...' : 'Create team workspace'}
                 </button>
               </div>
             </div>
@@ -544,9 +649,9 @@ export default function TeamsWorkspace({ mode = 'public' }: TeamsWorkspaceProps)
               <div className="text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground">Join with invite code</div>
               <div className="mt-4 space-y-3">
                 <input value={joinCode} onChange={(event) => setJoinCode(event.target.value.toUpperCase())} placeholder="CODH-ABC123" className={workspaceInputClass} />
-                <button type="button" onClick={handleJoinTeam} className={workspaceSecondaryButtonClass}>
-                  <Users className="h-4 w-4" />
-                  Join team
+                <button type="button" onClick={handleJoinTeam} disabled={joiningTeam} className={workspaceSecondaryButtonClass}>
+                  {joiningTeam ? <Loader2 className="h-4 w-4 animate-spin" /> : <Users className="h-4 w-4" />}
+                  {joiningTeam ? 'Joining...' : 'Join team'}
                 </button>
               </div>
               <div className="mt-6 rounded-2xl border border-border bg-card px-4 py-4 text-sm leading-6 text-muted-foreground">Create one pilot team or join an existing cohort to unlock assignments, invite codes, and benchmark-derived analytics.</div>
@@ -585,51 +690,120 @@ export default function TeamsWorkspace({ mode = 'public' }: TeamsWorkspaceProps)
             <div className="mt-6 grid gap-4 lg:grid-cols-2">
               <div className={workspacePanelClass}>
                 <div className="flex items-center gap-2 text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground"><BarChart3 className="h-4 w-4 text-primary" />Members</div>
-                <ul className="mt-4 space-y-3">
-                  {teamDetail.members.map((member) => (
-                    <li key={member.userId} className="rounded-2xl border border-border bg-card px-4 py-3">
-                      <div className="flex items-center justify-between gap-3">
-                        <div>
-                          <div className="text-sm font-semibold text-foreground">{member.name}</div>
-                          <div className="mt-1 text-sm text-muted-foreground">
-                            {member.latestBenchmarkStatus} - {member.role}
+                {teamDetail.members.length > 0 ? (
+                  <ul className="mt-4 space-y-3">
+                    {teamDetail.members.map((member) => (
+                      <li key={member.userId} className="rounded-2xl border border-border bg-card px-4 py-3">
+                        <div className="flex items-center justify-between gap-3">
+                          <div>
+                            <div className="text-sm font-semibold text-foreground">{member.name}</div>
+                            <div className="mt-1 text-sm text-muted-foreground">
+                              {member.latestBenchmarkStatus} - {member.role}
+                            </div>
+                            <div className="mt-2 inline-flex rounded-full bg-background px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                              {member.recommendedAction}
+                            </div>
                           </div>
-                          <div className="mt-2 inline-flex rounded-full bg-background px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
-                            {member.recommendedAction}
+                          <div className="text-right">
+                            <div className="text-sm font-semibold text-foreground">{member.latestBenchmarkScore ?? '--'}/100</div>
+                            <div className="mt-1 text-xs uppercase tracking-[0.18em] text-muted-foreground">
+                              {member.improvementDelta !== null
+                                ? `${member.improvementDelta > 0 ? '+' : ''}${member.improvementDelta} pts`
+                                : `${member.currentStreak}d streak`}
+                            </div>
                           </div>
                         </div>
-                        <div className="text-right">
-                          <div className="text-sm font-semibold text-foreground">{member.latestBenchmarkScore ?? '--'}/100</div>
-                          <div className="mt-1 text-xs uppercase tracking-[0.18em] text-muted-foreground">
-                            {member.improvementDelta !== null
-                              ? `${member.improvementDelta > 0 ? '+' : ''}${member.improvementDelta} pts`
-                              : `${member.currentStreak}d streak`}
-                          </div>
-                        </div>
-                      </div>
-                    </li>
-                  ))}
-                </ul>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <div className="mt-4 rounded-2xl border border-border bg-card px-4 py-4 text-sm leading-6 text-muted-foreground">
+                    No members yet. Create an invite code to start adding learners to this cohort.
+                  </div>
+                )}
               </div>
 
               <div className="grid gap-4">
                 <div className={workspacePanelClass}>
                   <div className="flex items-center gap-2 text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground"><CalendarDays className="h-4 w-4 text-primary" />Assignments</div>
-                  <ul className="mt-4 space-y-3">
-                    {teamDetail.assignments.map((assignment) => (
-                      <li key={assignment.id} className="rounded-2xl border border-border bg-card px-4 py-3">
-                        <div className="text-sm font-semibold text-foreground">{assignment.title}</div>
-                        <div className="mt-1 flex items-center justify-between text-sm text-muted-foreground">
-                          <span>{assignment.assignmentType.replace('_', ' ')}</span>
-                          <span>{formatDueLabel(assignment.dueAt)}</span>
-                        </div>
-                      </li>
-                    ))}
-                  </ul>
+                  {teamDetail.assignments.length > 0 ? (
+                    <ul className="mt-4 space-y-3">
+                      {teamDetail.assignments.map((assignment) => (
+                        <li key={assignment.id} className="rounded-2xl border border-border bg-card px-4 py-3">
+                          <div className="text-sm font-semibold text-foreground">{assignment.title}</div>
+                          {assignment.description ? (
+                            <div className="mt-1 text-sm leading-6 text-muted-foreground">{assignment.description}</div>
+                          ) : null}
+                          <div className="mt-2 flex items-center justify-between text-sm text-muted-foreground">
+                            <span>{assignment.assignmentType.replace('_', ' ')}</span>
+                            <span>{formatDueLabel(assignment.dueAt)}</span>
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <div className="mt-4 rounded-2xl border border-border bg-card px-4 py-4 text-sm leading-6 text-muted-foreground">
+                      No assignments yet. Start with a benchmark assignment or roadmap follow-up.
+                    </div>
+                  )}
                   {canManageTeam ? (
-                    <div className="mt-4 flex gap-3">
-                      <input value={assignmentTitle} onChange={(event) => setAssignmentTitle(event.target.value)} placeholder="Add a benchmark assignment" className={`min-w-0 flex-1 ${workspaceInputClass}`} />
-                      <button type="button" onClick={handleCreateAssignment} className={workspaceSecondaryButtonClass}><Plus className="h-4 w-4" />Add</button>
+                    <div className="mt-4 space-y-3">
+                      <input
+                        value={assignmentForm.title}
+                        onChange={(event) => setAssignmentForm((current) => ({ ...current, title: event.target.value }))}
+                        placeholder="Python fundamentals benchmark"
+                        className={workspaceInputClass}
+                      />
+                      <textarea
+                        value={assignmentForm.description}
+                        onChange={(event) => setAssignmentForm((current) => ({ ...current, description: event.target.value }))}
+                        placeholder="Add context for learners or instructors."
+                        rows={3}
+                        className={workspaceInputClass}
+                      />
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        <select
+                          value={assignmentForm.assignmentType}
+                          onChange={(event) => setAssignmentForm((current) => ({ ...current, assignmentType: event.target.value as TeamAssignmentType }))}
+                          className={workspaceInputClass}
+                        >
+                          {assignmentTypeOptions.map((option) => (
+                            <option key={option.value} value={option.value}>{option.label}</option>
+                          ))}
+                        </select>
+                        <input
+                          type="date"
+                          value={assignmentForm.dueAt}
+                          onChange={(event) => setAssignmentForm((current) => ({ ...current, dueAt: event.target.value }))}
+                          className={workspaceInputClass}
+                        />
+                      </div>
+                      {assignmentForm.assignmentType === 'benchmark' ? (
+                        <select
+                          value={assignmentForm.benchmarkLanguage}
+                          onChange={(event) => setAssignmentForm((current) => ({ ...current, benchmarkLanguage: event.target.value as BenchmarkLanguage }))}
+                          className={workspaceInputClass}
+                        >
+                          {benchmarkLanguageOptions.map((option) => (
+                            <option key={option.value} value={option.value}>{option.label}</option>
+                          ))}
+                        </select>
+                      ) : null}
+                      {assignmentForm.assignmentType === 'roadmap' ? (
+                        <select
+                          value={assignmentForm.trackId}
+                          onChange={(event) => setAssignmentForm((current) => ({ ...current, trackId: event.target.value }))}
+                          className={workspaceInputClass}
+                        >
+                          {availableTrackOptions.map((option) => (
+                            <option key={option.value} value={option.value}>{option.label}</option>
+                          ))}
+                        </select>
+                      ) : null}
+                      <button type="button" onClick={handleCreateAssignment} disabled={creatingAssignment} className={workspaceSecondaryButtonClass}>
+                        {creatingAssignment ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+                        {creatingAssignment ? 'Adding assignment...' : 'Add assignment'}
+                      </button>
                     </div>
                   ) : null}
                 </div>
@@ -637,22 +811,73 @@ export default function TeamsWorkspace({ mode = 'public' }: TeamsWorkspaceProps)
                 <div className={workspacePanelClass}>
                   <div className="text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground">Invite codes</div>
                   <div className="mt-4 space-y-3">
-                    {teamDetail.invites.slice(0, 3).map((invite) => (
-                      <div key={invite.id} className="rounded-2xl border border-border bg-card px-4 py-3">
-                        <div className="flex items-center justify-between gap-3">
-                          <div>
-                            <div className="text-sm font-semibold text-foreground">{invite.label}</div>
-                            <div className="mt-1 text-xs uppercase tracking-[0.18em] text-muted-foreground">{invite.code}</div>
+                    {teamDetail.invites.length > 0 ? (
+                      teamDetail.invites.slice(0, 5).map((invite) => (
+                        <div key={invite.id} className="rounded-2xl border border-border bg-card px-4 py-3">
+                          <div className="flex items-center justify-between gap-3">
+                            <div>
+                              <div className="text-sm font-semibold text-foreground">{invite.label}</div>
+                              <div className="mt-1 text-xs uppercase tracking-[0.18em] text-muted-foreground">{invite.code}</div>
+                              <div className="mt-2 text-xs text-muted-foreground">
+                                {invite.role} • expires {formatDueLabel(invite.expiresAt)}
+                              </div>
+                            </div>
+                            <div className="text-xs text-muted-foreground">{invite.useCount}/{invite.maxUses} used</div>
                           </div>
-                          <div className="text-xs text-muted-foreground">{invite.useCount}/{invite.maxUses} used</div>
                         </div>
+                      ))
+                    ) : (
+                      <div className="rounded-2xl border border-border bg-card px-4 py-4 text-sm leading-6 text-muted-foreground">
+                        No invite codes yet. Create one to onboard your first learners or coaches.
                       </div>
-                    ))}
+                    )}
                   </div>
                   {canManageTeam ? (
-                    <div className="mt-4 flex gap-3">
-                      <input value={inviteLabel} onChange={(event) => setInviteLabel(event.target.value)} placeholder="Invite label" className={`min-w-0 flex-1 ${workspaceInputClass}`} />
-                      <button type="button" onClick={handleCreateInvite} className={workspaceSecondaryButtonClass}><Copy className="h-4 w-4" />Create</button>
+                    <div className="mt-4 space-y-3">
+                      <input
+                        value={inviteForm.label}
+                        onChange={(event) => setInviteForm((current) => ({ ...current, label: event.target.value }))}
+                        placeholder="Invite label"
+                        className={workspaceInputClass}
+                      />
+                      <input
+                        type="email"
+                        value={inviteForm.email}
+                        onChange={(event) => setInviteForm((current) => ({ ...current, email: event.target.value }))}
+                        placeholder="Optional email restriction"
+                        className={workspaceInputClass}
+                      />
+                      <div className="grid gap-3 sm:grid-cols-3">
+                        <select
+                          value={inviteForm.role}
+                          onChange={(event) => setInviteForm((current) => ({ ...current, role: event.target.value as Exclude<TeamRole, 'owner'> }))}
+                          className={workspaceInputClass}
+                        >
+                          {inviteRoleOptions.map((option) => (
+                            <option key={option.value} value={option.value}>{option.label}</option>
+                          ))}
+                        </select>
+                        <input
+                          type="number"
+                          min={1}
+                          max={500}
+                          value={inviteForm.maxUses}
+                          onChange={(event) => setInviteForm((current) => ({ ...current, maxUses: Number(event.target.value) || 25 }))}
+                          className={workspaceInputClass}
+                        />
+                        <input
+                          type="number"
+                          min={1}
+                          max={90}
+                          value={inviteForm.expiresInDays}
+                          onChange={(event) => setInviteForm((current) => ({ ...current, expiresInDays: Number(event.target.value) || 14 }))}
+                          className={workspaceInputClass}
+                        />
+                      </div>
+                      <button type="button" onClick={handleCreateInvite} disabled={creatingInvite} className={workspaceSecondaryButtonClass}>
+                        {creatingInvite ? <Loader2 className="h-4 w-4 animate-spin" /> : <Copy className="h-4 w-4" />}
+                        {creatingInvite ? 'Creating invite...' : 'Create invite'}
+                      </button>
                     </div>
                   ) : null}
                 </div>
@@ -689,14 +914,15 @@ export default function TeamsWorkspace({ mode = 'public' }: TeamsWorkspaceProps)
                             <Copy className="h-4 w-4" />
                             Copy proof link
                           </button>
-                          <button type="button" onClick={handleUnshareTeamProof} className={workspaceSecondaryButtonClass}>
-                            Disable proof page
+                          <button type="button" onClick={handleUnshareTeamProof} disabled={unsharingTeamProof} className={workspaceSecondaryButtonClass}>
+                            {unsharingTeamProof ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                            {unsharingTeamProof ? 'Disabling...' : 'Disable proof page'}
                           </button>
                         </>
                       ) : (
-                        <button type="button" onClick={handleShareTeamProof} className={workspaceSecondaryButtonClass}>
-                          <Copy className="h-4 w-4" />
-                          Publish proof page
+                        <button type="button" onClick={handleShareTeamProof} disabled={sharingTeamProof} className={workspaceSecondaryButtonClass}>
+                          {sharingTeamProof ? <Loader2 className="h-4 w-4 animate-spin" /> : <Copy className="h-4 w-4" />}
+                          {sharingTeamProof ? 'Publishing...' : 'Publish proof page'}
                         </button>
                       )}
                     </div>
@@ -709,86 +935,108 @@ export default function TeamsWorkspace({ mode = 'public' }: TeamsWorkspaceProps)
       </section>
 
       <aside className="grid gap-4">
-        <div className={workspacePanelClass}>
-          <div className="text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground">Progress over time</div>
-          {renderProgressBars(teamDetail?.metrics.progressTimeline || demoTimeline)}
-        </div>
+        {teamDetail ? (
+          <>
+            <div className={workspacePanelClass}>
+              <div className="text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground">Progress over time</div>
+              {renderProgressBars(teamDetail.metrics.progressTimeline)}
+            </div>
 
-        <div className={workspacePanelClass}>
-          <div className="text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground">Improvement leaders</div>
-          <div className="mt-4 space-y-3 text-sm text-muted-foreground">
-            {improvementLeaders.length > 0 ? (
-              improvementLeaders.map((member) => (
-                <div key={member.userId} className="rounded-2xl border border-border bg-card px-4 py-3">
-                  <div className="flex items-center justify-between gap-3">
-                    <div>
-                      <div className="font-semibold text-foreground">{member.name}</div>
-                      <div className="mt-1 text-xs uppercase tracking-[0.16em] text-muted-foreground">
-                        {member.benchmarkCount} benchmark{member.benchmarkCount === 1 ? '' : 's'}
+            <div className={workspacePanelClass}>
+              <div className="text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground">Improvement leaders</div>
+              <div className="mt-4 space-y-3 text-sm text-muted-foreground">
+                {improvementLeaders.length > 0 ? (
+                  improvementLeaders.map((member) => (
+                    <div key={member.userId} className="rounded-2xl border border-border bg-card px-4 py-3">
+                      <div className="flex items-center justify-between gap-3">
+                        <div>
+                          <div className="font-semibold text-foreground">{member.name}</div>
+                          <div className="mt-1 text-xs uppercase tracking-[0.16em] text-muted-foreground">
+                            {member.benchmarkCount} benchmark{member.benchmarkCount === 1 ? '' : 's'}
+                          </div>
+                        </div>
+                        <div className="text-right font-semibold text-foreground">
+                          {member.improvementDelta !== null ? `${member.improvementDelta > 0 ? '+' : ''}${member.improvementDelta} pts` : '--'}
+                        </div>
                       </div>
                     </div>
-                    <div className="text-right font-semibold text-foreground">
-                      {member.improvementDelta !== null ? `${member.improvementDelta > 0 ? '+' : ''}${member.improvementDelta} pts` : '--'}
-                    </div>
+                  ))
+                ) : (
+                  <div className="rounded-2xl border border-border bg-card px-4 py-3">
+                    Repeat benchmarks will populate cohort improvement leaders here.
                   </div>
-                </div>
-              ))
-            ) : (
-              <div className="rounded-2xl border border-border bg-card px-4 py-3">
-                Repeat benchmarks will populate cohort improvement leaders here.
+                )}
               </div>
-            )}
-          </div>
-        </div>
+            </div>
 
-        <div className={workspacePanelClass}>
-          <div className="text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground">Attention queue</div>
-          <div className="mt-4 space-y-3 text-sm text-muted-foreground">
-            {attentionQueue.length > 0 ? (
-              attentionQueue.map((member) => (
-                <div key={member.userId} className="rounded-2xl border border-border bg-card px-4 py-3">
-                  <div className="flex items-center justify-between gap-3">
-                    <div>
-                      <div className="font-semibold text-foreground">{member.name}</div>
-                      <div className="mt-1 text-xs uppercase tracking-[0.16em] text-muted-foreground">
-                        {member.recommendedAction}
+            <div className={workspacePanelClass}>
+              <div className="text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground">Attention queue</div>
+              <div className="mt-4 space-y-3 text-sm text-muted-foreground">
+                {attentionQueue.length > 0 ? (
+                  attentionQueue.map((member) => (
+                    <div key={member.userId} className="rounded-2xl border border-border bg-card px-4 py-3">
+                      <div className="flex items-center justify-between gap-3">
+                        <div>
+                          <div className="font-semibold text-foreground">{member.name}</div>
+                          <div className="mt-1 text-xs uppercase tracking-[0.16em] text-muted-foreground">
+                            {member.recommendedAction}
+                          </div>
+                        </div>
+                        <div className="text-right font-semibold text-foreground">
+                          {member.latestBenchmarkScore ?? '--'}/100
+                        </div>
                       </div>
                     </div>
-                    <div className="text-right font-semibold text-foreground">
-                      {member.latestBenchmarkScore ?? '--'}/100
-                    </div>
+                  ))
+                ) : (
+                  <div className="rounded-2xl border border-border bg-card px-4 py-3">
+                    No immediate attention cases. This cohort is benchmarked or above the current baseline.
                   </div>
-                </div>
-              ))
-            ) : (
-              <div className="rounded-2xl border border-border bg-card px-4 py-3">
-                No immediate attention cases. This cohort is either benchmarked or above the current baseline.
+                )}
               </div>
-            )}
-          </div>
-        </div>
+            </div>
 
-        <div className={workspacePanelClass}>
-          <div className="text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground">Performance snapshot</div>
-          <div className="mt-4 space-y-3 text-sm text-muted-foreground">
-            <div className="rounded-2xl border border-border bg-card px-4 py-3">
-              Avg. improvement: <span className="font-semibold text-foreground">{teamDetail?.metrics.averageImprovement ?? '--'} pts</span>
+            <div className={workspacePanelClass}>
+              <div className="text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground">Performance snapshot</div>
+              <div className="mt-4 space-y-3 text-sm text-muted-foreground">
+                <div className="rounded-2xl border border-border bg-card px-4 py-3">
+                  Avg. improvement: <span className="font-semibold text-foreground">{teamDetail.metrics.averageImprovement ?? '--'} pts</span>
+                </div>
+                <div className="rounded-2xl border border-border bg-card px-4 py-3">
+                  Top performer: <span className="font-semibold text-foreground">{teamDetail.metrics.topPerformer?.name ?? 'No benchmark yet'}</span>
+                </div>
+                <div className="rounded-2xl border border-border bg-card px-4 py-3">
+                  Use case: <span className="font-semibold text-foreground">{teams.find((team) => team.id === selectedTeamId)?.useCase ?? 'general'}</span>
+                </div>
+              </div>
             </div>
-            <div className="rounded-2xl border border-border bg-card px-4 py-3">
-              Top performer: <span className="font-semibold text-foreground">{teamDetail?.metrics.topPerformer?.name ?? 'No benchmark yet'}</span>
+          </>
+        ) : (
+          <>
+            <div className={workspacePanelClass}>
+              <div className="text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground">Before the first cohort launch</div>
+              <div className="mt-4 space-y-3">
+                {[
+                  'Create one team per cohort or program.',
+                  'Use invite codes for learners, coaches, or admins.',
+                  'Start with a benchmark assignment to establish the baseline.',
+                  'Publish a proof page only after the cohort has real improvement data.',
+                ].map((item) => (
+                  <div key={item} className="rounded-2xl border border-border bg-card px-4 py-3 text-sm text-foreground">
+                    {item}
+                  </div>
+                ))}
+              </div>
             </div>
-            <div className="rounded-2xl border border-border bg-card px-4 py-3">
-              Use case: <span className="font-semibold text-foreground">{teams.find((team) => team.id === selectedTeamId)?.useCase ?? 'general'}</span>
-            </div>
-          </div>
-        </div>
 
-        {teamUseCases.map((useCase) => (
-          <div key={useCase.slug} className={workspacePanelClass}>
-            <div className="text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground">{useCase.title}</div>
-            <p className="mt-3 text-sm leading-6 text-muted-foreground">{useCase.description}</p>
-          </div>
-        ))}
+            {teamUseCases.map((useCase) => (
+              <div key={useCase.slug} className={workspacePanelClass}>
+                <div className="text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground">{useCase.title}</div>
+                <p className="mt-3 text-sm leading-6 text-muted-foreground">{useCase.description}</p>
+              </div>
+            ))}
+          </>
+        )}
       </aside>
     </div>
   );

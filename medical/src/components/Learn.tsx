@@ -21,7 +21,7 @@ import { useNavigate } from 'react-router-dom';
 import { useUser } from '../context/UserContext';
 import LessonModal from './LessonModal';
 import {
-  readSavedBenchmarkReport,
+  readSavedBenchmarkHistory,
   saveBenchmarkSetupPreset,
   type BenchmarkReport,
   type BenchmarkSetup,
@@ -298,9 +298,9 @@ const Learn: React.FC<LearnProps> = ({ setCurrentSection, openAuthModal, isAuthe
   useEffect(() => {
     let cancelled = false;
 
-    const localAnonymousReport = readSavedBenchmarkReport();
-    const localUserReport = readSavedBenchmarkReport(user.id);
-    const localHistory = mergeBenchmarkReports([localUserReport], [localAnonymousReport]);
+    const localAnonymousHistory = readSavedBenchmarkHistory();
+    const localUserHistory = readSavedBenchmarkHistory(user.id);
+    const localHistory = mergeBenchmarkReports(localUserHistory, localAnonymousHistory);
     setBenchmarkHistory(localHistory);
 
     if (!isAuthenticated || !user.id || user.id === 'guest') {

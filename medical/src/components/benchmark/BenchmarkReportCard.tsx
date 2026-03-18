@@ -95,33 +95,45 @@ export default function BenchmarkReportCard({ report, actions }: BenchmarkReport
             Recommended track
           </div>
           <div className="mt-4 space-y-4">
-            {recommendedTracks.map((track) => (
-              <div key={track!.id} className="rounded-2xl border border-border bg-card px-4 py-4">
-                <div className="text-lg font-semibold text-foreground">{track!.title}</div>
-                <p className="mt-2 text-sm leading-6 text-muted-foreground">{track!.description}</p>
-                <Link
-                  to={`/tracks/${track!.id}`}
-                  className="mt-3 inline-flex items-center gap-2 text-sm font-medium text-primary hover:text-accent"
-                >
-                  <span>Open track page</span>
-                  <ArrowRight className="h-4 w-4" />
-                </Link>
+            {recommendedTracks.length > 0 ? (
+              recommendedTracks.map((track) => (
+                <div key={track!.id} className="rounded-2xl border border-border bg-card px-4 py-4">
+                  <div className="text-lg font-semibold text-foreground">{track!.title}</div>
+                  <p className="mt-2 text-sm leading-6 text-muted-foreground">{track!.description}</p>
+                  <Link
+                    to={`/tracks/${track!.id}`}
+                    className="mt-3 inline-flex items-center gap-2 text-sm font-medium text-primary hover:text-accent"
+                  >
+                    <span>Open track page</span>
+                    <ArrowRight className="h-4 w-4" />
+                  </Link>
+                </div>
+              ))
+            ) : (
+              <div className="rounded-2xl border border-border bg-card px-4 py-4 text-sm leading-6 text-muted-foreground">
+                Codhak will route this report into a practice track as more language- and role-specific tracks are added.
               </div>
-            ))}
+            )}
           </div>
         </div>
 
         <div className="grid gap-4">
           <div className="rounded-[1.5rem] border border-border bg-background/70 p-5">
             <div className="text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground">Suggested lessons</div>
-            <ul className="mt-4 space-y-3">
-              {suggestedLessons.map((lesson) => (
-                <li key={lesson!.id} className="rounded-2xl border border-border bg-card px-4 py-3">
-                  <div className="text-sm font-semibold text-foreground">{lesson!.title}</div>
-                  <div className="mt-1 text-sm text-muted-foreground">{lesson!.category}</div>
-                </li>
-              ))}
-            </ul>
+            {suggestedLessons.length > 0 ? (
+              <ul className="mt-4 space-y-3">
+                {suggestedLessons.map((lesson) => (
+                  <li key={lesson!.id} className="rounded-2xl border border-border bg-card px-4 py-3">
+                    <div className="text-sm font-semibold text-foreground">{lesson!.title}</div>
+                    <div className="mt-1 text-sm text-muted-foreground">{lesson!.category}</div>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <div className="mt-4 rounded-2xl border border-border bg-card px-4 py-4 text-sm leading-6 text-muted-foreground">
+                Suggested lessons appear here when the benchmark identifies specific gaps to remediate.
+              </div>
+            )}
           </div>
 
           <div className="rounded-[1.5rem] border border-border bg-background/70 p-5">
@@ -129,13 +141,19 @@ export default function BenchmarkReportCard({ report, actions }: BenchmarkReport
               <Swords className="h-4 w-4 text-primary" />
               Duel-ready prompts
             </div>
-            <ul className="mt-4 space-y-3">
-              {report.suggestedDuelProblemTitles.map((problemTitle) => (
-                <li key={problemTitle} className="rounded-2xl border border-border bg-card px-4 py-3 text-sm font-medium text-foreground">
-                  {problemTitle}
-                </li>
-              ))}
-            </ul>
+            {report.suggestedDuelProblemTitles.length > 0 ? (
+              <ul className="mt-4 space-y-3">
+                {report.suggestedDuelProblemTitles.map((problemTitle) => (
+                  <li key={problemTitle} className="rounded-2xl border border-border bg-card px-4 py-3 text-sm font-medium text-foreground">
+                    {problemTitle}
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <div className="mt-4 rounded-2xl border border-border bg-card px-4 py-4 text-sm leading-6 text-muted-foreground">
+                Duel recommendations appear once the benchmark can map your score into the duel problem catalog.
+              </div>
+            )}
           </div>
         </div>
       </div>

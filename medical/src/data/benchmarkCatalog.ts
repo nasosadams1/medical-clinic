@@ -55,6 +55,7 @@ export interface BenchmarkReport {
 }
 
 const BENCHMARK_SETUP_PRESET_STORAGE_KEY = 'codhak-benchmark-setup-preset';
+const BENCHMARK_HISTORY_STORAGE_KEY = 'codhak-benchmark-history';
 
 type QuestionBlueprint = {
   lessonId: string;
@@ -158,13 +159,16 @@ const getTrackRecommendations = (setup: BenchmarkSetup, weaknesses: string[]): s
   );
 };
 
-const getSuggestedLessons = (questions: BenchmarkQuestion[], weaknesses: string[]) => {
+const getSuggestedLessons = (questions: BenchmarkQuestion[], weaknesses: string[], recommendedTrackIds: string[]) => {
   const weaknessKeys = weaknesses.map((weakness) => weakness.toLowerCase());
   const lessonIds = questions
     .filter((question) => weaknessKeys.some((weakness) => question.competency.toLowerCase().includes(weakness.toLowerCase())))
     .map((question) => question.lessonId);
+  const trackLessonIds = recommendedTrackIds.flatMap(
+    (trackId) => interviewTracks.find((track) => track.id === trackId)?.recommendedLessonIds || []
+  );
 
-  return Array.from(new Set(lessonIds)).slice(0, 4);
+  return Array.from(new Set([...lessonIds, ...trackLessonIds])).slice(0, 4);
 };
 
 const getSuggestedDuelProblems = (overallScore: number) => {
@@ -256,9 +260,13 @@ export const buildBenchmarkReport = (
     .map((entry) => entry.competency);
 
   const recommendedTrackIds = getTrackRecommendations(setup, weaknesses);
+  const reportId =
+    typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+      ? `benchmark-${crypto.randomUUID()}`
+      : `benchmark-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
   return {
-    id: `benchmark-${Date.now()}`,
+    id: reportId,
     setup,
     overallScore,
     correctAnswers,
@@ -266,7 +274,7 @@ export const buildBenchmarkReport = (
     strengths: strengths.length > 0 ? strengths : ['Early benchmark momentum'],
     weaknesses: weaknesses.length > 0 ? weaknesses : ['Advanced challenge depth'],
     recommendedTrackIds,
-    suggestedLessonIds: getSuggestedLessons(questions, weaknesses),
+    suggestedLessonIds: getSuggestedLessons(questions, weaknesses, recommendedTrackIds),
     suggestedDuelProblemTitles: getSuggestedDuelProblems(overallScore),
     duelReadiness: getDuelReadiness(overallScore),
     summary: getSummary(setup, overallScore),
@@ -276,27 +284,64 @@ export const buildBenchmarkReport = (
 };
 
 export const getBenchmarkStorageKey = (userId?: string | null) => `codhak-benchmark-report:${userId || 'anonymous'}`;
+export const getBenchmarkHistoryStorageKey = (userId?: string | null) =>
+  `${BENCHMARK_HISTORY_STORAGE_KEY}:${userId || 'anonymous'}`;
 
-export const saveBenchmarkReport = (report: BenchmarkReport, userId?: string | null) => {
+const normalizeBenchmarkHistory = (reports: Array<BenchmarkReport | null | undefined>) =>
+  Array.from(
+    reports
+      .filter((report): report is BenchmarkReport => Boolean(report?.id && report?.createdAt))
+      .reduce((map, report) => {
+        map.set(report.id, report);
+        return map;
+      }, new Map<string, BenchmarkReport>())
+      .values()
+  ).sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime());
+
+export const saveBenchmarkReportHistory = (reports: BenchmarkReport[], userId?: string | null) => {
   if (typeof window === 'undefined') return;
 
   try {
-    window.localStorage.setItem(getBenchmarkStorageKey(userId), JSON.stringify(report));
+    const normalizedHistory = normalizeBenchmarkHistory(reports);
+    window.localStorage.setItem(getBenchmarkHistoryStorageKey(userId), JSON.stringify(normalizedHistory));
+    if (normalizedHistory[0]) {
+      window.localStorage.setItem(getBenchmarkStorageKey(userId), JSON.stringify(normalizedHistory[0]));
+    }
   } catch {
     // Ignore storage failures for MVP.
   }
 };
 
-export const readSavedBenchmarkReport = (userId?: string | null): BenchmarkReport | null => {
-  if (typeof window === 'undefined') return null;
+export const readSavedBenchmarkHistory = (userId?: string | null): BenchmarkReport[] => {
+  if (typeof window === 'undefined') return [];
 
   try {
-    const stored = window.localStorage.getItem(getBenchmarkStorageKey(userId));
-    if (!stored) return null;
-    return JSON.parse(stored) as BenchmarkReport;
+    const historyValue = window.localStorage.getItem(getBenchmarkHistoryStorageKey(userId));
+    if (historyValue) {
+      return normalizeBenchmarkHistory(JSON.parse(historyValue) as BenchmarkReport[]);
+    }
+
+    const legacyValue = window.localStorage.getItem(getBenchmarkStorageKey(userId));
+    if (!legacyValue) return [];
+
+    const legacyReport = JSON.parse(legacyValue) as BenchmarkReport;
+    const nextHistory = normalizeBenchmarkHistory([legacyReport]);
+    if (nextHistory.length > 0) {
+      window.localStorage.setItem(getBenchmarkHistoryStorageKey(userId), JSON.stringify(nextHistory));
+    }
+    return nextHistory;
   } catch {
-    return null;
+    return [];
   }
+};
+
+export const saveBenchmarkReport = (report: BenchmarkReport, userId?: string | null) => {
+  const existingHistory = readSavedBenchmarkHistory(userId);
+  saveBenchmarkReportHistory([report, ...existingHistory], userId);
+};
+
+export const readSavedBenchmarkReport = (userId?: string | null): BenchmarkReport | null => {
+  return readSavedBenchmarkHistory(userId)[0] || null;
 };
 
 export const saveBenchmarkSetupPreset = (setup: BenchmarkSetup) => {
