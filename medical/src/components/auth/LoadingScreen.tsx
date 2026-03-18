@@ -6,7 +6,7 @@ const LoadingScreen: React.FC = () => {
     <div className="min-h-screen bg-[radial-gradient(circle_at_top,_rgba(34,211,238,0.14),_transparent_30%),linear-gradient(180deg,_#f8fafc_0%,_#eff6ff_100%)] flex items-center justify-center px-4">
       <div className="w-full max-w-md rounded-[2rem] border border-white/70 bg-white/90 p-8 text-center shadow-[0_30px_80px_rgba(15,23,42,0.12)] backdrop-blur">
         <BrandLockup
-          subtitle="Loading your coding journey..."
+          subtitle="Loading your benchmark workspace..."
           className="flex-col justify-center text-center"
           iconWrapperClassName="mx-auto h-20 w-20 animate-pulse"
           titleClassName="mt-2 text-2xl"

@@ -92,12 +92,12 @@ const sendVerificationEmail = async (email, code, name) => {
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
         <div style="text-align: center; margin-bottom: 30px;">
           <h1 style="color: #4F46E5; margin: 0;">Codhak</h1>
-          <p style="color: #6B7280; margin: 5px 0;">Learn Programming, Level Up Your Skills</p>
+          <p style="color: #6B7280; margin: 5px 0;">Benchmark coding skill and track real progress</p>
         </div>
         
         <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 30px; border-radius: 10px; text-align: center; margin-bottom: 30px;">
           <h2 style="color: white; margin: 0 0 10px 0;">Welcome to Codhak, ${name}!</h2>
-          <p style="color: rgba(255,255,255,0.9); margin: 0;">Please verify your email to start your coding journey</p>
+          <p style="color: rgba(255,255,255,0.9); margin: 0;">Please verify your email to unlock your Codhak workspace</p>
         </div>
         
         <div style="background: #F9FAFB; padding: 30px; border-radius: 10px; text-align: center; margin-bottom: 30px;">

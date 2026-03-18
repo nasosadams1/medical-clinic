@@ -30,7 +30,7 @@ const AuthContainer: React.FC<AuthContainerProps> = ({ open, onClose, initialVie
     if (user) {
       setGlobalMessage({
         type: 'success',
-        message: 'Welcome to Codhak. Your account is ready.'
+        message: 'Welcome to Codhak. Your benchmark workspace is ready.'
       })
       setTimeout(() => {
         onClose()
@@ -177,7 +177,7 @@ const AuthContainer: React.FC<AuthContainerProps> = ({ open, onClose, initialVie
               <BrandLockup
                 mascot="learn"
                 title="Codhak"
-                subtitle="Sign in to save lessons, duels, and progress."
+                subtitle="Sign in to save benchmark reports, practice history, and duel progress."
                 className="flex-col items-center justify-center gap-2 text-center"
                 iconWrapperClassName="mx-auto h-12 w-12 sm:h-14 sm:w-14"
                 titleClassName="text-2xl sm:text-3xl"
@@ -306,7 +306,6 @@ const AuthContainer: React.FC<AuthContainerProps> = ({ open, onClose, initialVie
 }
 
 export default AuthContainer
-
 
 
 

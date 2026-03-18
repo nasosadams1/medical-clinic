@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { loader } from "@monaco-editor/react";
 import MatchmakingQueue from "./MatchmakingQueue";
 import DuelArena from "./DuelArena";
@@ -12,6 +12,51 @@ import MascotIcon from "./branding/MascotIcon";
 
 type View = "queue" | "arena" | "results";
 
+const DEVICE_CLUSTER_STORAGE_KEY = "codhak-device-cluster-id";
+const REGISTRATION_ACK_TIMEOUT_MS = 10_000;
+
+const getOrCreateDeviceClusterId = () => {
+  if (typeof window === "undefined") return null;
+
+  try {
+    const existing = window.localStorage.getItem(DEVICE_CLUSTER_STORAGE_KEY);
+    if (existing) return existing;
+
+    const nextId =
+      typeof window.crypto?.randomUUID === "function"
+        ? window.crypto.randomUUID()
+        : `device-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+
+    window.localStorage.setItem(DEVICE_CLUSTER_STORAGE_KEY, nextId);
+    return nextId;
+  } catch {
+    return null;
+  }
+};
+
+const buildClientMeta = () => {
+  if (typeof window === "undefined" || typeof navigator === "undefined") {
+    return {};
+  }
+
+  return {
+    deviceClusterId: getOrCreateDeviceClusterId(),
+    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+    platform: navigator.platform || "unknown",
+    language: navigator.language || "unknown",
+    origin: window.location.origin,
+    hardwareConcurrency: navigator.hardwareConcurrency || null,
+    screen: {
+      width: window.screen?.width || null,
+      height: window.screen?.height || null,
+    },
+    viewport: {
+      width: window.innerWidth,
+      height: window.innerHeight,
+    },
+  };
+};
+
 export default function DuelsDashboard() {
   const { user, loading } = useAuth();
   const [duelUser, setDuelUser] = useState<any>(null);
@@ -19,6 +64,82 @@ export default function DuelsDashboard() {
   const [matchData, setMatchData] = useState<any>(null);
   const [matchResults, setMatchResults] = useState<any>(null);
   const initializedRef = useRef(false);
+  const registeredSocketKeyRef = useRef<string | null>(null);
+  const registrationPromiseRef = useRef<Promise<boolean> | null>(null);
+
+  const resetSocketRegistration = useCallback(() => {
+    registeredSocketKeyRef.current = null;
+    registrationPromiseRef.current = null;
+  }, []);
+
+  const ensureSocketRegistered = useCallback(async ({ silent = false }: { silent?: boolean } = {}) => {
+    if (!duelUser?.id || !socket?.connected) return false;
+
+    const registrationKey = `${socket.id}:${duelUser.id}`;
+    if (registeredSocketKeyRef.current === registrationKey) {
+      return true;
+    }
+
+    if (registrationPromiseRef.current) {
+      return registrationPromiseRef.current;
+    }
+
+    registrationPromiseRef.current = (async () => {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const accessToken = sessionData.session?.access_token;
+
+      if (!accessToken) {
+        if (!silent) {
+          toast.error("Your session expired. Please sign in again.");
+        }
+        return false;
+      }
+
+      const username = duelUser.username?.trim() || "Player";
+      const clientMeta = buildClientMeta();
+
+      return new Promise<boolean>((resolve) => {
+        socket.timeout(REGISTRATION_ACK_TIMEOUT_MS).emit(
+          "register_player",
+          {
+            userId: duelUser.id,
+            username,
+            accessToken,
+            clientMeta,
+          },
+          (err: any, res: any) => {
+            if (err) {
+              console.error("register_player failed", err);
+              if (!silent) {
+                toast.error("No response from the duel server. Try again in a moment.");
+              }
+              resolve(false);
+              return;
+            }
+
+            if (!res?.ok) {
+              if (!silent) {
+                toast.error(res?.message || "Failed to register player");
+              }
+              resolve(false);
+              return;
+            }
+
+            registeredSocketKeyRef.current = registrationKey;
+            resolve(true);
+          }
+        );
+      });
+    })().finally(() => {
+      registrationPromiseRef.current = null;
+    });
+
+    return registrationPromiseRef.current;
+  }, [duelUser?.id, duelUser?.username]);
+
+  useEffect(() => {
+    resetSocketRegistration();
+  }, [duelUser?.id, resetSocketRegistration]);
 
   useEffect(() => {
     const preload = loader.init();
@@ -105,13 +226,24 @@ export default function DuelsDashboard() {
     if (initializedRef.current) return;
     initializedRef.current = true;
 
-    const onConnect = () => console.log("socket connected", socket.id);
-    const onDisconnect = (reason: any) => console.log("socket disconnected", reason);
+    const onConnect = () => {
+      console.log("socket connected", socket.id);
+      void ensureSocketRegistered({ silent: true });
+    };
+    const onDisconnect = (reason: any) => {
+      console.log("socket disconnected", reason);
+      resetSocketRegistration();
+    };
     const onConnectError = (e: any) => console.error("connect_error", e);
     const onServerIdentity = (d: any) => console.log("server_identity", d);
     const onServerError = (e: any) => {
       console.error("server_error", e);
-      toast.error(e?.message || "Server error");
+      if (e?.message === "Player not registered" || e?.message === "Stale duel connection") {
+        resetSocketRegistration();
+        if (socket.connected) {
+          void ensureSocketRegistered({ silent: true });
+        }
+      }
     };
 
     socket.on("connect", onConnect);
@@ -126,15 +258,20 @@ export default function DuelsDashboard() {
       // ignore
     }
 
+    if (socket.connected) {
+      void ensureSocketRegistered({ silent: true });
+    }
+
     return () => {
       socket.off("connect", onConnect);
       socket.off("disconnect", onDisconnect);
       socket.off("connect_error", onConnectError);
       socket.off("server_identity", onServerIdentity);
       socket.off("server_error", onServerError);
+      resetSocketRegistration();
       initializedRef.current = false;
     };
-  }, [duelUser?.id]);
+  }, [duelUser?.id, ensureSocketRegistered, resetSocketRegistration]);
 
   const handleDuelStarted = (data: any) => {
     setMatchData(data);
@@ -225,9 +362,8 @@ export default function DuelsDashboard() {
       {currentView === "queue" && (
         <MatchmakingQueue
           socket={socket}
-          userId={duelUser.id}
-          username={duelUser.username}
           rating={duelUser.rating}
+          ensureSocketRegistered={ensureSocketRegistered}
           onMatchFound={handleDuelStarted}
           onMatchEnd={handleMatchEnd}
         />
@@ -241,6 +377,8 @@ export default function DuelsDashboard() {
           matchType={matchData.matchType}
           socket={socket}
           userId={duelUser.id}
+          ensureSocketRegistered={ensureSocketRegistered}
+          resetSocketRegistration={resetSocketRegistration}
           startTime={matchData.startTime}
           endTime={matchData.endTime}
           serverNow={matchData.serverNow}

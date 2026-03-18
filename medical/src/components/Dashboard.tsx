@@ -36,7 +36,7 @@ const Dashboard: React.FC = () => {
                 <h1 className="text-4xl font-bold text-gray-900 mb-2">
                   Welcome back, {user.name}! 👋
                 </h1>
-                <p className="text-gray-600 text-xl">Ready to continue your coding journey?</p>
+                <p className="text-gray-600 text-xl">Ready to sharpen your coding signal?</p>
               </div>
 
               {/* Stats Overview */}
@@ -114,7 +114,7 @@ const Dashboard: React.FC = () => {
                 <div className="w-8 h-8 bg-gradient-to-r from-blue-500 to-purple-600 rounded-lg flex items-center justify-center mr-3">
                   <span className="text-white font-bold text-sm">C</span>
                 </div>
-                <span className="font-bold text-gray-900 text-lg">CodeLingo</span>
+                <span className="font-bold text-gray-900 text-lg">Codhak</span>
               </div>
               
               <div className="hidden md:flex space-x-1">

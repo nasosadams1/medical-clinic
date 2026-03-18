@@ -45,7 +45,7 @@ type VisibleLesson = LessonPreview & {
 const Learn: React.FC<LearnProps> = ({ setCurrentSection, openAuthModal, isAuthenticated = false }) => {
   const { user, isUnlimitedHeartsActive } = useUser();
   const [selectedLanguage, setSelectedLanguage] = useState<Language>('python');
-  const [filter, setFilter] = useState('Available');
+  const [filter, setFilter] = useState('Recommended');
   const [selectedLesson, setSelectedLesson] = useState<LessonPreview | null>(null);
   const [lessonsModule, setLessonsModule] = useState<Awaited<ReturnType<typeof loadLessonsModule>> | null>(null);
   const [isLessonsLoading, setIsLessonsLoading] = useState(true);
@@ -76,10 +76,10 @@ const Learn: React.FC<LearnProps> = ({ setCurrentSection, openAuthModal, isAuthe
   }, [lessonsReloadKey]);
 
   const languages = [
-    { id: 'python' as Language, name: 'Python', icon: Code, color: 'from-blue-400 to-green-500', description: '50 comprehensive Python lessons' },
-    { id: 'javascript' as Language, name: 'JavaScript', icon: Database, color: 'from-purple-400 to-blue-500', description: 'Interactive JavaScript fundamentals and problem solving' },
-    { id: 'cpp' as Language, name: 'C++', icon: Globe, color: 'from-orange-400 to-red-500', description: 'Core C++ syntax, logic, and structured programming' },
-    { id: 'java' as Language, name: 'Java', icon: Globe, color: 'from-orange-400 to-red-500', description: 'Java basics, object-oriented thinking, and syntax practice' },
+    { id: 'python' as Language, name: 'Python', icon: Code, color: 'from-blue-500 to-emerald-500', description: 'Benchmark gaps, backend fundamentals, and applied problem solving' },
+    { id: 'javascript' as Language, name: 'JavaScript', icon: Database, color: 'from-cyan-500 to-blue-600', description: 'Interview-style practice for frontend logic, arrays, and functions' },
+    { id: 'cpp' as Language, name: 'C++', icon: Globe, color: 'from-orange-500 to-rose-500', description: 'Structured logic, arrays, and fundamentals for timed challenge work' },
+    { id: 'java' as Language, name: 'Java', icon: Globe, color: 'from-amber-500 to-orange-600', description: 'OOP foundations, class-ready practice, and junior developer prep' },
   ];
 
   const normalizeDifficultyTier = (difficulty: string): DifficultyTier => {
@@ -137,7 +137,7 @@ const Learn: React.FC<LearnProps> = ({ setCurrentSection, openAuthModal, isAuthe
   );
   const selectedLanguageTotalLessons = getLessonCountByLanguage(selectedLanguage);
 
-  const filters = ['All Lessons', 'Available', 'Completed', 'Beginner', 'Intermediate', 'Advanced'];
+  const filters = ['All Paths', 'Recommended', 'Completed', 'Beginner', 'Intermediate', 'Advanced'];
 
   const filteredLessons = useMemo(() => {
     const tierOrder: Record<DifficultyTier, number> = {
@@ -148,8 +148,8 @@ const Learn: React.FC<LearnProps> = ({ setCurrentSection, openAuthModal, isAuthe
 
     return currentLessons
       .filter((lesson) => {
-        if (filter === 'All Lessons') return true;
-        if (filter === 'Available') return !user.completedLessons.includes(lesson.id);
+        if (filter === 'All Paths') return true;
+        if (filter === 'Recommended') return !user.completedLessons.includes(lesson.id);
         if (filter === 'Completed') return user.completedLessons.includes(lesson.id);
         if (filter === 'Beginner' || filter === 'Intermediate' || filter === 'Advanced') {
           return lesson.tier === filter;
@@ -182,7 +182,7 @@ const Learn: React.FC<LearnProps> = ({ setCurrentSection, openAuthModal, isAuthe
 
   const handleRedirectToLearn = () => {
     setSelectedLesson(null);
-    setCurrentSection?.('learn');
+    setCurrentSection?.('practice');
     window.scrollTo({ top: 0, behavior: 'auto' });
   };
 
@@ -214,8 +214,43 @@ const Learn: React.FC<LearnProps> = ({ setCurrentSection, openAuthModal, isAuthe
     <div className="px-3 py-4 sm:px-4 lg:px-8 lg:py-8">
       <div className="mb-6 lg:mb-8">
         <div>
-          <h1 className="mb-2 text-2xl font-bold text-gray-900 sm:text-3xl">Learn Programming</h1>
-          <p className="text-gray-600">Master coding fundamentals with interactive lessons</p>
+          <h1 className="mb-2 text-2xl font-bold text-gray-900 sm:text-3xl">Practice Paths</h1>
+          <p className="text-gray-600">Use lessons to close benchmark gaps, reinforce fundamentals, and prepare for duels.</p>
+        </div>
+      </div>
+
+      <div className="mb-6 grid grid-cols-1 gap-4 lg:mb-8 lg:grid-cols-[1.1fr_0.9fr]">
+        <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+          <div className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Support content, not the starting point</div>
+          <h2 className="mt-3 text-2xl font-semibold text-slate-950">Lessons are here to sharpen the exact skills your benchmark exposes.</h2>
+          <p className="mt-3 max-w-2xl text-sm leading-7 text-slate-600">
+            Start with the benchmark, then use these lesson paths to tighten syntax, rebuild weak spots, and return to timed challenge work with more confidence.
+          </p>
+          <div className="mt-5 flex flex-col gap-3 sm:flex-row">
+            <button
+              type="button"
+              onClick={() => setCurrentSection?.('benchmark')}
+              className="inline-flex items-center justify-center rounded-2xl bg-slate-950 px-4 py-3 text-sm font-medium text-white transition hover:bg-slate-800"
+            >
+              View benchmark workspace
+            </button>
+            <button
+              type="button"
+              onClick={() => setCurrentSection?.('duels')}
+              className="inline-flex items-center justify-center rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
+            >
+              Go to duels
+            </button>
+          </div>
+        </div>
+
+        <div className="rounded-3xl border border-slate-200 bg-gradient-to-br from-slate-950 via-slate-900 to-slate-800 p-5 text-white shadow-sm sm:p-6">
+          <div className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-300">Best use of this page</div>
+          <ul className="mt-4 space-y-3 text-sm leading-6 text-slate-100">
+            <li>Use beginner paths to repair benchmark gaps before retaking the assessment.</li>
+            <li>Move into intermediate and advanced lessons when your report calls for more depth.</li>
+            <li>Treat duels as proof of skill after practice, not as the first step.</li>
+          </ul>
         </div>
       </div>
 
@@ -277,14 +312,14 @@ const Learn: React.FC<LearnProps> = ({ setCurrentSection, openAuthModal, isAuthe
       </div>
 
       <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:mb-8 lg:grid-cols-3 lg:gap-6">
-        <div className="rounded-2xl bg-gradient-to-br from-green-400 to-blue-500 p-5 text-white shadow-lg sm:p-6">
-          <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-lg bg-white/20">
-            <Trophy className="w-6 h-6" />
-          </div>
+          <div className="rounded-2xl bg-gradient-to-br from-slate-950 via-slate-900 to-slate-800 p-5 text-white shadow-lg sm:p-6">
+            <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-lg bg-white/20">
+              <Trophy className="w-6 h-6" />
+            </div>
           <div className="mb-1 text-xl font-bold lg:text-2xl">
             {selectedLanguageCompletedCount}/{selectedLanguageTotalLessons}
           </div>
-          <div className="text-sm text-white/80 lg:text-base">{selectedLanguage.toUpperCase()} Lessons Completed</div>
+          <div className="text-sm text-white/80 lg:text-base">{selectedLanguage.toUpperCase()} practice lessons completed</div>
         </div>
       </div>
 
@@ -323,8 +358,8 @@ const Learn: React.FC<LearnProps> = ({ setCurrentSection, openAuthModal, isAuthe
           ))
         ) : filteredLessons.length === 0 ? (
           <div className="col-span-full rounded-2xl border border-gray-100 bg-white p-8 text-center shadow-sm">
-            <h3 className="text-lg font-semibold text-gray-900">No lessons match this filter</h3>
-            <p className="mt-2 text-sm text-gray-500">Try switching to another lesson type or language.</p>
+            <h3 className="text-lg font-semibold text-gray-900">No practice items match this filter</h3>
+            <p className="mt-2 text-sm text-gray-500">Try another path level or language to keep your roadmap moving.</p>
           </div>
         ) : (
           filteredLessons.map((lesson) => {
@@ -393,7 +428,7 @@ const Learn: React.FC<LearnProps> = ({ setCurrentSection, openAuthModal, isAuthe
                         onClick={() => handleStartLesson(lesson)}
                         className="w-full rounded-lg bg-blue-500 px-4 py-2 text-sm font-medium text-white transition hover:bg-blue-600 sm:w-auto"
                       >
-                        Start lesson
+                        Start practice
                       </button>
                     ) : !canStartLesson ? (
                       <div className="tooltip">
@@ -402,7 +437,7 @@ const Learn: React.FC<LearnProps> = ({ setCurrentSection, openAuthModal, isAuthe
                           className="w-full cursor-not-allowed rounded-lg bg-gray-300 px-4 py-2 text-sm font-medium text-gray-600 sm:w-auto flex items-center justify-center space-x-1"
                         >
                           <Play className="w-4 h-4" />
-                          <span>Start</span>
+                          <span>Start practice</span>
                         </button>
                         <span className="tooltiptext">You have no hearts left</span>
                       </div>
@@ -412,7 +447,7 @@ const Learn: React.FC<LearnProps> = ({ setCurrentSection, openAuthModal, isAuthe
                         className="w-full rounded-lg bg-blue-500 px-4 py-2 text-sm font-medium text-white transition hover:bg-blue-600 sm:w-auto flex items-center justify-center space-x-1"
                       >
                         <Play className="w-4 h-4" />
-                        <span>Start</span>
+                          <span>Start practice</span>
                       </button>
                     )}
                   </div>

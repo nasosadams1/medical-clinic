@@ -182,7 +182,7 @@ const LoginForm: React.FC<LoginFormProps> = ({ onToggleForm, onForgotPassword, o
         transition={{ delay: 0.1 }}
       >
         <h1 className="text-3xl font-bold text-gray-900 mb-2">Welcome Back</h1>
-        <p className="text-gray-600">Sign in to continue your coding journey</p>
+        <p className="text-gray-600">Sign in to save benchmark reports, practice history, and duel progress.</p>
         
         {streakMessage && (
           <motion.div
@@ -338,7 +338,7 @@ const LoginForm: React.FC<LoginFormProps> = ({ onToggleForm, onForgotPassword, o
         transition={{ delay: 0.4 }}
       >
         <p className="mb-4">
-          Don't have an account?{' '}
+          Need an account to save your roadmap?{' '}
           <button
             onClick={onToggleForm}
             className="text-blue-600 hover:text-blue-700 font-medium transition-colors"

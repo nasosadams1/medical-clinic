@@ -1,23 +1,26 @@
-import React, { Suspense, startTransition, useMemo, useState } from 'react';
-import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
-import { AuthProvider } from './context/AuthContext';
+import React, { Suspense, useEffect, useState } from 'react';
+import { BrowserRouter as Router, Route, Routes, useNavigate } from 'react-router-dom';
+import { AuthProvider, useAuth } from './context/AuthContext';
 import { UserProvider } from './context/UserContext';
-import Sidebar from './components/Sidebar';
-import Learn from './components/Learn';
-import { useAuth } from './context/AuthContext';
-import { BookOpen, ShoppingBag, Swords, Trophy, User as UserIcon, Settings, UserPlus } from 'lucide-react';
-import { preloadLessonsModule } from './data/lessonsLoader';
+import AppShell from './components/AppShell';
 import { lazyWithPreload } from './lib/lazyWithPreload';
+import {
+  BenchmarkPage,
+  CompilerLandingPage,
+  FaqPage,
+  HomePage,
+  InterviewPrepLandingPage,
+  LanguageLandingPage,
+  PricingPage,
+  ReportSamplePage,
+  TeamsPage,
+  TeamUseCasePage,
+  TrackLandingPage,
+} from './components/marketing/PublicPages';
 
-type SectionId = 'learn' | 'duels' | 'store' | 'leaderboard' | 'profile' | 'account';
 type AuthModalView = 'login' | 'signup';
 
 const AuthContainer = lazyWithPreload(() => import('./components/auth/AuthContainer'));
-const Store = lazyWithPreload(() => import('./components/Store'));
-const RealTimeLeaderboard = lazyWithPreload(() => import('./components/Leaderboard'));
-const Profile = lazyWithPreload(() => import('./components/Profile'));
-const Account = lazyWithPreload(() => import('./components/Account'));
-const DuelsDashboard = lazyWithPreload(() => import('./components/DuelsDashboard'));
 const AuthConfirm = lazyWithPreload(() => import('./components/AuthConfirm'));
 const ResetPasswordPage = lazyWithPreload(() => import('./components/ResetPasswordPage'));
 const LegalDocumentPage = lazyWithPreload(() => import('./components/legal/LegalDocumentPage'));
@@ -28,17 +31,18 @@ const SectionFallback = () => (
   </div>
 );
 
-const withSuspense = (node: React.ReactNode) => (
-  <Suspense fallback={<SectionFallback />}>{node}</Suspense>
-);
-
-function AppContent() {
-  const [currentSection, setCurrentSection] = useState<SectionId>('learn');
+function AppRoutes() {
+  const navigate = useNavigate();
+  const { setNavigationCallback } = useAuth();
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [authInitialView, setAuthInitialView] = useState<AuthModalView>('login');
-  const [sidebarOpen, setSidebarOpen] = useState(false);
-  const { user } = useAuth();
-  const isAuthenticated = !!user;
+
+  useEffect(() => {
+    setNavigationCallback(() => {
+      setShowAuthModal(false);
+      navigate('/app', { replace: true });
+    });
+  }, [navigate, setNavigationCallback]);
 
   const openAuthModal = (view: AuthModalView = 'login') => {
     void AuthContainer.preload();
@@ -46,197 +50,35 @@ function AppContent() {
     setShowAuthModal(true);
   };
 
-  const preloadSection = (section: SectionId) => {
-    if (section === 'learn') {
-      preloadLessonsModule();
-      return;
-    }
-
-    const sectionPreloader = {
-      duels: DuelsDashboard,
-      store: Store,
-      leaderboard: RealTimeLeaderboard,
-      profile: Profile,
-      account: Account,
-    }[section];
-
-    void sectionPreloader?.preload();
-  };
-
-  const navItems = useMemo(
-    () =>
-      isAuthenticated
-        ? [
-            { id: 'learn' as SectionId, label: 'Learn', icon: BookOpen },
-            { id: 'duels' as SectionId, label: 'Duels', icon: Swords },
-            { id: 'store' as SectionId, label: 'Store', icon: ShoppingBag },
-            { id: 'leaderboard' as SectionId, label: 'Ranks', icon: Trophy },
-            { id: 'profile' as SectionId, label: 'Profile', icon: UserIcon },
-            { id: 'account' as SectionId, label: 'Account', icon: Settings },
-          ]
-        : [
-            { id: 'learn' as SectionId, label: 'Learn', icon: BookOpen },
-            { id: 'signup' as const, label: 'Sign Up', icon: UserPlus },
-          ],
-    [isAuthenticated]
-  );
-
-  React.useEffect(() => {
-    if (!isAuthenticated && currentSection !== 'learn') {
-      setCurrentSection('learn');
-      setSidebarOpen(false);
-    }
-  }, [currentSection, isAuthenticated]);
-
-  React.useEffect(() => {
-    const preloadLikelyViews = () => {
-      preloadLessonsModule();
-      void AuthContainer.preload();
-
-      if (isAuthenticated) {
-        void DuelsDashboard.preload();
-        void Store.preload();
-        void RealTimeLeaderboard.preload();
-        void Profile.preload();
-        void Account.preload();
-      }
-    };
-
-    const timeoutId = window.setTimeout(preloadLikelyViews, 150);
-    return () => window.clearTimeout(timeoutId);
-  }, [isAuthenticated]);
-
-  const learnView = (
-    <Learn
-      setCurrentSection={(section) => {
-        if (section === 'learn') {
-          preloadLessonsModule();
-          startTransition(() => setCurrentSection('learn'));
-          setSidebarOpen(false);
-          window.scrollTo({ top: 0, behavior: 'auto' });
-        }
-      }}
-      openAuthModal={openAuthModal}
-      isAuthenticated={isAuthenticated}
-    />
-  );
-
-  const renderSection = () => {
-    switch (currentSection) {
-      case 'duels':
-        return isAuthenticated ? withSuspense(<DuelsDashboard />) : learnView;
-      case 'learn':
-        return learnView;
-      case 'store':
-        return isAuthenticated ? withSuspense(<Store />) : learnView;
-      case 'leaderboard':
-        return isAuthenticated
-          ? withSuspense(
-              <div className="p-2 sm:p-4 lg:p-6 xl:p-8">
-                <RealTimeLeaderboard currentUserId={user?.id || 'guest'} />
-              </div>
-            )
-          : learnView;
-      case 'profile':
-        return isAuthenticated ? withSuspense(<Profile />) : learnView;
-      case 'account':
-        return isAuthenticated ? withSuspense(<Account />) : learnView;
-      default:
-        return learnView;
-    }
-  };
-
-  const handleSectionChange = (section: SectionId) => {
-    preloadSection(section);
-
-    if (!isAuthenticated && section !== 'learn') {
-      setCurrentSection('learn');
-      setSidebarOpen(false);
-      openAuthModal('signup');
-      window.scrollTo({ top: 0, behavior: 'auto' });
-      return;
-    }
-
-    startTransition(() => {
-      setCurrentSection(section);
-    });
-    setSidebarOpen(false);
-    window.scrollTo({ top: 0, behavior: 'auto' });
-  };
-
   return (
-    <div className="min-h-screen bg-gray-50 text-gray-900">
-      {sidebarOpen && (
-        <div className="fixed inset-0 z-40 bg-black/50 lg:hidden" onClick={() => setSidebarOpen(false)} />
-      )}
+    <>
+      <Suspense fallback={<SectionFallback />}>
+        <Routes>
+          <Route path="/" element={<HomePage openAuthModal={openAuthModal} />} />
+          <Route path="/benchmark" element={<BenchmarkPage openAuthModal={openAuthModal} />} />
+          <Route path="/benchmark/:language" element={<BenchmarkPage openAuthModal={openAuthModal} />} />
+          <Route path="/teams" element={<TeamsPage openAuthModal={openAuthModal} />} />
+          <Route path="/teams/:useCase" element={<TeamUseCasePage openAuthModal={openAuthModal} />} />
+          <Route path="/pricing" element={<PricingPage openAuthModal={openAuthModal} />} />
+          <Route path="/faq" element={<FaqPage openAuthModal={openAuthModal} />} />
+          <Route path="/report-sample" element={<ReportSamplePage openAuthModal={openAuthModal} />} />
+          <Route path="/tracks/:trackId" element={<TrackLandingPage openAuthModal={openAuthModal} />} />
+          <Route path="/languages/:language" element={<LanguageLandingPage openAuthModal={openAuthModal} />} />
+          <Route path="/interview-prep/:slug" element={<InterviewPrepLandingPage openAuthModal={openAuthModal} />} />
+          <Route path="/compilers/:language" element={<CompilerLandingPage openAuthModal={openAuthModal} />} />
+          <Route path="/app" element={<AppShell openAuthModal={openAuthModal} />} />
+          <Route path="/auth/confirm" element={<AuthConfirm />} />
+          <Route path="/auth/reset-password" element={<ResetPasswordPage />} />
+          <Route path="/terms" element={<LegalDocumentPage slug="terms" />} />
+          <Route path="/privacy" element={<LegalDocumentPage slug="privacy" />} />
+          <Route path="/refunds" element={<LegalDocumentPage slug="refunds" />} />
+        </Routes>
+      </Suspense>
 
-      <Sidebar
-        currentSection={currentSection}
-        setCurrentSection={(section) => handleSectionChange(section as SectionId)}
-        openAuthModal={openAuthModal}
-        preloadSection={(section) => preloadSection(section as SectionId)}
-        isOpen={sidebarOpen}
-        onClose={() => setSidebarOpen(false)}
-      />
-
-      <main className="min-h-screen pb-24 lg:ml-72 lg:min-h-screen lg:pb-0 xl:ml-80">
-        <div className="min-h-screen">{renderSection()}</div>
-      </main>
-
-      <nav className="fixed inset-x-0 bottom-0 z-50 border-t border-gray-200 bg-white/95 px-2 pb-[max(env(safe-area-inset-bottom),0.5rem)] pt-2 backdrop-blur lg:hidden">
-        <ul className="grid gap-1" style={{ gridTemplateColumns: `repeat(${navItems.length}, minmax(0, 1fr))` }}>
-          {navItems.map((item) => {
-            const Icon = item.icon;
-            const isActive = item.id === 'signup' ? false : currentSection === item.id;
-            return (
-              <li key={item.id}>
-                <button
-                  onClick={() => {
-                    if (item.id === 'signup') {
-                      openAuthModal('signup');
-                      return;
-                    }
-                    handleSectionChange(item.id);
-                  }}
-                  onMouseEnter={() => {
-                    if (item.id === 'signup') {
-                      void AuthContainer.preload();
-                      return;
-                    }
-
-                    preloadSection(item.id);
-                  }}
-                  onFocus={() => {
-                    if (item.id === 'signup') {
-                      void AuthContainer.preload();
-                      return;
-                    }
-
-                    preloadSection(item.id);
-                  }}
-                  className={`flex w-full flex-col items-center justify-center rounded-2xl px-2 py-2 text-[11px] font-medium transition ${
-                    isActive
-                      ? 'bg-gradient-to-br from-green-400 to-blue-500 text-white shadow-md'
-                      : 'text-gray-500 hover:bg-gray-100 hover:text-gray-800'
-                  }`}
-                >
-                  <Icon className="mb-1 h-4 w-4" />
-                  <span>{item.label}</span>
-                </button>
-              </li>
-            );
-          })}
-        </ul>
-      </nav>
-
-      {withSuspense(
-        <AuthContainer
-          open={showAuthModal}
-          initialView={authInitialView}
-          onClose={() => setShowAuthModal(false)}
-        />
-      )}
-    </div>
+      <Suspense fallback={null}>
+        <AuthContainer open={showAuthModal} initialView={authInitialView} onClose={() => setShowAuthModal(false)} />
+      </Suspense>
+    </>
   );
 }
 
@@ -245,16 +87,7 @@ function App() {
     <AuthProvider>
       <UserProvider>
         <Router>
-          <Suspense fallback={<SectionFallback />}>
-            <Routes>
-              <Route path="/" element={<AppContent />} />
-              <Route path="/auth/confirm" element={<AuthConfirm />} />
-              <Route path="/auth/reset-password" element={<ResetPasswordPage />} />
-              <Route path="/terms" element={<LegalDocumentPage slug="terms" />} />
-              <Route path="/privacy" element={<LegalDocumentPage slug="privacy" />} />
-              <Route path="/refunds" element={<LegalDocumentPage slug="refunds" />} />
-            </Routes>
-          </Suspense>
+          <AppRoutes />
         </Router>
       </UserProvider>
     </AuthProvider>

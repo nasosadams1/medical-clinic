@@ -1,63 +1,18 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Loader2, Trophy, Users, Swords } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { supabase } from '../lib/supabase';
 import MascotIcon from './branding/MascotIcon';
+import { trackEvent } from '../lib/analytics';
 
 interface MatchmakingQueueProps {
   socket: any;
-  userId: string;
-  username: string;
   rating: number;
+  ensureSocketRegistered: (options?: { silent?: boolean }) => Promise<boolean>;
   onMatchFound: (matchData: any) => void;
   onMatchEnd: (result: any) => void;
 }
 
 type MatchType = 'ranked' | 'casual';
-
-const DEVICE_CLUSTER_STORAGE_KEY = 'codhak-device-cluster-id';
-const REGISTRATION_ACK_TIMEOUT_MS = 10_000;
-
-const getOrCreateDeviceClusterId = () => {
-  if (typeof window === 'undefined') return null;
-
-  try {
-    const existing = window.localStorage.getItem(DEVICE_CLUSTER_STORAGE_KEY);
-    if (existing) return existing;
-
-    const nextId = typeof window.crypto?.randomUUID === 'function'
-      ? window.crypto.randomUUID()
-      : `device-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
-
-    window.localStorage.setItem(DEVICE_CLUSTER_STORAGE_KEY, nextId);
-    return nextId;
-  } catch {
-    return null;
-  }
-};
-
-const buildClientMeta = () => {
-  if (typeof window === 'undefined' || typeof navigator === 'undefined') {
-    return {};
-  }
-
-  return {
-    deviceClusterId: getOrCreateDeviceClusterId(),
-    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-    platform: navigator.platform || 'unknown',
-    language: navigator.language || 'unknown',
-    origin: window.location.origin,
-    hardwareConcurrency: navigator.hardwareConcurrency || null,
-    screen: {
-      width: window.screen?.width || null,
-      height: window.screen?.height || null,
-    },
-    viewport: {
-      width: window.innerWidth,
-      height: window.innerHeight,
-    },
-  };
-};
 
 const normalizeMatchType = (value: unknown): MatchType => (value === 'casual' ? 'casual' : 'ranked');
 
@@ -70,9 +25,8 @@ const formatQueueTime = (seconds: number) => {
 
 export default function MatchmakingQueue({
   socket,
-  userId,
-  username,
   rating,
+  ensureSocketRegistered,
   onMatchFound,
   onMatchEnd,
 }: MatchmakingQueueProps) {
@@ -85,8 +39,6 @@ export default function MatchmakingQueue({
   const [isJoining, setIsJoining] = useState(false);
 
   const pendingMatchRef = useRef<any>(null);
-  const registeredSocketKeyRef = useRef<string | null>(null);
-  const registrationPromiseRef = useRef<Promise<boolean> | null>(null);
   const selectedMatchTypeRef = useRef<MatchType>('casual');
 
   useEffect(() => {
@@ -95,68 +47,6 @@ export default function MatchmakingQueue({
       setActiveMatchType(selectedMatchType);
     }
   }, [inQueue, isJoining, isMatchStarting, selectedMatchType]);
-
-  const registerPlayer = useCallback(async ({ silent = false } = {}) => {
-    if (!socket?.connected) return false;
-
-    const registrationKey = `${socket.id}:${userId}`;
-    if (registeredSocketKeyRef.current === registrationKey) {
-      return true;
-    }
-
-    if (registrationPromiseRef.current) {
-      return registrationPromiseRef.current;
-    }
-
-    registrationPromiseRef.current = (async () => {
-      const { data: sessionData } = await supabase.auth.getSession();
-      const accessToken = sessionData.session?.access_token;
-
-      if (!accessToken) {
-        if (!silent) {
-          toast.error('Your session expired. Please sign in again.');
-        }
-        return false;
-      }
-
-      const clientMeta = buildClientMeta();
-
-      return new Promise<boolean>((resolve) => {
-        socket
-          .timeout(REGISTRATION_ACK_TIMEOUT_MS)
-          .emit('register_player', { userId, username, accessToken, clientMeta }, (err: any, res: any) => {
-            if (err) {
-              console.error('register_player failed', err);
-              if (!silent) {
-                toast.error('No response from the duel server. Try again in a moment.');
-              }
-              resolve(false);
-              return;
-            }
-
-            if (!res?.ok) {
-              if (!silent) {
-                toast.error(res?.message || 'Failed to register player');
-              }
-              resolve(false);
-              return;
-            }
-
-            registeredSocketKeyRef.current = registrationKey;
-            resolve(true);
-          });
-      });
-    })().finally(() => {
-      registrationPromiseRef.current = null;
-    });
-
-    return registrationPromiseRef.current;
-  }, [socket, userId, username]);
-
-  useEffect(() => {
-    if (!socket?.connected) return;
-    void registerPlayer({ silent: true });
-  }, [registerPlayer, socket]);
 
   useEffect(() => {
     if (!socket) return;
@@ -167,11 +57,6 @@ export default function MatchmakingQueue({
       setQueueWaitTime(0);
     };
 
-    const onConnectEvent = () => {
-      if (!userId) return;
-      void registerPlayer({ silent: true });
-    };
-
     const onQueueUpdate = (data: any) => {
       setActiveMatchType(normalizeMatchType(data?.matchType));
       setPlayersOnline(data.onlinePlayers ?? data.queueSize ?? 0);
@@ -179,8 +64,6 @@ export default function MatchmakingQueue({
     };
 
     const onDisconnectEvent = () => {
-      registeredSocketKeyRef.current = null;
-      registrationPromiseRef.current = null;
       resetPendingState();
       setInQueue(false);
       setIsJoining(false);
@@ -222,6 +105,10 @@ export default function MatchmakingQueue({
         opponent: pendingMatchRef.current?.opponent,
       };
 
+      trackEvent('duel_started', {
+        matchType: normalizeMatchType(data?.matchType ?? pendingMatchRef.current?.matchType ?? selectedMatchTypeRef.current),
+      });
+
       resetPendingState();
       onMatchFound(merged);
     };
@@ -241,17 +128,12 @@ export default function MatchmakingQueue({
 
     const onServerError = (data: any) => {
       console.error('server_error:', data?.message, data?.details || data?.error);
-      if (data?.message === 'Player not registered' || data?.message === 'Stale duel connection') {
-        registeredSocketKeyRef.current = null;
-        registrationPromiseRef.current = null;
-      }
       resetPendingState();
       toast.error(data?.message || 'Server error');
       setInQueue(false);
       setIsJoining(false);
     };
 
-    socket.on('connect', onConnectEvent);
     socket.on('queue_update', onQueueUpdate);
     socket.on('disconnect', onDisconnectEvent);
     socket.on('queue_joined', onQueueJoined);
@@ -262,7 +144,6 @@ export default function MatchmakingQueue({
     socket.on('server_error', onServerError);
 
     return () => {
-      socket.off('connect', onConnectEvent);
       socket.off('queue_update', onQueueUpdate);
       socket.off('disconnect', onDisconnectEvent);
       socket.off('queue_joined', onQueueJoined);
@@ -272,7 +153,7 @@ export default function MatchmakingQueue({
       socket.off('match_end', onMatchEndEvent);
       socket.off('server_error', onServerError);
     };
-  }, [onMatchEnd, onMatchFound, registerPlayer, socket, userId]);
+  }, [onMatchEnd, onMatchFound, socket]);
 
   const handleJoinQueue = async () => {
     if (!socket) return toast.error('Socket not ready');
@@ -284,7 +165,7 @@ export default function MatchmakingQueue({
     setActiveMatchType(matchType);
     setQueueWaitTime(0);
 
-    const isRegistered = await registerPlayer();
+    const isRegistered = await ensureSocketRegistered();
     if (!isRegistered) {
       setIsJoining(false);
       return;

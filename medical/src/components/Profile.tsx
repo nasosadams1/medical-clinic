@@ -307,8 +307,8 @@ const Profile: React.FC = () => {
       <div className="p-8 bg-gradient-to-br from-slate-50 to-blue-50 min-h-screen flex items-center justify-center">
         <div className="bg-white rounded-2xl shadow-xl border border-gray-200 p-8 max-w-md w-full text-center">
           <div className="mb-6">
-            <h1 className="text-2xl font-bold text-gray-900 mb-2">Welcome to CodeLingo</h1>
-            <p className="text-gray-600">Sign up or sign in to track your progress, earn coins, and unlock achievements.</p>
+            <h1 className="text-2xl font-bold text-gray-900 mb-2">Welcome to Codhak</h1>
+            <p className="text-gray-600">Sign up or sign in to save your benchmark reports, practice history, and progress.</p>
           </div>
 
           <p className="text-xs text-gray-400 mt-6">
@@ -472,7 +472,7 @@ const Profile: React.FC = () => {
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-2xl lg:text-4xl font-bold text-gray-900 mb-2">Player Profile</h1>
-            <p className="text-gray-600">Track your coding journey and achievements</p>
+            <p className="text-gray-600">Track your benchmark history, practice progress, and achievements</p>
           </div>
           {/* Manual Sync Button and Achievement Check (Optional, primarily for debugging/testing) */}
           <div className="flex gap-2">

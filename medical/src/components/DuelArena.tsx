@@ -21,6 +21,8 @@ interface DuelArenaProps {
   matchType?: 'ranked' | 'casual';
   socket: any;
   userId: string;
+  ensureSocketRegistered: (options?: { silent?: boolean }) => Promise<boolean>;
+  resetSocketRegistration: () => void;
   startTime?: number | null;
   endTime?: number | null;
   serverNow?: number | null;
@@ -134,6 +136,8 @@ export default function DuelArena({
   matchType = 'ranked',
   socket,
   userId,
+  ensureSocketRegistered,
+  resetSocketRegistration,
   startTime = null,
   endTime = null,
   serverNow = null,
@@ -280,7 +284,14 @@ export default function DuelArena({
     };
 
     const onSubmissionError = (data: any) => {
-      toast.error(data.message);
+      const message = data?.message || 'Submission error';
+      if (message === 'Not registered' || message === 'Stale duel connection') {
+        resetSocketRegistration();
+        void ensureSocketRegistered({ silent: true });
+        toast.error('Reconnecting to the duel server. Try submitting again in a moment.');
+      } else {
+        toast.error(message);
+      }
       setIsSubmitting(false);
     };
 
@@ -300,7 +311,16 @@ export default function DuelArena({
       if (telemetryIntervalRef.current) clearInterval(telemetryIntervalRef.current);
       flushTelemetry('cleanup');
     };
-  }, [flushTelemetry, matchId, onMatchEnd, problem.timeLimit, serverClockOffsetMs, socket]);
+  }, [
+    ensureSocketRegistered,
+    flushTelemetry,
+    matchId,
+    onMatchEnd,
+    problem.timeLimit,
+    resetSocketRegistration,
+    serverClockOffsetMs,
+    socket,
+  ]);
 
   useEffect(() => {
     if (!matchStarted) return;
@@ -369,9 +389,20 @@ export default function DuelArena({
     });
   }, []);
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     if (!code.trim()) {
       toast.error('Please write some code first.');
+      return;
+    }
+
+    if (!socket?.connected) {
+      toast.error('Reconnecting to the duel server. Try again in a moment.');
+      return;
+    }
+
+    const isRegistered = await ensureSocketRegistered({ silent: true });
+    if (!isRegistered) {
+      toast.error('Reconnecting to the duel server. Try again in a moment.');
       return;
     }
 

@@ -301,7 +301,7 @@ const SignUpForm: React.FC<SignUpFormProps> = ({ onToggleForm, onEmailVerificati
         transition={{ delay: 0.1 }}
       >
         <h1 className="text-3xl font-bold text-gray-900 mb-2">Create Account</h1>
-        <p className="text-gray-600">Join Codhak and start your coding journey</p>
+        <p className="text-gray-600">Save benchmark reports, unlock your roadmap, and keep your progress history.</p>
       </motion.div>
 
       <motion.form 
@@ -365,7 +365,7 @@ const SignUpForm: React.FC<SignUpFormProps> = ({ onToggleForm, onEmailVerificati
             </motion.p>
           )}
           <p className="text-xs text-gray-500">
-            This will be your display name and can be changed later in your profile. (Max 16 characters)
+            This becomes your Codhak display name and can be changed later in your profile. (Max 16 characters)
           </p>
         </div>
 
