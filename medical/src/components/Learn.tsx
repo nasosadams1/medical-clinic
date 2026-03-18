@@ -1,5 +1,21 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Trophy, Play, Lock, BookOpen, Code, Database, Globe, Link2 } from 'lucide-react';
+import {
+  ArrowRight,
+  BookOpen,
+  CheckCircle2,
+  Code,
+  Database,
+  Flame,
+  Globe,
+  Heart,
+  Link2,
+  Lock,
+  Play,
+  RefreshCcw,
+  Target,
+  Trophy,
+  Zap,
+} from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useUser } from '../context/UserContext';
 import LessonModal from './LessonModal';
@@ -42,6 +58,112 @@ type VisibleLesson = LessonPreview & {
   sortIndex: number;
 };
 
+const cx = (...classes: Array<string | false | null | undefined>) => classes.filter(Boolean).join(' ');
+
+const filters = ['All Paths', 'Recommended', 'Completed', 'Beginner', 'Intermediate', 'Advanced'];
+
+const languageCatalog = [
+  {
+    id: 'python' as Language,
+    name: 'Python',
+    icon: Code,
+    gradient: 'from-primary to-accent',
+    description: 'Backend fundamentals, syntax repair, and applied problem solving.',
+  },
+  {
+    id: 'javascript' as Language,
+    name: 'JavaScript',
+    icon: Database,
+    gradient: 'from-accent to-primary',
+    description: 'Interview-style practice for frontend logic, arrays, and functions.',
+  },
+  {
+    id: 'cpp' as Language,
+    name: 'C++',
+    icon: Globe,
+    gradient: 'from-destructive to-orange-500',
+    description: 'Structured logic and timed challenge fluency for competitive problem solving.',
+  },
+  {
+    id: 'java' as Language,
+    name: 'Java',
+    icon: Globe,
+    gradient: 'from-coins to-orange-500',
+    description: 'Class-ready OOP practice and junior developer backend preparation.',
+  },
+];
+
+const normalizeDifficultyTier = (difficulty: string): DifficultyTier => {
+  const value = String(difficulty || '').toLowerCase();
+  if (value.includes('advanced')) return 'Advanced';
+  if (value.includes('intermediate')) return 'Intermediate';
+  return 'Beginner';
+};
+
+const difficultyTone: Record<DifficultyTier, string> = {
+  Beginner: 'bg-xp/10 text-xp',
+  Intermediate: 'bg-coins/10 text-coins',
+  Advanced: 'bg-destructive/10 text-destructive',
+};
+
+function MetricCard({
+  icon,
+  label,
+  value,
+  subtitle,
+  tone = 'primary',
+}: {
+  icon: React.ReactNode;
+  label: string;
+  value: string | number;
+  subtitle: string;
+  tone?: 'primary' | 'xp' | 'coins' | 'hearts' | 'streak';
+}) {
+  const iconTone = {
+    primary: 'bg-primary/10 text-primary glow-primary',
+    xp: 'bg-xp/10 text-xp glow-xp',
+    coins: 'bg-coins/10 text-coins glow-coins',
+    hearts: 'bg-destructive/10 text-destructive',
+    streak: 'bg-streak/10 text-streak animate-streak-fire',
+  }[tone];
+
+  return (
+    <div className="group relative overflow-hidden rounded-xl border border-border bg-card p-4 shadow-card transition-all duration-300 hover:border-primary/30 hover:shadow-elevated">
+      <div className="absolute inset-0 opacity-0 transition-opacity duration-300 group-hover:opacity-100" style={{ background: 'var(--gradient-card-glow)' }} />
+      <div className="relative flex items-start gap-3">
+        <div className={cx('flex h-10 w-10 shrink-0 items-center justify-center rounded-lg', iconTone)}>{icon}</div>
+        <div className="min-w-0">
+          <div className="text-xs font-medium uppercase tracking-[0.16em] text-muted-foreground">{label}</div>
+          <div className="text-2xl font-bold font-display text-foreground">{value}</div>
+          <div className="mt-0.5 text-xs text-muted-foreground">{subtitle}</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function LessonSkeleton() {
+  return (
+    <div className="overflow-hidden rounded-2xl border border-border bg-card p-5 shadow-card">
+      <div className="mb-4 flex items-start justify-between gap-3">
+        <div className="flex min-w-0 items-center gap-2">
+          <div className="h-5 w-5 animate-pulse rounded bg-secondary" />
+          <div className="h-6 w-24 animate-pulse rounded-full bg-secondary" />
+        </div>
+        <div className="h-4 w-14 animate-pulse rounded bg-secondary" />
+      </div>
+      <div className="mb-2 h-6 w-3/4 animate-pulse rounded bg-secondary" />
+      <div className="mb-2 h-4 w-full animate-pulse rounded bg-secondary/70" />
+      <div className="mb-4 h-4 w-5/6 animate-pulse rounded bg-secondary/70" />
+      <div className="mb-5 h-9 w-full animate-pulse rounded-xl bg-secondary" />
+      <div className="flex items-center justify-between">
+        <div className="h-8 w-24 animate-pulse rounded-full bg-secondary/70" />
+        <div className="h-10 w-28 animate-pulse rounded-xl bg-secondary" />
+      </div>
+    </div>
+  );
+}
+
 const Learn: React.FC<LearnProps> = ({ setCurrentSection, openAuthModal, isAuthenticated = false }) => {
   const { user, isUnlimitedHeartsActive } = useUser();
   const [selectedLanguage, setSelectedLanguage] = useState<Language>('python');
@@ -75,24 +197,8 @@ const Learn: React.FC<LearnProps> = ({ setCurrentSection, openAuthModal, isAuthe
     };
   }, [lessonsReloadKey]);
 
-  const languages = [
-    { id: 'python' as Language, name: 'Python', icon: Code, color: 'from-blue-500 to-emerald-500', description: 'Benchmark gaps, backend fundamentals, and applied problem solving' },
-    { id: 'javascript' as Language, name: 'JavaScript', icon: Database, color: 'from-cyan-500 to-blue-600', description: 'Interview-style practice for frontend logic, arrays, and functions' },
-    { id: 'cpp' as Language, name: 'C++', icon: Globe, color: 'from-orange-500 to-rose-500', description: 'Structured logic, arrays, and fundamentals for timed challenge work' },
-    { id: 'java' as Language, name: 'Java', icon: Globe, color: 'from-amber-500 to-orange-600', description: 'OOP foundations, class-ready practice, and junior developer prep' },
-  ];
-
-  const normalizeDifficultyTier = (difficulty: string): DifficultyTier => {
-    const value = String(difficulty || '').toLowerCase();
-    if (value.includes('advanced')) return 'Advanced';
-    if (value.includes('intermediate')) return 'Intermediate';
-    return 'Beginner';
-  };
-
   const currentLessons = useMemo<VisibleLesson[]>(() => {
-    if (!lessonsModule) {
-      return [];
-    }
+    if (!lessonsModule) return [];
 
     return lessonsModule.getLessonsByLanguage(selectedLanguage).map((lesson, index) => ({
       ...lesson,
@@ -119,14 +225,8 @@ const Learn: React.FC<LearnProps> = ({ setCurrentSection, openAuthModal, isAuthe
       Intermediate: beginnerRatio >= 0.7,
       Advanced: intermediateRatio >= 0.7,
       progress: {
-        Beginner: {
-          completed: beginnerCompleted,
-          total: lessonGroups.Beginner.length,
-        },
-        Intermediate: {
-          completed: intermediateCompleted,
-          total: lessonGroups.Intermediate.length,
-        },
+        Beginner: { completed: beginnerCompleted, total: lessonGroups.Beginner.length },
+        Intermediate: { completed: intermediateCompleted, total: lessonGroups.Intermediate.length },
       },
     };
   }, [currentLessons, user.completedLessons]);
@@ -137,23 +237,15 @@ const Learn: React.FC<LearnProps> = ({ setCurrentSection, openAuthModal, isAuthe
   );
   const selectedLanguageTotalLessons = getLessonCountByLanguage(selectedLanguage);
 
-  const filters = ['All Paths', 'Recommended', 'Completed', 'Beginner', 'Intermediate', 'Advanced'];
-
   const filteredLessons = useMemo(() => {
-    const tierOrder: Record<DifficultyTier, number> = {
-      Beginner: 0,
-      Intermediate: 1,
-      Advanced: 2,
-    };
+    const tierOrder: Record<DifficultyTier, number> = { Beginner: 0, Intermediate: 1, Advanced: 2 };
 
     return currentLessons
       .filter((lesson) => {
         if (filter === 'All Paths') return true;
         if (filter === 'Recommended') return !user.completedLessons.includes(lesson.id);
         if (filter === 'Completed') return user.completedLessons.includes(lesson.id);
-        if (filter === 'Beginner' || filter === 'Intermediate' || filter === 'Advanced') {
-          return lesson.tier === filter;
-        }
+        if (filter === 'Beginner' || filter === 'Intermediate' || filter === 'Advanced') return lesson.tier === filter;
         return true;
       })
       .sort((left, right) => {
@@ -163,22 +255,15 @@ const Learn: React.FC<LearnProps> = ({ setCurrentSection, openAuthModal, isAuthe
       });
   }, [currentLessons, filter, user.completedLessons]);
 
-  const getDifficultyColor = (difficulty: DifficultyTier) => {
-    switch (difficulty) {
-      case 'Beginner': return 'bg-green-100 text-green-700';
-      case 'Intermediate': return 'bg-yellow-100 text-yellow-700';
-      case 'Advanced': return 'bg-red-100 text-red-700';
-      default: return 'bg-gray-100 text-gray-700';
-    }
-  };
-
-  const languageStats = useMemo(() => {
-    return languages.map((language) => ({
-      ...language,
-      totalLessons: getLessonCountByLanguage(language.id),
-      completedCount: countCompletedLessonsByLanguage(language.id, user.completedLessons),
-    }));
-  }, [user.completedLessons]);
+  const languageStats = useMemo(
+    () =>
+      languageCatalog.map((language) => ({
+        ...language,
+        totalLessons: getLessonCountByLanguage(language.id),
+        completedCount: countCompletedLessonsByLanguage(language.id, user.completedLessons),
+      })),
+    [user.completedLessons]
+  );
 
   const handleRedirectToLearn = () => {
     setSelectedLesson(null);
@@ -186,11 +271,10 @@ const Learn: React.FC<LearnProps> = ({ setCurrentSection, openAuthModal, isAuthe
     window.scrollTo({ top: 0, behavior: 'auto' });
   };
 
-  const getVisibleLessonTitle = (lesson: Pick<LessonPreview, 'id' | 'title'>) => {
-    return lesson?.title && !/^[a-z0-9]+(?:[-_][a-z0-9]+)+$/i.test(lesson.title)
+  const getVisibleLessonTitle = (lesson: Pick<LessonPreview, 'id' | 'title'>) =>
+    lesson?.title && !/^[a-z0-9]+(?:[-_][a-z0-9]+)+$/i.test(lesson.title)
       ? lesson.title
       : formatLessonIdAsDisplayName(lesson.id);
-  };
 
   const handleStartLesson = (lesson: VisibleLesson) => {
     if (!isAuthenticated) {
@@ -210,255 +294,340 @@ const Learn: React.FC<LearnProps> = ({ setCurrentSection, openAuthModal, isAuthe
     setSelectedLesson({ ...lesson, title: getVisibleLessonTitle(lesson) });
   };
 
+  const selectedTrack = languageStats.find((language) => language.id === selectedLanguage) ?? languageStats[0];
+  const selectedProgressPercent = Math.round((selectedLanguageCompletedCount / Math.max(1, selectedLanguageTotalLessons)) * 100);
+
   return (
-    <div className="px-3 py-4 sm:px-4 lg:px-8 lg:py-8">
-      <div className="mb-6 lg:mb-8">
+    <div className="space-y-8 p-4 lg:p-8">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="mb-2 text-2xl font-bold text-gray-900 sm:text-3xl">Practice Paths</h1>
-          <p className="text-gray-600">Use lessons to close benchmark gaps, reinforce fundamentals, and prepare for duels.</p>
+          <h1 className="text-2xl font-bold font-display text-foreground">Practice Paths</h1>
+          <p className="mt-1 text-muted-foreground">Use lessons to close benchmark gaps, sharpen weak spots, and return to duels with more signal.</p>
+        </div>
+        <div className="flex flex-wrap gap-3">
+          <button
+            type="button"
+            onClick={() => setCurrentSection?.('benchmark')}
+            className="inline-flex items-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground shadow-glow transition hover:bg-primary/90"
+          >
+            <Target className="h-4 w-4" />
+            Benchmark
+          </button>
+          <button
+            type="button"
+            onClick={() => setCurrentSection?.('duels')}
+            className="inline-flex items-center gap-2 rounded-xl border border-border bg-card px-4 py-2.5 text-sm font-semibold text-foreground transition hover:bg-secondary"
+          >
+            <Trophy className="h-4 w-4" />
+            Duels
+          </button>
         </div>
       </div>
 
-      <div className="mb-6 grid grid-cols-1 gap-4 lg:mb-8 lg:grid-cols-[1.1fr_0.9fr]">
-        <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
-          <div className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Support content, not the starting point</div>
-          <h2 className="mt-3 text-2xl font-semibold text-slate-950">Lessons are here to sharpen the exact skills your benchmark exposes.</h2>
-          <p className="mt-3 max-w-2xl text-sm leading-7 text-slate-600">
-            Start with the benchmark, then use these lesson paths to tighten syntax, rebuild weak spots, and return to timed challenge work with more confidence.
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <MetricCard
+          icon={<BookOpen className="h-5 w-5" />}
+          label="Selected Path"
+          value={`${selectedLanguageCompletedCount}/${selectedLanguageTotalLessons}`}
+          subtitle={`${selectedTrack.name} lessons completed`}
+          tone="primary"
+        />
+        <MetricCard
+          icon={<Zap className="h-5 w-5" />}
+          label="XP"
+          value={user.xp.toLocaleString()}
+          subtitle={`Level ${user.level}`}
+          tone="xp"
+        />
+        <MetricCard
+          icon={<Heart className="h-5 w-5 fill-current" />}
+          label="Hearts"
+          value={isUnlimitedHeartsActive() ? 'Unlimited' : `${user.hearts}/${user.maxHearts}`}
+          subtitle={isUnlimitedHeartsActive() ? 'Practice without interruption' : 'Needed to start lessons'}
+          tone="hearts"
+        />
+        <MetricCard
+          icon={<Flame className="h-5 w-5" />}
+          label="Streak"
+          value={`${user.currentStreak} days`}
+          subtitle="Consistency compounds benchmark gains"
+          tone="streak"
+        />
+      </div>
+
+      <div className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
+        <div className="rounded-2xl border border-border bg-card p-6 shadow-card">
+          <div className="inline-flex items-center gap-2 rounded-full border border-primary/30 bg-primary/10 px-4 py-1.5">
+            <Target className="h-3.5 w-3.5 text-primary" />
+            <span className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">Support content, not the starting point</span>
+          </div>
+          <h2 className="mt-5 text-3xl font-bold font-display text-foreground">Practice is here to sharpen exactly what your benchmark exposes.</h2>
+          <p className="mt-4 max-w-2xl text-sm leading-7 text-muted-foreground">
+            Start with the benchmark, then use these paths to repair fundamentals, deepen weak areas, and return to live duel conditions with more confidence.
           </p>
-          <div className="mt-5 flex flex-col gap-3 sm:flex-row">
-            <button
-              type="button"
-              onClick={() => setCurrentSection?.('benchmark')}
-              className="inline-flex items-center justify-center rounded-2xl bg-slate-950 px-4 py-3 text-sm font-medium text-white transition hover:bg-slate-800"
-            >
-              View benchmark workspace
-            </button>
-            <button
-              type="button"
-              onClick={() => setCurrentSection?.('duels')}
-              className="inline-flex items-center justify-center rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
-            >
-              Go to duels
-            </button>
+          <div className="mt-6 grid gap-4 sm:grid-cols-3">
+            {[
+              ['Repair weak spots', 'Use beginner tracks to patch syntax and reading gaps.', CheckCircle2],
+              ['Build speed', 'Move into intermediate problems once the basics feel automatic.', Zap],
+              ['Prove it live', 'Treat duels as your proof layer after the practice loop.', Trophy],
+            ].map(([title, description, IconComponent], index) => {
+              const Icon = IconComponent as typeof Target;
+              return (
+                <div key={title as string} className="rounded-2xl border border-border bg-secondary/40 p-4">
+                  <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-xl bg-card text-primary shadow-card">
+                    <Icon className="h-4 w-4" />
+                  </div>
+                  <div className="text-[10px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">Step {index + 1}</div>
+                  <div className="mt-1 text-sm font-semibold text-foreground">{title}</div>
+                  <p className="mt-2 text-xs leading-6 text-muted-foreground">{description}</p>
+                </div>
+              );
+            })}
           </div>
         </div>
 
-        <div className="rounded-3xl border border-slate-200 bg-gradient-to-br from-slate-950 via-slate-900 to-slate-800 p-5 text-white shadow-sm sm:p-6">
-          <div className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-300">Best use of this page</div>
-          <ul className="mt-4 space-y-3 text-sm leading-6 text-slate-100">
-            <li>Use beginner paths to repair benchmark gaps before retaking the assessment.</li>
-            <li>Move into intermediate and advanced lessons when your report calls for more depth.</li>
-            <li>Treat duels as proof of skill after practice, not as the first step.</li>
-          </ul>
+        <div className="rounded-2xl border border-border bg-gradient-to-br from-card via-sidebar to-background p-6 shadow-elevated">
+          <div className={`inline-flex rounded-full bg-gradient-to-r px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-white ${selectedTrack.gradient}`}>
+            {selectedTrack.name} track
+          </div>
+          <h3 className="mt-4 text-2xl font-bold font-display text-foreground">{selectedTrack.name} roadmap</h3>
+          <p className="mt-3 text-sm leading-7 text-muted-foreground">{selectedTrack.description}</p>
+
+          <div className="mt-6 rounded-2xl border border-border bg-secondary/45 p-5">
+            <div className="flex items-center justify-between text-sm">
+              <span className="font-medium text-muted-foreground">Current progress</span>
+              <span className="font-mono font-semibold text-foreground">{selectedProgressPercent}%</span>
+            </div>
+            <div className="mt-3 h-2 w-full overflow-hidden rounded-full bg-secondary">
+              <div className={`h-full rounded-full bg-gradient-to-r ${selectedTrack.gradient}`} style={{ width: `${selectedProgressPercent}%` }} />
+            </div>
+            <p className="mt-3 text-xs leading-6 text-muted-foreground">
+              {selectedLanguageCompletedCount} of {selectedLanguageTotalLessons} lessons complete in this track.
+            </p>
+          </div>
+
+          <div className="mt-4 space-y-3">
+            {([
+              ['Intermediate unlock', difficultyUnlocks.progress.Beginner.completed, difficultyUnlocks.progress.Beginner.total],
+              ['Advanced unlock', difficultyUnlocks.progress.Intermediate.completed, difficultyUnlocks.progress.Intermediate.total],
+            ] as const).map(([label, completed, total]) => {
+              const percent = total ? Math.round((completed / total) * 100) : 100;
+              return (
+                <div key={label} className="rounded-2xl border border-border bg-secondary/35 p-4">
+                  <div className="flex items-center justify-between text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                    <span>{label}</span>
+                    <span>{completed}/{total || 0}</span>
+                  </div>
+                  <div className="mt-3 h-2 w-full overflow-hidden rounded-full bg-secondary">
+                    <div className="h-full rounded-full bg-primary transition-all" style={{ width: `${percent}%` }} />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
         </div>
       </div>
 
-      <div className="mb-6 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:mb-8 lg:grid-cols-3 xl:grid-cols-4 lg:gap-4">
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         {languageStats.map((language) => {
           const Icon = language.icon;
+          const isActive = selectedLanguage === language.id;
+          const progressPercent = Math.round((language.completedCount / Math.max(1, language.totalLessons)) * 100);
 
           return (
             <button
               key={language.id}
+              type="button"
               onClick={() => setSelectedLanguage(language.id)}
-              className={`rounded-2xl p-4 text-left transition-all duration-300 sm:p-5 lg:p-6 ${
-                selectedLanguage === language.id
-                  ? `bg-gradient-to-r ${language.color} text-white shadow-lg lg:scale-[1.02]`
-                  : 'bg-white hover:bg-gray-50 border border-gray-200 hover:shadow-md'
-              }`}
+              className={cx(
+                'rounded-2xl border p-5 text-left transition-all duration-300',
+                isActive
+                  ? `border-transparent bg-gradient-to-r ${language.gradient} text-white shadow-elevated`
+                  : 'border-border bg-card shadow-card hover:border-primary/20 hover:shadow-elevated'
+              )}
             >
-              <div className="mb-3 flex flex-col items-center gap-3 text-center sm:flex-row sm:items-start sm:text-left">
-                <Icon className={`w-8 h-8 ${selectedLanguage === language.id ? 'text-white' : 'text-gray-600'}`} />
-                <div>
-                  <h3 className={`text-lg lg:text-xl font-bold ${selectedLanguage === language.id ? 'text-white' : 'text-gray-900'}`}>
-                    {language.name}
-                  </h3>
-                  <p className={`text-sm ${selectedLanguage === language.id ? 'text-white/80' : 'text-gray-600'}`}>
-                    {language.description}
-                  </p>
+              <div className="flex items-start gap-3">
+                <div className={cx('flex h-12 w-12 shrink-0 items-center justify-center rounded-xl', isActive ? 'bg-white/15' : 'bg-primary/10 text-primary')}>
+                  <Icon className="h-6 w-6" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className={cx('text-lg font-bold font-display', isActive ? 'text-white' : 'text-foreground')}>{language.name}</div>
+                  <p className={cx('mt-1 text-sm leading-6', isActive ? 'text-white/80' : 'text-muted-foreground')}>{language.description}</p>
                 </div>
               </div>
-              <div className={`text-sm ${selectedLanguage === language.id ? 'text-white/90' : 'text-gray-500'}`}>
-                Progress: {language.completedCount}/{language.totalLessons} lessons completed
+              <div className={cx('mt-4 flex items-center justify-between text-xs uppercase tracking-[0.18em]', isActive ? 'text-white/80' : 'text-muted-foreground')}>
+                <span>Progress</span>
+                <span>{language.completedCount}/{language.totalLessons}</span>
               </div>
-              <div className="mt-2 h-2 w-full rounded-full bg-white/20">
-                <div
-                  className={`h-2 rounded-full transition-all duration-500 ${
-                    selectedLanguage === language.id ? 'bg-white/40' : 'bg-gray-300'
-                  }`}
-                  style={{ width: `${(language.completedCount / Math.max(1, language.totalLessons)) * 100}%` }}
-                ></div>
+              <div className={cx('mt-3 h-2 w-full overflow-hidden rounded-full', isActive ? 'bg-white/20' : 'bg-secondary')}>
+                <div className={cx('h-full rounded-full transition-all duration-500', isActive ? 'bg-white/50' : 'bg-primary')} style={{ width: `${progressPercent}%` }} />
               </div>
             </button>
           );
         })}
       </div>
 
-      <div className="mb-6 flex gap-2 overflow-x-auto pb-2 lg:mb-8">
+      <div className="flex flex-wrap gap-2">
         {filters.map((filterOption) => (
           <button
             key={filterOption}
+            type="button"
             onClick={() => setFilter(filterOption)}
-            className={`px-3 lg:px-4 py-2 rounded-full text-sm font-medium transition-all duration-200 whitespace-nowrap ${
+            className={cx(
+              'rounded-full border px-4 py-2 text-sm font-medium transition-all',
               filter === filterOption
-                ? 'bg-green-500 text-white shadow-md'
-                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-            }`}
+                ? 'border-primary bg-primary text-primary-foreground shadow-glow'
+                : 'border-border bg-card text-muted-foreground hover:bg-secondary hover:text-foreground'
+            )}
           >
             {filterOption}
           </button>
         ))}
       </div>
 
-      <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:mb-8 lg:grid-cols-3 lg:gap-6">
-          <div className="rounded-2xl bg-gradient-to-br from-slate-950 via-slate-900 to-slate-800 p-5 text-white shadow-lg sm:p-6">
-            <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-lg bg-white/20">
-              <Trophy className="w-6 h-6" />
-            </div>
-          <div className="mb-1 text-xl font-bold lg:text-2xl">
-            {selectedLanguageCompletedCount}/{selectedLanguageTotalLessons}
-          </div>
-          <div className="text-sm text-white/80 lg:text-base">{selectedLanguage.toUpperCase()} practice lessons completed</div>
+      {lessonsError ? (
+        <div className="rounded-2xl border border-destructive/30 bg-destructive/10 p-6 text-center shadow-card">
+          <h3 className="text-lg font-semibold text-foreground">Lesson list failed to load</h3>
+          <p className="mt-2 text-sm text-muted-foreground">{lessonsError}</p>
+          <button
+            type="button"
+            onClick={() => setLessonsReloadKey((value) => value + 1)}
+            className="mt-4 inline-flex items-center gap-2 rounded-xl bg-destructive px-4 py-2.5 text-sm font-semibold text-destructive-foreground transition hover:bg-destructive/90"
+          >
+            <RefreshCcw className="h-4 w-4" />
+            Try again
+          </button>
         </div>
-      </div>
+      ) : null}
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 lg:gap-6">
-        {lessonsError ? (
-          <div className="col-span-full rounded-2xl border border-red-100 bg-red-50 p-6 text-center shadow-sm">
-            <h3 className="text-lg font-semibold text-red-900">Lesson list failed to load</h3>
-            <p className="mt-2 text-sm text-red-700">{lessonsError}</p>
-            <button
-              type="button"
-              onClick={() => setLessonsReloadKey((value) => value + 1)}
-              className="mt-4 rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-red-700"
-            >
-              Try again
-            </button>
-          </div>
-        ) : isLessonsLoading ? (
-          Array.from({ length: 6 }, (_, index) => (
-            <div key={index} className="overflow-hidden rounded-2xl border border-gray-100 bg-white p-4 shadow-md sm:p-5 lg:p-6">
-              <div className="mb-4 flex items-start justify-between gap-3">
-                <div className="flex min-w-0 items-center gap-2">
-                  <div className="h-5 w-5 animate-pulse rounded bg-gray-200" />
-                  <div className="h-6 w-24 animate-pulse rounded-full bg-gray-200" />
-                </div>
-                <div className="h-4 w-14 animate-pulse rounded bg-gray-200" />
+      {!lessonsError ? (
+        <div className="grid gap-6 sm:grid-cols-2 xl:grid-cols-3">
+          {isLessonsLoading
+            ? Array.from({ length: 6 }, (_, index) => <LessonSkeleton key={index} />)
+            : filteredLessons.length === 0
+            ? (
+              <div className="col-span-full rounded-2xl border border-border bg-card p-8 text-center shadow-card">
+                <h3 className="text-lg font-semibold text-foreground">No practice items match this filter</h3>
+                <p className="mt-2 text-sm text-muted-foreground">Try another path level or language to keep your roadmap moving.</p>
               </div>
-              <div className="mb-2 h-6 w-3/4 animate-pulse rounded bg-gray-200" />
-              <div className="mb-2 h-4 w-full animate-pulse rounded bg-gray-100" />
-              <div className="mb-4 h-4 w-5/6 animate-pulse rounded bg-gray-100" />
-              <div className="mb-4 h-4 w-24 animate-pulse rounded bg-gray-100" />
-              <div className="flex flex-col items-stretch gap-2 sm:flex-row sm:items-center sm:justify-between">
-                <div className="h-8 w-24 animate-pulse rounded-full bg-gray-100" />
-                <div className="h-10 w-full animate-pulse rounded-lg bg-gray-200 sm:w-28" />
-              </div>
-            </div>
-          ))
-        ) : filteredLessons.length === 0 ? (
-          <div className="col-span-full rounded-2xl border border-gray-100 bg-white p-8 text-center shadow-sm">
-            <h3 className="text-lg font-semibold text-gray-900">No practice items match this filter</h3>
-            <p className="mt-2 text-sm text-gray-500">Try another path level or language to keep your roadmap moving.</p>
-          </div>
-        ) : (
-          filteredLessons.map((lesson) => {
-            const isCompleted = user.completedLessons.includes(lesson.id);
-            const isDifficultyLocked = !difficultyUnlocks[lesson.tier];
-            const canStartLesson = isAuthenticated && !isDifficultyLocked && (user.hearts > 0 || isUnlimitedHeartsActive());
+            )
+            : filteredLessons.map((lesson) => {
+              const isCompleted = user.completedLessons.includes(lesson.id);
+              const isDifficultyLocked = !difficultyUnlocks[lesson.tier];
+              const canStartLesson = isAuthenticated && !isDifficultyLocked && (user.hearts > 0 || isUnlimitedHeartsActive());
+              const disabledReason = !isAuthenticated
+                ? null
+                : isDifficultyLocked
+                ? 'Tier locked'
+                : !canStartLesson
+                ? 'No hearts left'
+                : null;
 
-            return (
-              <div
-                key={`${lesson.id}-${selectedLanguage}`}
-                className={`relative overflow-hidden rounded-2xl border bg-white shadow-md transition-all duration-300 ${
-                  isDifficultyLocked ? 'border-gray-300 bg-gray-50' : 'border-gray-100 hover:-translate-y-1 hover:shadow-lg'
-                }`}
-              >
-                {isDifficultyLocked && <div className="pointer-events-none absolute inset-0 rounded-2xl border-2 border-dashed border-gray-300" />}
+              return (
+                <div
+                  key={`${lesson.id}-${selectedLanguage}`}
+                  className={cx(
+                    'relative overflow-hidden rounded-2xl border bg-card p-5 shadow-card transition-all duration-300',
+                    isDifficultyLocked
+                      ? 'border-border/70 opacity-85'
+                      : 'border-border hover:-translate-y-1 hover:border-primary/30 hover:shadow-elevated'
+                  )}
+                >
+                  <div className="absolute inset-0 opacity-0 transition-opacity duration-300 hover:opacity-100" style={{ background: 'var(--gradient-card-glow)' }} />
+                  {isDifficultyLocked ? <div className="pointer-events-none absolute inset-0 rounded-2xl border-2 border-dashed border-border" /> : null}
 
-                <div className="p-4 sm:p-5 lg:p-6">
-                  <div className="mb-4 flex items-start justify-between gap-3">
-                    <div className="flex min-w-0 items-center gap-2">
-                      <BookOpen className={`w-5 h-5 ${isDifficultyLocked ? 'text-gray-400' : 'text-blue-500'}`} />
-                      <span className={`px-2 py-1 rounded-full text-xs font-medium ${isDifficultyLocked ? 'bg-gray-200 text-gray-600' : getDifficultyColor(lesson.tier)}`}>
-                        {lesson.tier}
-                      </span>
+                  <div className="relative">
+                    <div className="mb-4 flex items-start justify-between gap-3">
+                      <div className="flex min-w-0 items-center gap-2">
+                        <BookOpen className={cx('h-5 w-5 shrink-0', isDifficultyLocked ? 'text-muted-foreground' : 'text-primary')} />
+                        <span className={cx('rounded-full px-2.5 py-1 text-xs font-semibold', difficultyTone[lesson.tier])}>
+                          {lesson.tier}
+                        </span>
+                      </div>
+                      <div className="text-right text-xs text-muted-foreground">
+                        <div className="inline-flex items-center gap-1 rounded-full bg-secondary px-2.5 py-1">
+                          <Zap className="h-3.5 w-3.5 text-xp" />
+                          <span>{lesson.baseXP}+ XP</span>
+                        </div>
+                      </div>
                     </div>
-                    <div className="shrink-0 text-right text-xs text-gray-500">
-                      {isDifficultyLocked && (
-                        <div className="mb-2 inline-flex items-center gap-1 rounded-full bg-gray-200 px-2 py-1 text-[11px] font-medium text-gray-600">
+
+                    <h3 className="line-clamp-2 text-lg font-bold font-display text-foreground">
+                      {getVisibleLessonTitle(lesson)}
+                    </h3>
+                    <p className="mt-2 line-clamp-3 text-sm leading-7 text-muted-foreground">{lesson.description}</p>
+
+                    <div className="mt-4 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                      <span className="rounded-full bg-secondary px-3 py-1">{lesson.category}</span>
+                      <span className="rounded-full bg-secondary px-3 py-1">Est. {lesson.baselineTime} min</span>
+                      {isDifficultyLocked ? (
+                        <span className="inline-flex items-center gap-1 rounded-full bg-secondary px-3 py-1">
                           <Link2 className="h-3.5 w-3.5" />
                           Locked
+                        </span>
+                      ) : null}
+                    </div>
+
+                    <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                      <div className="text-xs text-muted-foreground">
+                        {isCompleted
+                          ? 'Already completed'
+                          : disabledReason
+                          ? disabledReason
+                          : 'Ready for guided practice'}
+                      </div>
+
+                      {isCompleted ? (
+                        <div className="inline-flex items-center justify-center gap-2 rounded-xl bg-xp/10 px-4 py-2.5 text-sm font-semibold text-xp">
+                          <CheckCircle2 className="h-4 w-4" />
+                          Completed
                         </div>
+                      ) : lesson.isLocked || isDifficultyLocked ? (
+                        <button
+                          type="button"
+                          disabled
+                          className="inline-flex cursor-not-allowed items-center justify-center gap-2 rounded-xl border border-border bg-secondary px-4 py-2.5 text-sm font-semibold text-muted-foreground"
+                        >
+                          {isDifficultyLocked ? <Link2 className="h-4 w-4" /> : <Lock className="h-4 w-4" />}
+                          {isDifficultyLocked ? 'Locked tier' : 'Locked'}
+                        </button>
+                      ) : !isAuthenticated ? (
+                        <button
+                          type="button"
+                          onClick={() => handleStartLesson(lesson)}
+                          className="inline-flex items-center justify-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground shadow-glow transition hover:bg-primary/90"
+                        >
+                          <Play className="h-4 w-4" />
+                          Start practice
+                        </button>
+                      ) : !canStartLesson ? (
+                        <button
+                          type="button"
+                          disabled
+                          className="inline-flex cursor-not-allowed items-center justify-center gap-2 rounded-xl border border-border bg-secondary px-4 py-2.5 text-sm font-semibold text-muted-foreground"
+                        >
+                          <Heart className="h-4 w-4" />
+                          No hearts left
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => handleStartLesson(lesson)}
+                          className="inline-flex items-center justify-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground shadow-glow transition hover:bg-primary/90"
+                        >
+                          <Play className="h-4 w-4" />
+                          Start practice
+                        </button>
                       )}
-                      <span className="mr-1 h-2 w-2 rounded-full bg-blue-400"></span>
-                      {lesson.baseXP}+ XP
                     </div>
                   </div>
-
-                  <h3 className={`mb-2 line-clamp-2 text-base font-semibold lg:text-lg ${isDifficultyLocked ? 'text-gray-700' : 'text-gray-900'}`}>{getVisibleLessonTitle(lesson)}</h3>
-                  <p className={`mb-4 line-clamp-3 text-sm ${isDifficultyLocked ? 'text-gray-500' : 'text-gray-600'}`}>{lesson.description}</p>
-
-                  <div className="mb-4 flex items-center text-xs text-gray-500">
-                    <span>Est. time: {lesson.baselineTime} min</span>
-                  </div>
-
-                  <div className="flex flex-col items-stretch gap-2 sm:flex-row sm:items-center sm:justify-between">
-                    <span className="inline-flex max-w-full items-center rounded-full bg-gray-100 px-3 py-1 text-xs text-gray-700">
-                      {lesson.category}
-                    </span>
-
-                    {isCompleted ? (
-                      <button className="w-full cursor-default rounded-lg bg-green-100 px-4 py-2 text-sm font-medium text-green-700 sm:w-auto">
-                        Completed
-                      </button>
-                    ) : isDifficultyLocked ? (
-                      <button className="w-full cursor-not-allowed rounded-lg bg-gray-200 px-4 py-2 text-sm font-medium text-gray-600 sm:w-auto flex items-center justify-center space-x-1">
-                        <Link2 className="w-4 h-4" />
-                        <span>Locked</span>
-                      </button>
-                    ) : lesson.isLocked ? (
-                      <button className="w-full cursor-not-allowed rounded-lg bg-gray-100 px-4 py-2 text-sm font-medium text-gray-500 sm:w-auto flex items-center justify-center space-x-1">
-                        <Lock className="w-4 h-4" />
-                        <span>Locked</span>
-                      </button>
-                    ) : !isAuthenticated ? (
-                      <button
-                        type="button"
-                        onClick={() => handleStartLesson(lesson)}
-                        className="w-full rounded-lg bg-blue-500 px-4 py-2 text-sm font-medium text-white transition hover:bg-blue-600 sm:w-auto"
-                      >
-                        Start practice
-                      </button>
-                    ) : !canStartLesson ? (
-                      <div className="tooltip">
-                        <button
-                          disabled
-                          className="w-full cursor-not-allowed rounded-lg bg-gray-300 px-4 py-2 text-sm font-medium text-gray-600 sm:w-auto flex items-center justify-center space-x-1"
-                        >
-                          <Play className="w-4 h-4" />
-                          <span>Start practice</span>
-                        </button>
-                        <span className="tooltiptext">You have no hearts left</span>
-                      </div>
-                    ) : (
-                      <button
-                        onClick={() => handleStartLesson(lesson)}
-                        className="w-full rounded-lg bg-blue-500 px-4 py-2 text-sm font-medium text-white transition hover:bg-blue-600 sm:w-auto flex items-center justify-center space-x-1"
-                      >
-                        <Play className="w-4 h-4" />
-                          <span>Start practice</span>
-                      </button>
-                    )}
-                  </div>
                 </div>
-              </div>
-            );
-          })
-        )}
-      </div>
+              );
+            })}
+        </div>
+      ) : null}
 
-      {selectedLesson && isAuthenticated && (
+      {selectedLesson && isAuthenticated ? (
         <LessonModal
           lesson={selectedLesson}
           onClose={() => setSelectedLesson(null)}
@@ -467,7 +636,7 @@ const Learn: React.FC<LearnProps> = ({ setCurrentSection, openAuthModal, isAuthe
           }}
           onRedirectToLearn={handleRedirectToLearn}
         />
-      )}
+      ) : null}
     </div>
   );
 };

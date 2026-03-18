@@ -309,33 +309,33 @@ export default function DuelsDashboard() {
 
   if (!user) {
     return (
-      <div className="min-h-screen bg-gray-50 px-6 py-10">
-        <div className="mx-auto max-w-4xl rounded-3xl border border-gray-200 bg-white p-8 shadow-sm">
-          <div className="mb-6 inline-flex items-center gap-2 rounded-full bg-blue-100 px-3 py-1 text-sm font-semibold text-blue-700">
+      <div className="space-y-8 p-4 lg:p-8">
+        <div className="mx-auto max-w-4xl rounded-2xl border border-border bg-card p-8 shadow-card">
+          <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-primary/30 bg-primary/10 px-4 py-1.5 text-xs font-semibold uppercase tracking-[0.18em] text-primary">
             <div className="h-7 w-7">
               <MascotIcon mascot="duel" className="h-full w-full" imageClassName="drop-shadow-sm" />
             </div>
             <span>1v1 Duels</span>
           </div>
-          <h1 className="text-3xl font-bold text-gray-900">Enter the duel lobby with an account</h1>
-          <p className="mt-3 max-w-2xl text-base text-gray-600">
+          <h1 className="text-3xl font-bold font-display text-foreground">Enter the duel lobby with an account</h1>
+          <p className="mt-3 max-w-2xl text-base leading-8 text-muted-foreground">
             Ranked matchmaking is only available for signed-in players. You can still use the benchmark, open practice paths, and review pricing before you log in.
           </p>
           <div className="mt-8 grid gap-4 sm:grid-cols-3">
-            <div className="rounded-2xl border border-gray-200 bg-gray-50 p-4">
-              <div className="text-sm font-semibold text-gray-900">Ranked 1v1</div>
-              <div className="mt-1 text-sm text-gray-600">Compete live and win by passing all test cases first.</div>
+            <div className="rounded-2xl border border-border bg-secondary/35 p-4">
+              <div className="text-sm font-semibold text-foreground">Ranked 1v1</div>
+              <div className="mt-1 text-sm leading-7 text-muted-foreground">Compete live and win by passing all test cases first.</div>
             </div>
-            <div className="rounded-2xl border border-gray-200 bg-gray-50 p-4">
-              <div className="text-sm font-semibold text-gray-900">Persistent rating</div>
-              <div className="mt-1 text-sm text-gray-600">Your duel profile and rating are tied to your account.</div>
+            <div className="rounded-2xl border border-border bg-secondary/35 p-4">
+              <div className="text-sm font-semibold text-foreground">Persistent rating</div>
+              <div className="mt-1 text-sm leading-7 text-muted-foreground">Your duel profile and rating are tied to your account.</div>
             </div>
-            <div className="rounded-2xl border border-gray-200 bg-gray-50 p-4">
-              <div className="text-sm font-semibold text-gray-900">How to join</div>
-              <div className="mt-1 text-sm text-gray-600">Use the Sign In / Sign Up button in the sidebar to unlock matchmaking.</div>
+            <div className="rounded-2xl border border-border bg-secondary/35 p-4">
+              <div className="text-sm font-semibold text-foreground">How to join</div>
+              <div className="mt-1 text-sm leading-7 text-muted-foreground">Use the Sign In / Sign Up button in the sidebar to unlock matchmaking.</div>
             </div>
           </div>
-          <div className="mt-8 rounded-2xl border border-dashed border-gray-300 bg-gray-50 p-5 text-sm text-gray-600">
+          <div className="mt-8 rounded-2xl border border-dashed border-border bg-secondary/35 p-5 text-sm text-muted-foreground">
             {loading ? "Checking your session..." : "No active account detected."}
           </div>
         </div>
@@ -345,13 +345,13 @@ export default function DuelsDashboard() {
 
   if (!duelUser) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center px-6">
-        <div className="w-full max-w-md rounded-3xl border border-gray-200 bg-white p-8 text-center shadow-sm">
+      <div className="flex min-h-screen items-center justify-center px-6">
+        <div className="w-full max-w-md rounded-2xl border border-border bg-card p-8 text-center shadow-card">
           <div className="mx-auto mb-4 h-20 w-20">
             <MascotIcon mascot="duel" className="h-full w-full" imageClassName="drop-shadow-md" />
           </div>
-          <div className="mx-auto mb-4 h-10 w-10 animate-spin rounded-full border-4 border-blue-500 border-t-transparent" />
-          <div className="text-sm text-gray-500">Loading...</div>
+          <div className="mx-auto mb-4 h-10 w-10 animate-spin rounded-full border-4 border-primary border-t-transparent" />
+          <div className="text-sm text-muted-foreground">Loading duel profile...</div>
         </div>
       </div>
     );

@@ -36,14 +36,14 @@ const cardElementOptions = {
   style: {
     base: {
       fontSize: '16px',
-      color: '#424770',
+      color: '#f8fafc',
       '::placeholder': {
-        color: '#aab7c4',
+        color: '#94a3b8',
       },
       padding: '12px',
     },
     invalid: {
-      color: '#9e2146',
+      color: '#f87171',
     },
   },
   hidePostalCode: true,
@@ -275,15 +275,15 @@ const CheckoutForm: React.FC<StripeCheckoutProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-3 sm:p-4">
-      <div className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-2xl bg-white shadow-2xl">
-        <div className="border-b border-gray-200 p-4 sm:p-6">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 p-3 backdrop-blur-sm sm:p-4">
+      <div className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-2xl border border-border bg-card shadow-elevated">
+        <div className="border-b border-border p-4 sm:p-6">
           <div className="flex items-start justify-between gap-3">
-            <h3 className="flex items-center text-lg font-bold text-gray-900 sm:text-xl">
-              <Shield className="mr-2 h-6 w-6 text-green-500" />
+            <h3 className="flex items-center text-lg font-bold font-display text-foreground sm:text-xl">
+              <Shield className="mr-2 h-6 w-6 text-xp" />
               Secure Payment
             </h3>
-            <button onClick={onClose} className="text-gray-400 hover:text-gray-600" aria-label="Close payment modal">
+            <button onClick={onClose} className="text-muted-foreground transition hover:text-foreground" aria-label="Close payment modal">
               <X className="h-6 w-6" />
             </button>
           </div>
@@ -292,25 +292,25 @@ const CheckoutForm: React.FC<StripeCheckoutProps> = ({
         <form onSubmit={handleSubmit} className="p-4 sm:p-6">
           <div className="mb-6">
             <div className="mb-2 flex items-center justify-between gap-3">
-              <span className="text-gray-700">Total Amount</span>
-              <span className="text-xl font-bold text-gray-900 sm:text-2xl">USD {(amount / 100).toFixed(2)}</span>
+              <span className="text-muted-foreground">Total Amount</span>
+              <span className="text-xl font-bold font-display text-foreground sm:text-2xl">USD {(amount / 100).toFixed(2)}</span>
             </div>
-            <p className="text-sm text-gray-600">{description}</p>
+            <p className="text-sm leading-7 text-muted-foreground">{description}</p>
             {coins ? (
-              <div className="mt-2 rounded-lg bg-yellow-50 p-3">
-                <p className="text-sm font-medium text-yellow-800">You will receive {coins.toLocaleString()} coins</p>
+              <div className="mt-2 rounded-lg bg-coins/10 p-3">
+                <p className="text-sm font-medium text-coins">You will receive {coins.toLocaleString()} coins</p>
               </div>
             ) : null}
           </div>
 
           <div className="space-y-4">
             <div>
-              <label className="mb-2 block text-sm font-medium text-gray-700">Full Name *</label>
+              <label className="mb-2 block text-sm font-medium text-foreground">Full Name *</label>
               <input
                 type="text"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                className={`w-full rounded-lg border p-3 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 ${errors.name ? 'border-red-300' : 'border-gray-200'}`}
+                className={`w-full rounded-lg border bg-secondary/35 p-3 text-foreground outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 ${errors.name ? 'border-destructive/50' : 'border-border'}`}
                 placeholder="John Doe"
                 required
               />
@@ -318,12 +318,12 @@ const CheckoutForm: React.FC<StripeCheckoutProps> = ({
             </div>
 
             <div>
-              <label className="mb-2 block text-sm font-medium text-gray-700">Email Address *</label>
+              <label className="mb-2 block text-sm font-medium text-foreground">Email Address *</label>
               <input
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                className={`w-full rounded-lg border p-3 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 ${errors.email ? 'border-red-300' : 'border-gray-200'}`}
+                className={`w-full rounded-lg border bg-secondary/35 p-3 text-foreground outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 ${errors.email ? 'border-destructive/50' : 'border-border'}`}
                 placeholder="john@example.com"
                 required
               />
@@ -331,33 +331,33 @@ const CheckoutForm: React.FC<StripeCheckoutProps> = ({
             </div>
 
             <div>
-              <label className="mb-2 block text-sm font-medium text-gray-700">Card Information *</label>
-              <div className="rounded-lg border border-gray-200 p-3 focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-100">
+              <label className="mb-2 block text-sm font-medium text-foreground">Card Information *</label>
+              <div className="rounded-lg border border-border bg-secondary/35 p-3 focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/20">
                 <CardElement options={cardElementOptions} />
               </div>
             </div>
           </div>
 
-          <div className="mt-6 rounded-lg bg-gray-50 p-4">
-            <div className="flex items-start gap-2 text-sm text-gray-600">
+          <div className="mt-6 rounded-lg bg-secondary/35 p-4">
+            <div className="flex items-start gap-2 text-sm text-muted-foreground">
               <Lock className="h-4 w-4" />
               <span>Your payment information is encrypted and handled by Stripe.</span>
             </div>
           </div>
 
-          <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
+          <div className="mt-4 rounded-xl border border-border bg-secondary/35 p-4 text-sm text-foreground">
             {legalLoading ? (
-              <div className="flex items-center gap-2 text-slate-500">
-                <div className="h-4 w-4 animate-spin rounded-full border-2 border-slate-300 border-t-slate-600" />
+              <div className="flex items-center gap-2 text-muted-foreground">
+                <div className="h-4 w-4 animate-spin rounded-full border-2 border-border border-t-primary" />
                 Checking current legal acceptance status...
               </div>
             ) : legalStatus?.allCurrentAccepted ? (
               <div className="space-y-2">
-                <div className="flex items-center gap-2 text-emerald-700">
+                <div className="flex items-center gap-2 text-xp">
                   <CheckCircle2 className="h-4 w-4" />
                   Latest legal documents already accepted.
                 </div>
-                <div className="text-xs text-slate-500">
+                <div className="text-xs text-muted-foreground">
                   Accepted versions are on file. You can review them here: <LegalLinksInline />.
                 </div>
               </div>
@@ -373,7 +373,7 @@ const CheckoutForm: React.FC<StripeCheckoutProps> = ({
                         setLegalError('');
                       }
                     }}
-                    className="mt-1 h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                    className="mt-1 h-4 w-4 rounded border-border bg-secondary text-primary focus:ring-primary"
                     disabled={processing}
                   />
                   <span>
@@ -393,7 +393,7 @@ const CheckoutForm: React.FC<StripeCheckoutProps> = ({
           <button
             type="submit"
             disabled={processing || legalLoading || !clientSecret || !stripe}
-            className="mt-6 w-full rounded-xl bg-gradient-to-r from-green-500 to-blue-600 py-4 text-sm font-bold text-white shadow-lg transition-all duration-200 hover:from-green-600 hover:to-blue-700 disabled:cursor-not-allowed disabled:opacity-50 sm:text-base"
+            className="mt-6 w-full rounded-xl bg-gradient-to-r from-xp to-primary py-4 text-sm font-bold text-white shadow-glow transition-all duration-200 hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-50 sm:text-base"
           >
             {processing ? (
               <div className="flex items-center justify-center">
@@ -407,7 +407,7 @@ const CheckoutForm: React.FC<StripeCheckoutProps> = ({
         </form>
 
         <div className="px-4 pb-4 sm:px-6 sm:pb-6">
-          <div className="flex flex-wrap items-center justify-center gap-2 text-xs text-gray-500 sm:gap-4">
+          <div className="flex flex-wrap items-center justify-center gap-2 text-xs text-muted-foreground sm:gap-4">
             <span>Powered by Stripe</span>
             <span>/</span>
             <span>Encrypted</span>

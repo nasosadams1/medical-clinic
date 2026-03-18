@@ -1,23 +1,18 @@
-import React, { useEffect, useMemo, useState, useCallback } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  Crown,
-  Medal,
-  Flame,
-  Trophy,
-  Search,
+  BookOpen,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
-  Users,
-  Target,
-  TrendingUp,
   ChevronsLeft,
   ChevronsRight,
-  ChevronDown,
-  BookOpen,
-} from "lucide-react";
-import { useUser } from "../context/UserContext";
-import { useAuth } from "../context/AuthContext";
+  Crown,
+  Flame,
+  Search,
+  Target,
+  Trophy,
+  Users,
+} from 'lucide-react';
 import {
   supabase,
   getLeaderboardData,
@@ -25,8 +20,8 @@ import {
   subscribeToLeaderboardUpdates,
   LeaderboardPeriod,
   LeaderboardSort,
-} from "../lib/supabase";
-import { getEloRankInfo } from "../lib/eloRanks";
+} from '../lib/supabase';
+import { getEloRankInfo } from '../lib/eloRanks';
 import MascotIcon from './branding/MascotIcon';
 
 const isLeaderboardDebugEnabled =
@@ -65,181 +60,161 @@ type LeaderboardData = {
   yourStats: Player | null;
 };
 
+const cx = (...classes: Array<string | false | null | undefined>) => classes.filter(Boolean).join(' ');
+
 const getAvatarEmoji = (avatarId: string): string => {
   const avatarMap: Record<string, string> = {
-    default: "\u{1F464}",
-    coder: "\u{1F468}\u200D\u{1F4BB}",
-    scientist: "\u{1F469}\u200D\u{1F52C}",
-    wizard: "\u{1F9D9}",
-    ninja: "\u{1F977}",
-    robot: "\u{1F916}",
-    alien: "\u{1F47D}",
-    superhero: "\u{1F9B8}",
-    dragon: "\u{1F409}",
-    crown: "\u{1F451}",
-    master: "\u{1F3C6}",
+    default: '\u{1F464}',
+    coder: '\u{1F468}\u200D\u{1F4BB}',
+    scientist: '\u{1F469}\u200D\u{1F52C}',
+    wizard: '\u{1F9D9}',
+    ninja: '\u{1F977}',
+    robot: '\u{1F916}',
+    alien: '\u{1F47D}',
+    superhero: '\u{1F9B8}',
+    dragon: '\u{1F409}',
+    crown: '\u{1F451}',
+    master: '\u{1F3C6}',
   };
 
   return avatarMap[avatarId] || avatarMap.default;
 };
 
-const medalForRank = (rank: number) => {
-  if (rank === 1) return <Crown className="h-5 w-5 text-yellow-500" />;
-  if (rank === 2) return <Medal className="h-5 w-5 text-gray-400" />;
-  if (rank === 3) return <Medal className="h-5 w-5 text-amber-600" />;
-  return <span className="text-sm font-semibold text-gray-500">#{rank}</span>;
-};
-
 const getPeriodLabel = (period: LeaderboardPeriod) =>
-  period === "all" ? "All Time" : period === "month" ? "This Month" : "This Week";
+  period === 'all' ? 'All Time' : period === 'month' ? 'This Month' : 'This Week';
 
-const Tab: React.FC<{
-  active: boolean;
-  onClick: () => void;
-  children: React.ReactNode;
-}> = ({ active, onClick, children }) => (
-  <button
-    onClick={onClick}
-    className={`rounded-full border px-4 py-2 text-sm font-medium transition-all ${
-      active
-        ? "border-blue-600 bg-blue-600 text-white shadow-sm"
-        : "border-gray-300 bg-white text-gray-700 hover:border-gray-400 hover:bg-gray-50"
-    }`}
-  >
-    {children}
-  </button>
-);
-
-const StatPill: React.FC<{
-  label: string;
-  value: number;
-  tone: "green" | "blue" | "orange" | "purple" | "yellow";
-}> = ({ label, value, tone }) => {
-  const dotClass =
-    tone === "green"
-      ? "bg-green-500"
-      : tone === "blue"
-      ? "bg-blue-500"
-      : tone === "purple"
-      ? "bg-purple-500"
-      : tone === "yellow"
-      ? "bg-yellow-500"
-      : "bg-orange-500";
+function RankBadge({ rank }: { rank: number }) {
+  const tone =
+    rank <= 3
+      ? rank === 1
+        ? 'bg-[hsl(var(--rank-gold))] text-background shadow-[0_0_12px_hsl(var(--rank-gold)/0.4)]'
+        : rank === 2
+        ? 'bg-[hsl(var(--rank-silver))] text-background'
+        : 'bg-[hsl(var(--rank-bronze))] text-background'
+      : 'bg-secondary text-secondary-foreground';
 
   return (
-    <div className="flex items-center gap-1 text-xs text-gray-600">
-      <span className={`h-2 w-2 rounded-full ${dotClass}`} />
-      <span className="font-semibold text-gray-800">{value.toLocaleString()}</span>
-      <span>{label}</span>
+    <div className={cx('inline-flex h-8 w-8 items-center justify-center rounded-full font-bold font-mono text-sm', tone)}>
+      #{rank}
     </div>
   );
-};
+}
 
-const Row = React.forwardRef<
-  HTMLDivElement,
-  {
-    player: Player;
-    isYou: boolean;
-    isHighlighted?: boolean;
-    sortBy: RankingCategory;
-  }
->(({ player, isYou, isHighlighted = false, sortBy }, ref) => {
+function LeaderboardRow({
+  player,
+  isYou,
+  isHighlighted = false,
+  sortBy,
+}: {
+  player: Player;
+  isYou: boolean;
+  isHighlighted?: boolean;
+  sortBy: RankingCategory;
+}) {
   const rank =
-    sortBy === "lessons"
+    sortBy === 'lessons'
       ? player.lessonsRank ?? 0
-      : sortBy === "elo"
+      : sortBy === 'elo'
       ? player.eloRank ?? 0
       : player.globalRank ?? 0;
 
-  const rowTone =
-    rank === 1
-      ? "from-yellow-50 to-amber-50 border-yellow-200"
-      : rank === 2
-      ? "from-gray-50 to-slate-50 border-gray-200"
-      : rank === 3
-      ? "from-amber-50 to-orange-50 border-amber-200"
-      : isYou || isHighlighted
-      ? "from-blue-50 to-indigo-50 border-blue-300 ring-2 ring-blue-200"
-      : "from-white to-white border-gray-200";
-
   const primaryValue =
-    sortBy === "lessons"
+    sortBy === 'lessons'
       ? player.lessons ?? 0
-      : sortBy === "elo"
+      : sortBy === 'elo'
       ? player.rankedElo ?? 500
       : player.xp ?? 0;
 
   const primaryLabel =
-    sortBy === "lessons" ? "Lessons" : sortBy === "elo" ? "Ranked ELO" : "Total XP";
+    sortBy === 'lessons' ? 'Lessons' : sortBy === 'elo' ? 'ELO' : 'XP';
 
   return (
-    <motion.div
-      ref={ref}
-      layout
-      initial={{ opacity: 0, y: 8 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, y: -8 }}
-      className={`rounded-2xl border bg-gradient-to-r ${rowTone} p-4 shadow-sm transition-shadow hover:shadow-md`}
+    <div
+      className={cx(
+        'flex items-center gap-4 rounded-xl px-4 py-3 transition-all duration-200',
+        isYou || isHighlighted
+          ? 'border border-primary/30 bg-primary/5 glow-primary'
+          : 'border border-transparent hover:bg-secondary/50'
+      )}
     >
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-        <div className="flex min-w-0 items-start gap-3 sm:gap-4">
-          <div className="flex w-10 shrink-0 justify-center pt-2">{medalForRank(rank)}</div>
-          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-white text-lg ring-2 ring-gray-200">
-            {getAvatarEmoji(player.avatar || "default")}
-          </div>
-          <div className="min-w-0 flex-1">
-            <div className="flex flex-wrap items-center gap-2">
-              <p className="truncate text-base font-semibold text-gray-900">
-                {player.name}
-                {(isYou || isHighlighted) && (
-                  <span className="ml-2 font-bold text-blue-600">(You)</span>
-                )}
-              </p>
-              {player.title && (
-                <span className="rounded-full bg-purple-100 px-2 py-1 text-xs font-medium text-purple-700">
-                  {player.title}
-                </span>
-              )}
-            </div>
-            <div className="mt-1 flex flex-wrap items-center gap-3 text-sm text-gray-500">
-              <span>Level {player.level ?? 1}</span>
-              <span className="flex items-center gap-1 font-medium text-green-600">
-                <TrendingUp className="h-3 w-3" />
-                {(player.xp ?? 0).toLocaleString()} XP
-              </span>
-            </div>
-          </div>
-        </div>
-
-        <div className="flex flex-col gap-3 lg:min-w-[240px] lg:items-end">
-          <div className="text-left lg:text-right">
-            <p className="text-xl font-bold text-gray-900">{primaryValue.toLocaleString()}</p>
-            <p className="text-xs text-gray-500">{primaryLabel}</p>
-          </div>
-
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:flex lg:flex-wrap lg:justify-end lg:gap-4">
-            {sortBy !== "xp" && <StatPill label="XP" value={player.xp ?? 0} tone="yellow" />}
-            {sortBy !== "lessons" && (
-              <StatPill label="Lessons" value={player.lessons ?? 0} tone="green" />
-            )}
-            {sortBy !== "elo" && (
-              <StatPill label="ELO" value={player.rankedElo ?? 500} tone="purple" />
-            )}
-            <div className="flex items-center gap-1 text-xs text-gray-600">
-              <Flame className="h-4 w-4 text-orange-500" />
-              <span className="font-semibold text-gray-800">{player.streak ?? 0}</span>
-              <span>Streak</span>
-            </div>
-          </div>
-        </div>
+      <RankBadge rank={rank} />
+      <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-secondary text-lg">
+        {getAvatarEmoji(player.avatar || 'default')}
       </div>
-    </motion.div>
+      <div className="min-w-0 flex-1">
+        <div className="flex flex-wrap items-center gap-2">
+          <p className={cx('truncate font-semibold text-foreground', (isYou || isHighlighted) && 'text-primary')}>
+            {player.name}
+            {(isYou || isHighlighted) ? <span className="ml-2 text-xs uppercase tracking-[0.18em]">(You)</span> : null}
+          </p>
+          {player.title ? (
+            <span className="rounded-full bg-secondary px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+              {player.title}
+            </span>
+          ) : null}
+        </div>
+        <p className="text-xs text-muted-foreground">
+          Level {player.level ?? 1} · {player.streak ?? 0} day streak
+        </p>
+      </div>
+      <div className="text-right">
+        <p className="font-mono text-lg font-bold text-foreground">{primaryValue.toLocaleString()}</p>
+        <p className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">{primaryLabel}</p>
+      </div>
+    </div>
   );
-});
+}
 
-Row.displayName = "Row";
+function StatChip({
+  label,
+  value,
+  tone,
+}: {
+  label: string;
+  value: number;
+  tone: 'xp' | 'lessons' | 'elo' | 'streak';
+}) {
+  const color = {
+    xp: 'text-coins',
+    lessons: 'text-xp',
+    elo: 'text-primary',
+    streak: 'text-streak',
+  }[tone];
 
-function useLiveLeaderboard(period: LeaderboardPeriod, page: number, userId?: string, sortBy: RankingCategory = "elo") {
+  return (
+    <div className="rounded-xl border border-border bg-secondary/35 px-3 py-2 text-center">
+      <div className={cx('text-sm font-bold font-mono', color)}>{value.toLocaleString()}</div>
+      <div className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">{label}</div>
+    </div>
+  );
+}
+
+function Tab({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cx(
+        'rounded-full border px-4 py-2 text-sm font-medium transition-all',
+        active
+          ? 'border-primary bg-primary text-primary-foreground shadow-glow'
+          : 'border-border bg-card text-muted-foreground hover:bg-secondary hover:text-foreground'
+      )}
+    >
+      {children}
+    </button>
+  );
+}
+
+function useLiveLeaderboard(period: LeaderboardPeriod, page: number, userId?: string, sortBy: RankingCategory = 'elo') {
   const [data, setData] = useState<LeaderboardData>({
     players: [],
     totalPlayers: 0,
@@ -268,20 +243,18 @@ function useLiveLeaderboard(period: LeaderboardPeriod, page: number, userId?: st
           targetPeriod,
         );
 
-        if (leaderboardError) {
-          throw leaderboardError;
-        }
+        if (leaderboardError) throw leaderboardError;
 
         let processedPlayers: Player[] =
           leaderboardData?.map((entry: any) => ({
             id: entry.user_id,
-            name: entry.user_profiles?.name || "Unknown Player",
+            name: entry.user_profiles?.name || 'Unknown Player',
             xp: entry.xp || 0,
             lessons: entry.total_lessons_completed || 0,
             rankedElo: entry.ranked_elo || 500,
             streak: entry.current_streak || 0,
             level: entry.level || 1,
-            avatar: entry.user_profiles?.current_avatar || "default",
+            avatar: entry.user_profiles?.current_avatar || 'default',
             title: getEloRankInfo(entry.ranked_elo || 500).tier,
             globalRank: entry.rank || 0,
             lessonsRank: entry.rank || 0,
@@ -296,12 +269,9 @@ function useLiveLeaderboard(period: LeaderboardPeriod, page: number, userId?: st
         let yourLessonsRank = 0;
         let yourEloRank = 0;
 
-        if (userId && userId !== "guest") {
+        if (userId && userId !== 'guest') {
           const [statsResult, xpRankResult, lessonsRankResult, eloRankResult] = await Promise.all([
-            supabase.rpc('get_public_leaderboard_user_stats', {
-              p_user_id: userId,
-              p_period: targetPeriod,
-            }),
+            supabase.rpc('get_public_leaderboard_user_stats', { p_user_id: userId, p_period: targetPeriod }),
             getUserRank(userId, 'xp', targetPeriod),
             getUserRank(userId, 'lessons', targetPeriod),
             getUserRank(userId, 'elo', targetPeriod),
@@ -400,152 +370,129 @@ function useLiveLeaderboard(period: LeaderboardPeriod, page: number, userId?: st
     });
 
     fetchLeaderboard(page, sortBy, period);
-
-    return () => {
-      subscription.unsubscribe();
-    };
+    return () => subscription.unsubscribe();
   }, [fetchLeaderboard, page, period, sortBy]);
 
   return { data, loading, error, refetch: fetchLeaderboard };
 }
 
-const RankingDropdown: React.FC<{
+function RankingDropdown({
+  data,
+  period,
+  currentCategory,
+  onCategoryChange,
+}: {
   data: LeaderboardData;
   period: LeaderboardPeriod;
   currentCategory: RankingCategory;
   onCategoryChange: (category: RankingCategory) => void;
-}> = ({ data, period, currentCategory, onCategoryChange }) => {
+}) {
   const [isOpen, setIsOpen] = useState(false);
   const categories = [
-    {
-      id: "elo" as RankingCategory,
-      label: "Ranked ELO",
-      icon: Flame,
-      rank: data.yourEloRank ?? 0,
-      color: "text-orange-500",
-    },
-    {
-      id: "xp" as RankingCategory,
-      label: "Total XP",
-      icon: Trophy,
-      rank: data.yourRank ?? 0,
-      color: "text-yellow-500",
-    },
-    {
-      id: "lessons" as RankingCategory,
-      label: "Lessons Completed",
-      icon: BookOpen,
-      rank: data.yourLessonsRank ?? 0,
-      color: "text-green-500",
-    },
+    { id: 'elo' as RankingCategory, label: 'Ranked ELO', icon: Flame, rank: data.yourEloRank ?? 0, color: 'text-primary' },
+    { id: 'xp' as RankingCategory, label: 'Total XP', icon: Trophy, rank: data.yourRank ?? 0, color: 'text-coins' },
+    { id: 'lessons' as RankingCategory, label: 'Lessons Completed', icon: BookOpen, rank: data.yourLessonsRank ?? 0, color: 'text-xp' },
   ];
-
   const selected = categories.find((category) => category.id === currentCategory);
   const SelectedIcon = selected?.icon;
 
   return (
-    <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
+    <div className="rounded-2xl border border-border bg-card p-5 shadow-card">
       <div className="mb-4 flex items-center gap-2">
-        <Target className="h-5 w-5 text-blue-600" />
-        <h3 className="font-semibold text-gray-900">Your Rankings</h3>
-        <span className="rounded-full bg-gray-100 px-2 py-1 text-xs text-gray-600">
-          {getPeriodLabel(period)}
-        </span>
+        <Target className="h-5 w-5 text-primary" />
+        <h3 className="font-semibold text-foreground">Your Rankings</h3>
+        <span className="rounded-full bg-secondary px-2 py-1 text-xs text-muted-foreground">{getPeriodLabel(period)}</span>
       </div>
 
       <div className="relative">
         <button
+          type="button"
           onClick={() => setIsOpen((open) => !open)}
-          className="flex w-full items-center justify-between rounded-xl border border-blue-200 bg-blue-50 p-3 transition-colors hover:bg-blue-100"
+          className="flex w-full items-center justify-between rounded-xl border border-primary/20 bg-primary/10 p-3 transition-colors hover:bg-primary/15"
         >
           <div className="flex items-center gap-2">
-            {SelectedIcon && <SelectedIcon className={`h-4 w-4 ${selected?.color}`} />}
-            <span className="font-medium text-gray-900">{selected?.label}</span>
+            {SelectedIcon ? <SelectedIcon className={cx('h-4 w-4', selected?.color)} /> : null}
+            <span className="font-medium text-foreground">{selected?.label}</span>
           </div>
           <div className="flex items-center gap-2">
-            <span className="text-lg font-bold text-blue-600">#{selected?.rank || 0}</span>
-            <ChevronDown className={`h-4 w-4 text-gray-500 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
+            <span className="text-lg font-bold font-mono text-primary">#{selected?.rank || 0}</span>
+            <ChevronDown className={cx('h-4 w-4 text-muted-foreground transition-transform', isOpen && 'rotate-180')} />
           </div>
         </button>
 
-        {isOpen && (
-          <div className="absolute left-0 right-0 top-full z-10 mt-2 overflow-hidden rounded-xl border border-gray-200 bg-white shadow-lg">
+        {isOpen ? (
+          <div className="absolute left-0 right-0 top-full z-10 mt-2 overflow-hidden rounded-xl border border-border bg-card shadow-elevated">
             {categories.map((category) => {
               const Icon = category.icon;
               return (
                 <button
                   key={category.id}
+                  type="button"
                   onClick={() => {
                     onCategoryChange(category.id);
                     setIsOpen(false);
                   }}
-                  className={`flex w-full items-center justify-between p-3 text-left transition-colors hover:bg-gray-50 ${
-                    currentCategory === category.id ? 'bg-blue-50' : ''
-                  }`}
+                  className={cx(
+                    'flex w-full items-center justify-between p-3 text-left transition-colors hover:bg-secondary/50',
+                    currentCategory === category.id && 'bg-secondary/50'
+                  )}
                 >
                   <div className="flex items-center gap-2">
-                    <Icon className={`h-4 w-4 ${category.color}`} />
-                    <span className="font-medium text-gray-900">{category.label}</span>
+                    <Icon className={cx('h-4 w-4', category.color)} />
+                    <span className="font-medium text-foreground">{category.label}</span>
                   </div>
-                  <span className="font-bold text-gray-700">#{category.rank || 0}</span>
+                  <span className="font-bold font-mono text-foreground">#{category.rank || 0}</span>
                 </button>
               );
             })}
           </div>
-        )}
+        ) : null}
       </div>
     </div>
   );
-};
+}
 
-const YourStats: React.FC<{ data: LeaderboardData; period: LeaderboardPeriod }> = ({ data, period }) => (
-  <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
-    <div className="mb-4 flex items-center gap-2">
-      <Trophy className="h-5 w-5 text-emerald-600" />
-      <h3 className="font-semibold text-gray-900">Your Stats</h3>
-      <span className="rounded-full bg-gray-100 px-2 py-1 text-xs text-gray-600">
-        {getPeriodLabel(period)}
-      </span>
-    </div>
-
-    <div className="grid grid-cols-2 gap-3 text-sm">
-      <div className="rounded-xl bg-gray-50 p-3 text-center">
-        <p className="mb-1 text-xs text-gray-500">Total XP</p>
-        <p className="font-bold text-gray-900">{data.yourStats?.xp?.toLocaleString() ?? 0}</p>
+function YourStats({ data, period }: { data: LeaderboardData; period: LeaderboardPeriod }) {
+  return (
+    <div className="rounded-2xl border border-border bg-card p-5 shadow-card">
+      <div className="mb-4 flex items-center gap-2">
+        <Trophy className="h-5 w-5 text-xp" />
+        <h3 className="font-semibold text-foreground">Your Stats</h3>
+        <span className="rounded-full bg-secondary px-2 py-1 text-xs text-muted-foreground">{getPeriodLabel(period)}</span>
       </div>
-      <div className="rounded-xl bg-gray-50 p-3 text-center">
-        <p className="mb-1 text-xs text-gray-500">Level</p>
-        <p className="font-bold text-gray-900">{data.yourStats?.level ?? 1}</p>
-      </div>
-      <div className="rounded-xl bg-gray-50 p-3 text-center">
-        <p className="mb-1 text-xs text-gray-500">Lessons</p>
-        <p className="font-bold text-gray-900">{data.yourStats?.lessons ?? 0}</p>
-      </div>
-      <div className="rounded-xl bg-gray-50 p-3 text-center">
-        <p className="mb-1 text-xs text-gray-500">Ranked ELO</p>
-        <p className="font-bold text-gray-900">{data.yourStats?.rankedElo ?? 500}</p>
+      <div className="grid grid-cols-2 gap-3">
+        <StatChip label="XP" value={data.yourStats?.xp ?? 0} tone="xp" />
+        <StatChip label="Level" value={data.yourStats?.level ?? 1} tone="elo" />
+        <StatChip label="Lessons" value={data.yourStats?.lessons ?? 0} tone="lessons" />
+        <StatChip label="ELO" value={data.yourStats?.rankedElo ?? 500} tone="elo" />
       </div>
     </div>
-  </div>
-);
+  );
+}
 
-const PaginationControls: React.FC<{
+function PaginationControls({
+  currentPage,
+  totalPages,
+  onPageChange,
+  totalPlayers,
+  loading,
+}: {
   currentPage: number;
   totalPages: number;
   onPageChange: (page: number) => void;
   totalPlayers: number;
   loading: boolean;
-}> = ({ currentPage, totalPages, onPageChange, totalPlayers, loading }) => {
+}) {
   const startRange = (currentPage - 1) * 100 + 1;
   const endRange = Math.min(currentPage * 100, totalPlayers);
 
   const getVisiblePages = () => {
     const delta = 2;
     const range: number[] = [];
-    const pages: (number | string)[] = [];
+    const pages: Array<number | string> = [];
 
-    for (let i = Math.max(2, currentPage - delta); i <= Math.min(totalPages - 1, currentPage + delta); i += 1) {
-      range.push(i);
+    for (let index = Math.max(2, currentPage - delta); index <= Math.min(totalPages - 1, currentPage + delta); index += 1) {
+      range.push(index);
     }
 
     if (currentPage - delta > 2) {
@@ -566,10 +513,12 @@ const PaginationControls: React.FC<{
   };
 
   const visiblePages = getVisiblePages();
+  const buttonClass =
+    'flex items-center gap-1 rounded-lg border border-border px-3 py-2 text-sm font-medium text-muted-foreground transition hover:bg-secondary hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50';
 
   return (
     <div className="flex flex-col items-center gap-4 py-6">
-      <div className="flex items-center gap-2 text-sm text-gray-600">
+      <div className="flex items-center gap-2 text-sm text-muted-foreground">
         <Users className="h-4 w-4" />
         <span>
           Showing {startRange}-{endRange} of {totalPlayers.toLocaleString()} players
@@ -577,19 +526,11 @@ const PaginationControls: React.FC<{
       </div>
 
       <div className="flex flex-wrap items-center justify-center gap-2">
-        <button
-          onClick={() => onPageChange(1)}
-          disabled={currentPage <= 1 || loading}
-          className="flex items-center gap-1 rounded-lg border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
-        >
+        <button type="button" onClick={() => onPageChange(1)} disabled={currentPage <= 1 || loading} className={buttonClass}>
           <ChevronsLeft className="h-4 w-4" />
           First
         </button>
-        <button
-          onClick={() => onPageChange(currentPage - 1)}
-          disabled={currentPage <= 1 || loading}
-          className="flex items-center gap-1 rounded-lg border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
-        >
+        <button type="button" onClick={() => onPageChange(currentPage - 1)} disabled={currentPage <= 1 || loading} className={buttonClass}>
           <ChevronLeft className="h-4 w-4" />
           Previous
         </button>
@@ -597,87 +538,71 @@ const PaginationControls: React.FC<{
         <div className="flex items-center gap-1">
           {visiblePages.map((page, index) =>
             page === '...' ? (
-              <span key={`dots-${index}`} className="px-3 py-2 text-gray-500">
-                ...
-              </span>
+              <span key={`dots-${index}`} className="px-3 py-2 text-muted-foreground">...</span>
             ) : (
               <button
                 key={page}
+                type="button"
                 onClick={() => onPageChange(page as number)}
                 disabled={loading}
-                className={`rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
+                className={cx(
+                  'rounded-lg px-3 py-2 text-sm font-medium transition-colors',
                   currentPage === page
-                    ? 'bg-blue-600 text-white'
-                    : 'border border-gray-300 bg-white text-gray-700 hover:bg-gray-50'
-                }`}
+                    ? 'bg-primary text-primary-foreground shadow-glow'
+                    : 'border border-border bg-card text-muted-foreground hover:bg-secondary hover:text-foreground'
+                )}
               >
                 {page}
               </button>
-            ),
+            )
           )}
         </div>
 
-        <button
-          onClick={() => onPageChange(currentPage + 1)}
-          disabled={currentPage >= totalPages || loading}
-          className="flex items-center gap-1 rounded-lg border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
-        >
+        <button type="button" onClick={() => onPageChange(currentPage + 1)} disabled={currentPage >= totalPages || loading} className={buttonClass}>
           Next
           <ChevronRight className="h-4 w-4" />
         </button>
-        <button
-          onClick={() => onPageChange(totalPages)}
-          disabled={currentPage >= totalPages || loading}
-          className="flex items-center gap-1 rounded-lg border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
-        >
+        <button type="button" onClick={() => onPageChange(totalPages)} disabled={currentPage >= totalPages || loading} className={buttonClass}>
           Last
           <ChevronsRight className="h-4 w-4" />
         </button>
       </div>
 
-      <div className="text-xs text-gray-500">Page {currentPage} of {totalPages}</div>
+      <div className="text-xs text-muted-foreground">Page {currentPage} of {totalPages}</div>
     </div>
   );
-};
+}
 
-const ErrorDisplay: React.FC<{ error: string; onRetry: () => void }> = ({ error, onRetry }) => (
-  <div className="py-12 text-center">
-    <div className="mb-4 text-red-500">
-      <Trophy className="mx-auto mb-2 h-12 w-12 opacity-50" />
-      <p className="text-lg font-medium">Unable to load leaderboard</p>
-      <p className="mt-1 text-sm text-gray-600">{error}</p>
+function ErrorDisplay({ error, onRetry }: { error: string; onRetry: () => void }) {
+  return (
+    <div className="py-12 text-center">
+      <Trophy className="mx-auto mb-3 h-12 w-12 text-destructive/60" />
+      <p className="text-lg font-medium text-foreground">Unable to load leaderboard</p>
+      <p className="mt-2 text-sm text-muted-foreground">{error}</p>
+      <button
+        type="button"
+        onClick={onRetry}
+        className="mt-4 rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground shadow-glow transition hover:bg-primary/90"
+      >
+        Try again
+      </button>
     </div>
-    <button
-      onClick={onRetry}
-      className="rounded-lg bg-blue-600 px-4 py-2 text-white transition-colors hover:bg-blue-700"
-    >
-      Try Again
-    </button>
-  </div>
-);
+  );
+}
 
 export default function RealTimeLeaderboard({ currentUserId }: { currentUserId?: string }) {
-  const { user } = useUser();
-  const { profile } = useAuth();
-  const [query, setQuery] = useState("");
-  const [period, setPeriod] = useState<LeaderboardPeriod>("all");
+  const [query, setQuery] = useState('');
+  const [period, setPeriod] = useState<LeaderboardPeriod>('all');
   const [currentPage, setCurrentPage] = useState(1);
-  const [rankingCategory, setRankingCategory] = useState<RankingCategory>("elo");
+  const [rankingCategory, setRankingCategory] = useState<RankingCategory>('elo');
 
-  const effectiveUserId = currentUserId || user?.id || profile?.id;
-  const { data, loading, error, refetch } = useLiveLeaderboard(
-    period,
-    currentPage,
-    effectiveUserId,
-    rankingCategory,
-  );
+  const effectiveUserId = currentUserId;
+  const { data, loading, error, refetch } = useLiveLeaderboard(period, currentPage, effectiveUserId, rankingCategory);
 
   const filteredPlayers = useMemo(() => {
-    const players = data.players || [];
-    if (!query.trim()) return players;
-
-    return players.filter((player) =>
-      (player.name || '').toLowerCase().includes(query.trim().toLowerCase()),
+    if (!query.trim()) return data.players || [];
+    return (data.players || []).filter((player) =>
+      (player.name || '').toLowerCase().includes(query.trim().toLowerCase())
     );
   }, [data.players, query]);
 
@@ -713,153 +638,142 @@ export default function RealTimeLeaderboard({ currentUserId }: { currentUserId?:
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 px-3 py-4 sm:px-4 sm:py-5 lg:px-6 lg:py-6 xl:px-10 xl:py-10">
-      <div className="mx-auto max-w-6xl">
-        <div className="mb-6 text-center lg:mb-8">
-          <div className="mx-auto flex w-full max-w-[22rem] flex-col items-center px-4 py-2 text-center sm:max-w-[26rem]">
-            <div className="h-24 w-24 sm:h-28 sm:w-28 lg:h-32 lg:w-32">
-              <MascotIcon mascot="leaderboard" className="h-full w-full" imageClassName="drop-shadow-md" />
+    <div className="space-y-8 p-4 lg:p-8">
+      <div className="text-center">
+        <div className="mx-auto h-24 w-24 sm:h-28 sm:w-28">
+          <MascotIcon mascot="leaderboard" className="h-full w-full" imageClassName="drop-shadow-md" />
+        </div>
+        <h1 className="mt-4 text-3xl font-bold font-display text-foreground">Leaderboard</h1>
+        <p className="mx-auto mt-3 max-w-2xl text-sm leading-7 text-muted-foreground">
+          Ranked ELO, XP, and lesson completion now sit inside the same dark competitive dashboard language as the rest of Codhak.
+        </p>
+      </div>
+
+      <div className="grid gap-6 xl:grid-cols-4">
+        <div className="rounded-2xl border border-border bg-card shadow-card xl:col-span-3">
+          <div className="border-b border-border p-5 sm:p-6">
+            <div className="mb-5 flex gap-2 overflow-x-auto pb-2">
+              {(['all', 'month', 'week'] as LeaderboardPeriod[]).map((value) => (
+                <Tab key={value} active={value === period} onClick={() => handlePeriodChange(value)}>
+                  {getPeriodLabel(value)}
+                </Tab>
+              ))}
             </div>
-            <span className="mt-3 text-xl font-semibold text-slate-800 sm:text-2xl">Leaderboard</span>
+
+            <div className="mb-4 flex min-w-0 flex-1 items-center rounded-2xl border border-border bg-secondary/35 px-4 py-3">
+              <Search className="h-4 w-4 text-muted-foreground" />
+              <input
+                type="text"
+                placeholder="Search players..."
+                className="w-full flex-1 border-none bg-transparent px-3 text-sm text-foreground outline-none placeholder:text-muted-foreground"
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+              />
+            </div>
+
+            <div className="flex gap-2 overflow-x-auto pb-2">
+              {[
+                { id: 'elo' as RankingCategory, label: 'Ranked ELO', icon: Flame, active: 'bg-primary/10 text-primary border border-primary/20' },
+                { id: 'xp' as RankingCategory, label: 'Total XP', icon: Trophy, active: 'bg-coins/10 text-coins border border-coins/20' },
+                { id: 'lessons' as RankingCategory, label: 'Lessons', icon: BookOpen, active: 'bg-xp/10 text-xp border border-xp/20' },
+              ].map((category) => {
+                const Icon = category.icon;
+                const isActive = rankingCategory === category.id;
+                return (
+                  <button
+                    key={category.id}
+                    type="button"
+                    onClick={() => handleCategoryChange(category.id)}
+                    className={cx(
+                      'flex items-center gap-2 whitespace-nowrap rounded-lg px-3 py-2 text-sm font-medium transition-colors',
+                      isActive ? category.active : 'bg-secondary text-muted-foreground hover:bg-secondary/80 hover:text-foreground'
+                    )}
+                  >
+                    <Icon className="h-4 w-4" />
+                    <span>{category.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="p-5 sm:p-6">
+            {error && !loading ? <ErrorDisplay error={error} onRetry={() => refetch(currentPage, rankingCategory, period)} /> : null}
+
+            {loading ? (
+              <div className="py-12 text-center">
+                <div className="mx-auto mb-4 h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
+                <p className="text-muted-foreground">Loading leaderboard...</p>
+              </div>
+            ) : null}
+
+            {!loading && !error ? (
+              <div className="space-y-3 overflow-hidden">
+                {filteredPlayers.map((player) => (
+                  <LeaderboardRow
+                    key={`${player.id}-${period}-${currentPage}-${rankingCategory}`}
+                    player={player}
+                    isYou={player.id === effectiveUserId}
+                    sortBy={rankingCategory}
+                  />
+                ))}
+
+                {showUserAtBottom && data.yourStats ? (
+                  <>
+                    <div className="my-4 border-t border-border" />
+                    <div className="mb-3 rounded-lg bg-primary/10 p-3">
+                      <p className="text-center text-sm font-medium text-primary">Your position in the leaderboard</p>
+                    </div>
+                    <LeaderboardRow
+                      player={{
+                        ...data.yourStats,
+                        globalRank: data.yourRank,
+                        lessonsRank: data.yourLessonsRank,
+                        eloRank: data.yourEloRank,
+                      }}
+                      isYou={true}
+                      isHighlighted={true}
+                      sortBy={rankingCategory}
+                    />
+                  </>
+                ) : null}
+
+                {filteredPlayers.length === 0 && !loading && !error ? (
+                  <div className="py-12 text-center">
+                    <Users className="mx-auto mb-4 h-12 w-12 text-muted-foreground/50" />
+                    <p className="text-muted-foreground">
+                      {query ? 'No players found matching your search' : 'No players available'}
+                    </p>
+                    {query ? (
+                      <button type="button" onClick={() => setQuery('')} className="mt-2 text-sm text-primary hover:text-accent">
+                        Clear search
+                      </button>
+                    ) : null}
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+
+            {!query && !loading && !error && data.totalPlayers > 0 ? (
+              <PaginationControls
+                currentPage={currentPage}
+                totalPages={totalPages}
+                onPageChange={handlePageChange}
+                totalPlayers={data.totalPlayers}
+                loading={loading}
+              />
+            ) : null}
           </div>
         </div>
 
-        <div className="grid gap-4 xl:grid-cols-4 xl:gap-6">
-          <div className="xl:col-span-3 rounded-2xl border border-gray-200 bg-white shadow-sm">
-            <div className="border-b border-gray-200 p-4 sm:p-5 lg:p-6">
-              <div className="mb-5 flex gap-2 overflow-x-auto pb-2">
-                {(["all", "month", "week"] as LeaderboardPeriod[]).map((value) => (
-                  <Tab key={value} active={value === period} onClick={() => handlePeriodChange(value)}>
-                    {getPeriodLabel(value)}
-                  </Tab>
-                ))}
-              </div>
-
-              <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center">
-                <div className="flex min-w-0 flex-1 items-center rounded-2xl border bg-gray-50 px-4 py-2">
-                  <Search className="h-4 w-4 text-gray-400" />
-                  <input
-                    type="text"
-                    placeholder="Search players..."
-                    className="w-full flex-1 border-none bg-transparent px-3 text-sm outline-none"
-                    value={query}
-                    onChange={(event) => setQuery(event.target.value)}
-                  />
-                </div>
-              </div>
-
-              <div className="flex gap-2 overflow-x-auto pb-2">
-                {[
-                  { id: 'elo' as RankingCategory, label: 'Ranked ELO', icon: Flame, color: 'bg-orange-100 text-orange-700' },
-                  { id: 'xp' as RankingCategory, label: 'Total XP', icon: Trophy, color: 'bg-yellow-100 text-yellow-700' },
-                  { id: 'lessons' as RankingCategory, label: 'Lessons', icon: BookOpen, color: 'bg-green-100 text-green-700' },
-                ].map((category) => {
-                  const Icon = category.icon;
-                  return (
-                    <button
-                      key={category.id}
-                      onClick={() => handleCategoryChange(category.id)}
-                      className={`flex items-center gap-2 whitespace-nowrap rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
-                        rankingCategory === category.id
-                          ? category.color
-                          : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                      }`}
-                    >
-                      <Icon className="h-4 w-4" />
-                      <span>{category.label}</span>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
-            <div className="p-4 sm:p-5 lg:p-6">
-              {error && !loading && <ErrorDisplay error={error} onRetry={() => refetch(currentPage, rankingCategory, period)} />}
-
-              {loading && (
-                <div className="py-8 text-center">
-                  <div className="mx-auto mb-4 h-8 w-8 animate-spin rounded-full border-4 border-blue-500 border-t-transparent" />
-                  <p className="text-gray-500">Loading leaderboard...</p>
-                </div>
-              )}
-
-              {!loading && !error && (
-                <div className="space-y-3 overflow-hidden">
-                  <AnimatePresence mode="popLayout" initial={false}>
-                    {filteredPlayers.map((player) => {
-                      const isYou = player.id === effectiveUserId;
-                      return (
-                        <Row
-                          key={`${player.id}-${period}-${currentPage}-${rankingCategory}`}
-                          player={player}
-                          isYou={isYou}
-                          sortBy={rankingCategory}
-                        />
-                      );
-                    })}
-                  </AnimatePresence>
-
-                  {showUserAtBottom && data.yourStats && (
-                    <>
-                      <div className="my-4 border-t border-gray-200" />
-                      <div className="mb-3 rounded-lg bg-blue-50 p-3">
-                        <p className="text-center text-sm font-medium text-blue-700">Your position in the leaderboard</p>
-                      </div>
-                      <Row
-                        key={`user-highlight-${data.yourStats.id}`}
-                        player={{
-                          ...data.yourStats,
-                          globalRank: data.yourRank,
-                          lessonsRank: data.yourLessonsRank,
-                          eloRank: data.yourEloRank,
-                        }}
-                        isYou={true}
-                        isHighlighted={true}
-                        sortBy={rankingCategory}
-                      />
-                    </>
-                  )}
-
-                  {filteredPlayers.length === 0 && !loading && !error && (
-                    <div className="py-12 text-center">
-                      <Users className="mx-auto mb-4 h-12 w-12 text-gray-300" />
-                      <p className="text-gray-500">
-                        {query ? 'No players found matching your search' : 'No players available'}
-                      </p>
-                      {query && (
-                        <button
-                          onClick={() => setQuery('')}
-                          className="mt-2 text-sm text-blue-600 hover:text-blue-700"
-                        >
-                          Clear search
-                        </button>
-                      )}
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {!query && !loading && !error && data.totalPlayers > 0 && (
-                <PaginationControls
-                  currentPage={currentPage}
-                  totalPages={totalPages}
-                  onPageChange={handlePageChange}
-                  totalPlayers={data.totalPlayers}
-                  loading={loading}
-                />
-              )}
-            </div>
-          </div>
-
-          <div className="space-y-4 xl:col-span-1 xl:space-y-6">
-            <RankingDropdown
-              data={data}
-              period={period}
-              currentCategory={rankingCategory}
-              onCategoryChange={handleCategoryChange}
-            />
-            <YourStats data={data} period={period} />
-          </div>
+        <div className="space-y-6 xl:col-span-1">
+          <RankingDropdown
+            data={data}
+            period={period}
+            currentCategory={rankingCategory}
+            onCategoryChange={handleCategoryChange}
+          />
+          <YourStats data={data} period={period} />
         </div>
       </div>
     </div>

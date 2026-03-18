@@ -1,5 +1,5 @@
 import React from 'react';
-import { Trophy, TrendingUp, TrendingDown, Minus, ArrowRight, Clock } from 'lucide-react';
+import { ArrowRight, Clock, Minus, TrendingDown, TrendingUp, Trophy } from 'lucide-react';
 
 interface MatchResultsProps {
   matchData: any;
@@ -7,6 +7,8 @@ interface MatchResultsProps {
   onClose: () => void;
   onViewReplay?: () => void;
 }
+
+const cx = (...classes: Array<string | false | null | undefined>) => classes.filter(Boolean).join(' ');
 
 export default function MatchResults({ matchData, userId, onClose, onViewReplay }: MatchResultsProps) {
   const isWinner = matchData.winnerId === userId;
@@ -16,128 +18,161 @@ export default function MatchResults({ matchData, userId, onClose, onViewReplay 
   const opponentData = matchData.playerA.userId === userId ? matchData.playerB : matchData.playerA;
 
   const getRatingChangeIcon = (change: number) => {
-    if (change > 0) return <TrendingUp className="h-5 w-5 text-green-600" />;
-    if (change < 0) return <TrendingDown className="h-5 w-5 text-red-600" />;
-    return <Minus className="h-5 w-5 text-gray-600" />;
+    if (change > 0) return <TrendingUp className="h-5 w-5 text-xp" />;
+    if (change < 0) return <TrendingDown className="h-5 w-5 text-destructive" />;
+    return <Minus className="h-5 w-5 text-muted-foreground" />;
   };
 
   const getRatingChangeColor = (change: number) => {
-    if (change > 0) return 'text-green-600';
-    if (change < 0) return 'text-red-600';
-    return 'text-gray-600';
+    if (change > 0) return 'text-xp';
+    if (change < 0) return 'text-destructive';
+    return 'text-muted-foreground';
   };
 
   const difficultyLabel = (matchData.difficulty ?? 'medium')
     .toString()
-    .replace(/\b\w/g, (l: string) => l.toUpperCase());
+    .replace(/\b\w/g, (letter: string) => letter.toUpperCase());
+
+  const bannerTone = isWinner
+    ? 'from-xp/90 to-emerald-500'
+    : isDraw
+    ? 'from-secondary to-slate-600'
+    : 'from-destructive to-pink-600';
+
+  const bannerTitle = isWinner ? 'Victory!' : isDraw ? 'Draw!' : 'Defeat';
+  const bannerCopy = isWinner
+    ? 'Well played. You won the duel under live judged conditions.'
+    : isDraw
+    ? 'The duel ended level. Both players finished with the same outcome signal.'
+    : 'Better luck next time. Review the match signal and queue again.';
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-3 backdrop-blur-sm sm:p-4">
-      <div className="max-h-[92vh] w-full max-w-2xl overflow-hidden rounded-2xl bg-white shadow-2xl">
-        <div className={`${isWinner ? 'bg-gradient-to-r from-green-600 to-green-700' : isDraw ? 'bg-gradient-to-r from-gray-600 to-gray-700' : 'bg-gradient-to-r from-red-600 to-red-700'} p-6 text-white sm:p-8`}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 p-3 backdrop-blur-sm sm:p-4">
+      <div className="max-h-[92vh] w-full max-w-3xl overflow-hidden rounded-2xl border border-border bg-card shadow-elevated">
+        <div className={`bg-gradient-to-r ${bannerTone} p-6 text-white sm:p-8`}>
           <div className="text-center">
-            <Trophy className="mx-auto mb-4 h-16 w-16 sm:h-20 sm:w-20" />
-            <h2 className="mb-2 text-3xl font-bold sm:text-4xl">
-              {isWinner ? 'Victory!' : isDraw ? 'Draw!' : 'Defeat'}
-            </h2>
-            <p className="text-base opacity-90 sm:text-lg">
-              {isWinner ? 'Well played! You won the duel.' : isDraw ? 'The duel ended level.' : 'Better luck next time.'}
-            </p>
+            <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-white/15 backdrop-blur-sm">
+              <Trophy className="h-9 w-9" />
+            </div>
+            <h2 className="text-3xl font-bold font-display sm:text-4xl">{bannerTitle}</h2>
+            <p className="mx-auto mt-3 max-w-xl text-sm leading-7 text-white/85 sm:text-base">{bannerCopy}</p>
           </div>
         </div>
 
         <div className="max-h-[calc(92vh-180px)] overflow-y-auto p-4 sm:p-6 lg:p-8">
-          <div className="mb-6">
-            <h3 className="mb-4 text-lg font-semibold text-gray-800">Match Summary</h3>
-            <div className="space-y-3 rounded-lg bg-gray-50 p-4">
-              <div className="flex items-center justify-between gap-3">
-                <span className="text-gray-600">Difficulty:</span>
-                <span className="font-semibold text-gray-800">{difficultyLabel}</span>
-              </div>
-              <div className="flex items-center justify-between gap-3">
-                <span className="text-gray-600">Duration:</span>
-                <div className="flex items-center gap-2">
-                  <Clock className="h-4 w-4 text-gray-500" />
-                  <span className="font-semibold">{Math.floor(matchData.duration / 60)}:{(matchData.duration % 60).toString().padStart(2, '0')}</span>
-                </div>
-              </div>
-              <div className="flex items-center justify-between gap-3">
-                <span className="text-gray-600">Result:</span>
-                <span className="text-right font-semibold text-gray-800">
-                  {matchData.reason.replace(/_/g, ' ').replace(/\b\w/g, (l: string) => l.toUpperCase())}
-                </span>
-              </div>
-            </div>
-          </div>
-
-          {isRankedMatch && (
-            <div className="mb-6">
-              <h3 className="mb-4 text-lg font-semibold text-gray-800">Rating Changes</h3>
-              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                <div className={`${isWinner ? 'border-green-500 bg-green-50' : isDraw ? 'border-gray-300 bg-gray-50' : 'border-red-500 bg-red-50'} rounded-lg border-2 p-4`}>
-                  <div className="mb-1 text-sm text-gray-600">You</div>
-                  <div className="mb-2 flex items-center justify-between gap-3">
-                    <span className="text-2xl font-bold text-gray-800">{playerData.ratingBefore}</span>
-                    <ArrowRight className="h-5 w-5 text-gray-400" />
-                    <span className="text-2xl font-bold text-gray-800">{playerData.ratingAfter}</span>
+          <div className="grid gap-6 lg:grid-cols-[0.95fr_1.05fr]">
+            <div className="space-y-6">
+              <section className="rounded-2xl border border-border bg-secondary/35 p-5">
+                <div className="text-sm font-semibold uppercase tracking-[0.18em] text-primary">Match summary</div>
+                <div className="mt-4 space-y-3">
+                  <div className="flex items-center justify-between gap-3 rounded-xl border border-border bg-card px-4 py-3">
+                    <span className="text-sm text-muted-foreground">Difficulty</span>
+                    <span className="font-semibold text-foreground">{difficultyLabel}</span>
                   </div>
-                  <div className="flex items-center gap-2">
-                    {getRatingChangeIcon(playerData.ratingChange)}
-                    <span className={`font-semibold ${getRatingChangeColor(playerData.ratingChange)}`}>
-                      {playerData.ratingChange > 0 ? '+' : ''}{playerData.ratingChange}
+                  <div className="flex items-center justify-between gap-3 rounded-xl border border-border bg-card px-4 py-3">
+                    <span className="text-sm text-muted-foreground">Duration</span>
+                    <div className="flex items-center gap-2 font-semibold text-foreground">
+                      <Clock className="h-4 w-4 text-muted-foreground" />
+                      <span>{Math.floor(matchData.duration / 60)}:{(matchData.duration % 60).toString().padStart(2, '0')}</span>
+                    </div>
+                  </div>
+                  <div className="flex items-center justify-between gap-3 rounded-xl border border-border bg-card px-4 py-3">
+                    <span className="text-sm text-muted-foreground">Result</span>
+                    <span className="text-right font-semibold text-foreground">
+                      {matchData.reason.replace(/_/g, ' ').replace(/\b\w/g, (letter: string) => letter.toUpperCase())}
                     </span>
                   </div>
                 </div>
+              </section>
 
-                <div className="rounded-lg border-2 border-gray-300 bg-gray-50 p-4">
-                  <div className="mb-1 text-sm text-gray-600">Opponent</div>
-                  <div className="mb-2 flex items-center justify-between gap-3">
-                    <span className="text-2xl font-bold text-gray-800">{opponentData.ratingBefore}</span>
-                    <ArrowRight className="h-5 w-5 text-gray-400" />
-                    <span className="text-2xl font-bold text-gray-800">{opponentData.ratingAfter}</span>
+              {isRankedMatch ? (
+                <section className="rounded-2xl border border-border bg-secondary/35 p-5">
+                  <div className="text-sm font-semibold uppercase tracking-[0.18em] text-primary">Rating changes</div>
+                  <div className="mt-4 grid gap-4 md:grid-cols-2">
+                    {[
+                      {
+                        label: 'You',
+                        data: playerData,
+                        tone: isWinner ? 'border-xp/30 bg-xp/10' : isDraw ? 'border-border bg-card' : 'border-destructive/30 bg-destructive/10',
+                      },
+                      {
+                        label: 'Opponent',
+                        data: opponentData,
+                        tone: 'border-border bg-card',
+                      },
+                    ].map((entry) => (
+                      <div key={entry.label} className={cx('rounded-xl border p-4', entry.tone)}>
+                        <div className="text-sm text-muted-foreground">{entry.label}</div>
+                        <div className="mt-3 flex items-center justify-between gap-3">
+                          <span className="text-2xl font-bold font-display text-foreground">{entry.data.ratingBefore}</span>
+                          <ArrowRight className="h-5 w-5 text-muted-foreground" />
+                          <span className="text-2xl font-bold font-display text-foreground">{entry.data.ratingAfter}</span>
+                        </div>
+                        <div className="mt-3 flex items-center gap-2">
+                          {getRatingChangeIcon(entry.data.ratingChange)}
+                          <span className={cx('font-semibold', getRatingChangeColor(entry.data.ratingChange))}>
+                            {entry.data.ratingChange > 0 ? '+' : ''}{entry.data.ratingChange}
+                          </span>
+                        </div>
+                      </div>
+                    ))}
                   </div>
-                  <div className="flex items-center gap-2">
-                    {getRatingChangeIcon(opponentData.ratingChange)}
-                    <span className={`font-semibold ${getRatingChangeColor(opponentData.ratingChange)}`}>
-                      {opponentData.ratingChange > 0 ? '+' : ''}{opponentData.ratingChange}
-                    </span>
+                </section>
+              ) : null}
+            </div>
+
+            <div className="space-y-6">
+              <section className="rounded-2xl border border-border bg-secondary/35 p-5">
+                <div className="text-sm font-semibold uppercase tracking-[0.18em] text-primary">Performance</div>
+                <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-1">
+                  <div className="rounded-xl border border-border bg-card p-4">
+                    <div className="text-sm text-muted-foreground">Your duel score</div>
+                    <div className="mt-2 text-4xl font-bold font-display text-primary">
+                      {Number(playerData.matchScore ?? playerData.submission?.matchScore ?? 0).toFixed(1)}
+                    </div>
+                    <div className="mt-1 text-sm text-muted-foreground">
+                      {playerData.submission?.passed || 0}/{playerData.submission?.total || 0} tests passed
+                    </div>
+                  </div>
+                  <div className="rounded-xl border border-border bg-card p-4">
+                    <div className="text-sm text-muted-foreground">Opponent duel score</div>
+                    <div className="mt-2 text-4xl font-bold font-display text-foreground">
+                      {Number(opponentData.matchScore ?? opponentData.submission?.matchScore ?? 0).toFixed(1)}
+                    </div>
+                    <div className="mt-1 text-sm text-muted-foreground">
+                      {opponentData.submission?.passed || 0}/{opponentData.submission?.total || 0} tests passed
+                    </div>
                   </div>
                 </div>
-              </div>
-            </div>
-          )}
+              </section>
 
-          <div className="mb-6">
-            <h3 className="mb-4 text-lg font-semibold text-gray-800">Performance</h3>
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <div className="rounded-lg bg-blue-50 p-4">
-                <div className="mb-2 text-sm text-gray-600">Your Duel Score</div>
-                <div className="text-3xl font-bold text-blue-600">{Number(playerData.matchScore ?? playerData.submission?.matchScore ?? 0).toFixed(1)}</div>
-                <div className="mt-1 text-sm text-gray-600">{playerData.submission?.passed || 0}/{playerData.submission?.total || 0} tests passed</div>
-              </div>
-              <div className="rounded-lg bg-gray-50 p-4">
-                <div className="mb-2 text-sm text-gray-600">Opponent Duel Score</div>
-                <div className="text-3xl font-bold text-gray-600">{Number(opponentData.matchScore ?? opponentData.submission?.matchScore ?? 0).toFixed(1)}</div>
-                <div className="mt-1 text-sm text-gray-600">{opponentData.submission?.passed || 0}/{opponentData.submission?.total || 0} tests passed</div>
-              </div>
+              <section className="rounded-2xl border border-border bg-secondary/35 p-5">
+                <div className="text-sm font-semibold uppercase tracking-[0.18em] text-primary">Next move</div>
+                <p className="mt-3 text-sm leading-7 text-muted-foreground">
+                  {isWinner
+                    ? 'Queue again while momentum is high or move back into practice to consolidate the win.'
+                    : 'Review the outcome, sharpen the weak area in practice, and run another duel for a cleaner signal.'}
+                </p>
+                <div className="mt-5 flex flex-col gap-3 sm:flex-row">
+                  {onViewReplay ? (
+                    <button
+                      type="button"
+                      onClick={onViewReplay}
+                      className="flex-1 rounded-xl bg-primary px-6 py-3 text-sm font-semibold text-primary-foreground shadow-glow transition hover:bg-primary/90"
+                    >
+                      View replay
+                    </button>
+                  ) : null}
+                  <button
+                    type="button"
+                    onClick={onClose}
+                    className="flex-1 rounded-xl border border-border bg-card px-6 py-3 text-sm font-semibold text-foreground transition hover:bg-secondary"
+                  >
+                    Close
+                  </button>
+                </div>
+              </section>
             </div>
-          </div>
-
-          <div className="flex flex-col gap-3 sm:flex-row">
-            {onViewReplay && (
-              <button
-                onClick={onViewReplay}
-                className="flex-1 rounded-lg bg-blue-600 px-6 py-3 font-semibold text-white transition-colors hover:bg-blue-700"
-              >
-                View Replay
-              </button>
-            )}
-            <button
-              onClick={onClose}
-              className="flex-1 rounded-lg bg-gray-600 px-6 py-3 font-semibold text-white transition-colors hover:bg-gray-700"
-            >
-              Close
-            </button>
           </div>
         </div>
       </div>
