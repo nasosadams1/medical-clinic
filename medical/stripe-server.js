@@ -5,7 +5,7 @@ import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import helmet from 'helmet';
 import Stripe from 'stripe';
 import { createClient } from '@supabase/supabase-js';
-import { getStoreItem, isCoinStoreItem, isStripeStoreItem, STORE_ITEMS, STRIPE_STORE_ITEMS } from './shared/store-catalog.js';
+import { getStoreItem, isCoinStoreItem, isPlanStoreItem, isStripeStoreItem, STORE_ITEMS, STRIPE_STORE_ITEMS } from './shared/store-catalog.js';
 import { formatAllowedOriginsError, isAllowedOrigin, resolveAllowedOrigins } from './services/allowed-origins.js';
 import {
   CoinPurchaseSchema,
@@ -112,8 +112,22 @@ function validateProductForPaymentIntent(paymentIntent, product) {
     throw new Error('Payment intent item metadata is invalid.');
   }
 
-  if (String(paymentIntent.metadata?.coins || '') !== String(product.coinsGranted)) {
+  if (paymentIntent.metadata?.productKind !== product.kind) {
+    throw new Error('Payment intent product metadata is invalid.');
+  }
+
+  if (product.kind === 'coin_pack' && String(paymentIntent.metadata?.coins || '') !== String(product.coinsGranted)) {
     throw new Error('Payment intent coin metadata is invalid.');
+  }
+
+  if (product.kind === 'plan') {
+    if ((paymentIntent.metadata?.planName || '') !== product.planName) {
+      throw new Error('Payment intent plan metadata is invalid.');
+    }
+
+    if (String(paymentIntent.metadata?.durationDays || '') !== String(product.durationDays)) {
+      throw new Error('Payment intent plan duration metadata is invalid.');
+    }
   }
 }
 
@@ -127,7 +141,10 @@ function getPublicCatalog() {
     coinsGranted: item.coinsGranted || null,
     coinCost: item.coinCost || null,
     durationHours: item.durationHours || null,
+    durationDays: item.durationDays || null,
     multiplier: item.multiplier || null,
+    planName: item.planName || null,
+    planScope: item.planScope || null,
     stripeAmountCents: item.stripeAmountCents || null,
     currency: item.currency || null,
     bonusPercent: item.bonusPercent || 0,
@@ -202,12 +219,84 @@ async function fulfillCoinPurchase(paymentIntent) {
 
   return {
     alreadyFulfilled: Boolean(data?.alreadyFulfilled),
+    kind: 'coin_pack',
     coinsGranted: Number(data?.coinsGranted || product.coinsGranted || 0),
     coins: Number(data?.coins || 0),
     totalCoinsEarned: Number(data?.totalCoinsEarned || 0),
     itemId: product.id,
     userId,
   };
+}
+
+async function fulfillPlanPurchase(paymentIntent) {
+  const itemId = paymentIntent.metadata?.itemId;
+  const userId = paymentIntent.metadata?.userId;
+  const product = getStoreItem(itemId);
+
+  if (!userId) {
+    throw new Error('Payment intent metadata is missing userId.');
+  }
+
+  if (!product || !isPlanStoreItem(product)) {
+    throw new Error('Payment intent metadata is missing a valid plan item.');
+  }
+
+  validateProductForPaymentIntent(paymentIntent, product);
+
+  if (!supabaseAdmin) {
+    throw new Error('Store server is not configured for Supabase.');
+  }
+
+  const { data, error } = await supabaseAdmin.rpc('fulfill_plan_purchase', {
+    p_user_id: userId,
+    p_payment_intent_id: paymentIntent.id,
+    p_item_id: product.id,
+    p_plan_name: product.planName,
+    p_amount_cents: product.stripeAmountCents,
+    p_currency: product.currency,
+    p_duration_days: product.durationDays,
+  });
+
+  if (error) {
+    throw new Error(`Failed to fulfill plan purchase: ${error.message}`);
+  }
+
+  if (stripe) {
+    try {
+      await stripe.paymentIntents.update(paymentIntent.id, {
+        metadata: {
+          ...paymentIntent.metadata,
+          fulfilled_at: new Date().toISOString(),
+          fulfilled_by: 'stripe-server',
+        },
+      });
+    } catch (metadataError) {
+      console.warn('Plan payment fulfilled but Stripe metadata update failed:', metadataError.message || metadataError);
+    }
+  }
+
+  return {
+    alreadyFulfilled: Boolean(data?.alreadyFulfilled),
+    kind: 'plan',
+    itemId: product.id,
+    planId: product.id,
+    planName: product.planName,
+    status: String(data?.status || 'active'),
+    currentPeriodStart: data?.currentPeriodStart || null,
+    currentPeriodEnd: data?.currentPeriodEnd || null,
+    purchaseCount: Number(data?.purchaseCount || 1),
+    userId,
+  };
+}
+
+async function fulfillStripeProduct(paymentIntent) {
+  const product = getStoreItem(paymentIntent.metadata?.itemId);
+
+  if (product && isPlanStoreItem(product)) {
+    return fulfillPlanPurchase(paymentIntent);
+  }
+
+  return fulfillCoinPurchase(paymentIntent);
 }
 
 app.post('/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
@@ -231,8 +320,8 @@ app.post('/webhook', express.raw({ type: 'application/json' }), async (req, res)
 
     switch (event.type) {
       case 'payment_intent.succeeded': {
-        const result = await fulfillCoinPurchase(event.data.object);
-        console.log('Store payment fulfilled via webhook:', event.data.object.id, result);
+        const result = await fulfillStripeProduct(event.data.object);
+        console.log('Stripe payment fulfilled via webhook:', event.data.object.id, result);
         break;
       }
       case 'payment_intent.payment_failed':
@@ -374,8 +463,15 @@ app.post('/api/create-payment-intent', paymentIntentLimiter, async (req, res) =>
       metadata: {
         itemId: product.id,
         userId: user.id,
-        coins: String(product.coinsGranted),
+        productKind: product.kind,
         productName: product.name,
+        ...(product.kind === 'coin_pack' ? { coins: String(product.coinsGranted) } : {}),
+        ...(product.kind === 'plan'
+          ? {
+              planName: product.planName,
+              durationDays: String(product.durationDays),
+            }
+          : {}),
       },
       automatic_payment_methods: { enabled: true },
     });
@@ -385,7 +481,11 @@ app.post('/api/create-payment-intent', paymentIntentLimiter, async (req, res) =>
       payment_intent_id: paymentIntent.id,
       amount: product.stripeAmountCents,
       currency: product.currency,
-      coins: product.coinsGranted,
+      productKind: product.kind,
+      coins: product.coinsGranted || null,
+      planId: product.id,
+      planName: product.planName || null,
+      durationDays: product.durationDays || null,
     });
   } catch (error) {
     console.error('Error creating payment intent:', error);
@@ -430,17 +530,14 @@ app.post('/api/confirm-payment', paymentConfirmLimiter, async (req, res) => {
       });
     }
 
-    const fulfillment = await fulfillCoinPurchase(paymentIntent);
+    const fulfillment = await fulfillStripeProduct(paymentIntent);
 
     return res.json({
       success: true,
       status: paymentIntent.status,
       fulfilled: true,
-      alreadyFulfilled: fulfillment.alreadyFulfilled,
-      coinsGranted: fulfillment.coinsGranted,
-      coins: fulfillment.coins,
-      totalCoinsEarned: fulfillment.totalCoinsEarned,
       payment_intent_id: paymentIntent.id,
+      ...fulfillment,
     });
   } catch (error) {
     console.error('Error confirming payment:', error);

@@ -20,88 +20,88 @@ export default function BenchmarkReportCard({ report, actions }: BenchmarkReport
     .filter((lesson) => Boolean(lesson));
 
   return (
-    <div className="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-[0_20px_60px_rgba(15,23,42,0.08)] sm:p-8">
-      <div className="flex flex-col gap-4 border-b border-slate-200 pb-6 sm:flex-row sm:items-start sm:justify-between">
+    <div className="rounded-[1.5rem] border border-border bg-card p-5 shadow-card sm:p-6">
+      <div className="flex flex-col gap-4 border-b border-border pb-6 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <div className="inline-flex items-center gap-2 rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-emerald-700">
+          <div className="inline-flex items-center gap-2 rounded-full border border-primary/20 bg-primary/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-primary">
             {report.isSample ? 'Sample Report' : 'Benchmark Report'}
           </div>
-          <h2 className="mt-4 text-3xl font-semibold tracking-tight text-slate-950">
+          <h2 className="mt-4 text-3xl font-semibold tracking-tight text-foreground">
             {report.overallScore}/100 overall skill score
           </h2>
-          <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600 sm:text-base">{report.summary}</p>
+          <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground sm:text-base">{report.summary}</p>
         </div>
 
         <div className="grid gap-3 sm:min-w-[220px]">
-          <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
-            <div className="text-xs uppercase tracking-[0.18em] text-slate-400">Correct answers</div>
-            <div className="mt-1 text-lg font-semibold text-slate-900">
+          <div className="rounded-2xl border border-border bg-background/70 px-4 py-3">
+            <div className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Correct answers</div>
+            <div className="mt-1 text-lg font-semibold text-foreground">
               {report.correctAnswers}/{report.totalQuestions}
             </div>
           </div>
-          <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
-            <div className="text-xs uppercase tracking-[0.18em] text-slate-400">Duel readiness</div>
-            <div className="mt-1 text-lg font-semibold text-slate-900">{report.duelReadiness.label}</div>
-            <div className="text-sm text-slate-500">{report.duelReadiness.confidencePercent}% confidence</div>
+          <div className="rounded-2xl border border-border bg-background/70 px-4 py-3">
+            <div className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Duel readiness</div>
+            <div className="mt-1 text-lg font-semibold text-foreground">{report.duelReadiness.label}</div>
+            <div className="text-sm text-muted-foreground">{report.duelReadiness.confidencePercent}% confidence</div>
           </div>
         </div>
       </div>
 
       <div className="mt-6 grid gap-4 lg:grid-cols-3">
-        <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
-          <div className="flex items-center gap-2 text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">
-            <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+        <div className="rounded-2xl border border-border bg-background/70 p-5">
+          <div className="flex items-center gap-2 text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+            <CheckCircle2 className="h-4 w-4 text-xp" />
             Strengths
           </div>
           <ul className="mt-4 space-y-3">
             {report.strengths.map((strength) => (
-              <li key={strength} className="rounded-2xl bg-white px-4 py-3 text-sm font-medium text-slate-700 shadow-sm">
+              <li key={strength} className="rounded-2xl border border-border bg-card px-4 py-3 text-sm font-medium text-foreground">
                 {strength}
               </li>
             ))}
           </ul>
         </div>
 
-        <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
-          <div className="flex items-center gap-2 text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">
-            <Target className="h-4 w-4 text-amber-600" />
+        <div className="rounded-2xl border border-border bg-background/70 p-5">
+          <div className="flex items-center gap-2 text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+            <Target className="h-4 w-4 text-coins" />
             Focus next
           </div>
           <ul className="mt-4 space-y-3">
             {report.weaknesses.map((weakness) => (
-              <li key={weakness} className="rounded-2xl bg-white px-4 py-3 text-sm font-medium text-slate-700 shadow-sm">
+              <li key={weakness} className="rounded-2xl border border-border bg-card px-4 py-3 text-sm font-medium text-foreground">
                 {weakness}
               </li>
             ))}
           </ul>
         </div>
 
-        <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
-          <div className="flex items-center gap-2 text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">
-            <BarChart3 className="h-4 w-4 text-sky-600" />
+        <div className="rounded-2xl border border-border bg-background/70 p-5">
+          <div className="flex items-center gap-2 text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+            <BarChart3 className="h-4 w-4 text-primary" />
             Next move
           </div>
-          <div className="mt-4 rounded-2xl bg-white px-4 py-4 shadow-sm">
-            <div className="text-sm font-semibold text-slate-900">{report.duelReadiness.label}</div>
-            <p className="mt-2 text-sm leading-6 text-slate-600">{report.duelReadiness.description}</p>
+          <div className="mt-4 rounded-2xl border border-border bg-card px-4 py-4">
+            <div className="text-sm font-semibold text-foreground">{report.duelReadiness.label}</div>
+            <p className="mt-2 text-sm leading-6 text-muted-foreground">{report.duelReadiness.description}</p>
           </div>
         </div>
       </div>
 
       <div className="mt-6 grid gap-4 xl:grid-cols-[1.05fr_0.95fr]">
-        <div className="rounded-[1.75rem] border border-slate-200 p-5">
-          <div className="flex items-center gap-2 text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">
-            <Award className="h-4 w-4 text-violet-600" />
+        <div className="rounded-[1.5rem] border border-border bg-background/70 p-5">
+          <div className="flex items-center gap-2 text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+            <Award className="h-4 w-4 text-accent" />
             Recommended track
           </div>
           <div className="mt-4 space-y-4">
             {recommendedTracks.map((track) => (
-              <div key={track!.id} className="rounded-2xl bg-slate-50 px-4 py-4">
-                <div className="text-lg font-semibold text-slate-900">{track!.title}</div>
-                <p className="mt-2 text-sm leading-6 text-slate-600">{track!.description}</p>
+              <div key={track!.id} className="rounded-2xl border border-border bg-card px-4 py-4">
+                <div className="text-lg font-semibold text-foreground">{track!.title}</div>
+                <p className="mt-2 text-sm leading-6 text-muted-foreground">{track!.description}</p>
                 <Link
                   to={`/tracks/${track!.id}`}
-                  className="mt-3 inline-flex items-center gap-2 text-sm font-medium text-blue-700 hover:text-blue-800"
+                  className="mt-3 inline-flex items-center gap-2 text-sm font-medium text-primary hover:text-accent"
                 >
                   <span>Open track page</span>
                   <ArrowRight className="h-4 w-4" />
@@ -112,26 +112,26 @@ export default function BenchmarkReportCard({ report, actions }: BenchmarkReport
         </div>
 
         <div className="grid gap-4">
-          <div className="rounded-[1.75rem] border border-slate-200 p-5">
-            <div className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">Suggested lessons</div>
+          <div className="rounded-[1.5rem] border border-border bg-background/70 p-5">
+            <div className="text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground">Suggested lessons</div>
             <ul className="mt-4 space-y-3">
               {suggestedLessons.map((lesson) => (
-                <li key={lesson!.id} className="rounded-2xl bg-slate-50 px-4 py-3">
-                  <div className="text-sm font-semibold text-slate-900">{lesson!.title}</div>
-                  <div className="mt-1 text-sm text-slate-600">{lesson!.category}</div>
+                <li key={lesson!.id} className="rounded-2xl border border-border bg-card px-4 py-3">
+                  <div className="text-sm font-semibold text-foreground">{lesson!.title}</div>
+                  <div className="mt-1 text-sm text-muted-foreground">{lesson!.category}</div>
                 </li>
               ))}
             </ul>
           </div>
 
-          <div className="rounded-[1.75rem] border border-slate-200 p-5">
-            <div className="flex items-center gap-2 text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">
-              <Swords className="h-4 w-4 text-sky-600" />
+          <div className="rounded-[1.5rem] border border-border bg-background/70 p-5">
+            <div className="flex items-center gap-2 text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+              <Swords className="h-4 w-4 text-primary" />
               Duel-ready prompts
             </div>
             <ul className="mt-4 space-y-3">
               {report.suggestedDuelProblemTitles.map((problemTitle) => (
-                <li key={problemTitle} className="rounded-2xl bg-slate-50 px-4 py-3 text-sm font-medium text-slate-700">
+                <li key={problemTitle} className="rounded-2xl border border-border bg-card px-4 py-3 text-sm font-medium text-foreground">
                   {problemTitle}
                 </li>
               ))}
@@ -140,7 +140,7 @@ export default function BenchmarkReportCard({ report, actions }: BenchmarkReport
         </div>
       </div>
 
-      {actions ? <div className="mt-6 border-t border-slate-200 pt-6">{actions}</div> : null}
+      {actions ? <div className="mt-6 border-t border-border pt-6">{actions}</div> : null}
     </div>
   );
 }

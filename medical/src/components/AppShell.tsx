@@ -1,4 +1,4 @@
-import React, { Suspense, startTransition, useEffect, useMemo, useState } from 'react';
+import React, { Suspense, startTransition, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   BarChart3,
   BookOpen,
@@ -8,12 +8,13 @@ import {
   UserPlus,
   Users,
 } from 'lucide-react';
-import { useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import Sidebar from './Sidebar';
 import Learn from './Learn';
 import BenchmarkExperience from './benchmark/BenchmarkExperience';
 import TeamsWorkspace from './teams/TeamsWorkspace';
 import { useAuth } from '../context/AuthContext';
+import { usePlanEntitlements } from '../hooks/usePlanEntitlements';
 import { preloadLessonsModule } from '../data/lessonsLoader';
 import { lazyWithPreload } from '../lib/lazyWithPreload';
 import mascot from '../assets/design/mascot.png';
@@ -48,6 +49,7 @@ const SectionFallback = () => (
 const withSuspense = (node: React.ReactNode) => <Suspense fallback={<SectionFallback />}>{node}</Suspense>;
 
 const defaultSection: SectionId = 'benchmark';
+const TASKBAR_STORAGE_KEY = 'codhak-taskbar-visible';
 
 const isValidSection = (value: string | null): value is SectionId =>
   value === 'benchmark' ||
@@ -60,21 +62,75 @@ const isValidSection = (value: string | null): value is SectionId =>
   value === 'account';
 
 export default function AppShell({ openAuthModal }: AppShellProps) {
-  const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [currentSection, setCurrentSection] = useState<SectionId>(defaultSection);
-  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false;
+    return window.localStorage.getItem(TASKBAR_STORAGE_KEY) === '1';
+  });
   const { user } = useAuth();
+  const { primaryPlan } = usePlanEntitlements();
   const isAuthenticated = !!user;
+  const previouslyAuthenticatedRef = useRef(isAuthenticated);
+  const isGuestSection = useCallback(
+    (section: SectionId) => section === 'benchmark' || section === 'practice' || section === 'teams',
+    []
+  );
+  const syncSectionToUrl = useCallback(
+    (section: SectionId, options?: { replace?: boolean }) => {
+      const nextParams = new URLSearchParams(searchParams);
+      nextParams.set('section', section);
+      if (section !== 'benchmark') {
+        nextParams.delete('report');
+      }
+      setSearchParams(nextParams, { replace: options?.replace ?? false });
+    },
+    [searchParams, setSearchParams]
+  );
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    window.localStorage.setItem(TASKBAR_STORAGE_KEY, sidebarOpen ? '1' : '0');
+  }, [sidebarOpen]);
+
+  useEffect(() => {
+    if (previouslyAuthenticatedRef.current && !isAuthenticated) {
+      navigate('/', { replace: true });
+    }
+
+    previouslyAuthenticatedRef.current = isAuthenticated;
+  }, [isAuthenticated, navigate]);
+
+  const closeSidebarOnMobile = () => {
+    if (typeof window !== 'undefined' && window.innerWidth < 1024) {
+      setSidebarOpen(false);
+    }
+  };
 
   useEffect(() => {
     const requestedSection = searchParams.get('section');
-    if (!isValidSection(requestedSection)) return;
+    const nextSection =
+      isValidSection(requestedSection) && (isAuthenticated || isGuestSection(requestedSection))
+        ? requestedSection
+        : defaultSection;
 
-    const guestAllowed = requestedSection === 'benchmark' || requestedSection === 'practice' || requestedSection === 'teams';
-    if (!isAuthenticated && !guestAllowed) return;
+    if (currentSection !== nextSection) {
+      setCurrentSection(nextSection);
+    }
 
-    setCurrentSection(requestedSection);
-  }, [isAuthenticated, searchParams]);
+    const shouldNormalizeUrl =
+      requestedSection !== nextSection || (nextSection !== 'benchmark' && searchParams.has('report'));
+
+    if (shouldNormalizeUrl) {
+      const nextParams = new URLSearchParams(searchParams);
+      nextParams.set('section', nextSection);
+      if (nextSection !== 'benchmark') {
+        nextParams.delete('report');
+      }
+      setSearchParams(nextParams, { replace: true });
+    }
+  }, [currentSection, isAuthenticated, isGuestSection, searchParams, setSearchParams]);
 
   const preloadSection = (section: SectionId) => {
     if (section === 'practice') {
@@ -127,6 +183,16 @@ export default function AppShell({ openAuthModal }: AppShellProps) {
           ],
     [isAuthenticated]
   );
+  const sectionLabelMap: Record<SectionId, string> = {
+    benchmark: 'Benchmark',
+    practice: 'Practice',
+    duels: 'Duels',
+    teams: 'Teams',
+    store: 'Store',
+    leaderboard: 'Leaderboard',
+    profile: 'Profile',
+    account: 'Account',
+  };
 
   const benchmarkView = <BenchmarkExperience mode="app" openAuthModal={openAuthModal} />;
 
@@ -135,8 +201,11 @@ export default function AppShell({ openAuthModal }: AppShellProps) {
       setCurrentSection={(section) => {
         if (section === 'practice' || section === 'benchmark' || section === 'duels') {
           if (section === 'practice') preloadLessonsModule();
-          startTransition(() => setCurrentSection(section));
-          setSidebarOpen(false);
+          startTransition(() => {
+            setCurrentSection(section);
+            syncSectionToUrl(section);
+          });
+          closeSidebarOnMobile();
           window.scrollTo({ top: 0, behavior: 'auto' });
         }
       }}
@@ -179,17 +248,20 @@ export default function AppShell({ openAuthModal }: AppShellProps) {
   const handleSectionChange = (section: SectionId) => {
     preloadSection(section);
 
-    const guestAllowed = section === 'benchmark' || section === 'practice' || section === 'teams';
-    if (!isAuthenticated && !guestAllowed) {
+    if (!isAuthenticated && !isGuestSection(section)) {
       setCurrentSection('benchmark');
-      setSidebarOpen(false);
+      syncSectionToUrl('benchmark');
+      closeSidebarOnMobile();
       openAuthModal('signup');
       window.scrollTo({ top: 0, behavior: 'auto' });
       return;
     }
 
-    startTransition(() => setCurrentSection(section));
-    setSidebarOpen(false);
+    startTransition(() => {
+      setCurrentSection(section);
+      syncSectionToUrl(section);
+    });
+    closeSidebarOnMobile();
     window.scrollTo({ top: 0, behavior: 'auto' });
   };
 
@@ -208,20 +280,33 @@ export default function AppShell({ openAuthModal }: AppShellProps) {
         <div className="fixed inset-0 z-40 bg-background/80 backdrop-blur-sm lg:hidden" onClick={() => setSidebarOpen(false)} />
       ) : null}
 
-      <div className="flex flex-1 flex-col overflow-hidden">
-        <header className="flex h-14 items-center justify-between border-b border-border px-4 lg:hidden">
-          <div className="flex items-center gap-2">
-            <img src={mascot} alt="" className="h-6 w-6" />
-            <span className="font-bold font-display text-foreground">Codhak</span>
+      <div className={`flex flex-1 flex-col overflow-hidden transition-[padding] duration-300 ${sidebarOpen ? 'lg:pl-64' : 'lg:pl-0'}`}>
+        <header className="flex h-14 items-center justify-between border-b border-border bg-background/80 px-4 backdrop-blur">
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={() => setSidebarOpen((current) => !current)}
+              className="inline-flex items-center gap-2 rounded-xl border border-border bg-card px-3 py-2 text-sm font-medium text-muted-foreground transition hover:bg-secondary hover:text-foreground"
+              aria-label={sidebarOpen ? 'Hide taskbar' : 'Show taskbar'}
+            >
+              <Menu className="h-4 w-4" />
+              <span className="hidden sm:inline">{sidebarOpen ? 'Hide taskbar' : 'Show taskbar'}</span>
+            </button>
+            <div className="flex items-center gap-2">
+              <img src={mascot} alt="" className="h-6 w-6" />
+              <span className="font-bold font-display text-foreground">Codhak</span>
+            </div>
           </div>
-          <button
-            type="button"
-            onClick={() => setSidebarOpen(true)}
-            className="rounded-xl border border-border bg-card p-2 text-muted-foreground transition hover:bg-secondary hover:text-foreground"
-            aria-label="Open workspace navigation"
-          >
-            <Menu className="h-5 w-5" />
-          </button>
+          <div className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">
+            <div className="flex items-center gap-2">
+              {primaryPlan ? (
+                <span className="rounded-full border border-primary/20 bg-primary/10 px-2.5 py-1 text-[10px] font-semibold tracking-[0.18em] text-primary">
+                  {primaryPlan.planName}
+                </span>
+              ) : null}
+              <span>{sectionLabelMap[currentSection]}</span>
+            </div>
+          </div>
         </header>
 
         <main className="flex-1 overflow-y-auto bg-background">

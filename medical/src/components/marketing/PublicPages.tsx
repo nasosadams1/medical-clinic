@@ -17,12 +17,15 @@ import {
   Users,
   Zap,
 } from 'lucide-react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import BenchmarkExperience from '../benchmark/BenchmarkExperience';
 import BenchmarkReportCard from '../benchmark/BenchmarkReportCard';
+import StripeCheckout from '../StripeCheckout';
 import TeamsWorkspace from '../teams/TeamsWorkspace';
+import DemoRequestCard from './DemoRequestCard';
 import MarketingLayout from './MarketingLayout';
 import { useAuth } from '../../context/AuthContext';
+import { usePlanEntitlements } from '../../hooks/usePlanEntitlements';
 import { buildSampleBenchmarkReport } from '../../data/benchmarkCatalog';
 import {
   audienceSegments,
@@ -34,6 +37,7 @@ import {
   testimonialPlaceholders,
   type LanguageSlug,
 } from '../../data/siteContent';
+import { formatPlanRenewalDate, getSelfServePlanProductByPlanName, type PlanStoreProduct } from '../../lib/billing';
 import { fetchProductAnalyticsSummary, trackEvent } from '../../lib/analytics';
 import { usePageMetadata } from '../../lib/pageMeta';
 import heroBg from '../../assets/design/hero-bg.jpg';
@@ -60,27 +64,6 @@ function useTrackPage(name: Parameters<typeof trackEvent>[0], payload?: Record<s
     trackedRef.current = true;
     trackEvent(name, payload);
   }, [name, payload]);
-}
-
-function usePricingActions(openAuthModal: (view?: AuthModalView) => void) {
-  const navigate = useNavigate();
-  const { user } = useAuth();
-
-  return (planName: string) => {
-    trackEvent('subscription_cta_clicked', { plan: planName });
-
-    if (planName === 'Teams' || planName === 'Teams Growth' || planName === 'Custom') {
-      navigate('/teams');
-      return;
-    }
-
-    if (user) {
-      navigate('/app?section=benchmark');
-      return;
-    }
-
-    openAuthModal('signup');
-  };
 }
 
 function useTeamDemoCta() {
@@ -145,63 +128,168 @@ function FeatureCard({
 }
 
 function PricingGrid({ openAuthModal }: { openAuthModal: (view?: AuthModalView) => void }) {
-  const handlePlanClick = usePricingActions(openAuthModal);
+  const navigate = useNavigate();
+  const { user } = useAuth();
+  const { getPlanEntitlement, refresh: refreshPlanEntitlements } = usePlanEntitlements();
+  const [selectedPlanProduct, setSelectedPlanProduct] = useState<PlanStoreProduct | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  const handlePlanClick = (planName: string) => {
+    trackEvent('subscription_cta_clicked', { plan: planName, source: 'pricing_grid' });
+
+    if (planName === 'Teams') {
+      navigate('/teams');
+      return;
+    }
+
+    if (planName === 'Teams Growth') {
+      navigate('/pricing?intent=teams_growth');
+      return;
+    }
+
+    if (planName === 'Custom') {
+      navigate('/pricing?intent=custom_plan');
+      return;
+    }
+
+    if (planName === 'Free') {
+      navigate(user ? '/app?section=benchmark' : '/benchmark');
+      return;
+    }
+
+    const selfServeProduct = getSelfServePlanProductByPlanName(planName);
+    if (selfServeProduct) {
+      if (!user) {
+        openAuthModal('signup');
+        return;
+      }
+
+      setSelectedPlanProduct(selfServeProduct);
+      setErrorMessage(null);
+      return;
+    }
+
+    if (user) {
+      navigate('/app?section=store');
+      return;
+    }
+
+    openAuthModal('signup');
+  };
 
   return (
-    <div className="grid gap-6 xl:grid-cols-3">
-      {pricingPlans.map((plan) => {
-        const highlighted = plan.badge === 'Most popular';
-        return (
-          <div
-            key={plan.name}
-            className={`relative flex flex-col rounded-2xl border p-6 transition-all duration-300 ${
-              highlighted
-                ? 'border-primary/50 bg-card shadow-elevated glow-primary'
-                : 'border-border bg-card shadow-card hover:border-primary/20'
-            }`}
-          >
-            {plan.badge ? (
-              <div className="absolute -top-3 left-1/2 -translate-x-1/2">
-                <span className="rounded-full bg-primary px-4 py-1 text-xs font-bold uppercase tracking-[0.18em] text-primary-foreground">
-                  {plan.badge}
-                </span>
-              </div>
-            ) : null}
+    <>
+      {successMessage ? (
+        <div className="mb-6 rounded-2xl border border-xp/20 bg-xp/10 px-5 py-4 text-sm text-foreground">
+          {successMessage}
+        </div>
+      ) : null}
+      {errorMessage ? (
+        <div className="mb-6 rounded-2xl border border-coins/20 bg-coins/10 px-5 py-4 text-sm text-foreground">
+          {errorMessage}
+        </div>
+      ) : null}
 
-            <div className="space-y-2">
-              <div className="text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground">{plan.name}</div>
-              <div className="flex items-end gap-2">
-                <span className="text-4xl font-bold font-display text-foreground">{plan.price}</span>
-                <span className="pb-1 text-sm text-muted-foreground">{plan.cadence}</span>
-              </div>
-              <p className="text-sm leading-7 text-muted-foreground">{plan.description}</p>
-            </div>
+      <div className="grid gap-6 xl:grid-cols-3">
+        {pricingPlans.map((plan) => {
+          const highlighted = plan.badge === 'Most popular';
+          const selfServeProduct = getSelfServePlanProductByPlanName(plan.name);
+          const activeEntitlement = selfServeProduct ? getPlanEntitlement(selfServeProduct.id) : null;
 
-            <ul className="my-6 flex-1 space-y-3">
-              {plan.features.map((feature) => (
-                <li key={feature} className="flex items-start gap-2 text-sm text-foreground">
-                  <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-xp" />
-                  <span>{feature}</span>
-                </li>
-              ))}
-            </ul>
-
-            <button
-              type="button"
-              onClick={() => handlePlanClick(plan.name)}
-              className={`inline-flex w-full items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-semibold transition ${
+          return (
+            <div
+              key={plan.name}
+              className={`relative flex flex-col rounded-2xl border p-6 transition-all duration-300 ${
                 highlighted
-                  ? 'bg-primary text-primary-foreground shadow-glow hover:bg-primary/90'
-                  : 'border border-border bg-transparent text-foreground hover:bg-secondary'
+                  ? 'border-primary/50 bg-card shadow-elevated glow-primary'
+                  : 'border-border bg-card shadow-card hover:border-primary/20'
               }`}
             >
-              <span>{plan.ctaLabel}</span>
-              <ArrowRight className="h-4 w-4" />
-            </button>
-          </div>
-        );
-      })}
-    </div>
+              {plan.badge ? (
+                <div className="absolute -top-3 left-1/2 -translate-x-1/2">
+                  <span className="rounded-full bg-primary px-4 py-1 text-xs font-bold uppercase tracking-[0.18em] text-primary-foreground">
+                    {plan.badge}
+                  </span>
+                </div>
+              ) : null}
+
+              <div className="space-y-2">
+                <div className="text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground">{plan.name}</div>
+                <div className="flex items-end gap-2">
+                  <span className="text-4xl font-bold font-display text-foreground">{plan.price}</span>
+                  <span className="pb-1 text-sm text-muted-foreground">{plan.cadence}</span>
+                </div>
+                <p className="text-sm leading-7 text-muted-foreground">{plan.description}</p>
+              </div>
+
+              <ul className="my-6 flex-1 space-y-3">
+                {plan.features.map((feature) => (
+                  <li key={feature} className="flex items-start gap-2 text-sm text-foreground">
+                    <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-xp" />
+                    <span>{feature}</span>
+                  </li>
+                ))}
+              </ul>
+
+              {activeEntitlement ? (
+                <div className="mb-4 rounded-xl border border-primary/20 bg-primary/10 px-3 py-2 text-xs leading-6 text-foreground">
+                  Active until {formatPlanRenewalDate(activeEntitlement.currentPeriodEnd) || 'your renewal date'}.
+                </div>
+              ) : null}
+
+              <button
+                type="button"
+                onClick={() => {
+                  if (activeEntitlement) {
+                    navigate(plan.name === 'Interview Sprint' ? '/app?section=benchmark' : '/app?section=practice');
+                    return;
+                  }
+                  handlePlanClick(plan.name);
+                }}
+                className={`inline-flex w-full items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-semibold transition ${
+                  highlighted
+                    ? 'bg-primary text-primary-foreground shadow-glow hover:bg-primary/90'
+                    : 'border border-border bg-transparent text-foreground hover:bg-secondary'
+                }`}
+              >
+                <span>{activeEntitlement ? 'Open workspace' : plan.ctaLabel}</span>
+                <ArrowRight className="h-4 w-4" />
+              </button>
+            </div>
+          );
+        })}
+      </div>
+
+      {selectedPlanProduct ? (
+        <StripeCheckout
+          itemId={selectedPlanProduct.id}
+          amount={selectedPlanProduct.stripeAmountCents}
+          description={`${selectedPlanProduct.name} - ${selectedPlanProduct.description}`}
+          benefitLabel={`Activates ${selectedPlanProduct.planName} for ${selectedPlanProduct.durationDays} days.`}
+          onSuccess={async () => {
+            const refreshedEntitlements = await refreshPlanEntitlements();
+            const activeEntitlement = refreshedEntitlements.find(
+              (entitlement) => entitlement.itemId === selectedPlanProduct.id && entitlement.isActive
+            );
+            setErrorMessage(null);
+            setSuccessMessage(
+              `${selectedPlanProduct.planName} is now active${
+                activeEntitlement?.currentPeriodEnd
+                  ? ` through ${formatPlanRenewalDate(activeEntitlement.currentPeriodEnd) || 'your current plan window'}`
+                  : ''
+              }.`
+            );
+            setSelectedPlanProduct(null);
+          }}
+          onError={(error) => {
+            setErrorMessage(error || 'Checkout could not be completed right now.');
+            setSelectedPlanProduct(null);
+          }}
+          onClose={() => setSelectedPlanProduct(null)}
+        />
+      ) : null}
+    </>
   );
 }
 
@@ -795,12 +883,59 @@ export function TeamsPage({ openAuthModal }: PublicPageProps) {
           </div>
         </div>
       </section>
+
+      <section className="border-t border-border/60 py-20">
+        <div className="container mx-auto px-4">
+          <div className="grid gap-8 lg:grid-cols-[0.95fr_1.05fr]">
+            <SectionHeader
+              eyebrow="Pilot pipeline"
+              title="Turn team interest into qualified pilot requests."
+              description="This is not just a contact button anymore. Use this form to capture buyer intent, company context, team size, and the exact workflow they want Codhak to support."
+            />
+            <DemoRequestCard
+              source="teams_page"
+              intent="team_demo"
+              title="Request a cohort walkthrough"
+              description="For bootcamps, universities, coding clubs, and upskilling teams that want a live pilot conversation."
+              submitLabel="Request pilot walkthrough"
+              defaultUseCase="Bootcamp cohort"
+            />
+          </div>
+        </div>
+      </section>
     </MarketingLayout>
   );
 }
 
 export function PricingPage({ openAuthModal }: PublicPageProps) {
   const { user } = useAuth();
+  const [searchParams] = useSearchParams();
+  const leadIntent = searchParams.get('intent');
+  const pricingLeadIntent =
+    leadIntent === 'teams_growth' || leadIntent === 'custom_plan' || leadIntent === 'interview_sprint'
+      ? leadIntent
+      : 'custom_plan';
+  const pricingLeadCopy =
+    pricingLeadIntent === 'teams_growth'
+      ? {
+          title: 'Talk about Teams Growth',
+          description: 'Capture high-value multi-cohort demand while the product stays lean and pilot-friendly.',
+          useCase: 'Multi-cohort bootcamp program',
+          label: 'Submit growth inquiry',
+        }
+      : pricingLeadIntent === 'interview_sprint'
+      ? {
+          title: 'Need a guided Interview Sprint rollout?',
+          description: 'Self-serve checkout now handles the standard sprint, and this form stays available for people who want a more hands-on version.',
+          useCase: 'Interview prep sprint',
+          label: 'Submit sprint inquiry',
+        }
+      : {
+          title: 'Talk about a custom rollout',
+          description: 'Capture qualified interest for Teams Growth and Custom without forcing enterprise complexity into the product.',
+          useCase: 'Internal upskilling team',
+          label: 'Submit team inquiry',
+        };
 
   usePageMetadata({
     title: 'Codhak Pricing | Benchmark, Pro, Interview Sprint, and Teams',
@@ -850,6 +985,32 @@ export function PricingPage({ openAuthModal }: PublicPageProps) {
                 ))}
               </ul>
             </div>
+          </div>
+
+          <div className="mt-12 grid gap-8 lg:grid-cols-[0.95fr_1.05fr]">
+            <div className="rounded-[1.5rem] border border-border bg-card p-6 shadow-card">
+              <div className="text-xs font-semibold uppercase tracking-[0.2em] text-primary">Revenue path</div>
+              <h3 className="mt-3 text-2xl font-semibold text-foreground">Use pricing to route people into the right motion.</h3>
+              <div className="mt-6 space-y-4">
+                {[
+                  'Free, Pro, and Interview Sprint should self-serve through benchmark, report, pricing, and in-app upgrades.',
+                  'Interview Sprint is still a strong high-intent offer for job seekers who want a short, focused prep window.',
+                  'Teams, Teams Growth, and Custom should create qualified leads instead of vague clicks.',
+                ].map((item) => (
+                  <div key={item} className="rounded-2xl border border-border bg-background/70 px-4 py-4 text-sm leading-7 text-muted-foreground">
+                    {item}
+                  </div>
+                ))}
+              </div>
+            </div>
+            <DemoRequestCard
+              source="pricing_page"
+              intent={pricingLeadIntent}
+              title={pricingLeadCopy.title}
+              description={pricingLeadCopy.description}
+              submitLabel={pricingLeadCopy.label}
+              defaultUseCase={pricingLeadCopy.useCase}
+            />
           </div>
         </div>
       </section>
@@ -913,6 +1074,7 @@ export function ReportSamplePage({ openAuthModal }: PublicPageProps) {
 
 export function TrackLandingPage({ openAuthModal }: PublicPageProps) {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const { trackId } = useParams();
   const track = interviewTracks.find((entry) => entry.id === trackId);
 
@@ -931,7 +1093,20 @@ export function TrackLandingPage({ openAuthModal }: PublicPageProps) {
                 <SectionHeader eyebrow="Practice Track" title={track.title} description={track.description} />
                 <div className="mt-8 flex flex-col gap-3 sm:flex-row">
                   <ActionButton to={track.benchmarkLanguage ? `/benchmark/${track.benchmarkLanguage}` : '/benchmark'} label={track.ctaLabel} primary />
-                  <ActionButton to="/app?section=practice" label="Open practice workspace" />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (user) {
+                        navigate('/app?section=practice');
+                        return;
+                      }
+                      openAuthModal('signup');
+                    }}
+                    className="inline-flex items-center justify-center gap-2 rounded-xl border border-border bg-card px-5 py-3.5 text-sm font-semibold text-foreground transition hover:bg-secondary"
+                  >
+                    <span>{user ? 'Open practice workspace' : 'Save and continue in practice'}</span>
+                    <ArrowRight className="h-4 w-4" />
+                  </button>
                 </div>
               </div>
 
@@ -1015,6 +1190,7 @@ export function LanguageLandingPage({ openAuthModal }: PublicPageProps) {
 
 export function InterviewPrepLandingPage({ openAuthModal }: PublicPageProps) {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const { slug } = useParams();
   const track = interviewTracks.find((entry) => entry.id === slug);
 
@@ -1033,7 +1209,20 @@ export function InterviewPrepLandingPage({ openAuthModal }: PublicPageProps) {
                 <SectionHeader eyebrow="Interview Prep" title={track.title} description={track.description} />
                 <div className="mt-8 flex flex-col gap-3 sm:flex-row">
                   <ActionButton to={track.benchmarkLanguage ? `/benchmark/${track.benchmarkLanguage}` : '/benchmark'} label={track.ctaLabel} primary />
-                  <ActionButton to="/app?section=duels" label="Open duel workspace" />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (user) {
+                        navigate('/app?section=duels');
+                        return;
+                      }
+                      openAuthModal('signup');
+                    }}
+                    className="inline-flex items-center justify-center gap-2 rounded-xl border border-border bg-card px-5 py-3.5 text-sm font-semibold text-foreground transition hover:bg-secondary"
+                  >
+                    <span>{user ? 'Open duel workspace' : 'Create account for duels'}</span>
+                    <ArrowRight className="h-4 w-4" />
+                  </button>
                 </div>
               </div>
 

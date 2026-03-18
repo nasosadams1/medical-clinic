@@ -1,34 +1,42 @@
-import React, { useState, useEffect } from 'react';
-import { getLevelProgress, getLevelTier } from '../hooks/levelSystem';
+import React, { useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import {
-  User,
-  Trophy,
-  Calendar,
-  Target,
-  BookOpen,
-  Code,
   Award,
-  Heart,
-  ShoppingCart,
-  Star,
-  Crown,
-  Zap,
+  BarChart3,
+  BookOpen,
+  CheckCircle2,
+  ChevronRight,
+  Clock3,
+  Coins,
+  Flame,
   Lock,
-  CheckCircle,
+  Medal,
+  Pencil,
+  ShieldCheck,
+  Sparkles,
+  Swords,
+  Target,
+  Trophy,
+  UserCircle2,
+  Zap,
 } from 'lucide-react';
+import { AnimatePresence, motion } from 'framer-motion';
+import { getLevelProgress, getLevelTier } from '../hooks/levelSystem';
 import { useUser } from '../context/UserContext';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../lib/supabase';
 import { getEloRankInfo } from '../lib/eloRanks';
 import { cacheDuelRating, DEFAULT_DUEL_RATING, getCachedDuelRating } from '../lib/duelRatingCache';
-import { avatars, getRarityColor } from '../data/avatars';
+import { avatars } from '../data/avatars';
 import { achievements } from '../data/achievements';
 import {
   countCompletedLessonsByLanguage,
   formatLessonIdAsDisplayName,
   getLessonCountByLanguage,
 } from '../data/lessonCatalog';
-import { motion, AnimatePresence } from 'framer-motion';
+
+type ProfileTabId = 'overview' | 'progress' | 'achievements' | 'activity';
+type AvatarRarity = 'Common' | 'Rare' | 'Epic' | 'Legendary';
 
 const isProfileDebugEnabled = import.meta.env.DEV && import.meta.env.VITE_DEBUG_PROFILE === '1';
 
@@ -44,49 +52,80 @@ const profileDebugError = (...args: any[]) => {
   }
 };
 
-const Profile: React.FC = () => {
-  const { 
-    user, 
-    updateUser, 
-    buyHearts, 
-    buyAvatar, 
-    setAvatar, 
-    unlockAchievement, 
-    checkAndUnlockAchievements,
-    isAuthenticated,
-    getActiveBoosts,
-    addNotification,
-  } = useUser();
-  
-  const { refetchProfile } = useAuth();
-  const [currentTime, setCurrentTime] = useState(Date.now());
+const pageClassName = 'bg-background pb-10 text-foreground';
+const cardClassName = 'rounded-2xl border border-border bg-card shadow-card';
+const panelClassName = 'rounded-2xl border border-border bg-background/80 p-4 shadow-card';
 
+const tabs: Array<{ id: ProfileTabId; label: string; icon: React.ComponentType<{ className?: string }> }> = [
+  { id: 'overview', label: 'Overview', icon: Sparkles },
+  { id: 'progress', label: 'Progress', icon: BarChart3 },
+  { id: 'achievements', label: 'Achievements', icon: Award },
+  { id: 'activity', label: 'Activity', icon: Clock3 },
+];
+
+const rarityTone: Record<AvatarRarity, string> = {
+  Common: 'bg-slate-500/15 text-slate-200 ring-1 ring-white/10',
+  Rare: 'bg-sky-500/15 text-sky-200 ring-1 ring-sky-400/20',
+  Epic: 'bg-fuchsia-500/15 text-fuchsia-200 ring-1 ring-fuchsia-400/20',
+  Legendary: 'bg-amber-500/15 text-amber-200 ring-1 ring-amber-400/20',
+};
+
+const categoryTone: Record<string, string> = {
+  learning: 'bg-sky-500/15 text-sky-200',
+  practice: 'bg-emerald-500/15 text-emerald-200',
+  social: 'bg-fuchsia-500/15 text-fuchsia-200',
+  special: 'bg-amber-500/15 text-amber-200',
+};
+
+const languageTone: Record<
+  'python' | 'javascript' | 'cpp' | 'java',
+  { label: string; chip: string; progress: string }
+> = {
+  python: { label: 'Python', chip: 'bg-sky-500/15 text-sky-200', progress: 'from-sky-500 to-cyan-400' },
+  javascript: { label: 'JavaScript', chip: 'bg-amber-500/15 text-amber-200', progress: 'from-amber-400 to-yellow-300' },
+  cpp: { label: 'C++', chip: 'bg-fuchsia-500/15 text-fuchsia-200', progress: 'from-fuchsia-500 to-violet-400' },
+  java: { label: 'Java', chip: 'bg-rose-500/15 text-rose-200', progress: 'from-rose-500 to-orange-400' },
+};
+
+function formatCountdown(expiresAt: number, currentTime: number) {
+  const remaining = Math.max(0, expiresAt - currentTime);
+  const hours = Math.floor(remaining / (1000 * 60 * 60));
+  const minutes = Math.floor((remaining % (1000 * 60 * 60)) / (1000 * 60));
+  const seconds = Math.floor((remaining % (1000 * 60)) / 1000);
+
+  if (hours > 0) return `${hours}h ${minutes}m ${seconds}s`;
+  if (minutes > 0) return `${minutes}m ${seconds}s`;
+  return `${seconds}s`;
+}
+
+const Profile: React.FC = () => {
+  const { user, updateUser, buyAvatar, setAvatar, checkAndUnlockAchievements, getActiveBoosts, addNotification } = useUser();
+  const { refetchProfile } = useAuth();
+
+  const [currentTime, setCurrentTime] = useState(Date.now());
   const [isEditing, setIsEditing] = useState(false);
   const [editName, setEditName] = useState(user?.name ?? '');
-  const [showStore, setShowStore] = useState(false);
   const [showAvatarStore, setShowAvatarStore] = useState(false);
-  const [activeTab, setActiveTab] = useState<'overview' | 'progress' | 'achievements' | 'activity'>('overview');
+  const [activeTab, setActiveTab] = useState<ProfileTabId>('overview');
+  const [duelRating, setDuelRating] = useState<number | null>(() =>
+    user?.id === 'guest' ? DEFAULT_DUEL_RATING : getCachedDuelRating(user?.id)
+  );
   const [avatarPurchaseFeedback, setAvatarPurchaseFeedback] = useState<null | {
+    id: string;
     name: string;
     emoji: string;
-    rarity: 'Common' | 'Rare' | 'Epic' | 'Legendary';
+    rarity: AvatarRarity;
     description: string;
     remainingCoins: number;
   }>(null);
-  const [duelRating, setDuelRating] = useState<number | null>(() => (
-    user?.id === 'guest' ? DEFAULT_DUEL_RATING : getCachedDuelRating(user?.id)
-  ));
   const [recentLessonEvents, setRecentLessonEvents] = useState<Array<{ lessonId: string; xp: number; completedAt: string }>>([]);
 
-  // Update current time every second for boost timers
   useEffect(() => {
-    const interval = setInterval(() => {
-      setCurrentTime(Date.now());
-    }, 1000);
-    return () => clearInterval(interval);
+    const intervalId = window.setInterval(() => setCurrentTime(Date.now()), 1000);
+    return () => window.clearInterval(intervalId);
   }, []);
 
-  React.useEffect(() => {
+  useEffect(() => {
     if (user) {
       setEditName(user.name);
     }
@@ -102,22 +141,14 @@ const Profile: React.FC = () => {
   }, [user?.id]);
 
   useEffect(() => {
-    if (!user || user.id === 'guest') {
-      return;
-    }
+    if (!user || user.id === 'guest') return;
 
     let cancelled = false;
 
     const loadDuelRating = async () => {
-      const { data, error } = await supabase
-        .from('duel_users')
-        .select('rating')
-        .eq('id', user.id)
-        .maybeSingle();
+      const { data, error } = await supabase.from('duel_users').select('rating').eq('id', user.id).maybeSingle();
 
-      if (cancelled) {
-        return;
-      }
+      if (cancelled) return;
 
       if (error) {
         profileDebugError('Failed to load duel rating:', error);
@@ -125,16 +156,12 @@ const Profile: React.FC = () => {
         return;
       }
 
-      if (!cancelled) {
-        const nextRating = Number.isFinite(Number(data?.rating))
-          ? Number(data?.rating)
-          : DEFAULT_DUEL_RATING;
-        cacheDuelRating(user.id, nextRating);
-        setDuelRating(nextRating);
-      }
+      const nextRating = Number.isFinite(Number(data?.rating)) ? Number(data?.rating) : DEFAULT_DUEL_RATING;
+      cacheDuelRating(user.id, nextRating);
+      setDuelRating(nextRating);
     };
 
-    loadDuelRating();
+    void loadDuelRating();
 
     return () => {
       cancelled = true;
@@ -155,11 +182,9 @@ const Profile: React.FC = () => {
         .select('lesson_id, xp_earned, completed_at')
         .eq('user_id', user.id)
         .order('completed_at', { ascending: false })
-        .limit(5);
+        .limit(6);
 
-      if (cancelled) {
-        return;
-      }
+      if (cancelled) return;
 
       if (error) {
         profileDebugError('Failed to load recent lesson activity:', error);
@@ -176,273 +201,64 @@ const Profile: React.FC = () => {
       );
     };
 
-    loadRecentLessonEvents();
+    void loadRecentLessonEvents();
 
     return () => {
       cancelled = true;
     };
   }, [user?.id]);
 
-
-  const scrollToProfileSection = (sectionId: 'overview' | 'progress' | 'achievements' | 'activity') => {
-    setActiveTab(sectionId);
-    const element = document.getElementById(`profile-${sectionId}`);
-    element?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  };
-
-  // Handle name changes with 16 character limit
-  const handleNameChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const value = e.target.value;
-    // Only allow up to 16 characters
-    if (value.length <= 16) {
-      setEditName(value);
-    }
-  };
-
-  // UPDATED: Save profile with validation and leaderboard sync (NO ALERT)
-  const handleSaveProfile = async () => {
-    if (!user) return;
-    
-    // Trim the name and limit to 16 characters
-    const trimmedName = editName.trim();
-    if (trimmedName.length === 0) {
-      return;
-    }
-    if (trimmedName.length > 16) {
-      return;
-    }
-    
-    try {
-      // Step 1: Update the user context first
-      // This will also trigger AuthContext's updateProfile internally via UserContext's processTransactionQueue
-      await updateUser({ name: trimmedName });
-      
-      // Step 2: CRITICAL FIX: Explicitly refetch the profile from the database
-      // This ensures AuthContext's `profile` state is definitively up-to-date.
-      // More importantly, `fetchProfile` (which `refetchProfile` calls)
-      // will call `syncProfileToLeaderboard` with this absolutely fresh data.
-      if (user.id !== 'guest') { // Only refetch if authenticated
-        profileDebugLog('Profile name changed, forcing AuthContext profile refetch and leaderboard sync...');
-        await refetchProfile(); 
-        profileDebugLog('Profile name updated and leaderboard sync re-triggered.');
-      } else {
-        profileDebugLog('Guest user, skipping leaderboard sync for name change.');
-      }
-      
-      setIsEditing(false);
-    } catch (error) {
-      console.error('❌ Failed to save profile:', error);
-    }
-  };
-
-  const handleBuyHearts = async (amount: number) => {
-    if (!user) return;
-    try {
-      const success = await buyHearts(amount);
-      if (success) {
-        alert(`Successfully bought ${amount} heart${amount > 1 ? 's' : ''}!`);
-      } else {
-        alert('Not enough coins or hearts are already full!');
-      }
-    } catch (error) {
-      console.error('Failed to buy hearts:', error);
-      alert('Purchase failed. Please try again.');
-    }
-  };
-
-  const handleBuyAvatar = async (avatarId: string) => {
-    if (!user) return;
-    const avatar = avatars.find(a => a.id === avatarId);
-    if (!avatar) return;
-
-    try {
-      const success = await buyAvatar(avatarId);
-      if (success) {
-        setAvatarPurchaseFeedback({
-          name: avatar.name,
-          emoji: avatar.emoji,
-          rarity: avatar.rarity,
-          description: avatar.description,
-          remainingCoins: user.coins - avatar.price,
-        });
-        setTimeout(() => checkAndUnlockAchievements(), 500);
-      } else if (user.ownedAvatars.includes(avatarId)) {
-        addNotification({
-          message: `${avatar.name} is already in your collection.`,
-          type: 'info',
-          icon: '🎭',
-        });
-      } else {
-        addNotification({
-          message: `You need ${avatar.price - user.coins} more coins to unlock ${avatar.name}.`,
-          type: 'warning',
-          icon: '🪙',
-        });
-      }
-    } catch (error) {
-      console.error('Failed to buy avatar:', error);
-      addNotification({
-        message: 'Avatar purchase failed. Please try again.',
-        type: 'error',
-        icon: '⚠️',
-      });
-    }
-  };
-
-  const handleSetAvatar = (avatarId: string) => {
-    setAvatar(avatarId); // This will trigger UserContext.updateUser
-  };
-
-  // Manual achievement checking (for testing)
-  const handleCheckAchievements = () => {
-    if (isAuthenticated()) {
-      checkAndUnlockAchievements();
-    } else {
-      alert('Sign in to unlock achievements!');
-    }
-  };
-
   if (!user) {
     return (
-      <div className="p-8 bg-gradient-to-br from-slate-50 to-blue-50 min-h-screen flex items-center justify-center">
-        <div className="bg-white rounded-2xl shadow-xl border border-gray-200 p-8 max-w-md w-full text-center">
-          <div className="mb-6">
-            <h1 className="text-2xl font-bold text-gray-900 mb-2">Welcome to Codhak</h1>
-            <p className="text-gray-600">Sign up or sign in to save your benchmark reports, practice history, and progress.</p>
+      <div className={`${pageClassName} flex min-h-screen items-center justify-center px-4 py-10`}>
+        <div className="w-full max-w-lg rounded-2xl border border-border bg-card p-8 text-center shadow-elevated">
+          <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-primary/15 text-primary glow-primary">
+            <UserCircle2 className="h-8 w-8" />
           </div>
-
-          <p className="text-xs text-gray-400 mt-6">
-            You can continue to browse, but progress won't be saved until you sign in.
-          </p>
+          <h1 className="mt-5 text-3xl font-display font-semibold text-foreground">Your profile unlocks after sign in</h1>
+          <p className="mt-3 text-sm text-muted-foreground">Save benchmark reports, track progress, and build a stronger competitive profile.</p>
         </div>
       </div>
     );
   }
 
-  const currentAvatar = avatars.find((a) => a.id === user.currentAvatar) || avatars[0];
-  
-  // Calculate dynamic stats for all 4 languages using robust methods
-  const pythonProgress = React.useMemo(() => {
-    const total = getLessonCountByLanguage('python');
-    const completed = countCompletedLessonsByLanguage('python', user.completedLessons);
-    return {
-      total,
-      completed,
-      percentage: total > 0 ? Math.round((completed / total) * 100) : 0
-    };
-  }, [user.completedLessons]);
-
-  const javascriptProgress = React.useMemo(() => {
-    const total = getLessonCountByLanguage('javascript');
-    const completed = countCompletedLessonsByLanguage('javascript', user.completedLessons);
-    return {
-      total,
-      completed,
-      percentage: total > 0 ? Math.round((completed / total) * 100) : 0
-    };
-  }, [user.completedLessons]);
-
-  const cppProgress = React.useMemo(() => {
-    const total = getLessonCountByLanguage('cpp');
-    const completed = countCompletedLessonsByLanguage('cpp', user.completedLessons);
-    return {
-      total,
-      completed,
-      percentage: total > 0 ? Math.round((completed / total) * 100) : 0
-    };
-  }, [user.completedLessons]);
-
-  const javaProgress = React.useMemo(() => {
-    const total = getLessonCountByLanguage('java');
-    const completed = countCompletedLessonsByLanguage('java', user.completedLessons);
-    return {
-      total,
-      completed,
-      percentage: total > 0 ? Math.round((completed / total) * 100) : 0
-    };
-  }, [user.completedLessons]);
-
-  // Calculate overall progress across all languages
-  const overallProgress = React.useMemo(() => {
-    const totalLessonsAcrossLanguages = pythonProgress.total + javascriptProgress.total + cppProgress.total + javaProgress.total;
-    const completedLessonsAcrossLanguages = pythonProgress.completed + javascriptProgress.completed + cppProgress.completed + javaProgress.completed;
-    
-    if (totalLessonsAcrossLanguages === 0) return 0;
-    return Math.round((completedLessonsAcrossLanguages / totalLessonsAcrossLanguages) * 100);
-  }, [pythonProgress, javascriptProgress, cppProgress, javaProgress]);
-
-  // Verify that our calculated total matches the user's stored total
-  const calculatedTotalCompleted = React.useMemo(() => {
-    return pythonProgress.completed + javascriptProgress.completed + cppProgress.completed + javaProgress.completed;
-  }, [pythonProgress, javascriptProgress, cppProgress, javaProgress]);
-
-  // Debug information (can be removed in production)
-  React.useEffect(() => {
-    if (!isProfileDebugEnabled) {
-      return;
-    }
-    profileDebugLog('Profile Progress Debug:', {
-      userStoredTotal: user.totalLessonsCompleted,
-      calculatedTotal: calculatedTotalCompleted,
-      completedLessonsArray: user.completedLessons.length,
-      match: user.totalLessonsCompleted === calculatedTotalCompleted,
-      breakdown: {
-        python: pythonProgress,
-        javascript: javascriptProgress,
-        cpp: cppProgress,
-        java: javaProgress
-      },
-      overallProgress
-    });
-  }, [user.totalLessonsCompleted, calculatedTotalCompleted, user.completedLessons.length, pythonProgress, javascriptProgress, cppProgress, javaProgress, overallProgress]);
-
+  const currentAvatar = avatars.find((avatar) => avatar.id === user.currentAvatar) ?? avatars[0];
   const levelProgress = getLevelProgress(user.xp);
   const levelTier = getLevelTier(levelProgress.currentLevel);
-
-  const totalXpForCurrentLevelSegment = levelProgress.nextLevelXP - levelProgress.currentLevelXP;
-
-  const stats = [
-    { label: 'Total XP', value: user.xp.toLocaleString(), icon: Trophy, color: 'text-yellow-500', bgColor: 'bg-yellow-50' },
-    { label: 'Current Level', value: levelProgress.currentLevel, icon: Target, color: 'text-purple-500', bgColor: 'bg-purple-50' },
-    { label: 'Lessons Completed', value: user.totalLessonsCompleted, icon: BookOpen, color: 'text-green-500', bgColor: 'bg-green-50' },
-    { label: 'Current Streak', value: `${user.currentStreak} days`, icon: Zap, color: 'text-orange-500', bgColor: 'bg-orange-50' },
-  ];
-
-  const languageStats = [
-    { name: 'Python', progress: pythonProgress, color: 'bg-blue-500', icon: '🐍' },
-    { name: 'JavaScript', progress: javascriptProgress, color: 'bg-yellow-500', icon: '🟨' },
-    { name: 'C++', progress: cppProgress, color: 'bg-purple-500', icon: '⚡' },
-    { name: 'Java', progress: javaProgress, color: 'bg-red-500', icon: '☕' },
-  ];
-
-  const userAchievements = achievements.map((achievement) => ({
-    ...achievement,
-    isUnlocked: user.unlockedAchievements.includes(achievement.id),
-  }));
-
-  const unlockedCount = userAchievements.filter((a) => a.isUnlocked).length;
   const activeBoosts = getActiveBoosts();
   const resolvedDuelRating = duelRating ?? DEFAULT_DUEL_RATING;
   const duelRank = getEloRankInfo(resolvedDuelRating);
-  const isDuelRatingLoading = duelRating === null;
 
-  const formatTimeRemaining = (expiresAt: number) => {
-    const remaining = Math.max(0, expiresAt - currentTime);
-    const hours = Math.floor(remaining / (1000 * 60 * 60));
-    const minutes = Math.floor((remaining % (1000 * 60 * 60)) / (1000 * 60));
-    const seconds = Math.floor((remaining % (1000 * 60)) / 1000);
-    
-    if (hours > 0) {
-      return `${hours}h ${minutes}m ${seconds}s`;
-    } else if (minutes > 0) {
-      return `${minutes}m ${seconds}s`;
-    } else {
-      return `${seconds}s`;
-    }
-  };
+  const languageStats = useMemo(
+    () =>
+      (['python', 'javascript', 'cpp', 'java'] as const).map((language) => {
+        const total = getLessonCountByLanguage(language);
+        const completed = countCompletedLessonsByLanguage(language, user.completedLessons);
+        const percentage = total > 0 ? Math.round((completed / total) * 100) : 0;
+        return { id: language, completed, total, percentage, ...languageTone[language] };
+      }),
+    [user.completedLessons]
+  );
+
+  const completedLessonsCount = languageStats.reduce((sum, language) => sum + language.completed, 0);
+  const totalLessonsCount = languageStats.reduce((sum, language) => sum + language.total, 0);
+  const overallProgress = totalLessonsCount > 0 ? Math.round((completedLessonsCount / totalLessonsCount) * 100) : 0;
+  const bestTrack = [...languageStats].sort((a, b) => b.percentage - a.percentage || b.completed - a.completed)[0];
+  const biggestGap = [...languageStats].sort((a, b) => a.percentage - b.percentage || a.completed - b.completed)[0];
+  const nextAvatarUnlock = avatars.filter((avatar) => !user.ownedAvatars.includes(avatar.id)).sort((a, b) => a.price - b.price)[0];
+
+  const userAchievements = achievements
+    .map((achievement) => ({
+      ...achievement,
+      isUnlocked: user.unlockedAchievements.includes(achievement.id),
+    }))
+    .sort((a, b) => Number(b.isUnlocked) - Number(a.isUnlocked) || a.name.localeCompare(b.name));
+  const unlockedCount = userAchievements.filter((achievement) => achievement.isUnlocked).length;
+  const achievementCompletion = userAchievements.length > 0 ? Math.round((unlockedCount / userAchievements.length) * 100) : 0;
 
   const recentActivity = [
     ...recentLessonEvents.map((entry) => ({
+      id: `lesson-${entry.lessonId}-${entry.completedAt}`,
       action: 'Completed lesson',
       item: formatLessonIdAsDisplayName(entry.lessonId),
       xp: entry.xp,
@@ -452,665 +268,619 @@ const Profile: React.FC = () => {
         hour: '2-digit',
         minute: '2-digit',
       }),
-      icon: '📚',
+      icon: '\u{1F4DA}',
     })),
-    ...user.unlockedAchievements.slice(-3).reverse().map((achievementId: string) => {
-      const achievement = achievements.find((a) => a.id === achievementId);
+    ...user.unlockedAchievements.slice(-3).reverse().map((achievementId) => {
+      const achievement = achievements.find((entry) => entry.id === achievementId);
       return {
+        id: `achievement-${achievementId}`,
         action: 'Unlocked achievement',
-        item: achievement?.name || 'Unknown Achievement',
+        item: achievement?.name || 'Achievement',
         xp: achievement?.reward.xp || 0,
         time: 'Recently',
-        icon: achievement?.icon || '🏆',
+        icon: achievement?.icon || '\u{1F3C6}',
       };
     }),
   ].slice(0, 6);
 
+  const handleNameChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const value = event.target.value;
+    if (value.length <= 16) {
+      setEditName(value);
+    }
+  };
+
+  const handleSaveProfile = async () => {
+    const trimmedName = editName.trim();
+    if (!trimmedName || trimmedName.length > 16) return;
+
+    try {
+      await updateUser({ name: trimmedName });
+      if (user.id !== 'guest') {
+        profileDebugLog('Profile name changed, forcing AuthContext profile refetch and leaderboard sync...');
+        await refetchProfile();
+      }
+      addNotification({ message: 'Profile updated successfully.', type: 'success', icon: '\u2705' });
+      setIsEditing(false);
+    } catch (error) {
+      console.error('Failed to save profile:', error);
+      addNotification({ message: 'Could not save your profile. Please try again.', type: 'error', icon: '\u26A0\uFE0F' });
+    }
+  };
+
+  const handleBuyAvatar = async (avatarId: string) => {
+    const avatar = avatars.find((entry) => entry.id === avatarId);
+    if (!avatar) return;
+
+    try {
+      const success = await buyAvatar(avatarId);
+      if (success) {
+        setAvatarPurchaseFeedback({
+          id: avatar.id,
+          name: avatar.name,
+          emoji: avatar.emoji,
+          rarity: avatar.rarity,
+          description: avatar.description,
+          remainingCoins: Math.max(0, user.coins - avatar.price),
+        });
+        window.setTimeout(() => void checkAndUnlockAchievements(), 400);
+        return;
+      }
+
+      if (user.ownedAvatars.includes(avatarId)) {
+        addNotification({ message: `${avatar.name} is already in your collection.`, type: 'info', icon: '\u{1F3AD}' });
+        return;
+      }
+
+      addNotification({
+        message: `You need ${avatar.price - user.coins} more coins to unlock ${avatar.name}.`,
+        type: 'warning',
+        icon: '\u{1FA99}',
+      });
+    } catch (error) {
+      console.error('Failed to buy avatar:', error);
+      addNotification({ message: 'Avatar purchase failed. Please try again.', type: 'error', icon: '\u26A0\uFE0F' });
+    }
+  };
+
+  const handleEquipAvatar = (avatarId: string) => {
+    setAvatar(avatarId);
+    addNotification({ message: 'Avatar equipped.', type: 'success', icon: '\u{1F3AD}' });
+  };
+
+  const scrollToSection = (section: ProfileTabId) => {
+    setActiveTab(section);
+    document.getElementById(`profile-${section}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
+
   return (
-    <div className="p-4 lg:p-8 bg-gradient-to-br from-slate-50 to-blue-50 min-h-screen">
-      <div className="mb-8">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl lg:text-4xl font-bold text-gray-900 mb-2">Player Profile</h1>
-            <p className="text-gray-600">Track your benchmark history, practice progress, and achievements</p>
-          </div>
-          {/* Manual Sync Button and Achievement Check (Optional, primarily for debugging/testing) */}
-          <div className="flex gap-2">
-            
-          </div>
-        </div>
-      </div>
-
-      {/* Profile Header Card */}
-      <div className="bg-white rounded-2xl shadow-xl border border-gray-200 p-4 lg:p-8 mb-8 relative overflow-hidden">
-        <div className="absolute top-0 right-0 w-64 h-64 bg-gradient-to-br from-blue-100 to-purple-100 rounded-full -translate-y-32 translate-x-32 opacity-50"></div>
-
-        <div className="relative z-10 flex flex-col lg:flex-row items-center lg:items-start space-y-6 lg:space-y-0 lg:space-x-8">
-          <div className="text-center lg:text-left">
-            <div className="relative inline-block mb-4">
-              <div className="w-24 h-24 lg:w-32 lg:h-32 bg-gradient-to-br from-blue-400 to-purple-500 rounded-full flex items-center justify-center text-4xl lg:text-6xl shadow-lg">
-                {currentAvatar.emoji}
+    <div className={pageClassName}>
+      <div className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-3 py-4 sm:px-4 lg:px-8">
+        <motion.section initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className={`${cardClassName} relative overflow-hidden p-5 sm:p-6 lg:p-8`}>
+          <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,_rgba(59,130,246,0.22),_transparent_35%),radial-gradient(circle_at_top_right,_rgba(217,70,239,0.18),_transparent_32%)]" />
+          <div className="relative grid gap-6 xl:grid-cols-[minmax(0,1.6fr)_minmax(320px,0.95fr)]">
+            <div className="space-y-5">
+              <div className="inline-flex items-center gap-2 rounded-full border border-primary/20 bg-primary/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-primary">
+                <ShieldCheck className="h-3.5 w-3.5" />
+                Developer skill profile
               </div>
-              <div className="absolute -bottom-2 -right-2 w-10 h-10 lg:w-12 lg:h-12 bg-yellow-400 rounded-full flex items-center justify-center shadow-lg">
-                <span className="text-sm lg:text-lg font-bold text-yellow-900">{levelProgress.currentLevel}</span>
-              </div>
-              {/* Level Tier Badge */}
-              <div className={`absolute -top-2 -left-2 px-1 lg:px-2 py-1 ${levelTier.bgColor} ${levelTier.color} rounded-full text-xs font-bold flex items-center space-x-1`}>
-                <span>{levelTier.icon}</span>
-                <span className="hidden lg:inline">{levelTier.tier}</span>
-              </div>
-            </div>
 
-            {/* Name editing section */}
-            {isEditing ? (
-              <div className="space-y-3">
-                <div>
-                  <input
-                    type="text"
-                    value={editName}
-                    onChange={handleNameChange}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg text-center font-semibold text-lg lg:text-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
-                    maxLength={16}
-                    placeholder="Enter your name"
-                  />
-                  <div className="text-xs text-gray-500 mt-1 text-center">
-                    <span className={editName.length > 14 ? 'text-orange-500' : editName.length === 16 ? 'text-red-500' : ''}>
-                      {editName.length}/16 characters
+              <div className="flex flex-col gap-5 md:flex-row">
+                <div className="relative flex h-28 w-28 shrink-0 items-center justify-center rounded-[28px] border border-white/10 bg-gradient-to-br from-primary/25 via-primary/15 to-transparent text-6xl shadow-elevated">
+                  {currentAvatar.emoji}
+                  <div className="absolute -bottom-2 -right-2 flex h-11 w-11 items-center justify-center rounded-2xl border border-coins/30 bg-coins text-base font-bold text-coins-foreground shadow-card">
+                    {levelProgress.currentLevel}
+                  </div>
+                </div>
+
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="rounded-full bg-white/5 px-3 py-1 text-xs font-medium text-muted-foreground">
+                      {levelTier.tier} level band
+                    </span>
+                    <span className={`rounded-full px-3 py-1 text-xs font-medium ${rarityTone[currentAvatar.rarity]}`}>
+                      {currentAvatar.rarity} avatar
                     </span>
                   </div>
-                </div>
-                <div className="flex flex-col sm:flex-row space-y-2 sm:space-y-0 sm:space-x-2">
-                  <button
-                    onClick={handleSaveProfile}
-                    disabled={editName.trim().length === 0 || editName.trim().length > 16}
-                    className="flex-1 px-4 py-2 bg-green-500 text-white rounded-lg text-sm font-medium hover:bg-green-600 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
-                  >
-                    Save
-                  </button>
-                  <button
-                    onClick={() => {
-                      setIsEditing(false);
-                      setEditName(user.name);
-                    }}
-                    className="flex-1 px-4 py-2 bg-gray-300 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-400 transition-colors"
-                  >
-                    Cancel
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <div>
-                <div className="mb-4 flex items-center justify-center lg:justify-start">
-                  <h2 className="text-2xl lg:text-3xl font-bold text-gray-900">{user.name}</h2>
-                </div>
-                <p className={`text-sm font-medium ${levelTier.color} mb-4`}>
-                  Level {levelProgress.currentLevel} {levelTier.tier}
-                </p>
-                <div className="flex flex-col sm:flex-row gap-2">
-                  <button
-                    onClick={() => setShowAvatarStore(true)}
-                    className="inline-flex items-center justify-center space-x-2 px-4 py-2 bg-purple-100 hover:bg-purple-200 text-purple-700 rounded-lg transition-colors text-sm lg:text-base"
-                  >
-                    <User className="w-4 h-4" />
-                    <span>Avatar Collection</span>
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
 
-          {/* Rest of the component remains the same... */}
-          <div className="flex-1 w-full">
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 lg:gap-4 mb-6">
-              {stats.map((stat, index) => {
-                const Icon = stat.icon;
-                return (
-                  <div key={index} className={`${stat.bgColor} rounded-xl p-3 lg:p-4 text-center`}>
-                    <Icon className={`w-6 h-6 lg:w-8 lg:h-8 ${stat.color} mx-auto mb-2`} />
-                    <div className="text-lg lg:text-2xl font-bold text-gray-900">{stat.value}</div>
-                    <div className="text-sm text-gray-600">{stat.label}</div>
+                  {isEditing ? (
+                    <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center">
+                      <div className="min-w-0 flex-1">
+                        <input
+                          type="text"
+                          value={editName}
+                          onChange={handleNameChange}
+                          maxLength={16}
+                          className="w-full rounded-xl border border-border bg-background px-4 py-3 text-lg font-semibold text-foreground outline-none transition focus:border-primary/40 focus:ring-2 focus:ring-primary/20"
+                        />
+                        <div className="mt-2 text-xs text-muted-foreground">{editName.length}/16 characters</div>
+                      </div>
+                      <div className="flex gap-2">
+                        <button onClick={handleSaveProfile} className="rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground shadow-card transition hover:opacity-90">
+                          Save
+                        </button>
+                        <button
+                          onClick={() => {
+                            setEditName(user.name);
+                            setIsEditing(false);
+                          }}
+                          className="rounded-xl border border-border bg-background px-4 py-2.5 text-sm font-semibold text-foreground transition hover:border-primary/30 hover:text-primary"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="mt-4">
+                      <div className="flex flex-wrap items-center gap-3">
+                        <h1 className="truncate text-3xl font-display font-semibold text-foreground sm:text-4xl">{user.name}</h1>
+                        <button
+                          onClick={() => setIsEditing(true)}
+                          className="inline-flex items-center gap-2 rounded-full border border-border bg-background/80 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground transition hover:border-primary/30 hover:text-primary"
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
+                          Edit name
+                        </button>
+                      </div>
+                      <p className="mt-2 max-w-2xl text-sm text-muted-foreground">
+                        Track interview readiness, ranked duel strength, and your practice momentum from one clean profile.
+                      </p>
+                    </div>
+                  )}
+
+                  <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                    <div className={panelClassName}>
+                      <div className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">Duel rating</div>
+                      <div className="mt-2 text-xl font-semibold text-foreground">{resolvedDuelRating}</div>
+                      <div className="mt-1 text-sm text-muted-foreground">{duelRank.icon} {duelRank.tier} tier</div>
+                    </div>
+                    <div className={panelClassName}>
+                      <div className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">Current streak</div>
+                      <div className="mt-2 text-xl font-semibold text-foreground">{user.currentStreak} days</div>
+                      <div className="mt-1 text-sm text-muted-foreground">Consistency compounds quickly.</div>
+                    </div>
+                    <div className={panelClassName}>
+                      <div className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">Available coins</div>
+                      <div className="mt-2 text-xl font-semibold text-foreground">{user.coins.toLocaleString()}</div>
+                      <div className="mt-1 text-sm text-muted-foreground">{user.totalCoinsEarned.toLocaleString()} earned lifetime</div>
+                    </div>
+                    <div className={panelClassName}>
+                      <div className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">Practice coverage</div>
+                      <div className="mt-2 text-xl font-semibold text-foreground">{overallProgress}%</div>
+                      <div className="mt-1 text-sm text-muted-foreground">
+                        {completedLessonsCount} of {totalLessonsCount} lessons complete
+                      </div>
+                    </div>
                   </div>
-                );
-              })}
-            </div>
 
-            <div className="mb-4">
-              <div className="flex justify-between items-center mb-2">
-                <span className="text-base lg:text-lg font-semibold text-gray-700">Level Progress</span>
-                <span className="text-sm text-gray-600">
-                  {levelProgress.progressToNext} / {totalXpForCurrentLevelSegment} XP
-                </span>
-              </div>
-              <div className="w-full bg-gray-200 rounded-full h-4 shadow-inner">
-                <div
-                  className="bg-gradient-to-r from-blue-500 to-purple-500 h-4 rounded-full transition-all duration-1000 shadow-sm"
-                  style={{ width: `${levelProgress.progressPercentage}%` }}
-                ></div>
-              </div>
-              <div className="flex justify-between text-xs text-gray-500 mt-1">
-                <span>Level {levelProgress.currentLevel}</span>
-                <span>Level {levelProgress.currentLevel + 1}</span>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-3 gap-2 lg:gap-4">
-              <div className="text-center p-3 bg-gradient-to-br from-yellow-50 to-yellow-100 rounded-lg border border-yellow-200">
-                <div className="text-lg lg:text-2xl font-bold text-yellow-700">{user.coins}</div>
-                <div className="text-xs text-yellow-600">Coins</div>
-              </div>
-              <div className="text-center p-3 bg-gradient-to-br from-red-50 to-red-100 rounded-lg border border-red-200">
-                <div className="flex justify-center space-x-1 mb-1">
-                  {Array.from({ length: 5 }, (_, i) => (
-                    <Heart
-                      key={i}
-                      className={`w-3 h-3 lg:w-4 lg:h-4 ${
-                        activeBoosts.unlimitedHearts 
-                          ? 'text-pink-500 fill-pink-500 animate-pulse' 
-                          : i < user.hearts 
-                          ? 'text-red-500 fill-red-500' 
-                          : 'text-gray-300 fill-gray-300'
-                      }`}
-                    />
-                  ))}
-                </div>
-                <div className="text-xs text-red-600">
-                  {activeBoosts.unlimitedHearts ? 'Unlimited' : 'Hearts'}
+                  <div className="mt-5 flex flex-wrap gap-3">
+                    <button onClick={() => setShowAvatarStore(true)} className="inline-flex items-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground shadow-card transition hover:opacity-90">
+                      Avatar collection
+                      <ChevronRight className="h-4 w-4" />
+                    </button>
+                    <Link to="/app?section=store" className="inline-flex items-center gap-2 rounded-xl border border-border bg-background px-4 py-2.5 text-sm font-semibold text-foreground transition hover:border-primary/30 hover:text-primary">
+                      Open store
+                      <ChevronRight className="h-4 w-4" />
+                    </Link>
+                    <Link to="/app?section=benchmark" className="inline-flex items-center gap-2 rounded-xl border border-border bg-background px-4 py-2.5 text-sm font-semibold text-foreground transition hover:border-primary/30 hover:text-primary">
+                      Retake benchmark
+                      <BarChart3 className="h-4 w-4" />
+                    </Link>
+                  </div>
                 </div>
               </div>
-              <div className="text-center p-3 bg-gradient-to-br from-green-50 to-green-100 rounded-lg border border-green-200">
-                <div className="text-lg lg:text-2xl font-bold text-green-700">{overallProgress}%</div>
-                <div className="text-xs text-green-600">Complete</div>
-              </div>
             </div>
+            <div className="space-y-4">
+              <div className={`${panelClassName} p-5`}>
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <div className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">Level progress</div>
+                    <div className="mt-2 text-3xl font-display font-semibold text-foreground">Level {levelProgress.currentLevel}</div>
+                  </div>
+                  <div className="rounded-2xl border border-border/70 bg-card px-4 py-3 text-right">
+                    <div className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">Next level</div>
+                    <div className="mt-1 text-lg font-semibold text-foreground">{Math.max(0, levelProgress.nextLevelXP - user.xp).toLocaleString()} XP</div>
+                  </div>
+                </div>
+                <div className="mt-4 h-3 rounded-full bg-card">
+                  <div className="h-3 rounded-full bg-gradient-to-r from-primary via-fuchsia-500 to-cyan-400 transition-all duration-500" style={{ width: `${levelProgress.progressPercentage > 0 ? Math.max(6, levelProgress.progressPercentage) : 0}%` }} />
+                </div>
+                <div className="mt-2 text-sm text-muted-foreground">
+                  {levelProgress.progressToNext.toLocaleString()} XP earned in this level band.
+                </div>
+              </div>
 
-            {/* Active Boosts Display */}
-            {(activeBoosts.xpBoost || activeBoosts.unlimitedHearts) && (
-              <div className="mt-4 p-3 lg:p-4 bg-gradient-to-r from-purple-50 to-pink-50 rounded-lg border border-purple-200">
-                <h4 className="font-semibold text-purple-800 mb-2 flex items-center">
-                  <Zap className="w-4 h-4 mr-1" />
-                  Active Boosts
-                </h4>
-                <div className="space-y-2">
-                  {activeBoosts.xpBoost && (
-                    <div className="flex flex-col sm:flex-row items-center justify-between text-sm bg-yellow-100 text-yellow-800 px-3 py-2 rounded-lg gap-1">
-                      <span className="font-medium">{activeBoosts.xpBoost.multiplier}x XP Boost</span>
-                      <span className="text-xs">{formatTimeRemaining(activeBoosts.xpBoost.expiresAt)}</span>
+              <div className={`${panelClassName} p-5`}>
+                <div className="text-sm font-semibold text-foreground">Current momentum</div>
+                <div className="mt-4 space-y-3 text-sm text-muted-foreground">
+                  <div className="rounded-xl border border-border/70 bg-card px-4 py-3">
+                    Best track right now: <span className="font-semibold text-foreground">{bestTrack.label}</span>
+                  </div>
+                  <div className="rounded-xl border border-border/70 bg-card px-4 py-3">
+                    Biggest gap: <span className="font-semibold text-foreground">{biggestGap.label}</span>
+                  </div>
+                  {nextAvatarUnlock ? (
+                    <div className="rounded-xl border border-border/70 bg-card px-4 py-3">
+                      Next avatar unlock: <span className="font-semibold text-foreground">{nextAvatarUnlock.name}</span> at {nextAvatarUnlock.price.toLocaleString()} coins.
                     </div>
-                  )}
-                  {activeBoosts.unlimitedHearts && (
-                    <div className="flex flex-col sm:flex-row items-center justify-between text-sm bg-pink-100 text-pink-800 px-3 py-2 rounded-lg gap-1">
-                      <span className="font-medium">Unlimited Hearts</span>
-                      <span className="text-xs">{formatTimeRemaining(activeBoosts.unlimitedHearts.expiresAt)}</span>
-                    </div>
-                  )}
+                  ) : null}
                 </div>
               </div>
-            )}
 
+              {activeBoosts.xpBoost || activeBoosts.unlimitedHearts ? (
+                <div className={`${panelClassName} p-5`}>
+                  <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
+                    <Zap className="h-4 w-4 text-xp" />
+                    Active boosts
+                  </div>
+                  <div className="mt-4 space-y-3">
+                    {activeBoosts.xpBoost ? (
+                      <div className="flex items-center justify-between rounded-xl border border-border/70 bg-card px-4 py-3">
+                        <div>
+                          <div className="text-sm font-semibold text-foreground">{activeBoosts.xpBoost.multiplier}x XP boost</div>
+                          <div className="text-xs text-muted-foreground">Lesson rewards are boosted.</div>
+                        </div>
+                        <div className="text-sm font-semibold text-xp">{formatCountdown(activeBoosts.xpBoost.expiresAt, currentTime)}</div>
+                      </div>
+                    ) : null}
+                    {activeBoosts.unlimitedHearts ? (
+                      <div className="flex items-center justify-between rounded-xl border border-border/70 bg-card px-4 py-3">
+                        <div>
+                          <div className="text-sm font-semibold text-foreground">Unlimited hearts</div>
+                          <div className="text-xs text-muted-foreground">Practice without heart limits.</div>
+                        </div>
+                        <div className="text-sm font-semibold text-destructive">{formatCountdown(activeBoosts.unlimitedHearts.expiresAt, currentTime)}</div>
+                      </div>
+                    ) : null}
+                  </div>
+                </div>
+              ) : null}
+            </div>
           </div>
+        </motion.section>
+
+        <div className="sticky top-3 z-20 flex flex-wrap gap-2 rounded-2xl border border-border bg-card/85 p-2 shadow-card backdrop-blur">
+          {tabs.map((tab) => {
+            const Icon = tab.icon;
+            const isActive = activeTab === tab.id;
+            return (
+              <button
+                key={tab.id}
+                onClick={() => scrollToSection(tab.id)}
+                className={`inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold transition ${isActive ? 'bg-primary text-primary-foreground shadow-card' : 'text-muted-foreground hover:bg-background hover:text-foreground'}`}
+              >
+                <Icon className="h-4 w-4" />
+                {tab.label}
+              </button>
+            );
+          })}
         </div>
-      </div>
 
-      {/* Navigation Tabs */}
-      <div className="flex space-x-1 mb-8 bg-white rounded-xl p-2 shadow-md overflow-x-auto">
-        {[
-          { id: 'overview', label: 'Overview', icon: Trophy },
-          { id: 'progress', label: 'Progress', icon: Target },
-          { id: 'achievements', label: 'Achievements', icon: Award },
-          { id: 'activity', label: 'Activity', icon: Calendar },
-        ].map((tab) => {
-          const Icon = tab.icon;
-          return (
-            <button
-              key={tab.id}
-              onClick={() => scrollToProfileSection(tab.id as any)}
-              className={`flex-1 flex items-center justify-center space-x-2 px-3 lg:px-4 py-3 rounded-lg font-medium transition-all duration-200 whitespace-nowrap text-sm lg:text-base ${
-                activeTab === tab.id
-                  ? 'bg-gradient-to-r from-blue-500 to-purple-500 text-white shadow-lg'
-                  : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
-              }`}
-            >
-              <Icon className="w-4 h-4 lg:w-5 lg:h-5" />
-              <span className="hidden sm:inline">{tab.label}</span>
-            </button>
-          );
-        })}
-      </div>
+        <section id="profile-overview" className={`${cardClassName} scroll-mt-28 p-5 sm:p-6`}>
+          <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-primary">Snapshot</div>
+              <h2 className="mt-1 text-2xl font-display font-semibold text-foreground">The signal your profile is sending</h2>
+              <p className="mt-1 text-sm text-muted-foreground">A cleaner set of metrics that reads like a real product profile, not a leftover game screen.</p>
+            </div>
+            <Link to="/app?section=practice" className="inline-flex items-center gap-2 rounded-xl border border-border bg-background px-4 py-2.5 text-sm font-semibold text-foreground transition hover:border-primary/30 hover:text-primary">
+              Continue practice
+              <ChevronRight className="h-4 w-4" />
+            </Link>
+          </div>
 
-      {/* Profile Sections */}
-      <section id="profile-overview" className="grid grid-cols-1 lg:grid-cols-2 gap-6 scroll-mt-24 mb-8">
-          <div className="bg-white rounded-xl shadow-md border border-gray-200 p-6">
-            <h3 className="text-xl font-semibold text-gray-900 mb-6 flex items-center">
-              <Code className="w-6 h-6 mr-2 text-blue-500" />
-              Language Mastery
-            </h3>
-            <div className="space-y-6">
-              {languageStats.map((lang, index) => (
-                <div key={index} className="space-y-3">
-                                    <div className="flex items-center justify-between">
-                    <div className="flex items-center space-x-3">
-                      <span className="text-2xl">{lang.icon}</span>
-                      <div>
-                        <span className="font-semibold text-gray-900">{lang.name}</span>
-                        <div className="text-sm text-gray-600">
-                          {lang.progress.completed}/{lang.progress.total} lessons
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+            <div className={panelClassName}>
+              <div className="flex items-center gap-3">
+                <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-xp/12 text-xp glow-xp"><Trophy className="h-5 w-5" /></div>
+                <div>
+                  <div className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">Total XP</div>
+                  <div className="mt-1 text-2xl font-display font-semibold text-foreground">{user.xp.toLocaleString()}</div>
+                </div>
+              </div>
+            </div>
+            <div className={panelClassName}>
+              <div className="flex items-center gap-3">
+                <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-primary/12 text-primary glow-primary"><BookOpen className="h-5 w-5" /></div>
+                <div>
+                  <div className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">Lessons</div>
+                  <div className="mt-1 text-2xl font-display font-semibold text-foreground">{user.totalLessonsCompleted}</div>
+                </div>
+              </div>
+            </div>
+            <div className={panelClassName}>
+              <div className="flex items-center gap-3">
+                <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-coins/12 text-coins glow-coins"><Coins className="h-5 w-5" /></div>
+                <div>
+                  <div className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">Coins earned</div>
+                  <div className="mt-1 text-2xl font-display font-semibold text-foreground">{user.totalCoinsEarned.toLocaleString()}</div>
+                </div>
+              </div>
+            </div>
+            <div className={panelClassName}>
+              <div className="flex items-center gap-3">
+                <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-primary/12 text-primary glow-primary"><Medal className="h-5 w-5" /></div>
+                <div>
+                  <div className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">Achievements</div>
+                  <div className="mt-1 text-2xl font-display font-semibold text-foreground">{unlockedCount}/{userAchievements.length}</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-5 grid gap-4 xl:grid-cols-3">
+            <div className={panelClassName}>
+              <div className="flex items-center gap-2 text-sm font-semibold text-foreground"><Target className="h-4 w-4 text-primary" />Next best move</div>
+              <p className="mt-3 text-sm text-muted-foreground">Push {biggestGap.label} upward, then refresh your benchmark report to show a stronger coverage profile.</p>
+            </div>
+            <div className={panelClassName}>
+              <div className="flex items-center gap-2 text-sm font-semibold text-foreground"><Swords className="h-4 w-4 text-primary" />Duel profile</div>
+              <p className="mt-3 text-sm text-muted-foreground">{duelRank.tier} tier at {resolvedDuelRating} rating. This is the clearest live competitive signal on your account.</p>
+            </div>
+            <div className={panelClassName}>
+              <div className="flex items-center gap-2 text-sm font-semibold text-foreground"><Sparkles className="h-4 w-4 text-primary" />Avatar collection</div>
+              <p className="mt-3 text-sm text-muted-foreground">You own {user.ownedAvatars.length} avatar{user.ownedAvatars.length === 1 ? '' : 's'}. Avatar management stays here, while coin packs and boosts live in the store.</p>
+            </div>
+          </div>
+        </section>
+
+        <section id="profile-progress" className={`${cardClassName} scroll-mt-28 p-5 sm:p-6`}>
+          <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-primary">Coverage</div>
+              <h2 className="mt-1 text-2xl font-display font-semibold text-foreground">Track-by-track progress</h2>
+              <p className="mt-1 text-sm text-muted-foreground">Practice is framed as measurable skill coverage instead of a loose lesson wall.</p>
+            </div>
+            <div className="rounded-xl border border-border bg-background px-4 py-2.5 text-sm font-semibold text-foreground">{overallProgress}% total completion</div>
+          </div>
+
+          <div className="mb-5 rounded-2xl border border-border bg-background/80 p-5">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+              <div>
+                <div className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">Practice coverage</div>
+                <div className="mt-2 text-3xl font-display font-semibold text-foreground">{completedLessonsCount}/{totalLessonsCount} lessons complete</div>
+                <p className="mt-2 text-sm text-muted-foreground">Best track: {bestTrack.label}. Lowest coverage: {biggestGap.label}.</p>
+              </div>
+              <div className="rounded-2xl border border-border/70 bg-card px-4 py-3 text-right">
+                <div className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">Current level band</div>
+                <div className="mt-1 text-lg font-semibold text-foreground">{levelTier.tier}</div>
+              </div>
+            </div>
+            <div className="mt-4 h-3 rounded-full bg-card">
+              <div className="h-3 rounded-full bg-gradient-to-r from-primary via-fuchsia-500 to-cyan-400 transition-all duration-500" style={{ width: `${overallProgress > 0 ? Math.max(6, overallProgress) : 0}%` }} />
+            </div>
+          </div>
+
+          <div className="grid gap-4 xl:grid-cols-2">
+            {languageStats.map((language) => (
+              <div key={language.id} className="rounded-2xl border border-border bg-background/80 p-5 shadow-card">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <div className={`inline-flex rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] ${language.chip}`}>{language.label}</div>
+                    <div className="mt-3 text-3xl font-display font-semibold text-foreground">{language.percentage}%</div>
+                    <p className="mt-1 text-sm text-muted-foreground">{language.completed} of {language.total} lessons completed</p>
+                  </div>
+                  <div className="rounded-2xl border border-border/70 bg-card px-4 py-3 text-right">
+                    <div className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">Coverage</div>
+                    <div className="mt-1 text-lg font-semibold text-foreground">{language.completed}/{language.total}</div>
+                  </div>
+                </div>
+                <div className="mt-5 h-2 rounded-full bg-card">
+                  <div className={`h-2 rounded-full bg-gradient-to-r ${language.progress}`} style={{ width: `${language.percentage > 0 ? Math.max(6, language.percentage) : 0}%` }} />
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        <section id="profile-achievements" className={`${cardClassName} scroll-mt-28 p-5 sm:p-6`}>
+          <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-primary">Recognition</div>
+              <h2 className="mt-1 text-2xl font-display font-semibold text-foreground">Achievements and milestones</h2>
+              <p className="mt-1 text-sm text-muted-foreground">A cleaner milestone grid that reads like proof of progress instead of a side quest list.</p>
+            </div>
+            <div className="rounded-xl border border-border bg-background px-4 py-2.5 text-sm font-semibold text-foreground">{achievementCompletion}% unlocked</div>
+          </div>
+
+          <div className="grid gap-4 md:grid-cols-2 2xl:grid-cols-3">
+            {userAchievements.map((achievement) => (
+              <div key={achievement.id} className={`rounded-2xl border p-5 shadow-card ${achievement.isUnlocked ? 'border-primary/20 bg-background/80' : 'border-border bg-background/70 opacity-85'}`}>
+                <div className="flex items-start justify-between gap-4">
+                  <div className="flex items-start gap-3">
+                    <div className={`flex h-12 w-12 items-center justify-center rounded-2xl text-2xl ${achievement.isUnlocked ? 'bg-primary/12' : 'bg-card'}`}>
+                      {achievement.icon}
+                    </div>
+                    <div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <h3 className="text-base font-semibold text-foreground">{achievement.name}</h3>
+                        <span className={`rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.15em] ${categoryTone[achievement.category]}`}>{achievement.category}</span>
+                      </div>
+                      <p className="mt-2 text-sm text-muted-foreground">{achievement.description}</p>
+                    </div>
+                  </div>
+                  {achievement.isUnlocked ? <CheckCircle2 className="h-5 w-5 text-primary" /> : <Lock className="h-5 w-5 text-muted-foreground" />}
+                </div>
+                <div className="mt-4 flex items-center justify-between text-sm">
+                  <span className="text-muted-foreground">Reward</span>
+                  <span className="font-semibold text-xp">+{achievement.reward.xp} XP</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        <section id="profile-activity" className={`${cardClassName} scroll-mt-28 p-5 sm:p-6`}>
+          <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-primary">Recent activity</div>
+              <h2 className="mt-1 text-2xl font-display font-semibold text-foreground">What happened most recently</h2>
+              <p className="mt-1 text-sm text-muted-foreground">A cleaner feed of actual progress events so the profile feels current instead of stitched together.</p>
+            </div>
+            <Link to="/app?section=leaderboard" className="inline-flex items-center gap-2 rounded-xl border border-border bg-background px-4 py-2.5 text-sm font-semibold text-foreground transition hover:border-primary/30 hover:text-primary">
+              View leaderboard
+              <ChevronRight className="h-4 w-4" />
+            </Link>
+          </div>
+
+          <div className="grid gap-4 xl:grid-cols-[minmax(0,1.5fr)_minmax(300px,0.9fr)]">
+            <div className="rounded-2xl border border-border bg-background/80 p-4">
+              {recentActivity.length > 0 ? (
+                <div className="space-y-3">
+                  {recentActivity.map((entry) => (
+                    <div key={entry.id} className="flex items-start gap-4 rounded-2xl border border-border/80 bg-card p-4">
+                      <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-primary/10 text-xl text-primary">{entry.icon}</div>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-start justify-between gap-3">
+                          <div>
+                            <div className="text-sm font-semibold text-foreground">{entry.action}</div>
+                            <div className="mt-1 text-sm text-muted-foreground">{entry.item}</div>
+                          </div>
+                          <div className="text-right">
+                            <div className="text-sm font-semibold text-xp">+{entry.xp} XP</div>
+                            <div className="mt-1 text-xs text-muted-foreground">{entry.time}</div>
+                          </div>
                         </div>
                       </div>
                     </div>
-                    <div className="text-right">
-                      <div className="text-lg font-bold text-gray-900">{lang.progress.percentage}%</div>
-                    </div>
-                  </div>
-                  <div className="w-full bg-gray-200 rounded-full h-3">
-                    <div
-                      className={`${lang.color} h-3 rounded-full transition-all duration-1000`}
-                      style={{ width: `${lang.progress.percentage}%` }}
-                    ></div>
-                  </div>
+                  ))}
                 </div>
-              ))}
-            </div>
-          </div>
-
-          <div className="bg-white rounded-xl shadow-md border border-gray-200 p-6">
-            <h3 className="text-xl font-semibold text-gray-900 mb-6 flex items-center">
-              <Star className="w-6 h-6 mr-2 text-yellow-500" />
-              Quick Stats
-            </h3>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="bg-gradient-to-br from-blue-50 to-blue-100 rounded-lg p-4 text-center">
-                <div className="text-3xl font-bold text-blue-700">{unlockedCount}</div>
-                <div className="text-sm text-blue-600">Achievements</div>
-              </div>
-              <div className="bg-gradient-to-br from-green-50 to-green-100 rounded-lg p-4 text-center">
-                <div className="text-3xl font-bold text-green-700">{user.totalCoinsEarned}</div>
-                <div className="text-sm text-green-600">Total Coins Earned</div>
-              </div>
-              <div className="bg-gradient-to-br from-purple-50 to-purple-100 rounded-lg p-4 text-center">
-                <div className="text-3xl font-bold text-purple-700">{user.ownedAvatars.length}</div>
-                <div className="text-sm text-purple-600">Avatars Owned</div>
-              </div>
-              <div className={`${isDuelRatingLoading ? 'bg-gray-50' : duelRank.bgColor} rounded-lg border border-gray-200 p-4 text-center`}>
-                {isDuelRatingLoading ? (
-                  <>
-                    <div className="mx-auto h-9 w-24 animate-pulse rounded-md bg-gray-200" />
-                    <div className="mt-2 text-sm text-gray-500">Loading rank...</div>
-                  </>
-                ) : (
-                  <>
-                    <div className="text-3xl font-bold text-gray-900">{duelRank.icon} {resolvedDuelRating}</div>
-                    <div className={`text-sm ${duelRank.color}`}>{duelRank.tier} Rank</div>
-                  </>
-                )}
-              </div>
-            </div>
-          </div>
-        </section>
-
-      <section id="profile-progress" className="bg-white rounded-xl shadow-md border border-gray-200 p-8 scroll-mt-24 mb-8">
-          <h3 className="text-2xl font-semibold text-gray-900 mb-8 flex items-center">
-            <Target className="w-7 h-7 mr-3 text-blue-500" />
-            Learning Progress
-          </h3>
-
-          <div className="mb-8">
-            <div className="flex justify-between items-center mb-4">
-              <h4 className="text-lg font-semibold text-gray-800">Overall Progress</h4>
-              <div className="text-right">
-                <span className="text-2xl font-bold text-blue-600">{overallProgress}%</span>
-                <div className="text-xs text-gray-500">
-                  {calculatedTotalCompleted} / {pythonProgress.total + javascriptProgress.total + cppProgress.total + javaProgress.total} lessons
+              ) : (
+                <div className="flex min-h-[220px] flex-col items-center justify-center rounded-2xl border border-dashed border-border bg-card/80 px-6 text-center">
+                  <Clock3 className="h-8 w-8 text-muted-foreground" />
+                  <h3 className="mt-4 text-lg font-semibold text-foreground">No recent activity yet</h3>
+                  <p className="mt-2 max-w-md text-sm text-muted-foreground">Complete a lesson, duel, or benchmark and your recent timeline will start to fill in here.</p>
                 </div>
-              </div>
-            </div>
-            <div className="w-full bg-gray-200 rounded-full h-6 shadow-inner">
-              <div
-                className="bg-gradient-to-r from-green-400 to-blue-500 h-6 rounded-full transition-all duration-1000 flex items-center justify-end pr-3"
-                style={{ width: `${overallProgress}%` }}
-              >
-                {overallProgress > 10 && <span className="text-white text-sm font-medium">{overallProgress}%</span>}
-              </div>
-            </div>
-            <div className="flex justify-between text-sm text-gray-600 mt-2">
-              <span>Progress across all languages</span>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
-            {languageStats.map((lang, index) => (
-              <div key={index} className="bg-gradient-to-br from-gray-50 to-gray-100 rounded-xl p-6 border border-gray-200">
-                <div className="text-center mb-4">
-                  <div className="text-4xl mb-2">{lang.icon}</div>
-                  <h4 className="text-xl font-bold text-gray-900">{lang.name}</h4>
-                </div>
-
-                <div className="relative w-32 h-32 mx-auto mb-4">
-                  <svg className="w-32 h-32 transform -rotate-90" viewBox="0 0 36 36">
-                    <path
-                      d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
-                      fill="none"
-                      stroke="#e5e7eb"
-                      strokeWidth="2"
-                    />
-                    <path
-                      d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
-                      fill="none"
-                      stroke={lang.color.replace('bg-', '#')}
-                      strokeWidth="2"
-                      strokeDasharray={`${lang.progress.percentage}, 100`}
-                      className="transition-all duration-1000"
-                    />
-                  </svg>
-                  <div className="absolute inset-0 flex items-center justify-center">
-                    <span className="text-2xl font-bold text-gray-900">{lang.progress.percentage}%</span>
-                  </div>
-                </div>
-
-                <div className="text-center">
-                  <p className="text-lg font-semibold text-gray-800">{lang.progress.completed} / {lang.progress.total}</p>
-                  <p className="text-sm text-gray-600">Lessons Completed</p>
-                </div>
-              </div>
-            ))}
-          </div>
-        </section>
-
-      <section id="profile-achievements" className="bg-white rounded-xl shadow-md border border-gray-200 p-8 scroll-mt-24 mb-8">
-          <div className="flex items-center justify-between mb-8">
-            <h3 className="text-2xl font-semibold text-gray-900 flex items-center">
-              <Award className="w-7 h-7 mr-3 text-yellow-500" />
-              Achievements
-            </h3>
-            <div className="text-right">
-              <div className="text-2xl font-bold text-yellow-600">{unlockedCount}/{achievements.length}</div>
-              <div className="text-sm text-gray-600">Unlocked</div>
-              {!isAuthenticated() && (
-                <div className="text-xs text-red-500 mt-1">Sign in to unlock achievements!</div>
               )}
             </div>
-          </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {userAchievements.map((achievement, index) => (
-              <div
-                key={index}
-                className={`p-6 rounded-xl border-2 transition-all duration-300 ${
-                  achievement.isUnlocked
-                    ? 'bg-gradient-to-br from-green-50 to-emerald-50 border-green-200 shadow-lg'
-                    : 'bg-gray-50 border-gray-200 opacity-75'
-                }`}
-              >
-                <div className="flex items-start space-x-4">
-                  <div className={`text-3xl p-2 rounded-lg ${achievement.isUnlocked ? 'bg-green-100' : 'bg-gray-200'}`}>
-                    {achievement.isUnlocked ? achievement.icon : '🔒'}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center space-x-2 mb-2">
-                      <h4 className={`font-bold ${achievement.isUnlocked ? 'text-green-800' : 'text-gray-600'}`}>
-                        {achievement.name}
-                      </h4>
-                      {achievement.isUnlocked && <CheckCircle className="w-5 h-5 text-green-500" />}
-                    </div>
-                    <p className={`text-sm mb-3 ${achievement.isUnlocked ? 'text-green-700' : 'text-gray-500'}`}>
-                      {achievement.description}
-                    </p>
-                    <div className="flex items-center justify-between text-xs">
-                      <span className={`px-2 py-1 rounded-full font-medium ${
-                        achievement.category === 'learning' ? 'bg-blue-100 text-blue-700' :
-                        achievement.category === 'practice' ? 'bg-purple-100 text-purple-700' :
-                        achievement.category === 'social' ? 'bg-pink-100 text-pink-700' :
-                        'bg-yellow-100 text-yellow-700'
-                      }`}>
-                        {achievement.category}
-                      </span>
-                      {achievement.isUnlocked && (
-                        <span className="text-green-600 font-medium">
-                          +{achievement.reward.xp} XP
-                        </span>
-                      )}
-                    </div>
-                  </div>
+            <div className="space-y-4">
+              <div className={panelClassName}>
+                <div className="flex items-center gap-2 text-sm font-semibold text-foreground"><Flame className="h-4 w-4 text-orange-400" />Momentum summary</div>
+                <div className="mt-4 space-y-3 text-sm text-muted-foreground">
+                  <div className="flex items-center justify-between rounded-xl border border-border/70 bg-card px-4 py-3"><span>Current streak</span><span className="font-semibold text-foreground">{user.currentStreak} days</span></div>
+                  <div className="flex items-center justify-between rounded-xl border border-border/70 bg-card px-4 py-3"><span>Owned avatars</span><span className="font-semibold text-foreground">{user.ownedAvatars.length}</span></div>
+                  <div className="flex items-center justify-between rounded-xl border border-border/70 bg-card px-4 py-3"><span>Benchmark-ready coverage</span><span className="font-semibold text-foreground">{overallProgress}%</span></div>
                 </div>
               </div>
-            ))}
+              <div className={panelClassName}>
+                <div className="text-sm font-semibold text-foreground">Recommended next action</div>
+                <p className="mt-3 text-sm text-muted-foreground">Continue {biggestGap.label}, then rerun the benchmark to turn that work into a stronger profile signal.</p>
+                <div className="mt-4 flex flex-col gap-2">
+                  <Link to="/app?section=practice" className="inline-flex items-center justify-between rounded-xl border border-border bg-card px-4 py-3 text-sm font-semibold text-foreground transition hover:border-primary/30 hover:text-primary">
+                    Open practice
+                    <ChevronRight className="h-4 w-4" />
+                  </Link>
+                  <Link to="/app?section=benchmark" className="inline-flex items-center justify-between rounded-xl border border-border bg-card px-4 py-3 text-sm font-semibold text-foreground transition hover:border-primary/30 hover:text-primary">
+                    Refresh benchmark
+                    <ChevronRight className="h-4 w-4" />
+                  </Link>
+                </div>
+              </div>
+            </div>
           </div>
         </section>
-
-      <section id="profile-activity" className="bg-white rounded-xl shadow-md border border-gray-200 p-8 scroll-mt-24">
-          <h3 className="text-2xl font-semibold text-gray-900 mb-8 flex items-center">
-            <Calendar className="w-7 h-7 mr-3 text-blue-500" />
-            Recent Activity
-          </h3>
-          <div className="space-y-4">
-            {recentActivity.length > 0 ? recentActivity.map((activity, index) => (
-              <div key={index} className="flex items-center space-x-4 p-4 bg-gradient-to-r from-gray-50 to-blue-50 rounded-xl border border-gray-200">
-                <div className="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center text-xl">
-                  {activity.icon}
-                </div>
-                <div className="flex-1">
-                  <p className="font-semibold text-gray-900">
-                    {activity.action}: <span className="text-blue-600">{activity.item}</span>
-                  </p>
-                  <p className="text-sm text-gray-600">{activity.time}</p>
-                </div>
-                {activity.xp > 0 && (
-                  <div className="text-green-600 font-bold text-lg">+{activity.xp} XP</div>
-                )}
-              </div>
-            )) : (
-              <div className="text-center py-12">
-                <BookOpen className="w-16 h-16 text-gray-300 mx-auto mb-4" />
-                <p className="text-gray-500 text-lg">No recent activity</p>
-                <p className="text-gray-400">Complete some lessons to see your progress here!</p>
-              </div>
-            )}
-          </div>
-        </section>
-
-      {/* Heart Store Modal */}
-      {showStore && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl max-w-md w-full p-6 shadow-2xl">
-            <div className="flex items-center justify-between mb-6">
-              <h3 className="text-xl font-bold text-gray-900 flex items-center">
-                <Heart className="w-6 h-6 text-red-500 fill-red-500 mr-2" />
-                Heart Store
-              </h3>
-              <button onClick={() => setShowStore(false)} className="text-gray-400 hover:text-gray-600 text-2xl">×</button>
-            </div>
-
-            <div className="mb-6 p-4 bg-gray-50 rounded-lg">
-              <p className="text-gray-700 text-sm mb-2">Current hearts: <span className="font-semibold">{user.hearts}/5</span></p>
-              <p className="text-gray-700 text-sm">Your coins: <span className="font-semibold text-yellow-600">{user.coins}</span></p>
-            </div>
-            <div className="space-y-3">
-              <button
-                onClick={() => handleBuyHearts(1)}
-                disabled={user.hearts >= 5 || user.coins < 20}
-                className="w-full p-4 border-2 border-red-200 rounded-lg hover:bg-red-50 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-between transition-colors"
-              >
-                <div className="flex items-center space-x-3">
-                  <Heart className="w-6 h-6 text-red-500 fill-red-500" />
-                  <span className="font-medium">1 Heart</span>
-                </div>
-                <span className="font-bold text-yellow-600">20 coins</span>
-              </button>
-
-              <button
-                onClick={() => handleBuyHearts(5 - user.hearts)}
-                disabled={user.hearts >= 5 || user.coins < (5 - user.hearts) * 20}
-                className="w-full p-4 border-2 border-red-200 rounded-lg hover:bg-red-50 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-between transition-colors"
-              >
-                <div className="flex items-center">
-                  {Array.from({ length: Math.max(0, 5 - user.hearts) }, (_, i) => (
-                    <Heart key={i} className="w-5 h-5 text-red-500 fill-red-500" />
-                  ))}
-                  {/* Ensure there's a space if hearts are bought, but not if 0 hearts are needed */}
-                  {Math.max(0, 5 - user.hearts) > 0 && <span className="font-medium ml-3">Fill Hearts</span>}
-                </div>
-                <span className="font-bold text-yellow-600">{(5 - user.hearts) * 20} coins</span>
-              </button>
-            </div>
-
-            <p className="text-xs text-gray-500 mt-6 text-center">Hearts reset daily at midnight</p>
-          </div>
-        </div>
-      )}
+      </div>
 
       <AnimatePresence>
-        {avatarPurchaseFeedback && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/25 px-4 backdrop-blur-sm"
-            onClick={() => setAvatarPurchaseFeedback(null)}
-          >
-            <motion.div
-              initial={{ opacity: 0, y: 24, scale: 0.96 }}
-              animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, y: 18, scale: 0.98 }}
-              transition={{ duration: 0.24, ease: 'easeOut' }}
-              className="relative w-full max-w-md overflow-hidden rounded-[28px] border border-white/70 bg-white shadow-[0_30px_90px_rgba(15,23,42,0.22)]"
-              onClick={(event) => event.stopPropagation()}
-            >
-              <div className="absolute inset-x-0 top-0 h-36 bg-gradient-to-br from-amber-200 via-fuchsia-100 to-sky-200 opacity-90" />
-              <div className="absolute -right-10 top-6 h-28 w-28 rounded-full bg-white/40 blur-2xl" />
-              <div className="absolute -left-8 top-16 h-24 w-24 rounded-full bg-white/40 blur-2xl" />
-
-              <div className="relative px-6 pb-6 pt-8">
-                <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-[24px] bg-white/85 text-5xl shadow-lg ring-1 ring-white/70">
+        {avatarPurchaseFeedback ? (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4 backdrop-blur-sm">
+            <motion.div initial={{ opacity: 0, scale: 0.96, y: 18 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.96, y: 18 }} className="w-full max-w-md rounded-3xl border border-border bg-card p-6 shadow-elevated">
+              <div className="text-center">
+                <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-[28px] border border-primary/20 bg-primary/10 text-5xl text-primary glow-primary">
                   {avatarPurchaseFeedback.emoji}
                 </div>
-
-                <div className="mt-5 text-center">
-                  <div className="inline-flex items-center gap-2 rounded-full bg-emerald-50 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.24em] text-emerald-700">
-                    <CheckCircle className="h-3.5 w-3.5" />
-                    Purchase complete
-                  </div>
-                  <h3 className="mt-4 text-2xl font-bold text-slate-900">{avatarPurchaseFeedback.name} equipped</h3>
-                  <p className="mt-2 text-sm leading-6 text-slate-600">{avatarPurchaseFeedback.description}</p>
-
+                <div className={`mx-auto mt-4 inline-flex rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] ${rarityTone[avatarPurchaseFeedback.rarity]}`}>
+                  {avatarPurchaseFeedback.rarity}
                 </div>
-
-                <div className="mt-6 grid grid-cols-2 gap-3">
-                  <div className="rounded-2xl bg-slate-50 p-3 text-left">
-                    <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500">Rarity</div>
-                    <span className={`mt-2 inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${getRarityColor(avatarPurchaseFeedback.rarity)}`}>
-                      {avatarPurchaseFeedback.rarity}
-                    </span>
-                  </div>
-                  <div className="rounded-2xl bg-slate-50 p-3 text-left">
-                    <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500">Coins left</div>
-                    <div className="mt-2 text-lg font-bold text-slate-900">{avatarPurchaseFeedback.remainingCoins}</div>
-                  </div>
-                </div>
-
-                <button
-                  onClick={() => setAvatarPurchaseFeedback(null)}
-                  className="mt-6 w-full rounded-2xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white transition-colors hover:bg-slate-800"
-                >
-                  Continue
+                <h3 className="mt-4 text-2xl font-display font-semibold text-foreground">{avatarPurchaseFeedback.name} unlocked</h3>
+                <p className="mt-3 text-sm text-muted-foreground">{avatarPurchaseFeedback.description}</p>
+                <p className="mt-3 text-sm text-muted-foreground">Remaining coins: <span className="font-semibold text-foreground">{avatarPurchaseFeedback.remainingCoins.toLocaleString()}</span></p>
+              </div>
+              <div className="mt-6 flex flex-col gap-2 sm:flex-row">
+                <button onClick={() => { handleEquipAvatar(avatarPurchaseFeedback.id); setAvatarPurchaseFeedback(null); }} className="inline-flex flex-1 items-center justify-center rounded-xl bg-primary px-4 py-3 text-sm font-semibold text-primary-foreground shadow-card transition hover:opacity-90">
+                  Equip now
+                </button>
+                <button onClick={() => setAvatarPurchaseFeedback(null)} className="inline-flex flex-1 items-center justify-center rounded-xl border border-border bg-background px-4 py-3 text-sm font-semibold text-foreground transition hover:border-primary/30 hover:text-primary">
+                  Keep browsing
                 </button>
               </div>
             </motion.div>
           </motion.div>
-        )}
+        ) : null}
       </AnimatePresence>
 
-      {/* Avatar Store Modal */}
-      {showAvatarStore && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl max-w-4xl w-full max-h-[90vh] shadow-2xl flex flex-col">
-            {/* Header section - now always at the top */}
-            <div className="p-6 border-b border-gray-200 bg-white z-10">
-              <div className="flex items-center justify-between">
-                <h3 className="text-2xl font-bold text-gray-900 flex items-center">
-                  <Crown className="w-7 h-7 text-yellow-500 mr-3" />
-                  Avatar Collection
-                </h3>
-                <button onClick={() => setShowAvatarStore(false)} className="text-gray-400 hover:text-gray-600 text-2xl">×</button>
-              </div>
-              <p className="text-gray-600 mt-2">Your coins: <span className="font-bold text-yellow-600">{user.coins}</span></p>
-            </div>
+      <AnimatePresence>
+        {showAvatarStore ? (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-50 overflow-y-auto bg-black/75 px-4 py-8 backdrop-blur-sm">
+            <div className="mx-auto max-w-6xl">
+              <motion.div initial={{ opacity: 0, y: 18, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 18, scale: 0.98 }} className="rounded-3xl border border-border bg-card p-5 shadow-elevated sm:p-6">
+                <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                  <div>
+                    <div className="inline-flex items-center gap-2 rounded-full border border-primary/20 bg-primary/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-primary">
+                      <UserCircle2 className="h-3.5 w-3.5" />
+                      Avatar collection
+                    </div>
+                    <h2 className="mt-3 text-3xl font-display font-semibold text-foreground">Manage your profile identity</h2>
+                    <p className="mt-2 max-w-2xl text-sm text-muted-foreground">Avatar unlocks stay here on your profile. Coin packs and boosts now live in the updated store flow.</p>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <Link to="/app?section=store" onClick={() => setShowAvatarStore(false)} className="inline-flex items-center gap-2 rounded-xl border border-border bg-background px-4 py-2.5 text-sm font-semibold text-foreground transition hover:border-primary/30 hover:text-primary">
+                      Open store
+                      <ChevronRight className="h-4 w-4" />
+                    </Link>
+                    <button onClick={() => setShowAvatarStore(false)} className="inline-flex items-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground shadow-card transition hover:opacity-90">
+                      Close
+                    </button>
+                  </div>
+                </div>
 
-            {/* Scrollable content area */}
-            <div className="p-6 flex-grow overflow-y-auto">
-              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-                {avatars.map((avatar) => {
-                  const isOwned = user.ownedAvatars.includes(avatar.id);
-                  const isCurrent = user.currentAvatar === avatar.id;
-                  const canAfford = user.coins >= avatar.price;
+                <div className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+                  {avatars.map((avatar) => {
+                    const isOwned = user.ownedAvatars.includes(avatar.id);
+                    const isEquipped = user.currentAvatar === avatar.id;
+                    const canAfford = user.coins >= avatar.price;
 
-                  return (
-                    <div
-                      key={avatar.id}
-                      className={`p-4 rounded-xl border-2 transition-all duration-300 ${
-                        isCurrent
-                          ? 'border-blue-500 bg-blue-50 shadow-lg'
-                          : isOwned
-                          ? 'border-green-200 bg-green-50 hover:shadow-md'
-                          : canAfford
-                          ? 'border-gray-200 bg-white hover:border-purple-300 hover:shadow-md'
-                          : 'border-gray-200 bg-gray-50 opacity-75'
-                      }`}
-                    >
-                      <div className="text-center">
-                        <div className="text-4xl mb-2 relative">
-                          {avatar.emoji}
-                          {isCurrent && (
-                            <div className="absolute -top-1 -right-1 w-6 h-6 bg-blue-500 rounded-full flex items-center justify-center">
-                              <CheckCircle className="w-4 h-4 text-white" />
-                            </div>
-                          )}
+                    return (
+                      <div key={avatar.id} className="rounded-2xl border border-border bg-background/80 p-5 shadow-card">
+                        <div className="flex items-start justify-between gap-4">
+                          <div className="flex h-16 w-16 items-center justify-center rounded-[22px] border border-border bg-card text-4xl shadow-card">{avatar.emoji}</div>
+                          <div className={`rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] ${rarityTone[avatar.rarity]}`}>{avatar.rarity}</div>
                         </div>
-                        <h4 className="font-bold text-gray-900 mb-1">{avatar.name}</h4>
-                        <p className="text-xs text-gray-600 mb-2">{avatar.description}</p>
-                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${getRarityColor(avatar.rarity)}`}>
-                          {avatar.rarity}
-                        </span>
-
-                        <div className="mt-3">
-                          {isCurrent ? (
-                            <div className="px-3 py-2 bg-blue-100 text-blue-700 rounded-lg text-sm font-medium">Current</div>
+                        <div className="mt-4">
+                          <div className="flex items-center justify-between gap-3">
+                            <h3 className="text-lg font-semibold text-foreground">{avatar.name}</h3>
+                            <div className="text-sm font-semibold text-coins">{avatar.price.toLocaleString()} coins</div>
+                          </div>
+                          <p className="mt-2 text-sm text-muted-foreground">{avatar.description}</p>
+                        </div>
+                        <div className="mt-5">
+                          {isEquipped ? (
+                            <div className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-primary px-4 py-3 text-sm font-semibold text-primary-foreground shadow-card">
+                              <CheckCircle2 className="h-4 w-4" />
+                              Equipped
+                            </div>
                           ) : isOwned ? (
-                            <button
-                              onClick={() => handleSetAvatar(avatar.id)}
-                              className="w-full px-3 py-2 bg-green-500 hover:bg-green-600 text-white rounded-lg text-sm font-medium transition-colors"
-                            >
-                              Equip
+                            <button onClick={() => handleEquipAvatar(avatar.id)} className="inline-flex w-full items-center justify-center rounded-xl border border-border bg-card px-4 py-3 text-sm font-semibold text-foreground transition hover:border-primary/30 hover:text-primary">
+                              Equip avatar
                             </button>
-                          ) : avatar.price === 0 ? (
-                            <div className="px-3 py-2 bg-gray-100 text-gray-600 rounded-lg text-sm font-medium">Free</div>
                           ) : (
-                            <button
-                              onClick={() => handleBuyAvatar(avatar.id)}
-                              disabled={!canAfford}
-                              className={`w-full px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
-                                canAfford ? 'bg-purple-500 hover:bg-purple-600 text-white' : 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                              }`}
-                            >
-                              {canAfford ? `Buy ${avatar.price}` : `${avatar.price}`} 🪙
+                            <button onClick={() => handleBuyAvatar(avatar.id)} className={`inline-flex w-full items-center justify-center rounded-xl px-4 py-3 text-sm font-semibold transition ${canAfford ? 'bg-primary text-primary-foreground shadow-card hover:opacity-90' : 'border border-border bg-card text-muted-foreground'}`}>
+                              {canAfford ? 'Unlock avatar' : 'Not enough coins'}
                             </button>
                           )}
                         </div>
                       </div>
-                    </div>
-                  );
-                })}
-              </div>
+                    );
+                  })}
+                </div>
+              </motion.div>
             </div>
-          </div>
-        </div>
-      )}
+          </motion.div>
+        ) : null}
+      </AnimatePresence>
     </div>
   );
 };
 
 export default Profile;
-
-
-
-
-
-

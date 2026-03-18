@@ -14,8 +14,9 @@ import {
   Trophy,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
+import { usePlanEntitlements } from '../../hooks/usePlanEntitlements';
 import {
   buildBenchmarkQuestions,
   buildBenchmarkReport,
@@ -29,11 +30,25 @@ import {
 } from '../../data/benchmarkCatalog';
 import { interviewTracks, type LanguageSlug } from '../../data/siteContent';
 import { listBenchmarkReports, persistBenchmarkReport } from '../../lib/benchmarkApi';
+import { formatPlanRenewalDate } from '../../lib/billing';
 import { trackEvent } from '../../lib/analytics';
 import BenchmarkReportCard from './BenchmarkReportCard';
 
 type AuthModalView = 'login' | 'signup';
 type BenchmarkView = 'setup' | 'assessment' | 'report';
+type BenchmarkSessionSnapshot = {
+  setup: BenchmarkSetup;
+  questionIndex: number;
+  selectedAnswers: Record<string, number>;
+  secondsLeft: number;
+  updatedAt: string;
+};
+type UpgradeRecommendation = {
+  plan: 'Pro' | 'Interview Sprint' | 'Teams';
+  title: string;
+  description: string;
+  ctaLabel: string;
+};
 
 interface BenchmarkExperienceProps {
   mode?: 'public' | 'app';
@@ -42,6 +57,7 @@ interface BenchmarkExperienceProps {
 }
 
 const DURATION_SECONDS = 10 * 60;
+const BENCHMARK_SESSION_TTL_MS = 1000 * 60 * 60 * 12;
 
 const goalOptions: Array<{ value: BenchmarkGoal; title: string; description: string }> = [
   { value: 'interview_prep', title: 'Interview prep', description: 'Score readiness for technical screens.' },
@@ -70,9 +86,17 @@ const formatDuration = (seconds: number) => {
   return `${minutes}:${remaining.toString().padStart(2, '0')}`;
 };
 
+const surfaceCardClassName = 'rounded-[1.5rem] border border-border bg-card p-5 shadow-card sm:p-6';
+const mutedPanelClassName = 'rounded-[1.35rem] border border-border bg-background/70';
+const primaryButtonClassName =
+  'inline-flex items-center justify-center gap-2 rounded-2xl bg-primary px-5 py-3 text-sm font-medium text-primary-foreground shadow-card transition hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-60';
+const secondaryButtonClassName =
+  'inline-flex items-center justify-center gap-2 rounded-2xl border border-border bg-background px-4 py-3 text-sm font-medium text-foreground transition hover:border-primary/30 hover:bg-card disabled:cursor-not-allowed disabled:opacity-60';
 const setupCardClassName = (active: boolean, activeClasses: string) =>
   `rounded-2xl border px-5 py-4 text-left transition ${
-    active ? activeClasses : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50'
+    active
+      ? activeClasses
+      : 'border-border bg-background/70 text-foreground hover:border-primary/30 hover:bg-background'
   }`;
 
 const mergeReports = (...reportGroups: Array<Array<BenchmarkReport | null | undefined>>) => {
@@ -91,13 +115,102 @@ const mergeReports = (...reportGroups: Array<Array<BenchmarkReport | null | unde
 const formatReportDate = (value: string) =>
   new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric' }).format(new Date(value));
 
+const findPreviousComparableReport = (
+  currentReport: BenchmarkReport | null,
+  history: BenchmarkReport[]
+) => {
+  if (!currentReport) return null;
+
+  const exactSetupMatch = history.find(
+    (entry) =>
+      entry.id !== currentReport.id &&
+      entry.setup.language === currentReport.setup.language &&
+      entry.setup.goal === currentReport.setup.goal &&
+      entry.setup.roleLevel === currentReport.setup.roleLevel
+  );
+
+  if (exactSetupMatch) return exactSetupMatch;
+
+  return (
+    history.find(
+      (entry) => entry.id !== currentReport.id && entry.setup.language === currentReport.setup.language
+    ) || null
+  );
+};
+
+const buildUpgradeRecommendation = (currentReport: BenchmarkReport | null): UpgradeRecommendation | null => {
+  if (!currentReport) return null;
+
+  if (currentReport.setup.goal === 'class_improvement') {
+    return {
+      plan: 'Teams',
+      title: 'Turn this into a cohort workflow',
+      description: 'Use team dashboards, assignments, and benchmark analytics to prove improvement across a class or cohort.',
+      ctaLabel: 'See team plans',
+    };
+  }
+
+  if (currentReport.setup.goal === 'interview_prep' && currentReport.overallScore >= 55) {
+    return {
+      plan: 'Interview Sprint',
+      title: 'You are close enough for a focused sprint',
+      description: 'A short, high-intent interview prep offer is the best fit when someone already has workable fundamentals and needs tighter execution.',
+      ctaLabel: 'See Interview Sprint',
+    };
+  }
+
+  return {
+    plan: 'Pro',
+    title: 'Unlock the full practice and history loop',
+    description: 'Pro is the best fit for learners who need a deeper roadmap, unlimited assessed practice, and a clean history of score progression.',
+    ctaLabel: 'View Pro plan',
+  };
+};
+
+const getBenchmarkSessionStorageKey = (mode: 'public' | 'app', userId?: string | null) =>
+  `codhak-benchmark-session:${mode}:${userId || 'anonymous'}`;
+
+const readBenchmarkSession = (storageKey: string): BenchmarkSessionSnapshot | null => {
+  if (typeof window === 'undefined') return null;
+
+  try {
+    const storedValue = window.sessionStorage.getItem(storageKey);
+    if (!storedValue) return null;
+    return JSON.parse(storedValue) as BenchmarkSessionSnapshot;
+  } catch {
+    return null;
+  }
+};
+
+const writeBenchmarkSession = (storageKey: string, snapshot: BenchmarkSessionSnapshot) => {
+  if (typeof window === 'undefined') return;
+
+  try {
+    window.sessionStorage.setItem(storageKey, JSON.stringify(snapshot));
+  } catch {
+    // Ignore session storage failures for the benchmark MVP.
+  }
+};
+
+const clearBenchmarkSession = (storageKey: string) => {
+  if (typeof window === 'undefined') return;
+
+  try {
+    window.sessionStorage.removeItem(storageKey);
+  } catch {
+    // Ignore session storage failures for the benchmark MVP.
+  }
+};
+
 export default function BenchmarkExperience({
   mode = 'public',
   presetLanguage,
   openAuthModal,
 }: BenchmarkExperienceProps) {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { user, setNavigationCallback } = useAuth();
+  const { getPlanEntitlement } = usePlanEntitlements();
   const [view, setView] = useState<BenchmarkView>('setup');
   const [setup, setSetup] = useState<BenchmarkSetup>({
     goal: 'interview_prep',
@@ -108,12 +221,14 @@ export default function BenchmarkExperience({
   const [selectedAnswers, setSelectedAnswers] = useState<Record<string, number>>({});
   const [secondsLeft, setSecondsLeft] = useState(DURATION_SECONDS);
   const [report, setReport] = useState<BenchmarkReport | null>(null);
+  const [isFinishing, setIsFinishing] = useState(false);
   const [savedReport, setSavedReport] = useState<BenchmarkReport | null>(null);
   const [reportHistory, setReportHistory] = useState<BenchmarkReport[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyMessage, setHistoryMessage] = useState<string | null>(null);
   const trackedPageRef = useRef(false);
   const trackedReportRef = useRef<string | null>(null);
+  const hasRestoredSessionRef = useRef(false);
   const questions = useMemo(() => buildBenchmarkQuestions(setup), [setup]);
   const activeQuestion = questions[questionIndex];
   const sampleReport = useMemo(() => buildSampleBenchmarkReport(), []);
@@ -121,12 +236,70 @@ export default function BenchmarkExperience({
   const primaryTrack = report?.recommendedTrackIds[0]
     ? interviewTracks.find((track) => track.id === report.recommendedTrackIds[0])
     : undefined;
+  const previousComparableReport = useMemo(
+    () => findPreviousComparableReport(report, reportHistory),
+    [report, reportHistory]
+  );
+  const scoreDelta =
+    report && previousComparableReport ? report.overallScore - previousComparableReport.overallScore : null;
+  const upgradeRecommendation = useMemo(() => buildUpgradeRecommendation(report), [report]);
+  const activeRecommendedEntitlement = useMemo(() => {
+    if (!upgradeRecommendation) return null;
+    if (upgradeRecommendation.plan === 'Pro') return getPlanEntitlement('pro_monthly');
+    if (upgradeRecommendation.plan === 'Interview Sprint') return getPlanEntitlement('interview_sprint');
+    return null;
+  }, [getPlanEntitlement, upgradeRecommendation]);
+  const benchmarkSessionKey = useMemo(
+    () => getBenchmarkSessionStorageKey(mode, user?.id),
+    [mode, user?.id]
+  );
 
   useEffect(() => {
     if (presetLanguage && setup.language !== presetLanguage) {
       setSetup((current) => ({ ...current, language: presetLanguage }));
     }
   }, [presetLanguage, setup.language]);
+
+  useEffect(() => {
+    hasRestoredSessionRef.current = false;
+  }, [benchmarkSessionKey]);
+
+  useEffect(() => {
+    if (hasRestoredSessionRef.current) return;
+    if (searchParams.get('report') === 'latest') return;
+
+    const storedSession = readBenchmarkSession(benchmarkSessionKey);
+    if (!storedSession) {
+      hasRestoredSessionRef.current = true;
+      return;
+    }
+
+    const updatedAt = new Date(storedSession.updatedAt).getTime();
+    const isExpired = Number.isNaN(updatedAt) || Date.now() - updatedAt > BENCHMARK_SESSION_TTL_MS;
+    const restoredQuestions = buildBenchmarkQuestions(storedSession.setup);
+    const hasValidQuestionIndex =
+      storedSession.questionIndex >= 0 && storedSession.questionIndex < restoredQuestions.length;
+
+    if (isExpired || restoredQuestions.length === 0 || !hasValidQuestionIndex) {
+      clearBenchmarkSession(benchmarkSessionKey);
+      hasRestoredSessionRef.current = true;
+      return;
+    }
+
+    hasRestoredSessionRef.current = true;
+    setSetup(storedSession.setup);
+    setQuestionIndex(storedSession.questionIndex);
+    setSelectedAnswers(storedSession.selectedAnswers);
+    setSecondsLeft(Math.max(1, Math.min(DURATION_SECONDS, storedSession.secondsLeft)));
+    setView('assessment');
+    setHistoryMessage('Restored your in-progress benchmark.');
+    trackEvent('benchmark_session_restored', {
+      mode,
+      language: storedSession.setup.language,
+      goal: storedSession.setup.goal,
+      roleLevel: storedSession.setup.roleLevel,
+    });
+  }, [benchmarkSessionKey, mode, searchParams]);
 
   useEffect(() => {
     if (trackedPageRef.current) return;
@@ -173,6 +346,14 @@ export default function BenchmarkExperience({
         const merged = mergeReports(remoteHistory, localHistory);
         setReportHistory(merged);
         setSavedReport(merged[0] ?? null);
+        const requestedReportId = searchParams.get('report');
+        if (requestedReportId === 'latest' && merged[0]) {
+          setReport(merged[0]);
+          setView('report');
+          const nextParams = new URLSearchParams(searchParams);
+          nextParams.delete('report');
+          setSearchParams(nextParams, { replace: true });
+        }
         setHistoryMessage(
           merged.length > 0 ? 'Signed-in benchmark history is now connected to your workspace.' : null
         );
@@ -180,6 +361,14 @@ export default function BenchmarkExperience({
         if (cancelled) return;
         setReportHistory(localHistory);
         setSavedReport(localHistory[0] ?? null);
+        const requestedReportId = searchParams.get('report');
+        if (requestedReportId === 'latest' && localHistory[0]) {
+          setReport(localHistory[0]);
+          setView('report');
+          const nextParams = new URLSearchParams(searchParams);
+          nextParams.delete('report');
+          setSearchParams(nextParams, { replace: true });
+        }
         setHistoryMessage(
           error instanceof Error ? error.message : 'Benchmark history is temporarily using local storage.'
         );
@@ -194,17 +383,45 @@ export default function BenchmarkExperience({
     return () => {
       cancelled = true;
     };
-  }, [user?.id]);
+  }, [searchParams, setSearchParams, user?.id]);
 
   useEffect(() => {
     if (view !== 'assessment') return;
+    if (isFinishing) return;
     if (secondsLeft <= 0) {
       void finishBenchmark();
       return;
     }
     const timer = window.setTimeout(() => setSecondsLeft((current) => current - 1), 1000);
     return () => window.clearTimeout(timer);
-  }, [secondsLeft, view]);
+  }, [isFinishing, secondsLeft, view]);
+
+  useEffect(() => {
+    if (view !== 'assessment') {
+      clearBenchmarkSession(benchmarkSessionKey);
+      return;
+    }
+
+    writeBenchmarkSession(benchmarkSessionKey, {
+      setup,
+      questionIndex,
+      selectedAnswers,
+      secondsLeft,
+      updatedAt: new Date().toISOString(),
+    });
+  }, [benchmarkSessionKey, questionIndex, secondsLeft, selectedAnswers, setup, view]);
+
+  useEffect(() => {
+    if (view !== 'assessment') return;
+
+    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = '';
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [view]);
 
   useEffect(() => {
     if (!report || trackedReportRef.current === report.id) return;
@@ -218,10 +435,34 @@ export default function BenchmarkExperience({
   }, [report]);
 
   useEffect(() => {
-    setNavigationCallback(() => {
-      navigate('/app', { replace: true });
+    if (!report || !upgradeRecommendation) return;
+    trackEvent('pricing_plan_recommended', {
+      plan: upgradeRecommendation.plan,
+      language: report.setup.language,
+      goal: report.setup.goal,
+      roleLevel: report.setup.roleLevel,
+      score: report.overallScore,
     });
-  }, [navigate, setNavigationCallback]);
+  }, [report, upgradeRecommendation]);
+
+  useEffect(() => {
+    const targetPath =
+      view === 'report' || savedReport
+        ? `${mode === 'public' ? '/benchmark' : '/app?section=benchmark'}${mode === 'public' ? '?report=latest' : '&report=latest'}`
+        : mode === 'public'
+        ? '/benchmark'
+        : '/app?section=benchmark';
+
+    setNavigationCallback(() => {
+      navigate(targetPath, { replace: true });
+    });
+
+    return () => {
+      setNavigationCallback(() => {
+        navigate('/app', { replace: true });
+      });
+    };
+  }, [mode, navigate, savedReport, setNavigationCallback, view]);
 
   const openReport = (targetReport: BenchmarkReport) => {
     setReport(targetReport);
@@ -229,18 +470,25 @@ export default function BenchmarkExperience({
   };
 
   const resetBenchmark = () => {
+    clearBenchmarkSession(benchmarkSessionKey);
     setView('setup');
     setQuestionIndex(0);
     setSelectedAnswers({});
     setSecondsLeft(DURATION_SECONDS);
     setReport(null);
+    setIsFinishing(false);
   };
 
   const startBenchmark = () => {
+    if (questions.length === 0) {
+      toast.error('Benchmark questions are unavailable right now.');
+      return;
+    }
     setQuestionIndex(0);
     setSelectedAnswers({});
     setSecondsLeft(DURATION_SECONDS);
     setReport(null);
+    setIsFinishing(false);
     setView('assessment');
     trackEvent('benchmark_start', {
       mode,
@@ -252,11 +500,14 @@ export default function BenchmarkExperience({
   };
 
   const finishBenchmark = async () => {
+    if (isFinishing) return;
     if (questions.length === 0) {
       toast.error('Benchmark questions are unavailable right now.');
       setView('setup');
       return;
     }
+
+    setIsFinishing(true);
 
     const answerRecords = questions.map((question) => {
       const selectedAnswer = selectedAnswers[question.id] ?? -1;
@@ -285,7 +536,10 @@ export default function BenchmarkExperience({
       score: nextReport.overallScore,
     });
 
-    if (!user?.id) return;
+    if (!user?.id) {
+      setIsFinishing(false);
+      return;
+    }
 
     try {
       const persistedReport = await persistBenchmarkReport(nextReport);
@@ -298,11 +552,14 @@ export default function BenchmarkExperience({
           ? `${error.message} Local save is still available for this session.`
           : 'Local save is still available for this session.'
       );
+    } finally {
+      setIsFinishing(false);
     }
   };
 
   const goToNextQuestion = () => {
     if (!activeQuestion) return;
+    if (isFinishing) return;
     if (selectedAnswers[activeQuestion.id] === undefined) {
       toast.error('Choose an answer before continuing.');
       return;
@@ -318,6 +575,7 @@ export default function BenchmarkExperience({
     const targetReport = report ?? savedReport ?? sampleReport;
     const summary = [
       `Codhak benchmark: ${targetReport.overallScore}/100`,
+      scoreDelta !== null ? `Score delta: ${scoreDelta > 0 ? '+' : ''}${scoreDelta} vs previous benchmark` : null,
       `Strengths: ${targetReport.strengths.join(', ')}`,
       `Focus next: ${targetReport.weaknesses.join(', ')}`,
     ].join('\n');
@@ -339,53 +597,96 @@ export default function BenchmarkExperience({
     openAuthModal?.('signup');
   };
 
+  const openRecommendedTrack = () => {
+    if (mode === 'app' || user) {
+      navigate('/app?section=practice');
+      return;
+    }
+
+    const fallbackTrack = primaryTrack?.id ? `/tracks/${primaryTrack.id}` : `/languages/${report?.setup.language ?? setup.language}`;
+    navigate(fallbackTrack);
+  };
+
+  const openPracticePath = () => {
+    if (mode === 'app' || user) {
+      navigate('/app?section=practice');
+      return;
+    }
+
+    navigate(primaryTrack?.id ? `/tracks/${primaryTrack.id}` : `/languages/${report?.setup.language ?? setup.language}`);
+  };
+
+  const openUpgradePath = () => {
+    if (!upgradeRecommendation) return;
+
+    trackEvent('subscription_cta_clicked', {
+      plan: upgradeRecommendation.plan,
+      source: 'benchmark_report',
+      language: report?.setup.language ?? setup.language,
+      goal: report?.setup.goal ?? setup.goal,
+      roleLevel: report?.setup.roleLevel ?? setup.roleLevel,
+    });
+
+    if (upgradeRecommendation.plan === 'Teams') {
+      navigate('/teams');
+      return;
+    }
+
+    if (activeRecommendedEntitlement) {
+      navigate(upgradeRecommendation.plan === 'Interview Sprint' ? '/app?section=benchmark' : '/app?section=practice');
+      return;
+    }
+
+    navigate(user ? '/app?section=store' : '/pricing');
+  };
+
   const historyPreview = reportHistory.slice(0, 3);
   const headerCard = (
-    <div className="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-[0_20px_60px_rgba(15,23,42,0.08)] sm:p-8">
-      <div className="inline-flex items-center gap-2 rounded-full bg-slate-950 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-white">
+    <div className={surfaceCardClassName}>
+      <div className="inline-flex items-center gap-2 rounded-full border border-primary/25 bg-primary/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-primary">
         <Sparkles className="h-3.5 w-3.5" />
         <span>{mode === 'public' ? 'Free coding skill benchmark' : 'Benchmark workspace'}</span>
       </div>
-      <h1 className="mt-5 text-3xl font-semibold tracking-tight text-slate-950 sm:text-4xl">
+      <h1 className="mt-5 max-w-4xl text-3xl font-semibold tracking-tight text-foreground sm:text-4xl">
         Measure real coding skill in a short, structured benchmark.
       </h1>
-      <p className="mt-4 text-base leading-7 text-slate-600">
+      <p className="mt-4 max-w-3xl text-base leading-7 text-muted-foreground">
         Choose a goal, language, and target level. Codhak turns a short assessment into a score, a skill report, and a clear next step.
       </p>
       <div className="mt-6 grid gap-4 sm:grid-cols-3">
-        <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4">
-          <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
-            <Clock3 className="h-4 w-4 text-sky-600" />
+        <div className={`${mutedPanelClassName} px-4 py-4`}>
+          <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+            <Clock3 className="h-4 w-4 text-primary" />
             10-minute window
           </div>
-          <div className="mt-2 text-sm leading-6 text-slate-600">Fast enough for onboarding, real enough to be useful.</div>
+          <div className="mt-2 text-sm leading-6 text-muted-foreground">Fast enough for onboarding, real enough to be useful.</div>
         </div>
-        <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4">
-          <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
-            <BarChart3 className="h-4 w-4 text-emerald-600" />
+        <div className={`${mutedPanelClassName} px-4 py-4`}>
+          <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+            <BarChart3 className="h-4 w-4 text-xp" />
             Skill report
           </div>
-          <div className="mt-2 text-sm leading-6 text-slate-600">See strengths, gaps, duel readiness, and your recommended next track.</div>
+          <div className="mt-2 text-sm leading-6 text-muted-foreground">See strengths, gaps, duel readiness, and your recommended next track.</div>
         </div>
-        <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4">
-          <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
-            <Target className="h-4 w-4 text-violet-600" />
+        <div className={`${mutedPanelClassName} px-4 py-4`}>
+          <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+            <Target className="h-4 w-4 text-accent" />
             Outcome-first
           </div>
-          <div className="mt-2 text-sm leading-6 text-slate-600">Built for interview prep, cohorts, and measurable improvement.</div>
+          <div className="mt-2 text-sm leading-6 text-muted-foreground">Built for interview prep, cohorts, and measurable improvement.</div>
         </div>
       </div>
       {savedReport && view === 'setup' ? (
-        <div className="mt-6 rounded-[1.75rem] border border-emerald-200 bg-emerald-50/70 p-5">
+        <div className="mt-6 rounded-[1.5rem] border border-primary/20 bg-primary/10 p-5">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <div className="text-sm font-semibold uppercase tracking-[0.18em] text-emerald-700">Latest saved benchmark</div>
-              <div className="mt-2 text-2xl font-semibold text-slate-950">{savedReport.overallScore}/100 overall score</div>
+              <div className="text-sm font-semibold uppercase tracking-[0.18em] text-primary">Latest saved benchmark</div>
+              <div className="mt-2 text-2xl font-semibold text-foreground">{savedReport.overallScore}/100 overall score</div>
             </div>
             <button
               type="button"
               onClick={() => openReport(savedReport)}
-              className="inline-flex items-center justify-center gap-2 rounded-2xl border border-emerald-200 bg-white px-4 py-3 text-sm font-medium text-slate-800 transition hover:border-emerald-300 hover:bg-emerald-50"
+              className="inline-flex items-center justify-center gap-2 rounded-2xl border border-border bg-background px-4 py-3 text-sm font-medium text-foreground transition hover:border-primary/30 hover:bg-card"
             >
               <span>View saved report</span>
               <ArrowRight className="h-4 w-4" />
@@ -394,7 +695,7 @@ export default function BenchmarkExperience({
         </div>
       ) : null}
       {historyMessage ? (
-        <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
+        <div className="mt-4 rounded-2xl border border-border bg-background/70 px-4 py-3 text-sm text-muted-foreground">
           {historyMessage}
         </div>
       ) : null}
@@ -406,8 +707,8 @@ export default function BenchmarkExperience({
       <div className="grid gap-6 xl:grid-cols-[0.9fr_1.1fr]">
         <div className="space-y-6">
           {headerCard}
-          <div className="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-[0_20px_60px_rgba(15,23,42,0.08)] sm:p-8">
-            <div className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">How it works</div>
+          <div className={surfaceCardClassName}>
+            <div className="text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground">How it works</div>
             <div className="mt-6 grid gap-4">
               {[
                 ['Choose your target', 'Set the benchmark around interview prep, class improvement, or general skill growth.', Target],
@@ -416,15 +717,15 @@ export default function BenchmarkExperience({
               ].map(([title, description, IconComponent], index) => {
                 const Icon = IconComponent as typeof Target;
                 return (
-                  <div key={title as string} className="rounded-2xl border border-slate-200 bg-slate-50 px-5 py-4">
+                  <div key={title as string} className={`${mutedPanelClassName} px-5 py-4`}>
                     <div className="flex items-start gap-4">
-                      <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-white shadow-sm">
-                        <Icon className="h-5 w-5 text-slate-900" />
+                      <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-card shadow-card">
+                        <Icon className="h-5 w-5 text-foreground" />
                       </div>
                       <div>
-                        <div className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Step {index + 1}</div>
-                        <div className="mt-1 text-base font-semibold text-slate-950">{title}</div>
-                        <p className="mt-1 text-sm leading-6 text-slate-600">{description}</p>
+                        <div className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">Step {index + 1}</div>
+                        <div className="mt-1 text-base font-semibold text-foreground">{title}</div>
+                        <p className="mt-1 text-sm leading-6 text-muted-foreground">{description}</p>
                       </div>
                     </div>
                   </div>
@@ -434,13 +735,13 @@ export default function BenchmarkExperience({
           </div>
 
           {historyPreview.length > 0 || historyLoading ? (
-            <div className="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-[0_20px_60px_rgba(15,23,42,0.08)] sm:p-8">
+            <div className={surfaceCardClassName}>
               <div className="flex items-center justify-between gap-3">
                 <div>
-                  <div className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">Benchmark history</div>
-                  <h3 className="mt-2 text-2xl font-semibold text-slate-950">See score progression, not just one attempt.</h3>
+                  <div className="text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground">Benchmark history</div>
+                  <h3 className="mt-2 text-2xl font-semibold text-foreground">See score progression, not just one attempt.</h3>
                 </div>
-                {historyLoading ? <Loader2 className="h-5 w-5 animate-spin text-slate-400" /> : null}
+                {historyLoading ? <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /> : null}
               </div>
               <div className="mt-6 grid gap-3">
                 {historyPreview.map((entry) => (
@@ -448,17 +749,17 @@ export default function BenchmarkExperience({
                     key={entry.id}
                     type="button"
                     onClick={() => openReport(entry)}
-                    className="flex items-center justify-between gap-4 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 text-left transition hover:border-slate-300 hover:bg-white"
+                    className="flex items-center justify-between gap-4 rounded-2xl border border-border bg-background/70 px-4 py-4 text-left transition hover:border-primary/30 hover:bg-background"
                   >
                     <div>
-                      <div className="text-sm font-semibold text-slate-900">{entry.setup.language.toUpperCase()} benchmark</div>
-                      <div className="mt-1 text-sm text-slate-500">
+                      <div className="text-sm font-semibold text-foreground">{entry.setup.language.toUpperCase()} benchmark</div>
+                      <div className="mt-1 text-sm text-muted-foreground">
                         {entry.setup.goal.replace(/_/g, ' ')} - {formatReportDate(entry.createdAt)}
                       </div>
                     </div>
                     <div className="text-right">
-                      <div className="text-lg font-semibold text-slate-950">{entry.overallScore}/100</div>
-                      <div className="mt-1 text-xs uppercase tracking-[0.18em] text-slate-400">{entry.duelReadiness.label}</div>
+                      <div className="text-lg font-semibold text-foreground">{entry.overallScore}/100</div>
+                      <div className="mt-1 text-xs uppercase tracking-[0.18em] text-muted-foreground">{entry.duelReadiness.label}</div>
                     </div>
                   </button>
                 ))}
@@ -469,70 +770,70 @@ export default function BenchmarkExperience({
 
         <div className="space-y-6">
           {view === 'setup' ? (
-            <div className="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-[0_20px_60px_rgba(15,23,42,0.08)] sm:p-8">
+            <div className={surfaceCardClassName}>
               <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
                 <div>
-                  <div className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">Benchmark setup</div>
-                  <h2 className="mt-2 text-2xl font-semibold text-slate-950">Start with the outcome you need.</h2>
+                  <div className="text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground">Benchmark setup</div>
+                  <h2 className="mt-2 text-2xl font-semibold text-foreground">Start with the outcome you need.</h2>
                 </div>
-                <div className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600">{questions.length} questions ready</div>
+                <div className="rounded-full border border-border bg-background px-3 py-1 text-xs font-medium text-muted-foreground">{questions.length} questions ready</div>
               </div>
               <div className="mt-8 space-y-8">
                 <section>
-                  <div className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">1. Goal</div>
+                  <div className="text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground">1. Goal</div>
                   <div className="mt-4 grid gap-3">
                     {goalOptions.map((option) => (
                       <button
                         key={option.value}
                         type="button"
                         onClick={() => setSetup((current) => ({ ...current, goal: option.value }))}
-                        className={setupCardClassName(setup.goal === option.value, 'border-slate-950 bg-slate-950 text-white shadow-lg shadow-slate-900/10')}
+                        className={setupCardClassName(setup.goal === option.value, 'border-primary/40 bg-primary/10 text-foreground')}
                       >
                         <div className="text-base font-semibold">{option.title}</div>
-                        <div className={`mt-1 text-sm leading-6 ${setup.goal === option.value ? 'text-slate-200' : 'text-slate-600'}`}>{option.description}</div>
+                        <div className={`mt-1 text-sm leading-6 ${setup.goal === option.value ? 'text-foreground/80' : 'text-muted-foreground'}`}>{option.description}</div>
                       </button>
                     ))}
                   </div>
                 </section>
                 <section>
-                  <div className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">2. Language</div>
+                  <div className="text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground">2. Language</div>
                   <div className="mt-4 grid gap-3 sm:grid-cols-2">
                     {languageOptions.map((option) => (
                       <button
                         key={option.value}
                         type="button"
                         onClick={() => setSetup((current) => ({ ...current, language: option.value }))}
-                        className={setupCardClassName(setup.language === option.value, 'border-sky-200 bg-sky-50 shadow-sm')}
+                        className={setupCardClassName(setup.language === option.value, 'border-primary/40 bg-primary/10')}
                       >
-                        <div className="text-base font-semibold text-slate-950">{option.title}</div>
-                        <div className="mt-1 text-sm leading-6 text-slate-600">{option.description}</div>
+                        <div className="text-base font-semibold text-foreground">{option.title}</div>
+                        <div className="mt-1 text-sm leading-6 text-muted-foreground">{option.description}</div>
                       </button>
                     ))}
                   </div>
                 </section>
                 <section>
-                  <div className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">3. Role level</div>
+                  <div className="text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground">3. Role level</div>
                   <div className="mt-4 grid gap-3 sm:grid-cols-2">
                     {roleOptions.map((option) => (
                       <button
                         key={option.value}
                         type="button"
                         onClick={() => setSetup((current) => ({ ...current, roleLevel: option.value }))}
-                        className={setupCardClassName(setup.roleLevel === option.value, 'border-emerald-200 bg-emerald-50 shadow-sm')}
+                        className={setupCardClassName(setup.roleLevel === option.value, 'border-primary/40 bg-primary/10')}
                       >
-                        <div className="text-base font-semibold text-slate-950">{option.title}</div>
-                        <div className="mt-1 text-sm leading-6 text-slate-600">{option.description}</div>
+                        <div className="text-base font-semibold text-foreground">{option.title}</div>
+                        <div className="mt-1 text-sm leading-6 text-muted-foreground">{option.description}</div>
                       </button>
                     ))}
                   </div>
                 </section>
               </div>
-              <div className="mt-8 flex flex-col gap-4 rounded-[1.75rem] border border-slate-200 bg-slate-50 p-5 sm:flex-row sm:items-center sm:justify-between">
+              <div className="mt-8 flex flex-col gap-4 rounded-[1.5rem] border border-border bg-background/70 p-5 sm:flex-row sm:items-center sm:justify-between">
                 <div>
-                  <div className="text-sm font-semibold text-slate-950">You will get your report immediately after completion.</div>
-                  <p className="mt-1 text-sm leading-6 text-slate-600">Benchmark first. Save the roadmap after you see the value.</p>
+                  <div className="text-sm font-semibold text-foreground">You will get your report immediately after completion.</div>
+                  <p className="mt-1 text-sm leading-6 text-muted-foreground">Benchmark first. Save the roadmap after you see the value.</p>
                 </div>
-                <button type="button" onClick={startBenchmark} className="inline-flex items-center justify-center gap-2 rounded-2xl bg-slate-950 px-5 py-3 text-sm font-medium text-white transition hover:bg-slate-800">
+                <button type="button" onClick={startBenchmark} className={primaryButtonClassName}>
                   <span>Start free benchmark</span>
                   <Play className="h-4 w-4" />
                 </button>
@@ -541,23 +842,23 @@ export default function BenchmarkExperience({
           ) : null}
 
           {view === 'assessment' && activeQuestion ? (
-            <div className="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-[0_20px_60px_rgba(15,23,42,0.08)] sm:p-8">
-              <div className="flex flex-col gap-4 border-b border-slate-200 pb-6 sm:flex-row sm:items-center sm:justify-between">
+            <div className={surfaceCardClassName}>
+              <div className="flex flex-col gap-4 border-b border-border pb-6 sm:flex-row sm:items-center sm:justify-between">
                 <div>
-                  <div className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">Question {questionIndex + 1} of {questions.length}</div>
-                  <div className="mt-2 text-xl font-semibold text-slate-950">{activeQuestion.lessonTitle}</div>
+                  <div className="text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground">Question {questionIndex + 1} of {questions.length}</div>
+                  <div className="mt-2 text-xl font-semibold text-foreground">{activeQuestion.lessonTitle}</div>
                 </div>
-                <div className="inline-flex items-center gap-2 rounded-full bg-slate-950 px-4 py-2 text-sm font-medium text-white">
+                <div className="inline-flex items-center gap-2 rounded-full border border-primary/20 bg-primary/10 px-4 py-2 text-sm font-medium text-primary">
                   <Clock3 className="h-4 w-4" />
                   {formatDuration(secondsLeft)} left
                 </div>
               </div>
-              <div className="mt-6 h-2 w-full overflow-hidden rounded-full bg-slate-100">
-                <div className="h-full rounded-full bg-gradient-to-r from-sky-500 via-emerald-500 to-violet-500 transition-all" style={{ width: `${((questionIndex + 1) / questions.length) * 100}%` }} />
+              <div className="mt-6 h-2 w-full overflow-hidden rounded-full bg-background">
+                <div className="h-full rounded-full bg-primary transition-all" style={{ width: `${((questionIndex + 1) / questions.length) * 100}%` }} />
               </div>
-              <div className="mt-6 rounded-[1.75rem] border border-slate-200 bg-slate-50 p-6">
-                <div className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">{activeQuestion.competency}</div>
-                <h3 className="mt-3 text-2xl font-semibold tracking-tight text-slate-950">{activeQuestion.prompt}</h3>
+              <div className="mt-6 rounded-[1.5rem] border border-border bg-background/70 p-6">
+                <div className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">{activeQuestion.competency}</div>
+                <h3 className="mt-3 text-2xl font-semibold tracking-tight text-foreground">{activeQuestion.prompt}</h3>
                 <div className="mt-6 grid gap-3">
                   {activeQuestion.options.map((option, optionIndex) => {
                     const isSelected = selectedAnswers[activeQuestion.id] === optionIndex;
@@ -566,11 +867,11 @@ export default function BenchmarkExperience({
                         key={`${activeQuestion.id}-${optionIndex}`}
                         type="button"
                         onClick={() => setSelectedAnswers((current) => ({ ...current, [activeQuestion.id]: optionIndex }))}
-                        className={`rounded-2xl border px-5 py-4 text-left transition ${isSelected ? 'border-slate-950 bg-slate-950 text-white shadow-lg shadow-slate-900/10' : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50'}`}
+                        className={`rounded-2xl border px-5 py-4 text-left transition ${isSelected ? 'border-primary/40 bg-primary/10 text-foreground' : 'border-border bg-card hover:border-primary/25 hover:bg-background'}`}
                       >
                         <div className="flex items-start gap-3">
-                          <div className={`mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full border text-xs font-semibold ${isSelected ? 'border-white bg-white/10 text-white' : 'border-slate-200 text-slate-500'}`}>{String.fromCharCode(65 + optionIndex)}</div>
-                          <span className={`text-sm leading-6 ${isSelected ? 'text-slate-50' : 'text-slate-700'}`}>{option}</span>
+                          <div className={`mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full border text-xs font-semibold ${isSelected ? 'border-primary/40 bg-primary/15 text-primary' : 'border-border text-muted-foreground'}`}>{String.fromCharCode(65 + optionIndex)}</div>
+                          <span className={`text-sm leading-6 ${isSelected ? 'text-foreground' : 'text-muted-foreground'}`}>{option}</span>
                         </div>
                       </button>
                     );
@@ -578,12 +879,12 @@ export default function BenchmarkExperience({
                 </div>
               </div>
               <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                <button type="button" onClick={resetBenchmark} className="inline-flex items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-700 transition hover:bg-slate-50">
+                <button type="button" onClick={resetBenchmark} disabled={isFinishing} className={secondaryButtonClassName}>
                   <RefreshCcw className="h-4 w-4" />
                   Restart
                 </button>
-                <button type="button" onClick={goToNextQuestion} className="inline-flex items-center justify-center gap-2 rounded-2xl bg-slate-950 px-5 py-3 text-sm font-medium text-white transition hover:bg-slate-800">
-                  <span>{questionIndex === questions.length - 1 ? 'Generate report' : 'Next question'}</span>
+                <button type="button" onClick={goToNextQuestion} disabled={isFinishing} className={primaryButtonClassName}>
+                  <span>{isFinishing ? 'Generating report...' : questionIndex === questions.length - 1 ? 'Generate report' : 'Next question'}</span>
                   <ArrowRight className="h-4 w-4" />
                 </button>
               </div>
@@ -595,60 +896,104 @@ export default function BenchmarkExperience({
               report={report}
               actions={
                 <div className="flex flex-col gap-4">
-                  <div className="rounded-[1.75rem] border border-slate-200 bg-slate-50 p-5">
-                    <div className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">What to do next</div>
+                  <div className="rounded-[1.5rem] border border-border bg-background/70 p-5">
+                    <div className="text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground">What to do next</div>
                     <div className="mt-4 grid gap-3 lg:grid-cols-3">
-                      <Link to={primaryTrack ? `/tracks/${primaryTrack.id}` : `/languages/${report.setup.language}`} className="inline-flex items-center justify-center gap-2 rounded-2xl bg-slate-950 px-4 py-3 text-sm font-medium text-white transition hover:bg-slate-800">
+                      <button type="button" onClick={openRecommendedTrack} className={primaryButtonClassName}>
                         <span>{primaryTrack ? 'Open recommended track' : 'Open practice path'}</span>
                         <ArrowRight className="h-4 w-4" />
-                      </Link>
-                      <button type="button" onClick={() => navigate('/app?section=practice')} className="inline-flex items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-700 transition hover:bg-slate-50">
-                        <span>Open practice workspace</span>
+                      </button>
+                      <button type="button" onClick={openPracticePath} className={secondaryButtonClassName}>
+                        <span>{mode === 'app' || user ? 'Open practice workspace' : 'Open practice path'}</span>
                         <ArrowRight className="h-4 w-4" />
                       </button>
-                      <button type="button" onClick={copySummary} className="inline-flex items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-700 transition hover:bg-slate-50">
+                      <button type="button" onClick={copySummary} className={secondaryButtonClassName}>
                         <Copy className="h-4 w-4" />
-                        <span>Copy report summary</span>
+                        <span>Copy progress summary</span>
                       </button>
                     </div>
                   </div>
+                  {scoreDelta !== null ? (
+                    <div className="rounded-[1.5rem] border border-xp/20 bg-xp/10 p-5">
+                      <div className="text-sm font-semibold uppercase tracking-[0.18em] text-xp">Improvement signal</div>
+                      <div className="mt-3 text-2xl font-semibold text-foreground">
+                        {scoreDelta > 0 ? '+' : ''}
+                        {scoreDelta} points vs previous benchmark
+                      </div>
+                      <p className="mt-2 text-sm leading-6 text-foreground/80">
+                        This is the kind of proof-of-progress signal that makes Codhak more valuable for both learners and team buyers.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="rounded-[1.5rem] border border-border bg-background/70 p-5">
+                      <div className="text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground">Retention loop</div>
+                      <p className="mt-3 text-sm leading-6 text-muted-foreground">
+                        Take the benchmark again after a focused practice block. The next report will show score delta and turn effort into visible progress.
+                      </p>
+                    </div>
+                  )}
+                  {upgradeRecommendation ? (
+                    <div className="rounded-[1.5rem] border border-primary/20 bg-primary/10 p-5">
+                      <div className="text-sm font-semibold uppercase tracking-[0.18em] text-primary">
+                        Recommended next path: {upgradeRecommendation.plan}
+                      </div>
+                      <div className="mt-3 text-xl font-semibold text-foreground">{upgradeRecommendation.title}</div>
+                      <p className="mt-2 text-sm leading-6 text-foreground/80">{upgradeRecommendation.description}</p>
+                      {activeRecommendedEntitlement ? (
+                        <div className="mt-4 rounded-2xl border border-primary/20 bg-background/70 px-4 py-3 text-sm text-foreground">
+                          {upgradeRecommendation.plan} is already active
+                          {activeRecommendedEntitlement.currentPeriodEnd ? (
+                            <span className="text-foreground/75">
+                              {' '}until {formatPlanRenewalDate(activeRecommendedEntitlement.currentPeriodEnd) || 'your current renewal date'}.
+                            </span>
+                          ) : (
+                            '.'
+                          )}
+                        </div>
+                      ) : null}
+                      <button type="button" onClick={openUpgradePath} className={`${primaryButtonClassName} mt-4`}>
+                        <span>{activeRecommendedEntitlement ? 'Open workspace' : upgradeRecommendation.ctaLabel}</span>
+                        <ArrowRight className="h-4 w-4" />
+                      </button>
+                    </div>
+                  ) : null}
                   {!user ? (
-                    <div className="rounded-[1.75rem] border border-violet-200 bg-violet-50/80 p-5">
+                    <div className="rounded-[1.5rem] border border-primary/20 bg-primary/10 p-5">
                       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                         <div>
-                          <div className="flex items-center gap-2 text-sm font-semibold uppercase tracking-[0.18em] text-violet-700">
+                          <div className="flex items-center gap-2 text-sm font-semibold uppercase tracking-[0.18em] text-primary">
                             <LockKeyhole className="h-4 w-4" />
                             Unlock full roadmap
                           </div>
-                          <p className="mt-2 max-w-2xl text-sm leading-6 text-violet-900">Create a free account to save this report, track score history, and unlock the personalized roadmap.</p>
+                          <p className="mt-2 max-w-2xl text-sm leading-6 text-foreground/80">Create a free account to save this report, track score history, and unlock the personalized roadmap.</p>
                         </div>
-                        <button type="button" onClick={unlockRoadmap} className="inline-flex items-center justify-center gap-2 rounded-2xl bg-violet-700 px-4 py-3 text-sm font-medium text-white transition hover:bg-violet-800">
+                        <button type="button" onClick={unlockRoadmap} className={primaryButtonClassName}>
                           <span>Create free account</span>
                           <ArrowRight className="h-4 w-4" />
                         </button>
                       </div>
                     </div>
                   ) : (
-                    <div className="rounded-[1.75rem] border border-emerald-200 bg-emerald-50/70 p-5">
-                      <div className="flex items-center gap-2 text-sm font-semibold uppercase tracking-[0.18em] text-emerald-700">
+                    <div className="rounded-[1.5rem] border border-xp/20 bg-xp/10 p-5">
+                      <div className="flex items-center gap-2 text-sm font-semibold uppercase tracking-[0.18em] text-xp">
                         <CheckCircle2 className="h-4 w-4" />
                         Saved to your workspace
                       </div>
-                      <p className="mt-2 text-sm leading-6 text-emerald-900">Your report is saved to benchmark history when the API is available, with local fallback still preserved for this account.</p>
+                      <p className="mt-2 text-sm leading-6 text-foreground/80">Your report is saved to benchmark history when the API is available, with local fallback still preserved for this account.</p>
                     </div>
                   )}
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                    <button type="button" onClick={resetBenchmark} className="inline-flex items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-700 transition hover:bg-slate-50">
+                    <button type="button" onClick={resetBenchmark} className={secondaryButtonClassName}>
                       <RefreshCcw className="h-4 w-4" />
                       Retake benchmark
                     </button>
-                    <Link to="/report-sample" className="inline-flex items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-700 transition hover:bg-slate-50">
+                    <Link to="/report-sample" className={secondaryButtonClassName}>
                       <span>View sample report</span>
                       <ArrowRight className="h-4 w-4" />
                     </Link>
                   </div>
-                  <div className="rounded-[1.75rem] border border-slate-200 bg-slate-50 p-5">
-                    <div className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">Question review</div>
+                  <div className="rounded-[1.5rem] border border-border bg-background/70 p-5">
+                    <div className="text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground">Question review</div>
                     <div className="mt-4 space-y-3">
                       {reportQuestions.map((question) => {
                         const answerRecord = report.answerRecords.find((entry) => entry.questionId === question.id);
@@ -658,29 +1003,29 @@ export default function BenchmarkExperience({
                             : 'No answer selected';
 
                         return (
-                          <div key={question.id} className="rounded-2xl border border-slate-200 bg-white p-4">
+                          <div key={question.id} className="rounded-2xl border border-border bg-card p-4">
                             <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                               <div className="min-w-0">
-                                <div className="text-sm font-semibold text-slate-900">{question.prompt}</div>
-                                <div className="mt-1 text-xs uppercase tracking-[0.18em] text-slate-400">{question.competency}</div>
+                                <div className="text-sm font-semibold text-foreground">{question.prompt}</div>
+                                <div className="mt-1 text-xs uppercase tracking-[0.18em] text-muted-foreground">{question.competency}</div>
                               </div>
-                              <span className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] ${answerRecord?.isCorrect ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
+                              <span className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] ${answerRecord?.isCorrect ? 'bg-xp/15 text-xp' : 'bg-coins/15 text-coins'}`}>
                                 {answerRecord?.isCorrect ? 'Correct' : 'Review'}
                               </span>
                             </div>
                             <div className="mt-4 grid gap-3 lg:grid-cols-2">
-                              <div className="rounded-2xl bg-slate-50 px-4 py-3">
-                                <div className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Your answer</div>
-                                <div className="mt-1 text-sm text-slate-700">{selectedAnswer}</div>
+                              <div className="rounded-2xl bg-background px-4 py-3">
+                                <div className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">Your answer</div>
+                                <div className="mt-1 text-sm text-foreground">{selectedAnswer}</div>
                               </div>
-                              <div className="rounded-2xl bg-slate-50 px-4 py-3">
-                                <div className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Correct answer</div>
-                                <div className="mt-1 text-sm text-slate-700">{question.options[question.correctAnswer]}</div>
+                              <div className="rounded-2xl bg-background px-4 py-3">
+                                <div className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">Correct answer</div>
+                                <div className="mt-1 text-sm text-foreground">{question.options[question.correctAnswer]}</div>
                               </div>
                             </div>
-                            <div className="mt-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
-                              <div className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Why it matters</div>
-                              <div className="mt-1 text-sm leading-6 text-slate-600">{question.explanation}</div>
+                            <div className="mt-3 rounded-2xl border border-border bg-background px-4 py-3">
+                              <div className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">Why it matters</div>
+                              <div className="mt-1 text-sm leading-6 text-muted-foreground">{question.explanation}</div>
                             </div>
                           </div>
                         );
@@ -693,17 +1038,17 @@ export default function BenchmarkExperience({
           ) : null}
 
           {view === 'setup' ? (
-            <div className="rounded-[2rem] border border-dashed border-slate-300 bg-white/80 p-6 sm:p-8">
-              <div className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">Sample output</div>
-              <h3 className="mt-2 text-2xl font-semibold text-slate-950">See the report before you start.</h3>
-              <p className="mt-3 text-sm leading-6 text-slate-600">The sample report shows the score, strengths, gaps, and next steps you get at the end of the benchmark.</p>
+            <div className={surfaceCardClassName}>
+              <div className="text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground">Sample output</div>
+              <h3 className="mt-2 text-2xl font-semibold text-foreground">See the report before you start.</h3>
+              <p className="mt-3 text-sm leading-6 text-muted-foreground">The sample report shows the score, strengths, gaps, and next steps you get at the end of the benchmark.</p>
               <div className="mt-5 flex flex-col gap-3 sm:flex-row">
-                <Link to="/report-sample" className="inline-flex items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-700 transition hover:bg-slate-50">
+                <Link to="/report-sample" className={secondaryButtonClassName}>
                   <span>View sample report</span>
                   <ArrowRight className="h-4 w-4" />
                 </Link>
                 {savedReport ? (
-                  <button type="button" onClick={() => openReport(savedReport)} className="inline-flex items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-700 transition hover:bg-slate-50">
+                  <button type="button" onClick={() => openReport(savedReport)} className={secondaryButtonClassName}>
                     <span>Open last report</span>
                     <ArrowRight className="h-4 w-4" />
                   </button>

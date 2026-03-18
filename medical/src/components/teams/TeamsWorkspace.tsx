@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { BarChart3, CalendarDays, Copy, Crown, Loader2, Mail, Plus, TrendingUp, Users } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { teamUseCases } from '../../data/siteContent';
 import {
@@ -39,6 +40,8 @@ const demoTimeline = [
   { label: 'Week 4', value: 71 },
 ];
 
+const supportEmail = import.meta.env.VITE_SUPPORT_EMAIL || 'support@codhakmailserver.online';
+
 const teamUseCaseOptions: Array<{ value: TeamUseCase; label: string }> = [
   { value: 'bootcamps', label: 'Bootcamp cohort' },
   { value: 'universities', label: 'University / class' },
@@ -52,18 +55,28 @@ const formatDueLabel = (value: string | null | undefined) => {
   return new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric' }).format(new Date(value));
 };
 
+const workspaceShellClass = 'rounded-[1.5rem] border border-border bg-card p-6 shadow-card sm:p-8';
+const workspacePanelClass = 'rounded-[1.35rem] border border-border bg-background/70 p-5';
+const workspaceMetricClass = 'rounded-[1.2rem] border border-border bg-background/70 px-4 py-4';
+const workspaceInputClass =
+  'w-full rounded-2xl border border-border bg-background px-4 py-3 text-sm text-foreground placeholder:text-muted-foreground';
+const workspacePrimaryButtonClass =
+  'inline-flex items-center justify-center gap-2 rounded-2xl bg-primary px-4 py-3 text-sm font-medium text-primary-foreground shadow-card transition hover:bg-primary/90';
+const workspaceSecondaryButtonClass =
+  'inline-flex items-center justify-center gap-2 rounded-2xl border border-border bg-background px-4 py-3 text-sm font-medium text-foreground transition hover:border-primary/30 hover:bg-card';
+
 const renderProgressBars = (entries: Array<{ label: string; value: number | null }>) => (
   <div className="mt-4 space-y-3">
     {entries.map((entry) => {
       const value = entry.value ?? 0;
       return (
         <div key={entry.label}>
-          <div className="mb-2 flex items-center justify-between text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
+          <div className="mb-2 flex items-center justify-between text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
             <span>{entry.label}</span>
             <span>{entry.value ?? '--'}/100</span>
           </div>
-          <div className="h-2 rounded-full bg-slate-100">
-            <div className="h-2 rounded-full bg-gradient-to-r from-sky-500 to-emerald-500" style={{ width: `${value}%` }} />
+          <div className="h-2 rounded-full bg-background">
+            <div className="h-2 rounded-full bg-primary" style={{ width: `${value}%` }} />
           </div>
         </div>
       );
@@ -71,63 +84,66 @@ const renderProgressBars = (entries: Array<{ label: string; value: number | null
   </div>
 );
 
-const PublicTeamsWorkspace = ({ mode }: { mode: 'public' | 'app' }) => (
+const PublicTeamsWorkspace = ({ mode }: { mode: 'public' | 'app' }) => {
+  const navigate = useNavigate();
+
+  return (
   <div className="grid gap-6 xl:grid-cols-[0.95fr_1.05fr]">
-    <section className="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-[0_20px_60px_rgba(15,23,42,0.08)] sm:p-8">
-      <div className="flex flex-col gap-4 border-b border-slate-200 pb-6 sm:flex-row sm:items-start sm:justify-between">
+    <section className={workspaceShellClass}>
+      <div className="flex flex-col gap-4 border-b border-border pb-6 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <div className="inline-flex items-center gap-2 rounded-full bg-violet-50 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-violet-700">
+          <div className="inline-flex items-center gap-2 rounded-full border border-primary/20 bg-primary/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-primary">
             {mode === 'public' ? 'Demo cohort workspace' : 'Pilot cohort workspace'}
           </div>
-          <h2 className="mt-4 text-3xl font-semibold tracking-tight text-slate-950">Benchmark a cohort. Track proof of progress.</h2>
-          <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-600 sm:text-base">
+          <h2 className="mt-4 text-3xl font-semibold tracking-tight text-foreground">Benchmark a cohort. Track proof of progress.</h2>
+          <p className="mt-3 max-w-2xl text-sm leading-6 text-muted-foreground sm:text-base">
             Use Codhak to benchmark learners quickly, assign practice paths, run competitions, and keep one shared view of improvement over time.
           </p>
         </div>
         <div className="grid gap-3 sm:min-w-[220px]">
-          <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
-            <div className="text-xs uppercase tracking-[0.18em] text-slate-400">Active learners</div>
-            <div className="mt-1 text-lg font-semibold text-slate-900">24</div>
+          <div className={workspaceMetricClass}>
+            <div className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Active learners</div>
+            <div className="mt-1 text-lg font-semibold text-foreground">24</div>
           </div>
-          <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
-            <div className="text-xs uppercase tracking-[0.18em] text-slate-400">Median score</div>
-            <div className="mt-1 text-lg font-semibold text-slate-900">71/100</div>
+          <div className={workspaceMetricClass}>
+            <div className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Median score</div>
+            <div className="mt-1 text-lg font-semibold text-foreground">71/100</div>
           </div>
         </div>
       </div>
 
       <div className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-        <div className="rounded-2xl bg-slate-50 px-4 py-4">
-          <div className="flex items-center gap-2 text-sm font-semibold uppercase tracking-[0.18em] text-slate-500"><Users className="h-4 w-4 text-sky-600" />Benchmark completion</div>
-          <div className="mt-3 text-3xl font-semibold text-slate-950">83%</div>
-          <p className="mt-1 text-sm text-slate-500">20 of 24 learners have completed the benchmark.</p>
+        <div className={workspaceMetricClass}>
+          <div className="flex items-center gap-2 text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground"><Users className="h-4 w-4 text-primary" />Benchmark completion</div>
+          <div className="mt-3 text-3xl font-semibold text-foreground">83%</div>
+          <p className="mt-1 text-sm text-muted-foreground">20 of 24 learners have completed the benchmark.</p>
         </div>
-        <div className="rounded-2xl bg-slate-50 px-4 py-4">
-          <div className="flex items-center gap-2 text-sm font-semibold uppercase tracking-[0.18em] text-slate-500"><TrendingUp className="h-4 w-4 text-emerald-600" />Avg. improvement</div>
-          <div className="mt-3 text-3xl font-semibold text-slate-950">+12 pts</div>
-          <p className="mt-1 text-sm text-slate-500">Tracked across current practice paths.</p>
+        <div className={workspaceMetricClass}>
+          <div className="flex items-center gap-2 text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground"><TrendingUp className="h-4 w-4 text-xp" />Avg. improvement</div>
+          <div className="mt-3 text-3xl font-semibold text-foreground">+12 pts</div>
+          <p className="mt-1 text-sm text-muted-foreground">Tracked across current practice paths.</p>
         </div>
-        <div className="rounded-2xl bg-slate-50 px-4 py-4">
-          <div className="flex items-center gap-2 text-sm font-semibold uppercase tracking-[0.18em] text-slate-500"><Crown className="h-4 w-4 text-violet-600" />Top performer</div>
-          <div className="mt-3 text-3xl font-semibold text-slate-950">Maya P.</div>
-          <p className="mt-1 text-sm text-slate-500">82/100 score with a 7-day practice streak.</p>
+        <div className={workspaceMetricClass}>
+          <div className="flex items-center gap-2 text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground"><Crown className="h-4 w-4 text-primary" />Top performer</div>
+          <div className="mt-3 text-3xl font-semibold text-foreground">Maya P.</div>
+          <p className="mt-1 text-sm text-muted-foreground">82/100 score with a 7-day practice streak.</p>
         </div>
       </div>
 
       <div className="mt-6 grid gap-4 lg:grid-cols-2">
-        <div className="rounded-[1.75rem] border border-slate-200 p-5">
-          <div className="flex items-center gap-2 text-sm font-semibold uppercase tracking-[0.18em] text-slate-500"><BarChart3 className="h-4 w-4 text-sky-600" />Members</div>
+        <div className={workspacePanelClass}>
+          <div className="flex items-center gap-2 text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground"><BarChart3 className="h-4 w-4 text-primary" />Members</div>
           <ul className="mt-4 space-y-3">
             {demoMembers.map((member) => (
-              <li key={member.name} className="rounded-2xl bg-slate-50 px-4 py-3">
+              <li key={member.name} className="rounded-2xl border border-border bg-card px-4 py-3">
                 <div className="flex items-center justify-between gap-3">
                   <div>
-                    <div className="text-sm font-semibold text-slate-900">{member.name}</div>
-                    <div className="mt-1 text-sm text-slate-500">{member.status}</div>
+                    <div className="text-sm font-semibold text-foreground">{member.name}</div>
+                    <div className="mt-1 text-sm text-muted-foreground">{member.status}</div>
                   </div>
                   <div className="text-right">
-                    <div className="text-sm font-semibold text-slate-900">{member.score}/100</div>
-                    <div className="mt-1 text-xs uppercase tracking-[0.18em] text-slate-400">{member.streak}d streak</div>
+                    <div className="text-sm font-semibold text-foreground">{member.score}/100</div>
+                    <div className="mt-1 text-xs uppercase tracking-[0.18em] text-muted-foreground">{member.streak}d streak</div>
                   </div>
                 </div>
               </li>
@@ -136,13 +152,13 @@ const PublicTeamsWorkspace = ({ mode }: { mode: 'public' | 'app' }) => (
         </div>
 
         <div className="grid gap-4">
-          <div className="rounded-[1.75rem] border border-slate-200 p-5">
-            <div className="flex items-center gap-2 text-sm font-semibold uppercase tracking-[0.18em] text-slate-500"><CalendarDays className="h-4 w-4 text-amber-600" />Assignment packs</div>
+          <div className={workspacePanelClass}>
+            <div className="flex items-center gap-2 text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground"><CalendarDays className="h-4 w-4 text-primary" />Assignment packs</div>
             <ul className="mt-4 space-y-3">
               {demoAssignments.map((assignment) => (
-                <li key={assignment.title} className="rounded-2xl bg-slate-50 px-4 py-3">
-                  <div className="text-sm font-semibold text-slate-900">{assignment.title}</div>
-                  <div className="mt-1 flex items-center justify-between text-sm text-slate-500">
+                <li key={assignment.title} className="rounded-2xl border border-border bg-card px-4 py-3">
+                  <div className="text-sm font-semibold text-foreground">{assignment.title}</div>
+                  <div className="mt-1 flex items-center justify-between text-sm text-muted-foreground">
                     <span>{assignment.type}</span>
                     <span>{assignment.due}</span>
                   </div>
@@ -151,12 +167,25 @@ const PublicTeamsWorkspace = ({ mode }: { mode: 'public' | 'app' }) => (
             </ul>
           </div>
 
-          <div className="rounded-[1.75rem] border border-dashed border-slate-300 bg-slate-50 p-5">
-            <div className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">Invite and join flow</div>
-            <p className="mt-3 text-sm leading-6 text-slate-600">This public view is intentionally a pilot preview. The signed-in workspace now supports real team creation, invites, assignments, and benchmark-derived analytics.</p>
+          <div className={workspacePanelClass}>
+            <div className="text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground">Invite and join flow</div>
+            <p className="mt-3 text-sm leading-6 text-muted-foreground">This public view is intentionally a pilot preview. The signed-in workspace now supports real team creation, invites, assignments, and benchmark-derived analytics.</p>
             <div className="mt-4 flex flex-col gap-3 sm:flex-row">
-              <button type="button" className="inline-flex items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-700"><Mail className="h-4 w-4" />Request pilot walkthrough</button>
-              <button type="button" className="inline-flex items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-700"><Users className="h-4 w-4" />See signed-in workflow</button>
+              <a
+                href={`mailto:${supportEmail}?subject=${encodeURIComponent('Codhak pilot walkthrough request')}`}
+                className={workspaceSecondaryButtonClass}
+              >
+                <Mail className="h-4 w-4" />
+                Request pilot walkthrough
+              </a>
+              <button
+                type="button"
+                onClick={() => navigate('/benchmark')}
+                className={workspaceSecondaryButtonClass}
+              >
+                <Users className="h-4 w-4" />
+                Start with benchmark
+              </button>
             </div>
           </div>
         </div>
@@ -164,24 +193,25 @@ const PublicTeamsWorkspace = ({ mode }: { mode: 'public' | 'app' }) => (
     </section>
 
     <aside className="grid gap-4">
-      <div className="rounded-[1.75rem] border border-slate-200 bg-white p-5 shadow-[0_20px_60px_rgba(15,23,42,0.08)]">
-        <div className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">Progress over time</div>
+      <div className={workspacePanelClass}>
+        <div className="text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground">Progress over time</div>
         {renderProgressBars(demoTimeline)}
       </div>
       {teamUseCases.map((useCase) => (
-        <div key={useCase.slug} className="rounded-[1.75rem] border border-slate-200 bg-white p-5 shadow-[0_20px_60px_rgba(15,23,42,0.08)]">
-          <div className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">{useCase.title}</div>
-          <p className="mt-3 text-sm leading-6 text-slate-600">{useCase.description}</p>
-          <ul className="mt-4 space-y-2 text-sm text-slate-700">
+        <div key={useCase.slug} className={workspacePanelClass}>
+          <div className="text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground">{useCase.title}</div>
+          <p className="mt-3 text-sm leading-6 text-muted-foreground">{useCase.description}</p>
+          <ul className="mt-4 space-y-2 text-sm text-foreground">
             {useCase.outcomes.map((outcome) => (
-              <li key={outcome} className="rounded-2xl bg-slate-50 px-4 py-3">{outcome}</li>
+              <li key={outcome} className="rounded-2xl border border-border bg-card px-4 py-3 text-foreground">{outcome}</li>
             ))}
           </ul>
         </div>
       ))}
     </aside>
   </div>
-);
+  );
+};
 
 export default function TeamsWorkspace({ mode = 'public' }: TeamsWorkspaceProps) {
   const { user } = useAuth();
@@ -351,17 +381,17 @@ export default function TeamsWorkspace({ mode = 'public' }: TeamsWorkspaceProps)
 
   return (
     <div className="grid gap-6 xl:grid-cols-[0.95fr_1.05fr]">
-      <section className="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-[0_20px_60px_rgba(15,23,42,0.08)] sm:p-8">
-        <div className="flex flex-col gap-4 border-b border-slate-200 pb-6">
+      <section className={workspaceShellClass}>
+        <div className="flex flex-col gap-4 border-b border-border pb-6">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
             <div>
-              <div className="inline-flex items-center gap-2 rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-emerald-700">Live team workspace</div>
-              <h2 className="mt-4 text-3xl font-semibold tracking-tight text-slate-950">Benchmark a cohort. Track proof of progress.</h2>
-              <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-600 sm:text-base">Create a pilot team, assign benchmark-first practice, and use benchmark history to see who is improving.</p>
+              <div className="inline-flex items-center gap-2 rounded-full border border-xp/20 bg-xp/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-xp">Live team workspace</div>
+              <h2 className="mt-4 text-3xl font-semibold tracking-tight text-foreground">Benchmark a cohort. Track proof of progress.</h2>
+              <p className="mt-3 max-w-2xl text-sm leading-6 text-muted-foreground sm:text-base">Create a pilot team, assign benchmark-first practice, and use benchmark history to see who is improving.</p>
             </div>
             <div className="grid gap-2 sm:min-w-[260px]">
-              <label className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Current team</label>
-              <select value={selectedTeamId} onChange={(event) => setSelectedTeamId(event.target.value)} className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700">
+              <label className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">Current team</label>
+              <select value={selectedTeamId} onChange={(event) => setSelectedTeamId(event.target.value)} className={workspaceInputClass}>
                 {teams.length === 0 ? <option value="">No teams yet</option> : null}
                 {teams.map((team) => (
                   <option key={team.id} value={team.id}>{team.name}</option>
@@ -370,80 +400,80 @@ export default function TeamsWorkspace({ mode = 'public' }: TeamsWorkspaceProps)
             </div>
           </div>
 
-          {errorMessage ? <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">{errorMessage}</div> : null}
+          {errorMessage ? <div className="rounded-2xl border border-coins/20 bg-coins/10 px-4 py-3 text-sm text-coins">{errorMessage}</div> : null}
         </div>
 
         {loadingTeams || loadingDetail ? (
-          <div className="flex min-h-[320px] items-center justify-center text-sm text-slate-500">
-            <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+          <div className="flex min-h-[320px] items-center justify-center text-sm text-muted-foreground">
+            <Loader2 className="mr-2 h-5 w-5 animate-spin text-primary" />
             Loading team workspace...
           </div>
         ) : !teamDetail ? (
           <div className="mt-6 grid gap-4 lg:grid-cols-2">
-            <div className="rounded-[1.75rem] border border-slate-200 p-5">
-              <div className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">Create a team</div>
+            <div className={workspacePanelClass}>
+              <div className="text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground">Create a team</div>
               <div className="mt-4 space-y-3">
-                <input value={createForm.name} onChange={(event) => setCreateForm((current) => ({ ...current, name: event.target.value }))} placeholder="Athens bootcamp cohort" className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm text-slate-700" />
-                <textarea value={createForm.description} onChange={(event) => setCreateForm((current) => ({ ...current, description: event.target.value }))} placeholder="Short description for this pilot." rows={3} className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm text-slate-700" />
+                <input value={createForm.name} onChange={(event) => setCreateForm((current) => ({ ...current, name: event.target.value }))} placeholder="Athens bootcamp cohort" className={workspaceInputClass} />
+                <textarea value={createForm.description} onChange={(event) => setCreateForm((current) => ({ ...current, description: event.target.value }))} placeholder="Short description for this pilot." rows={3} className={workspaceInputClass} />
                 <div className="grid gap-3 sm:grid-cols-2">
-                  <select value={createForm.useCase} onChange={(event) => setCreateForm((current) => ({ ...current, useCase: event.target.value as TeamUseCase }))} className="rounded-2xl border border-slate-200 px-4 py-3 text-sm text-slate-700">
+                  <select value={createForm.useCase} onChange={(event) => setCreateForm((current) => ({ ...current, useCase: event.target.value as TeamUseCase }))} className={workspaceInputClass}>
                     {teamUseCaseOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
                   </select>
-                  <input type="number" min={1} max={1000} value={createForm.seatLimit} onChange={(event) => setCreateForm((current) => ({ ...current, seatLimit: Number(event.target.value) || 25 }))} className="rounded-2xl border border-slate-200 px-4 py-3 text-sm text-slate-700" />
+                  <input type="number" min={1} max={1000} value={createForm.seatLimit} onChange={(event) => setCreateForm((current) => ({ ...current, seatLimit: Number(event.target.value) || 25 }))} className={workspaceInputClass} />
                 </div>
-                <button type="button" onClick={handleCreateTeam} className="inline-flex items-center justify-center gap-2 rounded-2xl bg-slate-950 px-4 py-3 text-sm font-medium text-white">
+                <button type="button" onClick={handleCreateTeam} className={workspacePrimaryButtonClass}>
                   <Plus className="h-4 w-4" />
                   Create team workspace
                 </button>
               </div>
             </div>
 
-            <div className="rounded-[1.75rem] border border-slate-200 p-5">
-              <div className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">Join with invite code</div>
+            <div className={workspacePanelClass}>
+              <div className="text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground">Join with invite code</div>
               <div className="mt-4 space-y-3">
-                <input value={joinCode} onChange={(event) => setJoinCode(event.target.value.toUpperCase())} placeholder="CODH-ABC123" className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm text-slate-700" />
-                <button type="button" onClick={handleJoinTeam} className="inline-flex items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-700">
+                <input value={joinCode} onChange={(event) => setJoinCode(event.target.value.toUpperCase())} placeholder="CODH-ABC123" className={workspaceInputClass} />
+                <button type="button" onClick={handleJoinTeam} className={workspaceSecondaryButtonClass}>
                   <Users className="h-4 w-4" />
                   Join team
                 </button>
               </div>
-              <div className="mt-6 rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-4 py-4 text-sm leading-6 text-slate-600">Create one pilot team or join an existing cohort to unlock assignments, invite codes, and benchmark-derived analytics.</div>
+              <div className="mt-6 rounded-2xl border border-border bg-card px-4 py-4 text-sm leading-6 text-muted-foreground">Create one pilot team or join an existing cohort to unlock assignments, invite codes, and benchmark-derived analytics.</div>
             </div>
           </div>
         ) : (
           <>
             <div className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-              <div className="rounded-2xl bg-slate-50 px-4 py-4">
-                <div className="text-xs uppercase tracking-[0.18em] text-slate-400">Active learners</div>
-                <div className="mt-2 text-3xl font-semibold text-slate-950">{teamDetail.metrics.activeLearners}</div>
-                <p className="mt-1 text-sm text-slate-500">{teamDetail.team.memberCount} members in this cohort.</p>
+              <div className={workspaceMetricClass}>
+                <div className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Active learners</div>
+                <div className="mt-2 text-3xl font-semibold text-foreground">{teamDetail.metrics.activeLearners}</div>
+                <p className="mt-1 text-sm text-muted-foreground">{teamDetail.team.memberCount} members in this cohort.</p>
               </div>
-              <div className="rounded-2xl bg-slate-50 px-4 py-4">
-                <div className="text-xs uppercase tracking-[0.18em] text-slate-400">Benchmark completion</div>
-                <div className="mt-2 text-3xl font-semibold text-slate-950">{teamDetail.metrics.benchmarkCompletionRate}%</div>
-                <p className="mt-1 text-sm text-slate-500">{teamDetail.metrics.benchmarkCompletionCount} learners have a recorded benchmark.</p>
+              <div className={workspaceMetricClass}>
+                <div className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Benchmark completion</div>
+                <div className="mt-2 text-3xl font-semibold text-foreground">{teamDetail.metrics.benchmarkCompletionRate}%</div>
+                <p className="mt-1 text-sm text-muted-foreground">{teamDetail.metrics.benchmarkCompletionCount} learners have a recorded benchmark.</p>
               </div>
-              <div className="rounded-2xl bg-slate-50 px-4 py-4">
-                <div className="text-xs uppercase tracking-[0.18em] text-slate-400">Median score</div>
-                <div className="mt-2 text-3xl font-semibold text-slate-950">{teamDetail.metrics.medianScore ?? '--'}/100</div>
-                <p className="mt-1 text-sm text-slate-500">Based on each learner's latest benchmark.</p>
+              <div className={workspaceMetricClass}>
+                <div className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Median score</div>
+                <div className="mt-2 text-3xl font-semibold text-foreground">{teamDetail.metrics.medianScore ?? '--'}/100</div>
+                <p className="mt-1 text-sm text-muted-foreground">Based on each learner's latest benchmark.</p>
               </div>
             </div>
 
             <div className="mt-6 grid gap-4 lg:grid-cols-2">
-              <div className="rounded-[1.75rem] border border-slate-200 p-5">
-                <div className="flex items-center gap-2 text-sm font-semibold uppercase tracking-[0.18em] text-slate-500"><BarChart3 className="h-4 w-4 text-sky-600" />Members</div>
+              <div className={workspacePanelClass}>
+                <div className="flex items-center gap-2 text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground"><BarChart3 className="h-4 w-4 text-primary" />Members</div>
                 <ul className="mt-4 space-y-3">
                   {teamDetail.members.map((member) => (
-                    <li key={member.userId} className="rounded-2xl bg-slate-50 px-4 py-3">
+                    <li key={member.userId} className="rounded-2xl border border-border bg-card px-4 py-3">
                       <div className="flex items-center justify-between gap-3">
                         <div>
-                          <div className="text-sm font-semibold text-slate-900">{member.name}</div>
-                          <div className="mt-1 text-sm text-slate-500">{member.latestBenchmarkStatus} - {member.role}</div>
+                          <div className="text-sm font-semibold text-foreground">{member.name}</div>
+                          <div className="mt-1 text-sm text-muted-foreground">{member.latestBenchmarkStatus} - {member.role}</div>
                         </div>
                         <div className="text-right">
-                          <div className="text-sm font-semibold text-slate-900">{member.latestBenchmarkScore ?? '--'}/100</div>
-                          <div className="mt-1 text-xs uppercase tracking-[0.18em] text-slate-400">{member.currentStreak}d streak</div>
+                          <div className="text-sm font-semibold text-foreground">{member.latestBenchmarkScore ?? '--'}/100</div>
+                          <div className="mt-1 text-xs uppercase tracking-[0.18em] text-muted-foreground">{member.currentStreak}d streak</div>
                         </div>
                       </div>
                     </li>
@@ -452,13 +482,13 @@ export default function TeamsWorkspace({ mode = 'public' }: TeamsWorkspaceProps)
               </div>
 
               <div className="grid gap-4">
-                <div className="rounded-[1.75rem] border border-slate-200 p-5">
-                  <div className="flex items-center gap-2 text-sm font-semibold uppercase tracking-[0.18em] text-slate-500"><CalendarDays className="h-4 w-4 text-amber-600" />Assignments</div>
+                <div className={workspacePanelClass}>
+                  <div className="flex items-center gap-2 text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground"><CalendarDays className="h-4 w-4 text-primary" />Assignments</div>
                   <ul className="mt-4 space-y-3">
                     {teamDetail.assignments.map((assignment) => (
-                      <li key={assignment.id} className="rounded-2xl bg-slate-50 px-4 py-3">
-                        <div className="text-sm font-semibold text-slate-900">{assignment.title}</div>
-                        <div className="mt-1 flex items-center justify-between text-sm text-slate-500">
+                      <li key={assignment.id} className="rounded-2xl border border-border bg-card px-4 py-3">
+                        <div className="text-sm font-semibold text-foreground">{assignment.title}</div>
+                        <div className="mt-1 flex items-center justify-between text-sm text-muted-foreground">
                           <span>{assignment.assignmentType.replace('_', ' ')}</span>
                           <span>{formatDueLabel(assignment.dueAt)}</span>
                         </div>
@@ -467,31 +497,31 @@ export default function TeamsWorkspace({ mode = 'public' }: TeamsWorkspaceProps)
                   </ul>
                   {canManageTeam ? (
                     <div className="mt-4 flex gap-3">
-                      <input value={assignmentTitle} onChange={(event) => setAssignmentTitle(event.target.value)} placeholder="Add a benchmark assignment" className="min-w-0 flex-1 rounded-2xl border border-slate-200 px-4 py-3 text-sm text-slate-700" />
-                      <button type="button" onClick={handleCreateAssignment} className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-700"><Plus className="h-4 w-4" />Add</button>
+                      <input value={assignmentTitle} onChange={(event) => setAssignmentTitle(event.target.value)} placeholder="Add a benchmark assignment" className={`min-w-0 flex-1 ${workspaceInputClass}`} />
+                      <button type="button" onClick={handleCreateAssignment} className={workspaceSecondaryButtonClass}><Plus className="h-4 w-4" />Add</button>
                     </div>
                   ) : null}
                 </div>
 
-                <div className="rounded-[1.75rem] border border-slate-200 p-5">
-                  <div className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">Invite codes</div>
+                <div className={workspacePanelClass}>
+                  <div className="text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground">Invite codes</div>
                   <div className="mt-4 space-y-3">
                     {teamDetail.invites.slice(0, 3).map((invite) => (
-                      <div key={invite.id} className="rounded-2xl bg-slate-50 px-4 py-3">
+                      <div key={invite.id} className="rounded-2xl border border-border bg-card px-4 py-3">
                         <div className="flex items-center justify-between gap-3">
                           <div>
-                            <div className="text-sm font-semibold text-slate-900">{invite.label}</div>
-                            <div className="mt-1 text-xs uppercase tracking-[0.18em] text-slate-400">{invite.code}</div>
+                            <div className="text-sm font-semibold text-foreground">{invite.label}</div>
+                            <div className="mt-1 text-xs uppercase tracking-[0.18em] text-muted-foreground">{invite.code}</div>
                           </div>
-                          <div className="text-xs text-slate-500">{invite.useCount}/{invite.maxUses} used</div>
+                          <div className="text-xs text-muted-foreground">{invite.useCount}/{invite.maxUses} used</div>
                         </div>
                       </div>
                     ))}
                   </div>
                   {canManageTeam ? (
                     <div className="mt-4 flex gap-3">
-                      <input value={inviteLabel} onChange={(event) => setInviteLabel(event.target.value)} placeholder="Invite label" className="min-w-0 flex-1 rounded-2xl border border-slate-200 px-4 py-3 text-sm text-slate-700" />
-                      <button type="button" onClick={handleCreateInvite} className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-700"><Copy className="h-4 w-4" />Create</button>
+                      <input value={inviteLabel} onChange={(event) => setInviteLabel(event.target.value)} placeholder="Invite label" className={`min-w-0 flex-1 ${workspaceInputClass}`} />
+                      <button type="button" onClick={handleCreateInvite} className={workspaceSecondaryButtonClass}><Copy className="h-4 w-4" />Create</button>
                     </div>
                   ) : null}
                 </div>
@@ -502,30 +532,30 @@ export default function TeamsWorkspace({ mode = 'public' }: TeamsWorkspaceProps)
       </section>
 
       <aside className="grid gap-4">
-        <div className="rounded-[1.75rem] border border-slate-200 bg-white p-5 shadow-[0_20px_60px_rgba(15,23,42,0.08)]">
-          <div className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">Progress over time</div>
+        <div className={workspacePanelClass}>
+          <div className="text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground">Progress over time</div>
           {renderProgressBars(teamDetail?.metrics.progressTimeline || demoTimeline)}
         </div>
 
-        <div className="rounded-[1.75rem] border border-slate-200 bg-white p-5 shadow-[0_20px_60px_rgba(15,23,42,0.08)]">
-          <div className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">Performance snapshot</div>
-          <div className="mt-4 space-y-3 text-sm text-slate-600">
-            <div className="rounded-2xl bg-slate-50 px-4 py-3">
-              Avg. improvement: <span className="font-semibold text-slate-900">{teamDetail?.metrics.averageImprovement ?? '--'} pts</span>
+        <div className={workspacePanelClass}>
+          <div className="text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground">Performance snapshot</div>
+          <div className="mt-4 space-y-3 text-sm text-muted-foreground">
+            <div className="rounded-2xl border border-border bg-card px-4 py-3">
+              Avg. improvement: <span className="font-semibold text-foreground">{teamDetail?.metrics.averageImprovement ?? '--'} pts</span>
             </div>
-            <div className="rounded-2xl bg-slate-50 px-4 py-3">
-              Top performer: <span className="font-semibold text-slate-900">{teamDetail?.metrics.topPerformer?.name ?? 'No benchmark yet'}</span>
+            <div className="rounded-2xl border border-border bg-card px-4 py-3">
+              Top performer: <span className="font-semibold text-foreground">{teamDetail?.metrics.topPerformer?.name ?? 'No benchmark yet'}</span>
             </div>
-            <div className="rounded-2xl bg-slate-50 px-4 py-3">
-              Use case: <span className="font-semibold text-slate-900">{teams.find((team) => team.id === selectedTeamId)?.useCase ?? 'general'}</span>
+            <div className="rounded-2xl border border-border bg-card px-4 py-3">
+              Use case: <span className="font-semibold text-foreground">{teams.find((team) => team.id === selectedTeamId)?.useCase ?? 'general'}</span>
             </div>
           </div>
         </div>
 
         {teamUseCases.map((useCase) => (
-          <div key={useCase.slug} className="rounded-[1.75rem] border border-slate-200 bg-white p-5 shadow-[0_20px_60px_rgba(15,23,42,0.08)]">
-            <div className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">{useCase.title}</div>
-            <p className="mt-3 text-sm leading-6 text-slate-600">{useCase.description}</p>
+          <div key={useCase.slug} className={workspacePanelClass}>
+            <div className="text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground">{useCase.title}</div>
+            <p className="mt-3 text-sm leading-6 text-muted-foreground">{useCase.description}</p>
           </div>
         ))}
       </aside>

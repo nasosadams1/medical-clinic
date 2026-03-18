@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useMemo, useState } from 'react'
 import { Eye, EyeOff, Mail, Lock, User, AlertCircle, CheckCircle, Loader2 } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
 import { motion } from 'framer-motion'
@@ -23,7 +23,31 @@ interface FormErrors {
 interface PasswordStrength {
   score: number
   feedback: string[]
-  color: string
+  colorClassName: string
+  label: string
+}
+
+const inputClassName = (hasError: boolean) =>
+  `w-full rounded-2xl border bg-slate-950/70 px-11 py-3.5 text-sm text-white outline-none transition placeholder:text-slate-500 ${
+    hasError
+      ? 'border-rose-400/40 focus:border-rose-300 focus:ring-2 focus:ring-rose-400/20'
+      : 'border-white/10 focus:border-cyan-300/60 focus:ring-2 focus:ring-cyan-400/20'
+  }`
+
+const GoogleMark = () => (
+  <svg aria-hidden="true" viewBox="0 0 24 24" className="h-4 w-4">
+    <path fill="#EA4335" d="M12 10.2v3.9h5.4c-.2 1.3-1.7 3.9-5.4 3.9-3.3 0-6-2.7-6-6s2.7-6 6-6c1.9 0 3.2.8 4 1.5l2.8-2.7C17.1 3.2 14.8 2 12 2 6.5 2 2 6.5 2 12s4.5 10 10 10c5.8 0 9.7-4.1 9.7-9.8 0-.7-.1-1.2-.2-1.7H12Z" />
+    <path fill="#34A853" d="M12 22c2.7 0 5-0.9 6.7-2.5l-3.2-2.6c-.9.6-2 1-3.5 1-2.7 0-5-1.8-5.8-4.3l-3.3 2.5C4.6 19.5 8 22 12 22Z" />
+    <path fill="#4A90E2" d="M3 7.9l3.3 2.4C7.1 7.8 9.4 6 12 6c1.5 0 2.8.5 3.9 1.5l2.9-2.8C17 3.1 14.7 2 12 2 8 2 4.6 4.5 3 7.9Z" />
+    <path fill="#FBBC05" d="M6.2 13.6c-.2-.5-.3-1-.3-1.6s.1-1.1.3-1.6L3 7.9C2.3 9.2 2 10.6 2 12s.3 2.8 1 4.1l3.2-2.5Z" />
+  </svg>
+)
+
+const strengthTone = (score: number) => {
+  if (score <= 1) return { colorClassName: 'bg-rose-400', label: 'Weak' }
+  if (score <= 3) return { colorClassName: 'bg-amber-400', label: 'Fair' }
+  if (score === 4) return { colorClassName: 'bg-sky-400', label: 'Good' }
+  return { colorClassName: 'bg-emerald-400', label: 'Strong' }
 }
 
 const SignUpForm: React.FC<SignUpFormProps> = ({ onToggleForm, onEmailVerification, onMessage }) => {
@@ -45,85 +69,84 @@ const SignUpForm: React.FC<SignUpFormProps> = ({ onToggleForm, onEmailVerificati
     name: false,
     email: false,
     password: false,
-    confirmPassword: false
+    confirmPassword: false,
   })
 
   const { signUp, signInWithGoogle } = useAuth()
 
-  // Password strength checker
-  const checkPasswordStrength = (password: string): PasswordStrength => {
+  const checkPasswordStrength = (value: string): PasswordStrength => {
     let score = 0
     const feedback: string[] = []
 
-    if (password.length >= 8) score += 1
+    if (value.length >= 8) score += 1
     else feedback.push('At least 8 characters')
 
-    if (/[a-z]/.test(password)) score += 1
+    if (/[a-z]/.test(value)) score += 1
     else feedback.push('One lowercase letter')
 
-    if (/[A-Z]/.test(password)) score += 1
+    if (/[A-Z]/.test(value)) score += 1
     else feedback.push('One uppercase letter')
 
-    if (/\d/.test(password)) score += 1
+    if (/\d/.test(value)) score += 1
     else feedback.push('One number')
 
-    if (/[^a-zA-Z0-9]/.test(password)) score += 1
+    if (/[^a-zA-Z0-9]/.test(value)) score += 1
     else feedback.push('One special character')
 
-    const colors = ['bg-red-500', 'bg-orange-500', 'bg-yellow-500', 'bg-blue-500', 'bg-green-500']
-    const color = colors[Math.min(score, 4)]
-
-    return { score, feedback, color }
+    return {
+      score,
+      feedback,
+      ...strengthTone(score),
+    }
   }
 
-  // Validation functions
-  const validateName = (name: string): string | undefined => {
-    if (!name.trim()) return 'Username is required'
-    if (name.trim().length < 4) return 'Username must be at least 4 characters'
-    if (name.trim().length > 16) return 'Username must be 16 characters or less'
-    if (!/^[a-zA-Z0-9_]+$/.test(name.trim())) return 'Username can only contain letters, numbers, and underscores'
+  const validateName = (value: string): string | undefined => {
+    if (!value.trim()) return 'Username is required'
+    if (value.trim().length < 4) return 'Username must be at least 4 characters'
+    if (value.trim().length > 16) return 'Username must be 16 characters or less'
+    if (!/^[a-zA-Z0-9_]+$/.test(value.trim())) return 'Username can only contain letters, numbers, and underscores'
     return undefined
   }
 
-  const validateEmail = (email: string): string | undefined => {
-    if (!email.trim()) return 'Email is required'
+  const validateEmail = (value: string): string | undefined => {
+    if (!value.trim()) return 'Email is required'
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
-    if (!emailRegex.test(email.trim())) return 'Please enter a valid email address'
+    if (!emailRegex.test(value.trim())) return 'Please enter a valid email address'
     return undefined
   }
 
-  const validatePassword = (password: string): string | undefined => {
-    if (!password) return 'Password is required'
-    if (password.length < 8) return 'Password must be at least 8 characters'
-    
-    const strength = checkPasswordStrength(password)
+  const validatePassword = (value: string): string | undefined => {
+    if (!value) return 'Password is required'
+    if (value.length < 8) return 'Password must be at least 8 characters'
+
+    const strength = checkPasswordStrength(value)
     if (strength.score < 3) return 'Password is too weak'
-    
+
     return undefined
   }
 
-  const validateConfirmPassword = (confirmPassword: string, password: string): string | undefined => {
-    if (!confirmPassword) return 'Please confirm your password'
-    if (confirmPassword !== password) return 'Passwords do not match'
+  const validateConfirmPassword = (value: string, currentPassword: string): string | undefined => {
+    if (!value) return 'Please confirm your password'
+    if (value !== currentPassword) return 'Passwords do not match'
     return undefined
   }
 
   const validateForm = (): boolean => {
-    const newErrors: FormErrors = {}
-    
+    const nextErrors: FormErrors = {}
+
     const nameError = validateName(name)
     const emailError = validateEmail(email)
     const passwordError = validatePassword(password)
     const confirmPasswordError = validateConfirmPassword(confirmPassword, password)
-    
-    if (nameError) newErrors.name = nameError
-    if (emailError) newErrors.email = emailError
-    if (passwordError) newErrors.password = passwordError
-    if (confirmPasswordError) newErrors.confirmPassword = confirmPasswordError
-    if (!acceptedLegal) newErrors.legal = 'You must accept the Terms of Service, Privacy Policy, and Refund Policy.'
-    
-    setErrors(newErrors)
-    return Object.keys(newErrors).length === 0
+
+    if (nameError) nextErrors.name = nameError
+    if (emailError) nextErrors.email = emailError
+    if (passwordError) nextErrors.password = passwordError
+    if (confirmPasswordError) nextErrors.confirmPassword = confirmPasswordError
+    if (!acceptedLegal) nextErrors.legal = 'You must accept the Terms of Service, Privacy Policy, and Refund Policy.'
+
+    setErrors(nextErrors)
+    return Object.keys(nextErrors).length === 0
   }
 
   const handleInputChange = (field: keyof FormErrors, value: string) => {
@@ -131,87 +154,79 @@ const SignUpForm: React.FC<SignUpFormProps> = ({ onToggleForm, onEmailVerificati
       case 'name':
         setName(value)
         if (touched.name) {
-          const error = validateName(value)
-          setErrors(prev => ({ ...prev, name: error }))
+          setErrors((prev) => ({ ...prev, name: validateName(value) }))
         }
         break
       case 'email':
         setEmail(value)
         if (touched.email) {
-          const error = validateEmail(value)
-          setErrors(prev => ({ ...prev, email: error }))
+          setErrors((prev) => ({ ...prev, email: validateEmail(value) }))
         }
         break
       case 'password':
         setPassword(value)
         if (touched.password) {
-          const error = validatePassword(value)
-          setErrors(prev => ({ ...prev, password: error }))
+          setErrors((prev) => ({ ...prev, password: validatePassword(value) }))
         }
         if (touched.confirmPassword && confirmPassword) {
-          const confirmError = validateConfirmPassword(confirmPassword, value)
-          setErrors(prev => ({ ...prev, confirmPassword: confirmError }))
+          setErrors((prev) => ({ ...prev, confirmPassword: validateConfirmPassword(confirmPassword, value) }))
         }
         break
       case 'confirmPassword':
         setConfirmPassword(value)
         if (touched.confirmPassword) {
-          const error = validateConfirmPassword(value, password)
-          setErrors(prev => ({ ...prev, confirmPassword: error }))
+          setErrors((prev) => ({ ...prev, confirmPassword: validateConfirmPassword(value, password) }))
         }
         break
+      default:
+        break
     }
-    
-    // Clear general error when user starts typing
+
     if (errors.general) {
-      setErrors(prev => ({ ...prev, general: undefined }))
+      setErrors((prev) => ({ ...prev, general: undefined }))
     }
   }
 
   const handleBlur = (field: keyof typeof touched) => {
-    setTouched(prev => ({ ...prev, [field]: true }))
-    
+    setTouched((prev) => ({ ...prev, [field]: true }))
+
     switch (field) {
       case 'name':
-        const nameError = validateName(name)
-        setErrors(prev => ({ ...prev, name: nameError }))
+        setErrors((prev) => ({ ...prev, name: validateName(name) }))
         break
       case 'email':
-        const emailError = validateEmail(email)
-        setErrors(prev => ({ ...prev, email: emailError }))
+        setErrors((prev) => ({ ...prev, email: validateEmail(email) }))
         break
       case 'password':
-        const passwordError = validatePassword(password)
-        setErrors(prev => ({ ...prev, password: passwordError }))
+        setErrors((prev) => ({ ...prev, password: validatePassword(password) }))
         break
       case 'confirmPassword':
-        const confirmError = validateConfirmPassword(confirmPassword, password)
-        setErrors(prev => ({ ...prev, confirmPassword: confirmError }))
+        setErrors((prev) => ({ ...prev, confirmPassword: validateConfirmPassword(confirmPassword, password) }))
+        break
+      default:
         break
     }
   }
 
   const getErrorMessage = (error: string): string => {
-    const errorMap: { [key: string]: string } = {
-      'User already registered': 'An account with this email already exists. Try signing in instead. If the profile was deleted, signing in will recreate it.',
+    const errorMap: Record<string, string> = {
+      'User already registered': 'An account with this email already exists. Try signing in instead.',
       'Username already taken': 'This username is already taken. Please choose a different one.',
       'Email rate limit exceeded': 'Too many signup attempts. Please wait a few minutes before trying again.',
       'Signup disabled': 'New registrations are temporarily disabled. Please try again later.',
       'Invalid email': 'Please enter a valid email address.',
       'Weak password': 'Password is too weak. Please choose a stronger password.',
-      'Network error': 'Connection failed. Please check your internet connection and try again.'
+      'Network error': 'Connection failed. Please check your internet connection and try again.',
     }
 
     return errorMap[error] || error || 'An unexpected error occurred. Please try again.'
   }
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    
-    console.log('Form submitted with username:', name.trim())
-    
-    if (!validateForm()) {
-      console.log('Form validation failed')
+  const handleSubmit = async (event: React.FormEvent) => {
+    event.preventDefault()
+
+    const isValid = validateForm()
+    if (!isValid) {
       onMessage('error', 'Please fix the errors below and try again.')
       return
     }
@@ -221,29 +236,22 @@ const SignUpForm: React.FC<SignUpFormProps> = ({ onToggleForm, onEmailVerificati
 
     try {
       savePendingLegalAcceptance('signup')
-      console.log('Calling signUp function with username:', name.trim())
       const result = await signUp(email.trim(), password, name.trim())
-      console.log('SignUp result:', result)
-      
-      if (result && result.error) {
+
+      if (result?.error) {
         clearPendingLegalAcceptance()
-        console.log('SignUp error:', result.error)
         const friendlyMessage = getErrorMessage(result.error.message)
         setErrors({ general: friendlyMessage })
         onMessage('error', friendlyMessage)
+      } else if (result?.needsConfirmation) {
+        onEmailVerification(email.trim())
+        onMessage('success', 'Account created. Check your inbox to verify your email and finish setup.')
       } else {
-        console.log('SignUp successful with username:', name.trim())
-        if (result?.needsConfirmation) {
-          onEmailVerification(email.trim())
-          onMessage('success', `Account created. Check your inbox to verify your email and finish setup.`)
-        } else {
-          onMessage('success', 'Account created successfully.')
-        }
+        onMessage('success', 'Account created successfully.')
       }
-    } catch (err: any) {
+    } catch (error: any) {
       clearPendingLegalAcceptance()
-      console.error('SignUp exception:', err)
-      const friendlyMessage = getErrorMessage(err.message)
+      const friendlyMessage = getErrorMessage(error.message)
       setErrors({ general: friendlyMessage })
       onMessage('error', friendlyMessage)
     } finally {
@@ -254,23 +262,18 @@ const SignUpForm: React.FC<SignUpFormProps> = ({ onToggleForm, onEmailVerificati
   const handleGoogleSignIn = async () => {
     setLoading(true)
     setErrors({})
-    
+
     try {
-      console.log('Calling Google signIn...')
       const result = await signInWithGoogle()
-      console.log('Google signIn result:', result)
-      
-      if (result && result.error) {
+      if (result?.error) {
         clearPendingLegalAcceptance()
-        console.log('Google signIn error:', result.error)
         const friendlyMessage = getErrorMessage(result.error.message)
         setErrors({ general: friendlyMessage })
         onMessage('error', friendlyMessage)
       }
-    } catch (err: any) {
+    } catch (error: any) {
       clearPendingLegalAcceptance()
-      console.error('Google signIn exception:', err)
-      const friendlyMessage = 'Google sign-up failed. Please try again or use email/password.'
+      const friendlyMessage = 'Google sign-up failed. Please try again or use email and password.'
       setErrors({ general: friendlyMessage })
       onMessage('error', friendlyMessage)
     } finally {
@@ -278,316 +281,278 @@ const SignUpForm: React.FC<SignUpFormProps> = ({ onToggleForm, onEmailVerificati
     }
   }
 
-  const passwordStrength = password ? checkPasswordStrength(password) : null
+  const passwordStrength = useMemo(() => (password ? checkPasswordStrength(password) : null), [password])
 
-  // Check if form is valid for submit button
-  const isFormValid = name.trim() && 
-                     email.trim() && 
-                     password && 
-                     confirmPassword && 
-                     acceptedLegal && 
-                     !errors.name && 
-                     !errors.email && 
-                     !errors.password && 
-                     !errors.confirmPassword && 
-                     !errors.legal
+  const isFormValid = Boolean(
+    name.trim() &&
+    email.trim() &&
+    password &&
+    confirmPassword &&
+    acceptedLegal &&
+    !errors.name &&
+    !errors.email &&
+    !errors.password &&
+    !errors.confirmPassword &&
+    !errors.legal
+  )
 
   return (
-    <div className="w-full max-w-md mx-auto">
-      <motion.div 
-        className="text-center mb-8"
-        initial={{ opacity: 0, y: 20 }}
+    <div className="w-full">
+      <motion.div
+        className="mb-6 text-center"
+        initial={{ opacity: 0, y: 16 }}
         animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.1 }}
+        transition={{ delay: 0.08 }}
       >
-        <h1 className="text-3xl font-bold text-gray-900 mb-2">Create Account</h1>
-        <p className="text-gray-600">Save benchmark reports, unlock your roadmap, and keep your progress history.</p>
+        <h1 className="text-3xl font-semibold text-white">Create your workspace</h1>
+        <p className="mt-2 text-sm leading-6 text-slate-300">
+          Save benchmark reports, unlock your roadmap, and keep your progress history across practice and duels.
+        </p>
       </motion.div>
 
-      <motion.form 
-        onSubmit={handleSubmit} 
-        className="space-y-6"
-        initial={{ opacity: 0, y: 20 }}
+      <motion.div
+        className="mb-6"
+        initial={{ opacity: 0, y: 16 }}
         animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.2 }}
+        transition={{ delay: 0.12 }}
       >
-        {/* General Error */}
+        <button
+          type="button"
+          onClick={handleGoogleSignIn}
+          disabled={loading}
+          className="inline-flex w-full items-center justify-center gap-3 rounded-2xl border border-white/10 bg-white/5 px-4 py-3.5 text-sm font-medium text-slate-100 transition hover:border-white/20 hover:bg-white/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          <GoogleMark />
+          <span>Continue with Google</span>
+        </button>
+      </motion.div>
+
+      <div className="mb-6 flex items-center gap-3 text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">
+        <div className="h-px flex-1 bg-white/10" />
+        <span>Email</span>
+        <div className="h-px flex-1 bg-white/10" />
+      </div>
+
+      <motion.form
+        onSubmit={handleSubmit}
+        className="space-y-5"
+        initial={{ opacity: 0, y: 16 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.16 }}
+      >
         {errors.general && (
           <motion.div
             initial={{ opacity: 0, height: 0 }}
             animate={{ opacity: 1, height: 'auto' }}
-            className="p-4 bg-red-50 border border-red-200 rounded-lg flex items-center space-x-3"
+            className="flex items-start gap-3 rounded-2xl border border-rose-400/20 bg-rose-500/10 px-4 py-3 text-sm text-rose-100"
           >
-            <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0" />
-            <p className="text-sm text-red-800">{errors.general}</p>
+            <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-rose-300" />
+            <p className="leading-6">{errors.general}</p>
           </motion.div>
         )}
 
-        {/* Username Field */}
         <div className="space-y-2">
-          <label htmlFor="name" className="block text-sm font-medium text-gray-700">
+          <label htmlFor="name" className="block text-sm font-medium text-slate-200">
             Username
           </label>
           <div className="relative">
-            <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-              <User className={`h-5 w-5 ${errors.name ? 'text-red-400' : 'text-gray-400'}`} />
-            </div>
+            <User className={`pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 ${errors.name ? 'text-rose-300' : 'text-slate-500'}`} />
             <input
               id="name"
               type="text"
               value={name}
-              onChange={(e) => handleInputChange('name', e.target.value)}
+              onChange={(event) => handleInputChange('name', event.target.value)}
               onBlur={() => handleBlur('name')}
               placeholder="Choose a unique username"
-              className={`w-full pl-10 pr-4 py-3 border rounded-xl bg-gray-50 focus:bg-white focus:ring-2 focus:ring-blue-100 outline-none transition-all duration-200 ${
-                errors.name 
-                  ? 'border-red-300 focus:border-red-500 focus:ring-red-100' 
-                  : 'border-gray-200 focus:border-blue-500'
-              }`}
+              className={inputClassName(Boolean(errors.name))}
               disabled={loading}
               autoComplete="username"
               maxLength={16}
             />
             {!errors.name && name && touched.name && (
-              <div className="absolute inset-y-0 right-0 pr-3 flex items-center">
-                <CheckCircle className="h-5 w-5 text-green-500" />
-              </div>
+              <CheckCircle className="pointer-events-none absolute right-4 top-1/2 h-5 w-5 -translate-y-1/2 text-emerald-300" />
             )}
           </div>
-          {errors.name && (
-            <motion.p
-              initial={{ opacity: 0, y: -10 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="text-sm text-red-600 flex items-center space-x-1"
-            >
-              <AlertCircle className="w-4 h-4" />
+          {errors.name ? (
+            <motion.p initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} className="flex items-center gap-2 text-sm text-rose-300">
+              <AlertCircle className="h-4 w-4" />
               <span>{errors.name}</span>
             </motion.p>
+          ) : (
+            <p className="text-xs text-slate-400">This becomes your display name and can be changed later in your profile.</p>
           )}
-          <p className="text-xs text-gray-500">
-            This becomes your Codhak display name and can be changed later in your profile. (Max 16 characters)
-          </p>
         </div>
 
-        {/* Email Field */}
         <div className="space-y-2">
-          <label htmlFor="email" className="block text-sm font-medium text-gray-700">
-            Email Address
+          <label htmlFor="email" className="block text-sm font-medium text-slate-200">
+            Email address
           </label>
           <div className="relative">
-            <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-              <Mail className={`h-5 w-5 ${errors.email ? 'text-red-400' : 'text-gray-400'}`} />
-            </div>
+            <Mail className={`pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 ${errors.email ? 'text-rose-300' : 'text-slate-500'}`} />
             <input
               id="email"
               type="email"
               value={email}
-              onChange={(e) => handleInputChange('email', e.target.value)}
+              onChange={(event) => handleInputChange('email', event.target.value)}
               onBlur={() => handleBlur('email')}
-              placeholder="Enter your email address"
-              className={`w-full pl-10 pr-4 py-3 border rounded-xl bg-gray-50 focus:bg-white focus:ring-2 focus:ring-blue-100 outline-none transition-all duration-200 ${
-                errors.email 
-                  ? 'border-red-300 focus:border-red-500 focus:ring-red-100' 
-                  : 'border-gray-200 focus:border-blue-500'
-              }`}
+              placeholder="name@company.com"
+              className={inputClassName(Boolean(errors.email))}
               disabled={loading}
               autoComplete="email"
             />
             {!errors.email && email && touched.email && (
-              <div className="absolute inset-y-0 right-0 pr-3 flex items-center">
-                <CheckCircle className="h-5 w-5 text-green-500" />
-              </div>
+              <CheckCircle className="pointer-events-none absolute right-4 top-1/2 h-5 w-5 -translate-y-1/2 text-emerald-300" />
             )}
           </div>
           {errors.email && (
-            <motion.p
-              initial={{ opacity: 0, y: -10 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="text-sm text-red-600 flex items-center space-x-1"
-            >
-              <AlertCircle className="w-4 h-4" />
+            <motion.p initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} className="flex items-center gap-2 text-sm text-rose-300">
+              <AlertCircle className="h-4 w-4" />
               <span>{errors.email}</span>
             </motion.p>
           )}
         </div>
 
-        {/* Password Field */}
         <div className="space-y-2">
-          <label htmlFor="password" className="block text-sm font-medium text-gray-700">
+          <label htmlFor="password" className="block text-sm font-medium text-slate-200">
             Password
           </label>
           <div className="relative">
-            <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-              <Lock className={`h-5 w-5 ${errors.password ? 'text-red-400' : 'text-gray-400'}`} />
-            </div>
+            <Lock className={`pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 ${errors.password ? 'text-rose-300' : 'text-slate-500'}`} />
             <input
               id="password"
               type={showPassword ? 'text' : 'password'}
               value={password}
-              onChange={(e) => handleInputChange('password', e.target.value)}
+              onChange={(event) => handleInputChange('password', event.target.value)}
               onBlur={() => handleBlur('password')}
               placeholder="Create a strong password"
-              className={`w-full pl-10 pr-12 py-3 border rounded-xl bg-gray-50 focus:bg-white focus:ring-2 focus:ring-blue-100 outline-none transition-all duration-200 ${
-                errors.password 
-                  ? 'border-red-300 focus:border-red-500 focus:ring-red-100' 
-                  : 'border-gray-200 focus:border-blue-500'
-              }`}
+              className={inputClassName(Boolean(errors.password))}
               disabled={loading}
               autoComplete="new-password"
             />
             <button
               type="button"
-              onClick={() => setShowPassword(!showPassword)}
-              className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-gray-600 transition-colors"
+              onClick={() => setShowPassword((current) => !current)}
+              className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-500 transition hover:text-slate-200"
               disabled={loading}
             >
               {showPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
             </button>
           </div>
-          
-          {/* Password Strength Indicator */}
-          {password && passwordStrength && (
-            <div className="space-y-2">
-              <div className="flex items-center space-x-2">
-                <div className="flex-1 bg-gray-200 rounded-full h-2">
-                  <div 
-                    className={`h-2 rounded-full transition-all duration-300 ${passwordStrength.color}`}
+
+          {passwordStrength && (
+            <div className="space-y-2 rounded-2xl border border-white/10 bg-white/5 px-4 py-3">
+              <div className="flex items-center gap-3">
+                <div className="h-2 flex-1 rounded-full bg-white/10">
+                  <div
+                    className={`h-2 rounded-full transition-all duration-300 ${passwordStrength.colorClassName}`}
                     style={{ width: `${(passwordStrength.score / 5) * 100}%` }}
                   />
                 </div>
-                <span className="text-xs text-gray-600">
-                  {passwordStrength.score < 2 ? 'Weak' : 
-                   passwordStrength.score < 4 ? 'Fair' : 
-                   passwordStrength.score < 5 ? 'Good' : 'Strong'}
-                </span>
+                <span className="text-xs font-medium text-slate-300">{passwordStrength.label}</span>
               </div>
               {passwordStrength.feedback.length > 0 && (
-                <div className="text-xs text-gray-600">
-                  <span>Missing: {passwordStrength.feedback.join(', ')}</span>
-                </div>
+                <p className="text-xs text-slate-400">Missing: {passwordStrength.feedback.join(', ')}</p>
               )}
             </div>
           )}
-          
+
           {errors.password && (
-            <motion.p
-              initial={{ opacity: 0, y: -10 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="text-sm text-red-600 flex items-center space-x-1"
-            >
-              <AlertCircle className="w-4 h-4" />
+            <motion.p initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} className="flex items-center gap-2 text-sm text-rose-300">
+              <AlertCircle className="h-4 w-4" />
               <span>{errors.password}</span>
             </motion.p>
           )}
         </div>
 
-        {/* Confirm Password Field */}
         <div className="space-y-2">
-          <label htmlFor="confirmPassword" className="block text-sm font-medium text-gray-700">
-            Confirm Password
+          <label htmlFor="confirmPassword" className="block text-sm font-medium text-slate-200">
+            Confirm password
           </label>
           <div className="relative">
-            <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-              <Lock className={`h-5 w-5 ${errors.confirmPassword ? 'text-red-400' : 'text-gray-400'}`} />
-            </div>
+            <Lock className={`pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 ${errors.confirmPassword ? 'text-rose-300' : 'text-slate-500'}`} />
             <input
               id="confirmPassword"
               type={showConfirmPassword ? 'text' : 'password'}
               value={confirmPassword}
-              onChange={(e) => handleInputChange('confirmPassword', e.target.value)}
+              onChange={(event) => handleInputChange('confirmPassword', event.target.value)}
               onBlur={() => handleBlur('confirmPassword')}
               placeholder="Confirm your password"
-              className={`w-full pl-10 pr-12 py-3 border rounded-xl bg-gray-50 focus:bg-white focus:ring-2 focus:ring-blue-100 outline-none transition-all duration-200 ${
-                errors.confirmPassword 
-                  ? 'border-red-300 focus:border-red-500 focus:ring-red-100' 
-                  : 'border-gray-200 focus:border-blue-500'
-              }`}
+              className={inputClassName(Boolean(errors.confirmPassword))}
               disabled={loading}
               autoComplete="new-password"
             />
             <button
               type="button"
-              onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-              className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-gray-600 transition-colors"
+              onClick={() => setShowConfirmPassword((current) => !current)}
+              className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-500 transition hover:text-slate-200"
               disabled={loading}
             >
               {showConfirmPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
             </button>
             {!errors.confirmPassword && confirmPassword && password && confirmPassword === password && (
-              <div className="absolute inset-y-0 right-12 pr-3 flex items-center">
-                <CheckCircle className="h-5 w-5 text-green-500" />
-              </div>
+              <CheckCircle className="pointer-events-none absolute right-12 top-1/2 h-5 w-5 -translate-y-1/2 text-emerald-300" />
             )}
           </div>
           {errors.confirmPassword && (
-            <motion.p
-              initial={{ opacity: 0, y: -10 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="text-sm text-red-600 flex items-center space-x-1"
-            >
-              <AlertCircle className="w-4 h-4" />
+            <motion.p initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} className="flex items-center gap-2 text-sm text-rose-300">
+              <AlertCircle className="h-4 w-4" />
               <span>{errors.confirmPassword}</span>
             </motion.p>
           )}
         </div>
 
-        <div className="space-y-3 rounded-xl border border-slate-200 bg-slate-50 p-4">
+        <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
           <label className="flex items-start gap-3">
             <input
               type="checkbox"
               checked={acceptedLegal}
-              onChange={(e) => {
-                setAcceptedLegal(e.target.checked)
-                setErrors(prev => ({ ...prev, legal: e.target.checked ? undefined : prev.legal }))
+              onChange={(event) => {
+                const isChecked = event.target.checked
+                setAcceptedLegal(isChecked)
+                setErrors((prev) => ({ ...prev, legal: isChecked ? undefined : prev.legal }))
               }}
-              className="mt-1 h-4 w-4 rounded border-slate-300 text-green-600 focus:ring-green-500"
+              className="mt-1 h-4 w-4 rounded border-white/20 bg-slate-950 text-cyan-400 focus:ring-cyan-400"
               disabled={loading}
             />
-            <span className="text-sm leading-6 text-slate-700">
+            <span className="text-sm leading-6 text-slate-300">
               I agree to the <LegalLinksInline />.
             </span>
           </label>
           {errors.legal && (
-            <motion.p
-              initial={{ opacity: 0, y: -10 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="text-sm text-red-600 flex items-center space-x-1"
-            >
-              <AlertCircle className="w-4 h-4" />
+            <motion.p initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} className="mt-3 flex items-center gap-2 text-sm text-rose-300">
+              <AlertCircle className="h-4 w-4" />
               <span>{errors.legal}</span>
             </motion.p>
           )}
         </div>
 
-        {/* Submit Button */}
         <button
           type="submit"
           disabled={loading || !isFormValid}
-          className="w-full py-4 px-6 bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 text-white font-medium rounded-xl shadow-lg shadow-green-500/25 hover:shadow-green-500/40 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed disabled:shadow-none"
+          className="inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-cyan-400 to-blue-500 px-6 py-4 text-sm font-semibold text-slate-950 shadow-[0_18px_45px_rgba(14,165,233,0.28)] transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-60 disabled:shadow-none"
         >
           {loading ? (
-            <div className="flex items-center justify-center">
-              <Loader2 className="w-5 h-5 animate-spin mr-2" />
-              Creating Account...
-            </div>
+            <>
+              <Loader2 className="h-5 w-5 animate-spin" />
+              <span>Creating account...</span>
+            </>
           ) : (
-            'Create Account'
+            'Create account'
           )}
         </button>
       </motion.form>
 
-      {/* Sign In Link */}
-      <motion.div 
-        className="mt-8 text-center text-sm text-gray-500"
+      <motion.div
+        className="mt-8 text-center text-sm text-slate-400"
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
-        transition={{ delay: 0.4 }}
+        transition={{ delay: 0.24 }}
       >
-        <p className="mb-4">
+        <p>
           Already have an account?{' '}
           <button
             onClick={onToggleForm}
-            className="text-blue-600 hover:text-blue-700 font-medium transition-colors"
+            className="font-medium text-cyan-300 transition hover:text-cyan-200"
             disabled={loading}
           >
             Sign in here
@@ -599,5 +564,3 @@ const SignUpForm: React.FC<SignUpFormProps> = ({ onToggleForm, onEmailVerificati
 }
 
 export default SignUpForm
-
-

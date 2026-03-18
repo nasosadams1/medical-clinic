@@ -1,15 +1,19 @@
 import React, { useMemo, useState } from 'react';
-import { Coins, Crown, Gift, Heart, Star, Trophy, Zap } from 'lucide-react';
+import { ArrowRight, CheckCircle2, Coins, Crown, Gift, Heart, Star, Trophy, Users, Zap } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useUser } from '../context/UserContext';
 import { useAuth } from '../context/AuthContext';
+import { usePlanEntitlements } from '../hooks/usePlanEntitlements';
+import { formatPlanRenewalDate, getSelfServePlanProductByPlanName, type PlanStoreProduct } from '../lib/billing';
 import StripeCheckout from './StripeCheckout';
 import MascotIcon from './branding/MascotIcon';
 import { purchaseStoreItem } from '../lib/store';
+import { trackEvent } from '../lib/analytics';
+import { pricingPlans } from '../data/siteContent';
 import { STORE_ITEMS } from '../../shared/store-catalog.js';
 
 type StoreSource = 'stripe' | 'coins';
-type StoreKind = 'coin_pack' | 'xp_boost' | 'heart_refill' | 'unlimited_hearts';
+type StoreKind = 'coin_pack' | 'xp_boost' | 'heart_refill' | 'unlimited_hearts' | 'plan';
 
 interface StoreCatalogItem {
   id: string;
@@ -38,6 +42,17 @@ interface StorePresentation {
 interface StoreItemView extends StoreCatalogItem, StorePresentation {
   priceLabel: string;
 }
+
+type PricingPlanView = (typeof pricingPlans)[number];
+type CheckoutSelection = {
+  itemId: string;
+  amount: number;
+  description: string;
+  coins?: number;
+  benefitLabel?: string;
+  kind: 'coin_pack' | 'plan';
+  successMessage: string;
+};
 
 const PRESENTATION_BY_ITEM_ID: Record<string, StorePresentation> = {
   coins_150: {
@@ -158,15 +173,14 @@ function StoreStat({
   tone: 'coins' | 'xp' | 'hearts' | 'primary';
 }) {
   const iconTone = {
-    coins: 'bg-coins/10 text-coins glow-coins',
-    xp: 'bg-xp/10 text-xp glow-xp',
+    coins: 'bg-coins/10 text-coins',
+    xp: 'bg-xp/10 text-xp',
     hearts: 'bg-destructive/10 text-destructive',
-    primary: 'bg-primary/10 text-primary glow-primary',
+    primary: 'bg-primary/10 text-primary',
   }[tone];
 
   return (
-    <div className="group relative overflow-hidden rounded-xl border border-border bg-card p-4 shadow-card transition-all duration-300 hover:border-primary/30 hover:shadow-elevated">
-      <div className="absolute inset-0 opacity-0 transition-opacity duration-300 group-hover:opacity-100" style={{ background: 'var(--gradient-card-glow)' }} />
+    <div className="rounded-xl border border-border bg-card p-4 shadow-card transition-all duration-300 hover:border-primary/20">
       <div className="relative flex items-start gap-3">
         <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg ${iconTone}`}>{icon}</div>
         <div className="min-w-0">
@@ -192,63 +206,74 @@ function StoreCard({
   buttonDisabled: boolean;
   isProcessing: boolean;
 }) {
-  return (
-    <div className={`group relative overflow-hidden rounded-2xl border border-border bg-card shadow-card transition-all duration-300 hover:-translate-y-1 hover:shadow-elevated ${item.glowColor}`}>
-      <div className={`absolute inset-x-0 top-0 h-1 bg-gradient-to-r ${item.gradient}`} />
+  const toneClasses = {
+    coins: 'bg-coins/10 text-coins',
+    xp: 'bg-xp/10 text-xp',
+    hearts: 'bg-destructive/10 text-destructive',
+    primary: 'bg-primary/10 text-primary',
+  }[item.tone];
 
+  return (
+    <div className="rounded-2xl border border-border bg-card shadow-card transition-all duration-300 hover:border-primary/20">
       <div className="absolute right-4 top-4 z-10 flex flex-col gap-2">
         {item.popular ? (
-          <span className="rounded-full bg-destructive px-3 py-1 text-[10px] font-bold uppercase tracking-[0.18em] text-destructive-foreground">
+          <span className="rounded-full border border-destructive/20 bg-destructive/10 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.18em] text-destructive">
             Popular
           </span>
         ) : null}
         {item.bestValue ? (
-          <span className="rounded-full bg-xp px-3 py-1 text-[10px] font-bold uppercase tracking-[0.18em] text-xp-foreground">
+          <span className="rounded-full border border-xp/20 bg-xp/10 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.18em] text-xp">
             Best value
           </span>
         ) : null}
         {(item.bonusPercent || 0) > 0 ? (
-          <span className="rounded-full bg-coins px-3 py-1 text-[10px] font-bold uppercase tracking-[0.18em] text-coins-foreground">
+          <span className="rounded-full border border-coins/20 bg-coins/10 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.18em] text-coins">
             +{item.bonusPercent}%
           </span>
         ) : null}
       </div>
 
-      <div className={`bg-gradient-to-r ${item.gradient} p-6 text-white`}>
-        <div className="flex items-start justify-between gap-4 pt-8">
-          <div className="rounded-2xl bg-white/15 p-3 backdrop-blur-sm">{item.icon}</div>
+      <div className="p-6">
+        <div className="flex items-start justify-between gap-4">
+          <div className="flex min-w-0 items-start gap-4">
+            <div className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl ${toneClasses}`}>
+              {item.icon}
+            </div>
+            <div className="min-w-0">
+              <div className="text-lg font-semibold font-display text-foreground">{item.name}</div>
+              <p className="mt-2 min-h-[72px] text-sm leading-7 text-muted-foreground">{item.description}</p>
+            </div>
+          </div>
           <div className="text-right">
-            <div className="text-3xl font-bold font-display">
+            <div className="text-xl font-semibold font-display text-foreground">
               {item.kind === 'coin_pack'
                 ? item.coinsGranted?.toLocaleString()
                 : item.kind === 'xp_boost'
                 ? `${item.multiplier}x XP`
                 : item.kind === 'heart_refill'
-                ? 'Full Hearts'
+                ? 'Full'
                 : 'Unlimited'}
             </div>
-            <div className="mt-1 text-sm text-white/80">
+            <div className="mt-1 text-xs uppercase tracking-[0.18em] text-muted-foreground">
               {item.kind === 'coin_pack'
                 ? 'Coins'
                 : item.kind === 'heart_refill'
-                ? 'Instant refill'
+                ? 'Hearts'
                 : `${item.durationHours}h duration`}
             </div>
           </div>
         </div>
-      </div>
 
-      <div className="p-6">
-        <div className="text-xl font-bold font-display text-foreground">{item.name}</div>
-        <p className="mt-2 min-h-[72px] text-sm leading-7 text-muted-foreground">{item.description}</p>
-
-        <div className="mt-5 flex items-end justify-between gap-4">
+        <div className="mt-5 flex items-end justify-between gap-4 rounded-2xl border border-border bg-background/70 px-4 py-3">
           <div>
-            <div className="text-3xl font-bold font-display text-foreground">{item.priceLabel}</div>
-            {item.source === 'coins' && item.durationHours ? (
-              <div className="mt-1 text-xs uppercase tracking-[0.18em] text-muted-foreground">{item.durationHours} hour duration</div>
-            ) : null}
+            <div className="text-xl font-semibold font-display text-foreground">{item.priceLabel}</div>
+            <div className="mt-1 text-xs uppercase tracking-[0.18em] text-muted-foreground">
+              {item.source === 'coins' ? 'Use balance' : 'Secure checkout'}
+            </div>
           </div>
+          {item.source === 'coins' && item.durationHours ? (
+            <div className="text-right text-xs uppercase tracking-[0.18em] text-muted-foreground">{item.durationHours} hour duration</div>
+          ) : null}
         </div>
 
         <button
@@ -258,7 +283,7 @@ function StoreCard({
           className={`mt-6 inline-flex w-full items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-semibold transition ${
             buttonDisabled
               ? 'cursor-not-allowed border border-border bg-secondary text-muted-foreground'
-              : `bg-gradient-to-r ${item.gradient} text-white shadow-glow hover:opacity-95`
+              : 'border border-border bg-background text-foreground hover:border-primary/30 hover:bg-card'
           }`}
         >
           {isProcessing ? 'Processing...' : buttonLabel}
@@ -268,19 +293,148 @@ function StoreCard({
   );
 }
 
+function PlanCard({
+  plan,
+  onCheckout,
+  isActive,
+  activeUntilLabel,
+  isCheckoutProcessing,
+}: {
+  plan: PricingPlanView;
+  onCheckout: (product: PlanStoreProduct) => void;
+  isActive: boolean;
+  activeUntilLabel?: string | null;
+  isCheckoutProcessing: boolean;
+}) {
+  const highlighted = plan.badge === 'Most popular';
+  const isIncluded = plan.name === 'Free';
+  const isTeamPlan = plan.name === 'Teams' || plan.name === 'Teams Growth' || plan.name === 'Custom';
+  const selfServeProduct = getSelfServePlanProductByPlanName(plan.name);
+  const href = isIncluded
+    ? '/app?section=benchmark'
+    : plan.name === 'Teams'
+    ? '/teams'
+    : plan.name === 'Teams Growth'
+    ? '/pricing?intent=teams_growth'
+    : plan.name === 'Custom'
+    ? '/pricing?intent=custom_plan'
+    : plan.name === 'Interview Sprint'
+    ? '/pricing?intent=interview_sprint'
+    : '/pricing';
+  const activeWorkspaceHref = plan.name === 'Interview Sprint' ? '/app?section=benchmark' : '/app?section=practice';
+
+  return (
+    <div
+      className={`relative flex h-full flex-col rounded-2xl border p-6 transition-all duration-300 ${
+        highlighted
+          ? 'border-primary/40 bg-card shadow-card'
+          : 'border-border bg-card shadow-card hover:border-primary/20'
+      }`}
+    >
+      {plan.badge ? (
+        <div className="absolute -top-3 left-1/2 -translate-x-1/2">
+          <span className="rounded-full border border-primary/20 bg-primary/10 px-4 py-1 text-xs font-bold uppercase tracking-[0.18em] text-primary">
+            {plan.badge}
+          </span>
+        </div>
+      ) : null}
+
+      <div className="space-y-2">
+        <div className="flex items-center justify-between gap-3">
+          <div className="text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground">{plan.name}</div>
+          {isTeamPlan ? <Users className="h-4 w-4 text-primary" /> : null}
+        </div>
+        <div className="flex items-end gap-2">
+          <span className="text-4xl font-bold font-display text-foreground">{plan.price}</span>
+          <span className="pb-1 text-sm text-muted-foreground">{plan.cadence}</span>
+        </div>
+        <p className="text-sm leading-7 text-muted-foreground">{plan.description}</p>
+      </div>
+
+      <ul className="my-6 flex-1 space-y-3">
+        {plan.features.map((feature) => (
+          <li key={feature} className="flex items-start gap-2 text-sm text-foreground">
+            <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-xp" />
+            <span>{feature}</span>
+          </li>
+        ))}
+      </ul>
+
+      {!isIncluded ? (
+        <div className="mb-4 rounded-xl border border-border bg-background/70 px-3 py-2 text-xs leading-6 text-muted-foreground">
+          {isActive
+            ? `Active now${activeUntilLabel ? ` until ${activeUntilLabel}` : ''}.`
+            : isTeamPlan
+            ? 'Team plans continue through the dedicated teams flow.'
+            : selfServeProduct
+            ? 'Self-serve activation is available directly in this store.'
+            : 'Individual subscriptions are activated from the pricing flow.'}
+        </div>
+      ) : null}
+
+      {isIncluded ? (
+        <div className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-primary/20 bg-primary/10 px-4 py-3 text-sm font-semibold text-primary">
+          Included in your account
+        </div>
+      ) : isActive ? (
+        <Link
+          to={activeWorkspaceHref}
+          className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-primary px-4 py-3 text-sm font-semibold text-primary-foreground shadow-card transition hover:bg-primary/90"
+        >
+          <span>Open workspace</span>
+          <ArrowRight className="h-4 w-4" />
+        </Link>
+      ) : selfServeProduct ? (
+        <button
+          type="button"
+          onClick={() => {
+            trackEvent('subscription_cta_clicked', { plan: plan.name, source: 'store_plan_card' });
+            onCheckout(selfServeProduct);
+          }}
+          disabled={isCheckoutProcessing}
+          className={`inline-flex w-full items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-semibold transition ${
+            highlighted
+              ? 'bg-primary text-primary-foreground shadow-card hover:bg-primary/90 disabled:opacity-60'
+              : 'border border-border bg-transparent text-foreground hover:bg-secondary disabled:opacity-60'
+          }`}
+        >
+          <span>{isCheckoutProcessing ? 'Preparing checkout...' : plan.ctaLabel}</span>
+          <ArrowRight className="h-4 w-4" />
+        </button>
+      ) : (
+        <Link
+          to={href}
+          onClick={() => trackEvent('subscription_cta_clicked', { plan: plan.name, source: 'store' })}
+          className={`inline-flex w-full items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-semibold transition ${
+            highlighted
+              ? 'bg-primary text-primary-foreground shadow-card hover:bg-primary/90'
+              : 'border border-border bg-transparent text-foreground hover:bg-secondary'
+          }`}
+        >
+          <span>{plan.ctaLabel}</span>
+          <ArrowRight className="h-4 w-4" />
+        </Link>
+      )}
+    </div>
+  );
+}
+
 const Store: React.FC = () => {
   const { user, addNotification, forceRefreshFromDatabase, isUnlimitedHeartsActive, isXPBoostActive } = useUser();
   const { user: authUser } = useAuth();
-  const [selectedItem, setSelectedItem] = useState<StoreItemView | null>(null);
+  const { getPlanEntitlement, primaryPlan, refresh: refreshPlanEntitlements } = usePlanEntitlements();
+  const [selectedCheckout, setSelectedCheckout] = useState<CheckoutSelection | null>(null);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [processingItemId, setProcessingItemId] = useState<string | null>(null);
 
   const storeItems = useMemo(() => {
-    return (STORE_ITEMS as StoreCatalogItem[]).map((item) => ({
-      ...item,
-      ...PRESENTATION_BY_ITEM_ID[item.id],
-      priceLabel: item.source === 'stripe' ? formatUsd(item.stripeAmountCents || 0) : `${item.coinCost} coins`,
-    }));
+    return (STORE_ITEMS as StoreCatalogItem[])
+      .filter((item) => item.kind !== 'plan')
+      .map((item) => ({
+        ...item,
+        ...PRESENTATION_BY_ITEM_ID[item.id],
+        priceLabel: item.source === 'stripe' ? formatUsd(item.stripeAmountCents || 0) : `${item.coinCost} coins`,
+      }));
   }, []);
 
   const maxBundleBonus = useMemo(
@@ -315,7 +469,14 @@ const Store: React.FC = () => {
     }
 
     if (item.source === 'stripe') {
-      setSelectedItem(item);
+      setSelectedCheckout({
+        itemId: item.id,
+        amount: item.stripeAmountCents || 0,
+        description: `${item.name} - ${item.description}`,
+        coins: item.coinsGranted,
+        kind: 'coin_pack',
+        successMessage: `Payment successful. You received ${item.coinsGranted || 0} coins.`,
+      });
       setShowPaymentModal(true);
       return;
     }
@@ -350,15 +511,35 @@ const Store: React.FC = () => {
     }
   };
 
+  const handlePlanCheckout = (product: PlanStoreProduct) => {
+    setSelectedCheckout({
+      itemId: product.id,
+      amount: product.stripeAmountCents,
+      description: `${product.name} - ${product.description}`,
+      benefitLabel: `Activates ${product.planName} for ${product.durationDays} days.`,
+      kind: 'plan',
+      successMessage: `${product.planName} is active for ${product.durationDays} days.`,
+    });
+    setShowPaymentModal(true);
+  };
+
   const handlePaymentSuccess = async (paymentResult: { coinsGranted?: number }) => {
-    await forceRefreshFromDatabase();
+    if (selectedCheckout?.kind === 'plan') {
+      await refreshPlanEntitlements();
+    } else {
+      await forceRefreshFromDatabase();
+    }
+
     setShowPaymentModal(false);
-    setSelectedItem(null);
+    setSelectedCheckout(null);
 
     addNotification({
-      message: `Payment successful. You received ${paymentResult?.coinsGranted || selectedItem?.coinsGranted || 0} coins.`,
+      message:
+        selectedCheckout?.kind === 'plan'
+          ? selectedCheckout.successMessage
+          : `Payment successful. You received ${paymentResult?.coinsGranted || selectedCheckout?.coins || 0} coins.`,
       type: 'success',
-      icon: '\u{1F4B0}',
+      icon: selectedCheckout?.kind === 'plan' ? '\u2728' : '\u{1F4B0}',
     });
   };
 
@@ -377,16 +558,21 @@ const Store: React.FC = () => {
         <section className="rounded-2xl border border-border bg-card p-6 shadow-card sm:p-8">
           <div className="inline-flex items-center gap-2 rounded-full border border-primary/30 bg-primary/10 px-4 py-1.5">
             <Trophy className="h-3.5 w-3.5 text-primary" />
-            <span className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">Optional workspace add-ons</span>
+            <span className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">Plans, pricing, and add-ons</span>
           </div>
-          <h1 className="mt-5 text-3xl font-bold font-display text-foreground sm:text-4xl">The store now looks like part of the product, not a separate app.</h1>
+          <h1 className="mt-5 text-3xl font-bold font-display text-foreground sm:text-4xl">Manage plans first. Use add-ons only when they help.</h1>
           <p className="mt-4 max-w-3xl text-base leading-8 text-muted-foreground">
-            Codhak makes money through benchmark depth, interview tracks, and team plans. The store is still here for optional boosts and refills, but it no longer drives the product story.
+            This store is now organized like a billing surface. Benchmark and team plans come first, and coins, hearts, and boosts stay available as optional extras.
           </p>
+          <div className="mt-6 grid gap-3 sm:grid-cols-3">
+            <div className="rounded-2xl border border-border bg-background/70 px-4 py-4 text-sm text-muted-foreground">Benchmark and team plans are the main business model.</div>
+            <div className="rounded-2xl border border-border bg-background/70 px-4 py-4 text-sm text-muted-foreground">Coin packs and boosts are still purchasable here without changing your main plan.</div>
+            <div className="rounded-2xl border border-border bg-background/70 px-4 py-4 text-sm text-muted-foreground">If a subscription needs activation, the pricing flow remains the source of truth.</div>
+          </div>
           <div className="mt-6 flex flex-wrap gap-3">
             <Link
               to="/pricing"
-              className="inline-flex items-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground shadow-glow transition hover:bg-primary/90"
+              className="inline-flex items-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground shadow-card transition hover:bg-primary/90"
             >
               See plans
             </Link>
@@ -399,17 +585,28 @@ const Store: React.FC = () => {
           </div>
         </section>
 
-        <aside className="rounded-2xl border border-border bg-gradient-to-br from-card via-sidebar to-background p-6 shadow-elevated">
+        <aside className="rounded-2xl border border-border bg-card p-6 shadow-card">
           <div className="flex items-start gap-4">
             <div className="h-20 w-20 shrink-0">
               <MascotIcon mascot="store" className="h-full w-full" imageClassName="drop-shadow-md" />
             </div>
             <div>
-              <div className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">Bundle offer</div>
-              <div className="mt-2 text-3xl font-bold font-display text-foreground">Up to {maxBundleBonus}% bonus</div>
+              <div className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">Pricing sync</div>
+              <div className="mt-2 text-3xl font-bold font-display text-foreground">Everything important is now in one place</div>
               <p className="mt-3 text-sm leading-7 text-muted-foreground">
-                Premium bundles are still available, but they now sit inside the same dark competitive dashboard system as the rest of Codhak.
+                Pro, Interview Sprint, team tiers, coin packs, and temporary boosts now live on the same page instead of feeling like separate systems.
               </p>
+              <div className="mt-4 rounded-2xl border border-border bg-background/70 px-4 py-4 text-sm text-muted-foreground">
+                Highest coin bundle bonus: <span className="font-semibold text-foreground">up to {maxBundleBonus}% extra</span>
+              </div>
+              {primaryPlan ? (
+                <div className="mt-4 rounded-2xl border border-primary/20 bg-primary/10 px-4 py-4 text-sm text-foreground">
+                  Active plan: <span className="font-semibold">{primaryPlan.planName}</span>
+                  {primaryPlan.currentPeriodEnd ? (
+                    <span className="text-foreground/75"> until {formatPlanRenewalDate(primaryPlan.currentPeriodEnd) || 'your renewal date'}</span>
+                  ) : null}
+                </div>
+              ) : null}
             </div>
           </div>
         </aside>
@@ -439,12 +636,49 @@ const Store: React.FC = () => {
         />
         <StoreStat
           icon={<Crown className="h-5 w-5" />}
-          label="Premium packs"
-          value={coinPacks.length}
-          subtitle="Stripe-backed bundle options"
+          label="Plan status"
+          value={primaryPlan ? primaryPlan.planName : 'Free'}
+          subtitle={primaryPlan ? 'A paid plan is currently active' : 'No paid plan active yet'}
           tone="primary"
         />
       </div>
+
+      <section>
+        <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <div className="text-sm font-semibold uppercase tracking-[0.18em] text-primary">Plans and subscriptions</div>
+            <p className="mt-2 max-w-3xl text-sm leading-7 text-muted-foreground">
+              These are the current Codhak pricing tiers. Subscriptions are managed through the pricing flow, while the purchasable add-ons below work directly in this store.
+            </p>
+          </div>
+          <Link
+            to="/pricing"
+            onClick={() => trackEvent('subscription_cta_clicked', { plan: 'pricing_overview', source: 'store_header' })}
+            className="inline-flex items-center gap-2 rounded-xl border border-border bg-card px-4 py-2.5 text-sm font-semibold text-foreground transition hover:bg-secondary"
+          >
+            View pricing page
+            <ArrowRight className="h-4 w-4" />
+          </Link>
+        </div>
+
+        <div className="grid gap-6 xl:grid-cols-3">
+          {pricingPlans.map((plan) => {
+            const product = getSelfServePlanProductByPlanName(plan.name);
+            const entitlement = product ? getPlanEntitlement(product.id) : null;
+
+            return (
+              <PlanCard
+                key={plan.name}
+                plan={plan}
+                onCheckout={handlePlanCheckout}
+                isActive={Boolean(entitlement)}
+                activeUntilLabel={formatPlanRenewalDate(entitlement?.currentPeriodEnd)}
+                isCheckoutProcessing={selectedCheckout?.kind === 'plan' && product?.id === selectedCheckout.itemId}
+              />
+            );
+          })}
+        </div>
+      </section>
 
       <section>
         <div className="mb-4 text-sm font-semibold uppercase tracking-[0.18em] text-primary">Coin packs</div>
@@ -492,17 +726,18 @@ const Store: React.FC = () => {
         </div>
       </section>
 
-      {showPaymentModal && selectedItem ? (
+      {showPaymentModal && selectedCheckout ? (
         <StripeCheckout
-          itemId={selectedItem.id}
-          amount={selectedItem.stripeAmountCents || 0}
-          description={`${selectedItem.name} - ${selectedItem.description}`}
-          coins={selectedItem.coinsGranted}
+          itemId={selectedCheckout.itemId}
+          amount={selectedCheckout.amount}
+          description={selectedCheckout.description}
+          coins={selectedCheckout.coins}
+          benefitLabel={selectedCheckout.benefitLabel}
           onSuccess={handlePaymentSuccess}
           onError={handlePaymentError}
           onClose={() => {
             setShowPaymentModal(false);
-            setSelectedItem(null);
+            setSelectedCheckout(null);
           }}
         />
       ) : null}

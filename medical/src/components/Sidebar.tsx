@@ -7,6 +7,7 @@ import {
   Loader2,
   LogOut,
   Settings,
+  Coins,
   ShoppingBag,
   Swords,
   Trophy,
@@ -66,7 +67,7 @@ export default function Sidebar({
   setCurrentSection,
   openAuthModal,
   preloadSection,
-  isOpen = true,
+  isOpen = false,
   onClose,
 }: SidebarProps) {
   const { user: authUser, signOut } = useAuth();
@@ -108,12 +109,17 @@ export default function Sidebar({
 
   const practiceStats = useMemo(
     () => [
-      { label: 'Coins', value: user.coins, icon: <span className="text-sm">🪙</span>, tone: 'text-coins' },
+      { label: 'Coins', value: user.coins, icon: <Coins className="h-3 w-3" />, tone: 'text-coins' },
       { label: 'XP', value: user.xp, icon: <Zap className="h-3 w-3" />, tone: 'text-xp' },
-      { label: 'Hearts', value: activeBoosts.unlimitedHearts ? '∞' : `${user.hearts}`, icon: <Heart className="h-3 w-3 fill-current" />, tone: 'text-hearts' },
-      { label: 'Streak', value: user.streak, icon: <Flame className="h-3 w-3" />, tone: 'text-streak animate-streak-fire' },
+      {
+        label: 'Hearts',
+        value: activeBoosts.unlimitedHearts ? 'Unlimited' : `${user.hearts}`,
+        icon: <Heart className="h-3 w-3 fill-current" />,
+        tone: 'text-hearts',
+      },
+      { label: 'Streak', value: user.currentStreak, icon: <Flame className="h-3 w-3" />, tone: 'text-streak animate-streak-fire' },
     ],
-    [activeBoosts.unlimitedHearts, user.coins, user.hearts, user.streak, user.xp]
+    [activeBoosts.unlimitedHearts, user.coins, user.currentStreak, user.hearts, user.xp]
   );
 
   const renderNavButton = (
@@ -128,7 +134,6 @@ export default function Sidebar({
         <button
           onClick={() => {
             setCurrentSection(item.id);
-            onClose?.();
           }}
           onMouseEnter={() => preloadSection?.(item.id)}
           onFocus={() => preloadSection?.(item.id)}
@@ -142,11 +147,6 @@ export default function Sidebar({
         >
           <Icon className="h-[18px] w-[18px] shrink-0" />
           <span>{item.label}</span>
-          {item.id === 'duels' ? (
-            <span className="ml-auto flex h-5 min-w-5 items-center justify-center rounded-full bg-destructive px-1.5 text-[10px] font-bold text-destructive-foreground">
-              3
-            </span>
-          ) : null}
         </button>
       </li>
     );
@@ -156,7 +156,7 @@ export default function Sidebar({
     <aside
       className={`fixed left-0 top-0 z-50 flex h-full w-64 shrink-0 flex-col border-r border-sidebar-border bg-sidebar transition-transform duration-300 ease-in-out ${
         isOpen ? 'translate-x-0' : '-translate-x-full'
-      } lg:translate-x-0`}
+      }`}
     >
       <div className="flex h-16 items-center justify-between border-b border-sidebar-border px-5">
         <div className="flex items-center gap-2.5">
@@ -166,8 +166,8 @@ export default function Sidebar({
         <button
           type="button"
           onClick={onClose}
-          className="rounded-lg p-2 text-sidebar-foreground transition hover:bg-sidebar-accent lg:hidden"
-          aria-label="Close navigation"
+          className="rounded-lg p-2 text-sidebar-foreground transition hover:bg-sidebar-accent"
+          aria-label="Hide taskbar"
         >
           <X className="h-5 w-5" />
         </button>

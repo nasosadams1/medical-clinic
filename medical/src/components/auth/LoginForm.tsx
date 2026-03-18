@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { Eye, EyeOff, Mail, Lock, AlertCircle, Loader2, Flame } from 'lucide-react'
+import { Eye, EyeOff, Mail, Lock, AlertCircle, Loader2 } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
 import { motion } from 'framer-motion'
 
@@ -15,80 +15,94 @@ interface FormErrors {
   general?: string
 }
 
+const inputClassName = (hasError: boolean) =>
+  `w-full rounded-2xl border bg-slate-950/70 px-11 py-3.5 text-sm text-white outline-none transition placeholder:text-slate-500 ${
+    hasError
+      ? 'border-rose-400/40 focus:border-rose-300 focus:ring-2 focus:ring-rose-400/20'
+      : 'border-white/10 focus:border-cyan-300/60 focus:ring-2 focus:ring-cyan-400/20'
+  }`
+
+const helperMessageClassName = (tone: 'error' | 'muted' = 'muted') =>
+  tone === 'error' ? 'text-rose-300' : 'text-slate-400'
+
+const GoogleMark = () => (
+  <svg aria-hidden="true" viewBox="0 0 24 24" className="h-4 w-4">
+    <path fill="#EA4335" d="M12 10.2v3.9h5.4c-.2 1.3-1.7 3.9-5.4 3.9-3.3 0-6-2.7-6-6s2.7-6 6-6c1.9 0 3.2.8 4 1.5l2.8-2.7C17.1 3.2 14.8 2 12 2 6.5 2 2 6.5 2 12s4.5 10 10 10c5.8 0 9.7-4.1 9.7-9.8 0-.7-.1-1.2-.2-1.7H12Z" />
+    <path fill="#34A853" d="M12 22c2.7 0 5-0.9 6.7-2.5l-3.2-2.6c-.9.6-2 1-3.5 1-2.7 0-5-1.8-5.8-4.3l-3.3 2.5C4.6 19.5 8 22 12 22Z" />
+    <path fill="#4A90E2" d="M3 7.9l3.3 2.4C7.1 7.8 9.4 6 12 6c1.5 0 2.8.5 3.9 1.5l2.9-2.8C17 3.1 14.7 2 12 2 8 2 4.6 4.5 3 7.9Z" />
+    <path fill="#FBBC05" d="M6.2 13.6c-.2-.5-.3-1-.3-1.6s.1-1.1.3-1.6L3 7.9C2.3 9.2 2 10.6 2 12s.3 2.8 1 4.1l3.2-2.5Z" />
+  </svg>
+)
+
 const LoginForm: React.FC<LoginFormProps> = ({ onToggleForm, onForgotPassword, onMessage }) => {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const [loading, setLoading] = useState(false)
   const [errors, setErrors] = useState<FormErrors>({})
-  const [streakMessage, setStreakMessage] = useState<string>('')
   const [touched, setTouched] = useState<{ email: boolean; password: boolean }>({
     email: false,
-    password: false
+    password: false,
   })
 
   const { signIn, signInWithGoogle } = useAuth()
 
-  const validateEmail = (email: string): string | undefined => {
-    if (!email.trim()) return 'Email is required'
+  const validateEmail = (value: string): string | undefined => {
+    if (!value.trim()) return 'Email is required'
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
-    if (!emailRegex.test(email.trim())) return 'Please enter a valid email address'
+    if (!emailRegex.test(value.trim())) return 'Please enter a valid email address'
     return undefined
   }
 
-  const validatePassword = (password: string): string | undefined => {
-    if (!password) return 'Password is required'
-    if (password.length < 6) return 'Password must be at least 6 characters'
+  const validatePassword = (value: string): string | undefined => {
+    if (!value) return 'Password is required'
+    if (value.length < 6) return 'Password must be at least 6 characters'
     return undefined
   }
 
   const validateForm = (): boolean => {
-    const newErrors: FormErrors = {}
-    
+    const nextErrors: FormErrors = {}
+
     const emailError = validateEmail(email)
     const passwordError = validatePassword(password)
-    
-    if (emailError) newErrors.email = emailError
-    if (passwordError) newErrors.password = passwordError
-    
-    setErrors(newErrors)
-    return Object.keys(newErrors).length === 0
+
+    if (emailError) nextErrors.email = emailError
+    if (passwordError) nextErrors.password = passwordError
+
+    setErrors(nextErrors)
+    return Object.keys(nextErrors).length === 0
   }
 
   const handleInputChange = (field: 'email' | 'password', value: string) => {
     if (field === 'email') {
       setEmail(value)
       if (touched.email) {
-        const error = validateEmail(value)
-        setErrors(prev => ({ ...prev, email: error }))
+        setErrors((prev) => ({ ...prev, email: validateEmail(value) }))
       }
     } else {
       setPassword(value)
       if (touched.password) {
-        const error = validatePassword(value)
-        setErrors(prev => ({ ...prev, password: error }))
+        setErrors((prev) => ({ ...prev, password: validatePassword(value) }))
       }
     }
-    
+
     if (errors.general) {
-      setErrors(prev => ({ ...prev, general: undefined }))
+      setErrors((prev) => ({ ...prev, general: undefined }))
     }
   }
 
   const handleBlur = (field: 'email' | 'password') => {
-    setTouched(prev => ({ ...prev, [field]: true }))
-    
+    setTouched((prev) => ({ ...prev, [field]: true }))
+
     if (field === 'email') {
-      const error = validateEmail(email)
-      setErrors(prev => ({ ...prev, email: error }))
+      setErrors((prev) => ({ ...prev, email: validateEmail(email) }))
     } else {
-      const error = validatePassword(password)
-      setErrors(prev => ({ ...prev, password: error }))
+      setErrors((prev) => ({ ...prev, password: validatePassword(password) }))
     }
   }
 
   const getErrorMessage = (error: string): string => {
-    const errorMap: { [key: string]: string } = {
+    const errorMap: Record<string, string> = {
       'Invalid login credentials': 'Invalid email or password. Please check your credentials and try again.',
       'Email not confirmed': 'Please verify your email address before signing in.',
       'Too many requests': 'Too many login attempts. Please wait a few minutes before trying again.',
@@ -96,21 +110,17 @@ const LoginForm: React.FC<LoginFormProps> = ({ onToggleForm, onForgotPassword, o
       'Invalid email or password': 'The email or password you entered is incorrect.',
       'Network error': 'Connection failed. Please check your internet connection and try again.',
       'Signup disabled': 'New registrations are temporarily disabled. Please try again later.',
-      'Failed to fetch': 'Connection failed. Please check your internet connection and try again.'
+      'Failed to fetch': 'Connection failed. Please check your internet connection and try again.',
     }
 
     return errorMap[error] || error || 'An unexpected error occurred. Please try again.'
   }
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    
-    console.log('Login form submitted with:', { email, password: '***' })
-    console.log('Validation result:', validateForm())
-    console.log('Current errors:', errors)
-    
-    if (!validateForm()) {
-      console.log('Form validation failed')
+  const handleSubmit = async (event: React.FormEvent) => {
+    event.preventDefault()
+
+    const isValid = validateForm()
+    if (!isValid) {
       onMessage('error', 'Please fix the errors below and try again.')
       return
     }
@@ -119,23 +129,15 @@ const LoginForm: React.FC<LoginFormProps> = ({ onToggleForm, onForgotPassword, o
     setErrors({})
 
     try {
-      console.log('Calling signIn function...')
       const result = await signIn(email.trim(), password)
-      console.log('SignIn result:', result)
-      
-      if (result && result.error) {
-        console.log('SignIn error:', result.error)
+
+      if (result?.error) {
         const friendlyMessage = getErrorMessage(result.error.message)
         setErrors({ general: friendlyMessage })
         onMessage('error', friendlyMessage)
-      } else {
-        console.log('SignIn successful')
-        
-       
       }
-    } catch (err: any) {
-      console.error('SignIn exception:', err)
-      const friendlyMessage = getErrorMessage(err.message)
+    } catch (error: any) {
+      const friendlyMessage = getErrorMessage(error.message)
       setErrors({ general: friendlyMessage })
       onMessage('error', friendlyMessage)
     } finally {
@@ -146,21 +148,16 @@ const LoginForm: React.FC<LoginFormProps> = ({ onToggleForm, onForgotPassword, o
   const handleGoogleSignIn = async () => {
     setLoading(true)
     setErrors({})
-    
+
     try {
-      console.log('Calling Google signIn...')
       const result = await signInWithGoogle()
-      console.log('Google signIn result:', result)
-      
-      if (result && result.error) {
-        console.log('Google signIn error:', result.error)
+      if (result?.error) {
         const friendlyMessage = getErrorMessage(result.error.message)
         setErrors({ general: friendlyMessage })
         onMessage('error', friendlyMessage)
       }
-    } catch (err: any) {
-      console.error('Google signIn exception:', err)
-      const friendlyMessage = 'Google sign-in failed. Please try again or use email/password.'
+    } catch (error: any) {
+      const friendlyMessage = 'Google sign-in failed. Please try again or use email and password.'
       setErrors({ general: friendlyMessage })
       onMessage('error', friendlyMessage)
     } finally {
@@ -168,133 +165,136 @@ const LoginForm: React.FC<LoginFormProps> = ({ onToggleForm, onForgotPassword, o
     }
   }
 
-  const isFormValid = email.trim() && 
-                     password && 
-                     !errors.email && 
-                     !errors.password
+  const isFormValid = Boolean(email.trim() && password && !errors.email && !errors.password)
 
   return (
-    <div className="w-full max-w-md mx-auto">
-      <motion.div 
-        className="text-center mb-8"
-        initial={{ opacity: 0, y: 20 }}
+    <div className="w-full">
+      <motion.div
+        className="mb-6 text-center"
+        initial={{ opacity: 0, y: 16 }}
         animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.1 }}
+        transition={{ delay: 0.08 }}
       >
-        <h1 className="text-3xl font-bold text-gray-900 mb-2">Welcome Back</h1>
-        <p className="text-gray-600">Sign in to save benchmark reports, practice history, and duel progress.</p>
-        
-        {streakMessage && (
-          <motion.div
-            initial={{ opacity: 0, scale: 0.95 }}
-            animate={{ opacity: 1, scale: 1 }}
-            className="mt-4 p-3 bg-orange-50 border border-orange-200 rounded-lg flex items-center justify-center space-x-2"
-          >
-            <Flame className="w-5 h-5 text-orange-600" />
-            <p className="text-sm text-orange-800 font-medium">{streakMessage}</p>
-          </motion.div>
-        )}
+        <h1 className="text-3xl font-semibold text-white">Welcome back</h1>
+        <p className="mt-2 text-sm leading-6 text-slate-300">
+          Sign in to save benchmark reports, practice history, duel outcomes, and team access.
+        </p>
       </motion.div>
 
-      <motion.form 
-        onSubmit={handleSubmit} 
-        className="space-y-6"
-        initial={{ opacity: 0, y: 20 }}
+      <motion.div
+        className="mb-6"
+        initial={{ opacity: 0, y: 16 }}
         animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.2 }}
+        transition={{ delay: 0.12 }}
+      >
+        <button
+          type="button"
+          onClick={handleGoogleSignIn}
+          disabled={loading}
+          className="inline-flex w-full items-center justify-center gap-3 rounded-2xl border border-white/10 bg-white/5 px-4 py-3.5 text-sm font-medium text-slate-100 transition hover:border-white/20 hover:bg-white/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          <GoogleMark />
+          <span>Continue with Google</span>
+        </button>
+      </motion.div>
+
+      <div className="mb-6 flex items-center gap-3 text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">
+        <div className="h-px flex-1 bg-white/10" />
+        <span>Email</span>
+        <div className="h-px flex-1 bg-white/10" />
+      </div>
+
+      <motion.form
+        onSubmit={handleSubmit}
+        className="space-y-5"
+        initial={{ opacity: 0, y: 16 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.16 }}
       >
         {errors.general && (
           <motion.div
             initial={{ opacity: 0, height: 0 }}
             animate={{ opacity: 1, height: 'auto' }}
-            className="p-4 bg-red-50 border border-red-200 rounded-lg flex items-center space-x-3"
+            className="flex items-start gap-3 rounded-2xl border border-rose-400/20 bg-rose-500/10 px-4 py-3 text-sm text-rose-100"
           >
-            <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0" />
-            <p className="text-sm text-red-800">{errors.general}</p>
+            <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-rose-300" />
+            <p className="leading-6">{errors.general}</p>
           </motion.div>
         )}
 
         <div className="space-y-2">
-          <label htmlFor="email" className="block text-sm font-medium text-gray-700">
-            Email Address
+          <label htmlFor="email" className="block text-sm font-medium text-slate-200">
+            Email address
           </label>
           <div className="relative">
-            <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-              <Mail className={`h-5 w-5 ${errors.email ? 'text-red-400' : 'text-gray-400'}`} />
-            </div>
+            <Mail className={`pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 ${errors.email ? 'text-rose-300' : 'text-slate-500'}`} />
             <input
               id="email"
               type="email"
               value={email}
-              onChange={(e) => handleInputChange('email', e.target.value)}
+              onChange={(event) => handleInputChange('email', event.target.value)}
               onBlur={() => handleBlur('email')}
-              placeholder="Enter your email address"
-              className={`w-full pl-10 pr-4 py-3 border rounded-xl bg-gray-50 focus:bg-white focus:ring-2 focus:ring-blue-100 outline-none transition-all duration-200 \${
-                errors.email 
-                  ? 'border-red-300 focus:border-red-500 focus:ring-red-100' 
-                  : 'border-gray-200 focus:border-blue-500'
-              }`}
+              placeholder="name@company.com"
+              className={inputClassName(Boolean(errors.email))}
               disabled={loading}
               autoComplete="email"
               aria-describedby={errors.email ? 'email-error' : undefined}
             />
           </div>
-          {errors.email && (
+          {errors.email ? (
             <motion.p
               id="email-error"
-              initial={{ opacity: 0, y: -10 }}
+              initial={{ opacity: 0, y: -8 }}
               animate={{ opacity: 1, y: 0 }}
-              className="text-sm text-red-600 flex items-center space-x-1"
+              className={`flex items-center gap-2 text-sm ${helperMessageClassName('error')}`}
             >
-              <AlertCircle className="w-4 h-4" />
+              <AlertCircle className="h-4 w-4" />
               <span>{errors.email}</span>
             </motion.p>
+          ) : (
+            <p className={`text-xs ${helperMessageClassName()}`}>Use the email attached to your Codhak workspace.</p>
           )}
         </div>
 
         <div className="space-y-2">
-          <label htmlFor="password" className="block text-sm font-medium text-gray-700">
+          <label htmlFor="password" className="block text-sm font-medium text-slate-200">
             Password
           </label>
           <div className="relative">
-            <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-              <Lock className={`h-5 w-5 ${errors.password ? 'text-red-400' : 'text-gray-400'}`} />
-            </div>
+            <Lock className={`pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 ${errors.password ? 'text-rose-300' : 'text-slate-500'}`} />
             <input
               id="password"
               type={showPassword ? 'text' : 'password'}
               value={password}
-              onChange={(e) => handleInputChange('password', e.target.value)}
+              onChange={(event) => handleInputChange('password', event.target.value)}
               onBlur={() => handleBlur('password')}
               placeholder="Enter your password"
-              className={`w-full pl-10 pr-12 py-3 border rounded-xl bg-gray-50 focus:bg-white focus:ring-2 focus:ring-blue-100 outline-none transition-all duration-200 ${
-                errors.password 
-                  ? 'border-red-300 focus:border-red-500 focus:ring-red-100' 
-                  : 'border-gray-200 focus:border-blue-500'
-              }`}
+              className={inputClassName(Boolean(errors.password))}
               disabled={loading}
               autoComplete="current-password"
               aria-describedby={errors.password ? 'password-error' : undefined}
             />
             <button
               type="button"
-              onClick={() => setShowPassword(!showPassword)}
-              className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-gray-600 transition-colors"
+              onClick={() => setShowPassword((current) => !current)}
+              className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-500 transition hover:text-slate-200"
               disabled={loading}
             >
               {showPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
             </button>
           </div>
-          {errors.password && (
+          {errors.password ? (
             <motion.p
               id="password-error"
-              initial={{ opacity: 0, y: -10 }}
+              initial={{ opacity: 0, y: -8 }}
               animate={{ opacity: 1, y: 0 }}
-              className="text-sm text-red-600 flex items-center space-x-1"
+              className={`flex items-center gap-2 text-sm ${helperMessageClassName('error')}`}
             >
-              <AlertCircle className="w-4 h-4" />
+              <AlertCircle className="h-4 w-4" />
               <span>{errors.password}</span>
             </motion.p>
+          ) : (
+            <p className={`text-xs ${helperMessageClassName()}`}>Use at least 6 characters.</p>
           )}
         </div>
 
@@ -302,53 +302,45 @@ const LoginForm: React.FC<LoginFormProps> = ({ onToggleForm, onForgotPassword, o
           <button
             type="button"
             onClick={onForgotPassword}
-            className="text-sm text-blue-600 hover:text-blue-700 font-medium transition-colors"
+            className="text-sm font-medium text-cyan-300 transition hover:text-cyan-200"
             disabled={loading}
           >
             Forgot your password?
           </button>
         </div>
 
-                <button
+        <button
           type="submit"
           disabled={loading || !isFormValid}
-          className="w-full py-4 px-6 bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white font-medium rounded-xl shadow-lg shadow-blue-500/25 hover:shadow-blue-500/40 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed disabled:shadow-none"
+          className="inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-cyan-400 to-blue-500 px-6 py-4 text-sm font-semibold text-slate-950 shadow-[0_18px_45px_rgba(14,165,233,0.28)] transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-60 disabled:shadow-none"
         >
           {loading ? (
-            <div className="flex items-center justify-center">
-              <Loader2 className="w-5 h-5 animate-spin mr-2" />
-              Signing in...
-            </div>
+            <>
+              <Loader2 className="h-5 w-5 animate-spin" />
+              <span>Signing in...</span>
+            </>
           ) : (
-            'Sign In'
+            'Sign in'
           )}
         </button>
       </motion.form>
 
-      <motion.div 
-        
-      >
-        
-      </motion.div>
-
-      <motion.div 
-        className="mt-8 text-center text-sm text-gray-500"
+      <motion.div
+        className="mt-8 text-center text-sm text-slate-400"
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
-        transition={{ delay: 0.4 }}
+        transition={{ delay: 0.24 }}
       >
-        <p className="mb-4">
+        <p>
           Need an account to save your roadmap?{' '}
           <button
             onClick={onToggleForm}
-            className="text-blue-600 hover:text-blue-700 font-medium transition-colors"
+            className="font-medium text-cyan-300 transition hover:text-cyan-200"
             disabled={loading}
           >
             Create one now
           </button>
         </p>
-        
-        
       </motion.div>
     </div>
   )

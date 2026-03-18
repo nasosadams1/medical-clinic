@@ -7,12 +7,16 @@ export type AnalyticsEventName =
   | 'benchmark_start'
   | 'benchmark_complete'
   | 'benchmark_report_viewed'
+  | 'benchmark_session_restored'
   | 'signup_after_report'
   | 'pricing_viewed'
   | 'team_page_viewed'
   | 'team_demo_cta_clicked'
+  | 'demo_request_started'
+  | 'demo_request_submitted'
   | 'duel_started'
-  | 'subscription_cta_clicked';
+  | 'subscription_cta_clicked'
+  | 'pricing_plan_recommended';
 
 export interface AnalyticsEventRecord {
   name: AnalyticsEventName | string;

@@ -23,6 +23,7 @@ interface StripeCheckoutProps {
   amount: number;
   description: string;
   coins?: number;
+  benefitLabel?: string;
   onSuccess: (paymentResult: any) => void | Promise<void>;
   onError: (error: string) => void;
   onClose: () => void;
@@ -54,6 +55,7 @@ const CheckoutForm: React.FC<StripeCheckoutProps> = ({
   amount,
   description,
   coins,
+  benefitLabel,
   onSuccess,
   onError,
   onClose,
@@ -299,6 +301,10 @@ const CheckoutForm: React.FC<StripeCheckoutProps> = ({
             {coins ? (
               <div className="mt-2 rounded-lg bg-coins/10 p-3">
                 <p className="text-sm font-medium text-coins">You will receive {coins.toLocaleString()} coins</p>
+              </div>
+            ) : benefitLabel ? (
+              <div className="mt-2 rounded-lg bg-xp/10 p-3">
+                <p className="text-sm font-medium text-xp">{benefitLabel}</p>
               </div>
             ) : null}
           </div>

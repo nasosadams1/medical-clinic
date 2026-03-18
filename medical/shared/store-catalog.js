@@ -1,5 +1,33 @@
 export const STORE_ITEMS = Object.freeze([
   {
+    id: 'pro_monthly',
+    source: 'stripe',
+    kind: 'plan',
+    name: 'Pro',
+    description: 'Full skill reports, unlimited assessed practice, interview tracks, and advanced duel analytics.',
+    stripeAmountCents: 1900,
+    currency: 'usd',
+    durationDays: 30,
+    planName: 'Pro',
+    planScope: 'individual',
+    popular: true,
+    bestValue: false,
+  },
+  {
+    id: 'interview_sprint',
+    source: 'stripe',
+    kind: 'plan',
+    name: 'Interview Sprint',
+    description: 'An 8-week interview-readiness package with focused benchmark, practice, and challenge coverage.',
+    stripeAmountCents: 14900,
+    currency: 'usd',
+    durationDays: 56,
+    planName: 'Interview Sprint',
+    planScope: 'individual',
+    popular: false,
+    bestValue: false,
+  },
+  {
     id: 'coins_150',
     source: 'stripe',
     kind: 'coin_pack',
@@ -175,6 +203,7 @@ export const STORE_ITEMS_BY_ID = new Map(STORE_ITEMS.map((item) => [item.id, Obj
 
 export const STRIPE_STORE_ITEMS = Object.freeze(STORE_ITEMS.filter((item) => item.source === 'stripe'));
 export const COIN_STORE_ITEMS = Object.freeze(STORE_ITEMS.filter((item) => item.source === 'coins'));
+export const PLAN_STORE_ITEMS = Object.freeze(STORE_ITEMS.filter((item) => item.kind === 'plan'));
 
 export function getStoreItem(itemId) {
   return STORE_ITEMS_BY_ID.get(itemId) || null;
@@ -186,4 +215,8 @@ export function isStripeStoreItem(item) {
 
 export function isCoinStoreItem(item) {
   return Boolean(item && item.source === 'coins');
+}
+
+export function isPlanStoreItem(item) {
+  return Boolean(item && item.kind === 'plan');
 }

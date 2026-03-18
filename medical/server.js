@@ -17,6 +17,7 @@ import { createProgressionRouter } from './services/progression/routes.js';
 import { createBenchmarkRouter } from './services/benchmark/routes.js';
 import { createTeamsRouter } from './services/teams/routes.js';
 import { createAnalyticsRouter } from './services/analytics/routes.js';
+import { createLeadsRouter } from './services/leads/routes.js';
 import { formatAllowedOriginsError, isAllowedOrigin, resolveAllowedOrigins } from './services/allowed-origins.js';
 
 dotenv.config();
@@ -893,6 +894,7 @@ app.use('/api/progression', createProgressionRouter({ supabaseAdmin }));
 app.use('/api/benchmark', createBenchmarkRouter({ supabaseAdmin }));
 app.use('/api/teams', createTeamsRouter({ supabaseAdmin }));
 app.use('/api/analytics', createAnalyticsRouter({ supabaseAdmin }));
+app.use('/api/leads', createLeadsRouter({ supabaseAdmin }));
 
 // REST API Endpoints
 app.get('/', (req, res) => {

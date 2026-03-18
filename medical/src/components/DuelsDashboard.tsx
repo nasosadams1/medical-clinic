@@ -14,6 +14,7 @@ type View = "queue" | "arena" | "results";
 
 const DEVICE_CLUSTER_STORAGE_KEY = "codhak-device-cluster-id";
 const REGISTRATION_ACK_TIMEOUT_MS = 10_000;
+const isDuelDebugEnabled = import.meta.env.DEV && import.meta.env.VITE_DEBUG_DUELS === "1";
 
 const getOrCreateDeviceClusterId = () => {
   if (typeof window === "undefined") return null;
@@ -227,15 +228,23 @@ export default function DuelsDashboard() {
     initializedRef.current = true;
 
     const onConnect = () => {
-      console.log("socket connected", socket.id);
+      if (isDuelDebugEnabled) {
+        console.log("socket connected", socket.id);
+      }
       void ensureSocketRegistered({ silent: true });
     };
     const onDisconnect = (reason: any) => {
-      console.log("socket disconnected", reason);
+      if (isDuelDebugEnabled) {
+        console.log("socket disconnected", reason);
+      }
       resetSocketRegistration();
     };
     const onConnectError = (e: any) => console.error("connect_error", e);
-    const onServerIdentity = (d: any) => console.log("server_identity", d);
+    const onServerIdentity = (d: any) => {
+      if (isDuelDebugEnabled) {
+        console.log("server_identity", d);
+      }
+    };
     const onServerError = (e: any) => {
       console.error("server_error", e);
       if (e?.message === "Player not registered" || e?.message === "Stale duel connection") {

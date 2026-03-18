@@ -1,14 +1,5 @@
-import React, { useState, useEffect, useMemo } from "react";
-import {
-  X,
-  CheckCircle,
-  ArrowRight,
-  Heart,
-  Clock,
-  BookOpen,
-  RotateCcw,
-  Zap,
-} from "lucide-react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { X, CheckCircle, ArrowRight, Heart, Clock, BookOpen, RotateCcw, Zap, ArrowLeft } from "lucide-react";
 import { useUser } from "../context/UserContext";
 import { getLessonById, calculateXP, allLessons as lessonsData } from "../data/lessons";
 
@@ -27,10 +18,9 @@ interface LessonModalProps {
 }
 
 const renderWithNewlines = (text?: string | null) => {
-  if (text === null || text === undefined) return null;
+  if (text == null) return null;
   if (typeof text !== "string") return text;
-  const lines = text.split("\n");
-  return lines.map((line, idx) => (
+  return text.split("\n").map((line, idx, lines) => (
     <React.Fragment key={idx}>
       {line}
       {idx < lines.length - 1 && <br />}
@@ -39,22 +29,17 @@ const renderWithNewlines = (text?: string | null) => {
 };
 
 const formatTime = (seconds: number) => {
-  if (seconds < 60) {
-    return `${Math.round(seconds)}s`;
-  } else if (seconds < 3600) {
-    const minutes = Math.floor(seconds / 60);
-    const remainingSeconds = Math.round(seconds % 60);
-    return `${minutes}m ${remainingSeconds}s`;
-  } else {
-    const hours = Math.floor(seconds / 3600);
-    const minutes = Math.floor((seconds % 3600) / 60);
-    const remainingSeconds = Math.round(seconds % 60);
-    return `${hours}h ${minutes}m ${remainingSeconds}s`;
-  }
+  if (seconds < 60) return `${Math.round(seconds)}s`;
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m ${Math.round(seconds % 60)}s`;
+  return `${Math.floor(seconds / 3600)}h ${Math.floor((seconds % 3600) / 60)}m ${Math.round(seconds % 60)}s`;
 };
 
-const getHeartsLabel = (isUnlimited: boolean, hearts: number) =>
-  isUnlimited ? "Unlimited" : `${hearts}/5`;
+const shell =
+  "rounded-[2rem] border border-white/10 bg-[linear-gradient(180deg,rgba(15,23,42,0.98),rgba(2,6,23,0.98))] shadow-[0_30px_90px_rgba(2,6,23,0.72)]";
+const secondaryButton =
+  "inline-flex items-center justify-center gap-2 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-medium text-slate-100 transition hover:border-white/20 hover:bg-white/10";
+const primaryButton =
+  "inline-flex items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-cyan-400 to-blue-500 px-5 py-3 text-sm font-semibold text-slate-950 shadow-[0_18px_45px_rgba(14,165,233,0.28)] transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-50 disabled:shadow-none";
 
 const LessonModal: React.FC<LessonModalProps> = ({
   content: contentProp,
@@ -69,29 +54,37 @@ const LessonModal: React.FC<LessonModalProps> = ({
   resetHeartLossOverride,
   forceSkipQuiz = false,
 }) => {
-  const { user, completeLesson: ctxCompleteLesson, loseHeart, resetHeartLoss, isXPBoostActive, isUnlimitedHeartsActive, getActiveBoosts } = useUser();
+  const {
+    user,
+    completeLesson: ctxCompleteLesson,
+    loseHeart,
+    resetHeartLoss,
+    isXPBoostActive,
+    isUnlimitedHeartsActive,
+    getActiveBoosts,
+  } = useUser();
+
   const completeLessonFn = completeLessonProp ?? ctxCompleteLesson;
   const loseHeartFn = loseHeartOverride ?? loseHeart;
   const resetHeartLossFn = resetHeartLossOverride ?? resetHeartLoss;
   const calculateXPFn = calculateXPOverride ?? calculateXP;
   const allLessons = allLessonsProp ?? lessonsData;
   const activeBoosts = getActiveBoosts();
+  const retakeTimerRef = useRef<number | null>(null);
 
   const fullLesson = useMemo(() => (getLessonById ? getLessonById(lesson?.id) : null), [lesson?.id]);
-
   const content: { steps: any[]; quiz?: any[] } = useMemo(
-    () =>
-      contentProp ??
-      fullLesson?.content ??
-      lesson?.content ??
-      { steps: [], quiz: [] },
+    () => contentProp ?? fullLesson?.content ?? lesson?.content ?? { steps: [], quiz: [] },
     [contentProp, fullLesson?.content, lesson?.content]
   );
 
-  const safeTotalSteps = Math.max(0, (content.steps?.length ?? 0));
-  const safeTotalQuiz = Math.max(0, (content.quiz?.length ?? 0));
+  const safeTotalSteps = Math.max(0, content.steps?.length ?? 0);
+  const safeTotalQuiz = Math.max(0, content.quiz?.length ?? 0);
   const effectiveQuizCount = forceSkipQuiz ? 0 : safeTotalQuiz;
   const safeTotalAll = Math.max(1, safeTotalSteps + effectiveQuizCount);
+  const questionSteps = useMemo(() => (content.steps || []).filter((step) => step?.type === "question"), [content.steps]);
+  const languageLessons = useMemo(() => allLessons.filter((item) => item.language === lesson.language), [allLessons, lesson.language]);
+  const lessonIndex = useMemo(() => languageLessons.findIndex((item) => item.id === lesson.id), [languageLessons, lesson.id]);
 
   const [currentStep, setCurrentStep] = useState(0);
   const [isCompleted, setIsCompleted] = useState(false);
@@ -105,94 +98,54 @@ const LessonModal: React.FC<LessonModalProps> = ({
   const [showRetakeModal, setShowRetakeModal] = useState(false);
   const [shouldClose, setShouldClose] = useState(false);
 
-  const questionSteps = useMemo(
-    () => (content.steps || []).filter((s) => s?.type === "question"),
-    [content.steps]
-  );
-
-  const languageLessons = useMemo(
-    () => allLessons.filter((l) => l.language === lesson.language),
-    [allLessons, lesson.language]
-  );
-  const lessonIndex = useMemo(
-    () => languageLessons.findIndex((l) => l.id === lesson.id),
-    [languageLessons, lesson.id]
-  );
-
-  useEffect(() => {
-    if (user?.hearts <= 0 && !isUnlimitedHeartsActive()) {
-      if (onHeartLoss) onHeartLoss();
-      if (onRedirectToLearn) {
-        onRedirectToLearn();
-      }
-      setShouldClose(true);
-    }
-  }, [user?.hearts, isUnlimitedHeartsActive]);
-
-  useEffect(() => {
-    setCurrentStep((s) => Math.max(0, Math.min(s, Math.max(0, safeTotalSteps - 1))));
-    setCurrentQuizIndex((q) => Math.max(0, Math.min(q, Math.max(0, effectiveQuizCount - 1))));
-    setSelectedAnswer(null);
-    setShowQuizResult(false);
-    setIsQuizMode(false);
-    setIsCompleted(false);
-    setQuizResults([]);
-    setMidLessonResults([]);
-    setShowRetakeModal(false);
-  }, [lesson?.id, content]);
-
-  useEffect(() => {
-    if (shouldClose) {
-      onClose();
-    }
-  }, [shouldClose, onClose]);
-
-  if (user?.hearts <= 0 && !isUnlimitedHeartsActive()) {
-    return null;
-  }
-
-  if (safeTotalSteps === 0 && effectiveQuizCount === 0) {
-    return (
-      <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4">
-        <div className="w-full max-w-md rounded-2xl bg-white p-6 text-center shadow-2xl">
-          <h2 className="text-xl font-bold text-gray-900 mb-4">Loading lesson</h2>
-          <button onClick={onClose} className="px-6 py-3 bg-blue-500 text-white rounded-lg">
-            Close
-          </button>
-        </div>
-      </div>
-    );
-  }
-
   const currentStepData = (content.steps || [])[currentStep] ?? null;
   const currentQuizItem = (content.quiz || [])[currentQuizIndex] ?? null;
+  const isCurrentStepQuestion = !isQuizMode && currentStepData?.type === "question" && Boolean(currentStepData?.question);
+  const currentProgress = isQuizMode ? midLessonResults.filter(Boolean).length + currentQuizIndex + 1 : currentStep + 1;
+  const percent = Math.round((Math.min(currentProgress, safeTotalAll) / safeTotalAll) * 100);
 
-  const currentProgressInternal = isQuizMode
-    ? midLessonResults.filter(Boolean).length + (currentQuizIndex + 1)
-    : (currentStep + 1);
-  const shownProgress = Math.min(currentProgressInternal, safeTotalAll);
-  const percent = Math.round((shownProgress / safeTotalAll) * 100);
+  const clearRetakeTimer = () => {
+    if (retakeTimerRef.current) {
+      window.clearTimeout(retakeTimerRef.current);
+      retakeTimerRef.current = null;
+    }
+  };
 
-  const isCurrentStepQuestion = !isQuizMode && currentStepData?.type === "question" && !!currentStepData?.question;
+  const triggerRetake = () => {
+    clearRetakeTimer();
+    retakeTimerRef.current = window.setTimeout(() => setShowRetakeModal(true), 1200);
+  };
 
-  // Finalize lesson completion and rewards.
+  const nextValidStep = (startIndex: number) => {
+    let index = startIndex;
+    while (index < safeTotalSteps && content.steps[index]?.type === "question" && !content.steps[index]?.question) {
+      index += 1;
+    }
+    return index;
+  };
+
+  const previousValidStep = (startIndex: number) => {
+    let index = startIndex;
+    while (index >= 0 && content.steps[index]?.type === "question" && !content.steps[index]?.question) {
+      index -= 1;
+    }
+    return index;
+  };
+
   const finalizeLesson = async () => {
-    const actualTime = (Date.now() - startTime) / (1000 * 60);
-
+    const actualTimeMinutes = (Date.now() - startTime) / (1000 * 60);
     const earnedXP = calculateXPFn(
       lesson.baseXP,
       lesson.difficulty,
       lessonIndex,
       languageLessons.length,
-      actualTime,
+      actualTimeMinutes,
       lesson.baselineTime
     );
 
-    if (!user.completedLessons.includes(lesson.id)) {
+    if (!user?.completedLessons?.includes?.(lesson.id)) {
       try {
-        if (completeLessonFn) {
-          await completeLessonFn(lesson.id, earnedXP, 0, actualTime);
-        }
+        await completeLessonFn?.(lesson.id, earnedXP, 0, actualTimeMinutes);
       } catch (error) {
         console.error("Lesson completion failed:", error);
       }
@@ -201,7 +154,28 @@ const LessonModal: React.FC<LessonModalProps> = ({
     setIsCompleted(true);
   };
 
+  const moveForward = () => {
+    const nextStep = nextValidStep(currentStep + 1);
+    if (nextStep < safeTotalSteps) {
+      setCurrentStep(nextStep);
+      setSelectedAnswer(null);
+      setShowQuizResult(false);
+      resetHeartLossFn?.();
+      return;
+    }
+    if (effectiveQuizCount === 0) {
+      finalizeLesson();
+      return;
+    }
+    setIsQuizMode(true);
+    setCurrentQuizIndex(0);
+    setSelectedAnswer(null);
+    setShowQuizResult(false);
+    resetHeartLossFn?.();
+  };
+
   const restartLesson = () => {
+    clearRetakeTimer();
     setCurrentStep(0);
     setIsQuizMode(false);
     setCurrentQuizIndex(0);
@@ -213,207 +187,79 @@ const LessonModal: React.FC<LessonModalProps> = ({
     resetHeartLossFn?.();
   };
 
-  const goToNextStep = () => {
-    let nextStep = currentStep + 1;
-    while (
-      nextStep < safeTotalSteps &&
-      (content.steps[nextStep]?.type === "question") &&
-      !content.steps[nextStep]?.question
-    ) nextStep++;
+  useEffect(() => () => clearRetakeTimer(), []);
 
-    if (nextStep < safeTotalSteps) {
-      setCurrentStep(nextStep);
-      setSelectedAnswer(null);
-      setShowQuizResult(false);
-      resetHeartLossFn?.();
-    } else {
-      // if there is no quiz (effectiveQuizCount === 0), finalize immediately
-      if (effectiveQuizCount === 0) {
-        finalizeLesson();
-        return;
-      }
-
-      resetHeartLossFn?.();
-      setIsQuizMode(true);
-      setCurrentQuizIndex(0);
-      setSelectedAnswer(null);
-      setShowQuizResult(false);
+  useEffect(() => {
+    if (user?.hearts <= 0 && !isUnlimitedHeartsActive()) {
+      onHeartLoss?.();
+      onRedirectToLearn?.();
+      setShouldClose(true);
     }
-  };
+  }, [user?.hearts, isUnlimitedHeartsActive, onHeartLoss, onRedirectToLearn]);
 
-  const goToPreviousStep = () => {
-    let prev = currentStep - 1;
-    while (
-      prev >= 0 &&
-      (content.steps[prev]?.type === "question") &&
-      !content.steps[prev]?.question
-    ) prev--;
-
-    if (prev >= 0) {
-      setCurrentStep(prev);
-      setSelectedAnswer(null);
-      setShowQuizResult(false);
-    }
-  };
-
-  const handleNext = () => {
-    if (!currentStepData) {
-      if (currentStep >= safeTotalSteps && effectiveQuizCount > 0) {
-        setIsQuizMode(true);
-        setCurrentQuizIndex(0);
-      } else if (currentStep >= safeTotalSteps && effectiveQuizCount === 0) {
-        finalizeLesson();
-      }
-      return;
-    }
-
-    if (currentStepData.type === "question") {
-      if (selectedAnswer === null) return;
-      const isCorrect = selectedAnswer === currentStepData.correctAnswer;
-      setMidLessonResults((p) => [...p, isCorrect]);
-      if (!isCorrect) {
-        loseHeartFn?.();
-        setShowQuizResult(true);
-        setTimeout(() => {
-          setShowRetakeModal(true);
-        }, 1500);
-      } else {
-        setShowQuizResult(true);
-      }
-    } else {
-      if (currentStep < safeTotalSteps - 1) {
-        setCurrentStep((s) => s + 1);
-      } else {
-        // finished steps
-        if (effectiveQuizCount === 0) {
-          finalizeLesson();
-        } else {
-          setIsQuizMode(true);
-          setCurrentQuizIndex(0);
-        }
-      }
-    }
-  };
-
-  const handlePrevious = () => {
-    if (isQuizMode) {
-      setIsQuizMode(false);
-      setCurrentQuizIndex(0);
-      setSelectedAnswer(null);
-      setShowQuizResult(false);
-      return;
-    }
-    if (currentStep > 0) goToPreviousStep();
-  };
-
-  const handleQuizAnswer = (answerIndex: number) => setSelectedAnswer(answerIndex);
-
-  const handleQuizNext = () => {
-    if (selectedAnswer === null) return;
-
-    const currentQuiz = currentQuizItem;
-    if (!currentQuiz) return;
-
-    // Mark answer correctness
-    const isCorrect = selectedAnswer === currentQuiz.correctAnswer;
-    const newResults = [...quizResults, isCorrect];
-    setQuizResults(newResults);
-    if (!isCorrect) {
-      loseHeartFn?.();
-      setShowQuizResult(true);
-      setTimeout(() => {
-        setShowRetakeModal(true);
-      }, 1500);
-    } else {
-      setShowQuizResult(true);
-    }
-  };
-
-  const handleQuestionNext = () => {
-    const isCorrect = selectedAnswer === currentStepData.correctAnswer;
-    if (!isCorrect) {
-          return; // retake modal will be shown
-    }
-    
-    setShowQuizResult(false);
+  useEffect(() => {
+    clearRetakeTimer();
+    setCurrentStep(0);
+    setCurrentQuizIndex(0);
     setSelectedAnswer(null);
-    if (currentStep < safeTotalSteps - 1) {
-      resetHeartLossFn?.();
-      setCurrentStep((s) => s + 1);
-    } else {
-      // finished steps
-      if (effectiveQuizCount === 0) {
-        finalizeLesson();
-      } else {
-        resetHeartLossFn?.();
-        setIsQuizMode(true);
-        setCurrentQuizIndex(0);
-      }
-    }
-  };
+    setShowQuizResult(false);
+    setIsQuizMode(false);
+    setIsCompleted(false);
+    setQuizResults([]);
+    setMidLessonResults([]);
+    setShowRetakeModal(false);
+    setShouldClose(false);
+  }, [lesson?.id, content]);
 
-  const handleQuizQuestionNext = () => {
-    const isCorrect = selectedAnswer === currentQuizItem.correctAnswer;
-    if (!isCorrect) {
-          return; // retake modal will be shown
-    }
+  useEffect(() => {
+    if (shouldClose) onClose();
+  }, [shouldClose, onClose]);
 
-    if (!content.quiz || !Array.isArray(content.quiz)) {
-      // no quiz available, finalize immediately
-      finalizeLesson();
-      return;
-    }
+  if (user?.hearts <= 0 && !isUnlimitedHeartsActive()) return null;
 
-    let nextQuizIndex = currentQuizIndex + 1;
-    while (nextQuizIndex < content.quiz.length && !content.quiz[nextQuizIndex]?.question) {
-      nextQuizIndex++;
-    }
-
-    if (nextQuizIndex < content.quiz.length) {
-      resetHeartLossFn?.();
-      setCurrentQuizIndex(nextQuizIndex);
-      setSelectedAnswer(null);
-      setShowQuizResult(false);
-    } else {
-      // quiz finished -> finalize
-      finalizeLesson();
-    }
-  };
+  if (safeTotalSteps === 0 && effectiveQuizCount === 0) {
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/90 p-4 backdrop-blur">
+        <div className={`${shell} w-full max-w-lg p-8 text-center`}>
+          <div className="mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-[1.5rem] border border-cyan-400/20 bg-cyan-400/10 text-cyan-200">
+            <BookOpen className="h-8 w-8" />
+          </div>
+          <h2 className="text-2xl font-semibold text-white">Preparing lesson workspace</h2>
+          <p className="mt-3 text-sm leading-6 text-slate-300">We are loading the lesson content and quiz checks for this track.</p>
+          <button type="button" onClick={onClose} className={`${primaryButton} mt-6 w-full`}>Close</button>
+        </div>
+      </div>
+    );
+  }
 
   if (showRetakeModal) {
     return (
-      <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4">
-        <div className="bg-white rounded-2xl max-w-md w-full p-8 text-center shadow-2xl">
-          <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
-            <RotateCcw className="w-8 h-8 text-red-600" />
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/90 p-4 backdrop-blur">
+        <div className={`${shell} w-full max-w-xl p-8 text-center`}>
+          <div className="mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-[1.5rem] border border-rose-400/20 bg-rose-500/10 text-rose-200">
+            <RotateCcw className="h-8 w-8" />
           </div>
-          <h2 className="text-2xl font-bold text-gray-900 mb-2">
-            Incorrect Answer
-          </h2>
-          <p className="text-gray-600 mb-6">
-            You got the answer wrong. {user?.hearts <= 0 && !isUnlimitedHeartsActive() 
-              ? "You have no hearts left and will be redirected to the learn page." 
-              : "You need to retake the lesson to continue learning."}
+          <h2 className="text-2xl font-semibold text-white">Retake required</h2>
+          <p className="mt-3 text-sm leading-6 text-slate-300">
+            {user?.hearts <= 0 && !isUnlimitedHeartsActive()
+              ? "You are out of hearts, so this lesson will close and return you to practice."
+              : "That answer was incorrect. Restart this lesson to keep your progress measurable."}
           </p>
-          <div className="flex space-x-3">
+          <div className="mt-6 grid gap-3 sm:grid-cols-2">
             <button
+              type="button"
               onClick={() => {
-                if (user?.hearts <= 0 && !isUnlimitedHeartsActive()) {
-                  if (onRedirectToLearn) onRedirectToLearn();
-                }
+                if (user?.hearts <= 0 && !isUnlimitedHeartsActive()) onRedirectToLearn?.();
                 onClose();
               }}
-              className="flex-1 px-6 py-3 bg-gray-500 hover:bg-gray-600 text-white rounded-lg font-medium transition-colors"
+              className={secondaryButton}
             >
-              {user?.hearts <= 0 && !isUnlimitedHeartsActive() ? "Go to Learn Page" : "Exit Lesson"}
+              {user?.hearts <= 0 && !isUnlimitedHeartsActive() ? "Back to practice" : "Exit lesson"}
             </button>
             {(user?.hearts > 0 || isUnlimitedHeartsActive()) && (
-              <button
-                onClick={restartLesson}
-                className="flex-1 px-6 py-3 bg-blue-500 hover:bg-blue-600 text-white rounded-lg font-medium transition-colors flex items-center justify-center space-x-2"
-              >
-                <RotateCcw className="w-4 h-4" />
-                <span>Retake Lesson</span>
+              <button type="button" onClick={restartLesson} className={primaryButton}>
+                <RotateCcw className="h-4 w-4" />
+                <span>Retake lesson</span>
               </button>
             )}
           </div>
@@ -426,7 +272,6 @@ const LessonModal: React.FC<LessonModalProps> = ({
     const correctAnswers = quizResults.filter(Boolean).length;
     const correctMidAnswers = midLessonResults.filter(Boolean).length;
     const actualTimeSeconds = (Date.now() - startTime) / 1000;
-
     const baseXP = calculateXPFn(
       lesson.baseXP,
       lesson.difficulty,
@@ -435,391 +280,323 @@ const LessonModal: React.FC<LessonModalProps> = ({
       actualTimeSeconds / 60,
       lesson.baselineTime
     );
-    
-    const boostMultiplier = isXPBoostActive() ? (activeBoosts.xpBoost?.multiplier || 1) : 1;
+    const boostMultiplier = isXPBoostActive() ? activeBoosts.xpBoost?.multiplier || 1 : 1;
     const earnedXP = Math.floor(baseXP * boostMultiplier);
 
     return (
-      <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4">
-        <div className="mx-4 w-full max-w-lg rounded-2xl bg-white p-6 text-center shadow-2xl sm:p-8">
-          <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
-            <CheckCircle className="w-8 h-8 text-green-600" />
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/90 p-4 backdrop-blur">
+        <div className={`${shell} w-full max-w-2xl p-8`}>
+          <div className="mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-[1.5rem] border border-emerald-400/20 bg-emerald-500/10 text-emerald-200">
+            <CheckCircle className="h-8 w-8" />
           </div>
-          <h2 className="text-2xl font-bold text-gray-900 mb-2">Lesson Complete!</h2>
-          <div className="mb-4 space-y-2">
-            <p className="text-gray-600">
-              You earned <span className="font-semibold text-green-600">{earnedXP} XP</span>
-              {boostMultiplier > 1 && (
-                <span className="ml-2 text-xs bg-yellow-100 text-yellow-800 px-2 py-1 rounded-full">
-                  {boostMultiplier}x Boost!
-                </span>
-              )}
-            </p>
-            {questionSteps.length > 0 && (
-              <p className="text-gray-600">
-                Correct Answers: <span className="font-semibold text-blue-600">{correctMidAnswers}/{questionSteps.length}</span>
-              </p>
-            )}
-            {effectiveQuizCount > 0 && (
-              <p className="text-gray-600">
-                Final quiz: <span className="font-semibold text-blue-600">{correctAnswers}/{effectiveQuizCount}</span>
-              </p>
-            )}
-            <div className="flex items-center justify-center space-x-1">
-              <Clock className="w-4 h-4 text-gray-500" />
-              <span className="text-sm text-gray-500">Completed in {formatTime(actualTimeSeconds)}</span>
+          <div className="text-center">
+            <h2 className="text-3xl font-semibold text-white">Lesson complete</h2>
+            <p className="mt-3 text-sm leading-6 text-slate-300">The next practice unit is ready. This lesson now counts toward your progress path.</p>
+          </div>
+          <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <div className="rounded-2xl border border-white/10 bg-white/5 p-4"><div className="text-xs uppercase tracking-[0.2em] text-slate-500">Earned XP</div><div className="mt-2 text-lg font-semibold text-white">{earnedXP} XP</div></div>
+            <div className="rounded-2xl border border-white/10 bg-white/5 p-4"><div className="text-xs uppercase tracking-[0.2em] text-slate-500">Quick Checks</div><div className="mt-2 text-lg font-semibold text-white">{correctMidAnswers}/{questionSteps.length || 0}</div></div>
+            <div className="rounded-2xl border border-white/10 bg-white/5 p-4"><div className="text-xs uppercase tracking-[0.2em] text-slate-500">Final Quiz</div><div className="mt-2 text-lg font-semibold text-white">{effectiveQuizCount > 0 ? `${correctAnswers}/${effectiveQuizCount}` : "Skipped"}</div></div>
+            <div className="rounded-2xl border border-white/10 bg-white/5 p-4"><div className="text-xs uppercase tracking-[0.2em] text-slate-500">Duration</div><div className="mt-2 text-lg font-semibold text-white">{formatTime(actualTimeSeconds)}</div></div>
+          </div>
+          {boostMultiplier > 1 && (
+            <div className="mt-5 rounded-[1.5rem] border border-amber-400/20 bg-amber-400/10 px-4 py-3 text-sm text-amber-100">
+              XP boost applied: <span className="font-semibold">{boostMultiplier}x multiplier</span>.
             </div>
-          </div>
-          <p className="text-gray-600 mb-4">Great job! You've unlocked the next lesson.</p>
-          <button
-            onClick={onClose}
-            className="w-full px-6 py-3 bg-green-500 hover:bg-green-600 text-white rounded-lg font-medium transition-colors"
-          >
-            Continue Learning
+          )}
+          <button type="button" onClick={onClose} className={`${primaryButton} mt-8 w-full`}>Continue practice</button>
+        </div>
+      </div>
+    );
+  }
+
+  const handleStepSubmit = () => {
+    if (!currentStepData) return;
+    if (currentStepData.type !== "question") {
+      moveForward();
+      return;
+    }
+    if (selectedAnswer === null) return;
+    const isCorrect = selectedAnswer === currentStepData.correctAnswer;
+    if (!showQuizResult) {
+      setMidLessonResults((prev) => [...prev, isCorrect]);
+      setShowQuizResult(true);
+      if (!isCorrect) {
+        loseHeartFn?.();
+        triggerRetake();
+      }
+      return;
+    }
+    if (isCorrect) {
+      setSelectedAnswer(null);
+      setShowQuizResult(false);
+      moveForward();
+    }
+  };
+
+  const handleQuizSubmit = () => {
+    if (!currentQuizItem || selectedAnswer === null) return;
+    const isCorrect = selectedAnswer === currentQuizItem.correctAnswer;
+    if (!showQuizResult) {
+      setQuizResults((prev) => [...prev, isCorrect]);
+      setShowQuizResult(true);
+      if (!isCorrect) {
+        loseHeartFn?.();
+        triggerRetake();
+      }
+      return;
+    }
+    if (!isCorrect) return;
+    let nextIndex = currentQuizIndex + 1;
+    while (nextIndex < (content.quiz?.length ?? 0) && !content.quiz?.[nextIndex]?.question) nextIndex += 1;
+    if (nextIndex < (content.quiz?.length ?? 0)) {
+      setCurrentQuizIndex(nextIndex);
+      setSelectedAnswer(null);
+      setShowQuizResult(false);
+      resetHeartLossFn?.();
+    } else {
+      finalizeLesson();
+    }
+  };
+
+  const header = (
+    <div className="sticky top-0 z-20 border-b border-white/10 bg-slate-950/85 px-4 py-4 backdrop-blur lg:px-6">
+      <div className="mx-auto flex w-full max-w-6xl flex-wrap items-center justify-between gap-4">
+        <div className="flex items-center gap-3">
+          <button type="button" onClick={onClose} className="inline-flex h-11 w-11 items-center justify-center rounded-2xl border border-white/10 bg-white/5 text-slate-200 transition hover:border-white/20 hover:bg-white/10">
+            <X className="h-5 w-5" />
           </button>
-        </div>
-      </div>
-    );
-  }
-
-  if (isQuizMode) {
-    const currentQuestion = currentQuizItem;
-    return (
-      <div className="fixed inset-0 z-50 overflow-y-auto overscroll-contain bg-slate-100">
-        <div className="flex min-h-full flex-col">
-          <div className="sticky top-0 z-10 border-b border-slate-200 bg-white/95 px-4 py-3 shadow-sm sm:px-6">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center space-x-6">
-                <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-full transition-colors">
-                  <X className="w-5 h-5 text-gray-600" />
-                </button>
-                <div className="flex items-center space-x-3">
-                  <BookOpen className="w-5 h-5 text-blue-600" />
-                  <h2 className="text-lg font-semibold text-gray-900">{lesson.title}</h2>
-                </div>
-              </div>
-
-              <div className="flex items-center space-x-6">
-                <div className="flex items-center space-x-2">
-                  <span className="text-sm text-gray-600">Quiz Progress:</span>
-                  <div className="flex items-center space-x-1">
-                    {Array.from({ length: effectiveQuizCount }, (_, i) => (
-                      <div
-                        key={i}
-                        className={`w-3 h-3 rounded-full ${
-                          i < currentQuizIndex ? "bg-green-500" : i === currentQuizIndex ? "bg-blue-500" : "bg-gray-200"
-                        }`}
-                      />
-                    ))}
-                  </div>
-                  <span className="text-sm font-medium text-gray-700">{Math.min(currentQuizIndex + 1, effectiveQuizCount)}/{effectiveQuizCount}</span>
-                </div>
-
-                <div className="flex items-center space-x-2">
-                  <span className="text-sm text-gray-600">Hearts:</span>
-                  <div className="flex items-center space-x-1">
-                    {Array.from({ length: 5 }, (_, i) => (
-                      <Heart
-                        key={i}
-                        className={`w-5 h-5 ${
-                          activeBoosts.unlimitedHearts 
-                            ? "text-pink-500 fill-current animate-pulse" 
-                            : i < (user?.hearts ?? 0) 
-                            ? "text-red-500 fill-current" 
-                            : "text-gray-300"
-                        }`}
-                      />
-                    ))}
-                  </div>
-                  <span className="text-sm font-medium text-gray-700">
-                    {getHeartsLabel(!!activeBoosts.unlimitedHearts, user?.hearts ?? 0)}
-                  </span>
-                </div>
-                
-                {/* Show active XP boost in lesson header */}
-                {activeBoosts.xpBoost && (
-                  <div className="flex items-center space-x-2 bg-yellow-100 px-3 py-1 rounded-full">
-                    <Zap className="w-4 h-4 text-yellow-600" />
-                    <span className="text-sm font-medium text-yellow-800">
-                      {activeBoosts.xpBoost.multiplier}x XP Active
-                    </span>
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-
-          <div className="flex flex-1 items-start justify-center p-4 sm:p-6 lg:p-8">
-            <div className="w-full max-w-3xl rounded-2xl bg-white p-4 shadow-xl sm:p-6 lg:p-8">
-              <div className="mb-6">
-                <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-sm font-medium text-gray-500 uppercase tracking-wide">
-                    Question {Math.min(currentQuizIndex + 1, effectiveQuizCount)} of {effectiveQuizCount}
-                  </h3>
-                  <div className="w-32 bg-gray-200 rounded-full h-2">
-                    <div
-                      className="bg-blue-500 h-2 rounded-full transition-all duration-300"
-                      style={{ width: `${(Math.min(currentQuizIndex + 1, effectiveQuizCount) / Math.max(1, effectiveQuizCount)) * 100}%` }}
-                    />
-                  </div>
-                </div>
-
-                <h3 className="text-2xl font-bold text-gray-900 mb-6">
-                  {renderWithNewlines(currentQuestion?.question)}
-                </h3>
-              </div>
-
-              <div className="space-y-3 mb-8">
-                {currentQuestion?.options?.map((option: string, index: number) => (
-                  <button
-                    key={index}
-                    onClick={() => handleQuizAnswer(index)}
-                    disabled={showQuizResult}
-                    className={`w-full p-4 text-left rounded-xl border-2 transition-all duration-200 ${
-                      selectedAnswer === index
-                        ? showQuizResult
-                          ? index === currentQuestion.correctAnswer
-                            ? "border-green-500 bg-green-50 text-green-700"
-                            : "border-red-500 bg-red-50 text-red-700"
-                          : "border-blue-500 bg-blue-50"
-                        : showQuizResult && index === currentQuestion.correctAnswer
-                        ? "border-green-500 bg-green-50 text-green-700"
-                        : "border-gray-200 hover:border-gray-300 hover:bg-gray-50"
-                    }`}
-                  >
-                    <div className="flex items-center space-x-3">
-                      <span className="w-8 h-8 bg-gray-100 rounded-full flex items-center justify-center font-medium text-gray-700">
-                        {String.fromCharCode(65 + index)}
-                      </span>
-                      <span className="font-medium">{renderWithNewlines(option)}</span>
-                    </div>
-                  </button>
-                ))}
-              </div>
-
-              {showQuizResult && (
-                <div
-                  className={`p-6 rounded-xl mb-6 ${selectedAnswer === currentQuestion.correctAnswer ? "bg-green-50 border-2 border-green-200" : "bg-red-50 border-2 border-red-200"}`}
-                >
-                  <p className={`font-bold text-lg mb-2 ${selectedAnswer === currentQuestion.correctAnswer ? "text-green-700" : "text-red-700"}`}>
-                    {selectedAnswer === currentQuestion.correctAnswer ? "Correct" : "Incorrect"}
-                  </p>
-                  <p className="text-gray-700">{renderWithNewlines(currentQuestion?.explanation)}</p>
-                </div>
-              )}
-
-              <div className="flex justify-end">
-                <button
-                  onClick={showQuizResult ? handleQuizQuestionNext : handleQuizNext}
-                  disabled={selectedAnswer === null}
-                  className="px-8 py-3 bg-blue-500 hover:bg-blue-600 disabled:bg-gray-300 disabled:cursor-not-allowed text-white rounded-xl font-medium transition-colors flex items-center space-x-2"
-                >
-                  <span>
-                    {showQuizResult 
-                      ? (selectedAnswer === currentQuestion.correctAnswer 
-                          ? (currentQuizIndex === effectiveQuizCount - 1 ? "Finish Lesson" : "Next Question")
-                          : "Retake Required")
-                      : "Check Answer"
-                    }
-                  </span>
-                  <ArrowRight className="w-5 h-5" />
-                </button>
-              </div>
-            </div>
+          <div>
+            <div className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">{isQuizMode ? "Final quiz" : "Practice lesson"}</div>
+            <h2 className="mt-1 text-base font-semibold text-white sm:text-lg">{lesson.title}</h2>
           </div>
         </div>
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="rounded-2xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-slate-300">
+            {isQuizMode ? `Question ${Math.min(currentQuizIndex + 1, effectiveQuizCount)} of ${effectiveQuizCount}` : `Step ${Math.min(currentStep + 1, safeTotalSteps)} of ${safeTotalSteps}`}
+          </div>
+          <div className="flex items-center gap-1.5 rounded-2xl border border-white/10 bg-white/5 px-3 py-2">
+            {Array.from({ length: 5 }, (_, i) => (
+              <Heart
+                key={i}
+                className={
+                  activeBoosts.unlimitedHearts
+                    ? "h-4 w-4 fill-pink-400 text-pink-400 animate-pulse"
+                    : i < (user?.hearts ?? 0)
+                      ? "h-4 w-4 fill-rose-400 text-rose-400"
+                      : "h-4 w-4 text-slate-700"
+                }
+              />
+            ))}
+            <span className="ml-2 text-sm text-slate-200">{activeBoosts.unlimitedHearts ? "Unlimited" : `${user?.hearts ?? 0}/5`}</span>
+          </div>
+          {activeBoosts.xpBoost && (
+            <div className="flex items-center gap-2 rounded-2xl border border-amber-400/20 bg-amber-400/10 px-3 py-2 text-sm text-amber-100">
+              <Zap className="h-4 w-4" />
+              <span>{activeBoosts.xpBoost.multiplier}x XP active</span>
+            </div>
+          )}
+        </div>
       </div>
-    );
-  }
+    </div>
+  );
 
-  // Main lesson view
+  const footer = (
+    <div className="sticky bottom-0 mt-4 rounded-[1.5rem] border border-white/10 bg-slate-950/90 p-4 backdrop-blur">
+      <div className="flex items-center justify-between gap-4">
+        <button
+          type="button"
+          onClick={() => {
+            if (isQuizMode) {
+              setIsQuizMode(false);
+              setCurrentQuizIndex(0);
+              setSelectedAnswer(null);
+              setShowQuizResult(false);
+              return;
+            }
+            const previous = previousValidStep(currentStep - 1);
+            if (previous >= 0) {
+              setCurrentStep(previous);
+              setSelectedAnswer(null);
+              setShowQuizResult(false);
+            }
+          }}
+          disabled={!isQuizMode && currentStep <= 0}
+          className={`${secondaryButton} disabled:cursor-not-allowed disabled:opacity-50`}
+        >
+          <ArrowLeft className="h-4 w-4" />
+          <span>Previous</span>
+        </button>
+        <button
+          type="button"
+          onClick={isQuizMode ? handleQuizSubmit : handleStepSubmit}
+          disabled={
+            (isQuizMode && selectedAnswer === null) ||
+            (!isQuizMode && isCurrentStepQuestion && selectedAnswer === null && !showQuizResult) ||
+            (!isQuizMode && showQuizResult && selectedAnswer !== currentStepData?.correctAnswer)
+          }
+          className={primaryButton}
+        >
+          <span>
+            {isQuizMode
+              ? showQuizResult
+                ? selectedAnswer === currentQuizItem?.correctAnswer
+                  ? currentQuizIndex === effectiveQuizCount - 1
+                    ? "Finish lesson"
+                    : "Next question"
+                  : "Retake required"
+                : "Check answer"
+              : isCurrentStepQuestion && !showQuizResult
+                ? "Check answer"
+                : showQuizResult
+                  ? selectedAnswer === currentStepData?.correctAnswer
+                    ? "Next step"
+                    : "Retake required"
+                  : currentStep >= safeTotalSteps - 1
+                    ? effectiveQuizCount > 0
+                      ? "Start final quiz"
+                      : "Finish lesson"
+                    : "Next step"}
+          </span>
+          <ArrowRight className="h-4 w-4" />
+        </button>
+      </div>
+    </div>
+  );
+
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto overscroll-contain bg-slate-100">
-      <div className="flex min-h-screen flex-col">
-        <div className="sticky top-0 z-10 border-b border-slate-200 bg-white/95 px-4 py-3 shadow-sm lg:px-6">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-3 lg:space-x-6">
-              <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-full transition-colors">
-                <X className="w-5 h-5 text-gray-600" />
-              </button>
-              <div className="flex items-center space-x-3">
-                <BookOpen className="w-5 h-5 text-blue-600" />
-                <h2 className="text-base lg:text-lg font-semibold text-gray-900 truncate">{lesson.title}</h2>
+    <div className="fixed inset-0 z-50 overflow-y-auto bg-[radial-gradient(circle_at_top,_rgba(56,189,248,0.16),_transparent_30%),linear-gradient(180deg,_rgba(2,6,23,0.98)_0%,_rgba(4,10,28,1)_100%)]">
+      <div className="flex min-h-full flex-col">
+        {header}
+        <div className="flex-1 px-4 py-6 lg:px-8">
+          <div className="mx-auto max-w-5xl">
+            <div className="mb-4 flex items-center justify-between gap-4">
+              <div className="text-sm text-slate-400">
+                Progress: <span className="font-medium text-slate-200">{percent}% complete</span>
+              </div>
+              <div className="flex items-center gap-2 text-sm text-slate-400">
+                <Clock className="h-4 w-4" />
+                <span>Est. {lesson.baselineTime} min</span>
               </div>
             </div>
-
-            <div className="flex items-center space-x-2 lg:space-x-6 flex-wrap">
-              <div className="flex items-center space-x-2">
-                <span className="text-sm text-gray-600">Progress:</span>
-                <div className="hidden sm:flex items-center space-x-1">
-                  {Array.from({ length: safeTotalSteps }, (_, i) => (
-                    <div key={i} className={`w-3 h-3 rounded-full ${i < currentStep ? "bg-green-500" : i === currentStep ? "bg-blue-500" : "bg-gray-200"}`} />
-                  ))}
-                  {effectiveQuizCount > 0 && <div className="w-3 h-3 rounded-full bg-purple-200 ml-1" title="Quiz" />}
-                </div>
-                <span className="text-xs lg:text-sm font-medium text-gray-700">{Math.min(currentProgressInternal, safeTotalAll)}/{safeTotalAll}</span>
-              </div>
-
-              <div className="flex items-center space-x-1 lg:space-x-2">
-                <span className="text-xs lg:text-sm text-gray-600 hidden sm:inline">Hearts:</span>
-                <div className="flex items-center space-x-1">
-                  {Array.from({ length: 5 }, (_, i) => (
-                    <Heart 
-                      key={i} 
-                      className={`w-4 h-4 lg:w-5 lg:h-5 ${
-                        activeBoosts.unlimitedHearts 
-                          ? "text-pink-500 fill-current animate-pulse" 
-                          : i < (user?.hearts ?? 0) 
-                          ? "text-red-500 fill-current" 
-                          : "text-gray-300"
-                      }`} 
-                    />
-                  ))}
-                </div>
-                <span className="text-xs lg:text-sm font-medium text-gray-700">
-                  {getHeartsLabel(!!activeBoosts.unlimitedHearts, user?.hearts ?? 0)}
-                </span>
-              </div>
-              
-              {/* Show active XP boost */}
-              {activeBoosts.xpBoost && (
-                <div className="hidden lg:flex items-center space-x-2 bg-yellow-100 px-3 py-1 rounded-full">
-                  <Zap className="w-3 h-3 lg:w-4 lg:h-4 text-yellow-600" />
-                  <span className="text-xs lg:text-sm font-medium text-yellow-800">
-                    {activeBoosts.xpBoost.multiplier}x XP Active
-                  </span>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-
-        <div className="flex-1 p-4 lg:p-8">
-          <div className="max-w-4xl mx-auto">
-            <div className="mb-8">
-              <div className="w-full bg-gray-200 rounded-full h-3">
-                <div className="h-3 rounded-full bg-blue-500 transition-all duration-500" style={{ width: `${percent}%` }} />
-              </div>
-              <div className="flex justify-between items-center mt-2">
-                <span className="text-xs lg:text-sm text-gray-600">Step {Math.min(currentStep + 1, safeTotalSteps)} of {safeTotalSteps}</span>
-                <span className="text-xs lg:text-sm text-gray-600">{percent}% Complete</span>
-              </div>
+            <div className="mb-6 h-2.5 rounded-full bg-white/10">
+              <div className="h-2.5 rounded-full bg-gradient-to-r from-cyan-400 to-blue-500 transition-all duration-500" style={{ width: `${percent}%` }} />
             </div>
 
-            <div className="bg-white rounded-2xl shadow-xl p-4 lg:p-8">
-              {isCurrentStepQuestion && currentStepData?.question ? (
+            <div className={`${shell} overflow-hidden p-6 sm:p-8`}>
+              {isQuizMode ? (
                 <>
-                  <div className="mb-6">
-                    <div className="flex items-center justify-between mb-4">
-                      <h3 className="text-xs lg:text-sm font-medium text-purple-500 uppercase tracking-wide">Quick Check</h3>
-                      <div className="w-32 bg-gray-200 rounded-full h-2">
-                        <div className="bg-purple-500 h-2 rounded-full transition-all duration-300" style={{ width: `${percent}%` }} />
-                      </div>
-                    </div>
-                    <h3 className="text-xl lg:text-2xl font-bold text-gray-900 mb-6">{renderWithNewlines(currentStepData.question)}</h3>
+                  <div className="mb-8">
+                    <div className="mb-4 text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">Interview-style checkpoint</div>
+                    <h3 className="text-2xl font-semibold leading-tight text-white sm:text-3xl">{renderWithNewlines(currentQuizItem?.question)}</h3>
                   </div>
-
-                  <div className="space-y-3 mb-8">
-                    {(currentStepData.options || currentStepData.answers || []).map((option: string, index: number) => (
-                      <button
-                        key={index}
-                        onClick={() => setSelectedAnswer(index)}
-                        disabled={showQuizResult}
-                        className={`w-full p-3 lg:p-4 text-left rounded-xl border-2 transition-all duration-200 ${
-                          selectedAnswer === index
-                            ? showQuizResult
-                              ? index === currentStepData.correctAnswer
-                                ? "border-green-500 bg-green-50 text-green-700"
-                                : "border-red-500 bg-red-50 text-red-700"
-                              : "border-purple-500 bg-purple-50"
-                            : showQuizResult && index === currentStepData.correctAnswer
-                            ? "border-green-500 bg-green-50 text-green-700"
-                            : "border-gray-200 hover:border-gray-300 hover:bg-gray-50"
-                        }`}
-                      >
-                        <div className="flex items-center space-x-3">
-                          <span className="w-6 h-6 lg:w-8 lg:h-8 bg-gray-100 rounded-full flex items-center justify-center font-medium text-gray-700 text-sm lg:text-base flex-shrink-0">{String.fromCharCode(65 + index)}</span>
-                          <span className="font-medium text-sm lg:text-base">{renderWithNewlines(option)}</span>
-                        </div>
-                      </button>
-                    ))}
+                  <div className="space-y-3">
+                    {currentQuizItem?.options?.map((option: string, index: number) => {
+                      const isSelected = selectedAnswer === index;
+                      const isCorrect = index === currentQuizItem.correctAnswer;
+                      const tone = showQuizResult
+                        ? isSelected
+                          ? isCorrect
+                            ? "border-emerald-400/45 bg-emerald-500/10 text-emerald-100"
+                            : "border-rose-400/45 bg-rose-500/10 text-rose-100"
+                          : isCorrect
+                            ? "border-emerald-400/35 bg-emerald-500/5 text-emerald-100"
+                            : "border-white/10 bg-white/[0.03] text-slate-300"
+                        : isSelected
+                          ? "border-cyan-400/55 bg-cyan-400/10 text-white"
+                          : "border-white/10 bg-white/[0.03] text-slate-300 hover:border-white/20 hover:bg-white/10 hover:text-white";
+                      return (
+                        <button key={index} type="button" onClick={() => setSelectedAnswer(index)} disabled={showQuizResult} className={`w-full rounded-[1.4rem] border p-4 text-left transition ${tone}`}>
+                          <div className="flex items-start gap-3">
+                            <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-white/10 bg-white/5 text-xs font-semibold text-slate-300">{String.fromCharCode(65 + index)}</div>
+                            <span className="pt-0.5 text-sm font-medium leading-6">{renderWithNewlines(option)}</span>
+                          </div>
+                        </button>
+                      );
+                    })}
                   </div>
-
                   {showQuizResult && (
-                    <div className={`p-4 lg:p-6 rounded-xl mb-6 ${selectedAnswer === currentStepData.correctAnswer ? "bg-green-50 border-2 border-green-200" : "bg-red-50 border-2 border-red-200"}`}>
-                      <p className={`font-bold text-base lg:text-lg mb-2 ${selectedAnswer === currentStepData.correctAnswer ? "text-green-700" : "text-red-700"}`}>{selectedAnswer === currentStepData.correctAnswer ? "Correct" : "Incorrect"}</p>
-                      <p className="text-gray-700 text-sm lg:text-base">{renderWithNewlines(currentStepData.explanation)}</p>
+                    <div className={`mt-6 rounded-[1.5rem] border px-5 py-4 text-sm leading-6 ${selectedAnswer === currentQuizItem?.correctAnswer ? "border-emerald-400/25 bg-emerald-500/10 text-emerald-100" : "border-rose-400/25 bg-rose-500/10 text-rose-100"}`}>
+                      <p className="mb-2 text-base font-semibold">{selectedAnswer === currentQuizItem?.correctAnswer ? "Correct answer" : "Incorrect answer"}</p>
+                      <p className="text-slate-200">{renderWithNewlines(currentQuizItem?.explanation)}</p>
+                    </div>
+                  )}
+                </>
+              ) : isCurrentStepQuestion ? (
+                <>
+                  <div className="mb-8">
+                    <div className="mb-4 flex items-center justify-between gap-4">
+                      <div className="text-xs font-semibold uppercase tracking-[0.24em] text-violet-300">Quick check</div>
+                      <div className="rounded-full border border-violet-400/20 bg-violet-500/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-violet-200">Measured practice</div>
+                    </div>
+                    <h3 className="text-2xl font-semibold leading-tight text-white sm:text-3xl">{renderWithNewlines(currentStepData?.question)}</h3>
+                  </div>
+                  <div className="space-y-3">
+                    {(currentStepData?.options || currentStepData?.answers || []).map((option: string, index: number) => {
+                      const isSelected = selectedAnswer === index;
+                      const isCorrect = index === currentStepData.correctAnswer;
+                      const tone = showQuizResult
+                        ? isSelected
+                          ? isCorrect
+                            ? "border-emerald-400/45 bg-emerald-500/10 text-emerald-100"
+                            : "border-rose-400/45 bg-rose-500/10 text-rose-100"
+                          : isCorrect
+                            ? "border-emerald-400/35 bg-emerald-500/5 text-emerald-100"
+                            : "border-white/10 bg-white/[0.03] text-slate-300"
+                        : isSelected
+                          ? "border-cyan-400/55 bg-cyan-400/10 text-white"
+                          : "border-white/10 bg-white/[0.03] text-slate-300 hover:border-white/20 hover:bg-white/10 hover:text-white";
+                      return (
+                        <button key={index} type="button" onClick={() => setSelectedAnswer(index)} disabled={showQuizResult} className={`w-full rounded-[1.4rem] border p-4 text-left transition ${tone}`}>
+                          <div className="flex items-start gap-3">
+                            <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-white/10 bg-white/5 text-xs font-semibold text-slate-300">{String.fromCharCode(65 + index)}</div>
+                            <span className="pt-0.5 text-sm font-medium leading-6">{renderWithNewlines(option)}</span>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                  {showQuizResult && (
+                    <div className={`mt-6 rounded-[1.5rem] border px-5 py-4 text-sm leading-6 ${selectedAnswer === currentStepData?.correctAnswer ? "border-emerald-400/25 bg-emerald-500/10 text-emerald-100" : "border-rose-400/25 bg-rose-500/10 text-rose-100"}`}>
+                      <p className="mb-2 text-base font-semibold">{selectedAnswer === currentStepData?.correctAnswer ? "Correct answer" : "Incorrect answer"}</p>
+                      <p className="text-slate-200">{renderWithNewlines(currentStepData?.explanation)}</p>
                     </div>
                   )}
                 </>
               ) : (
                 <>
-                  <h3 className="text-xl lg:text-3xl font-bold text-gray-900 mb-6">{renderWithNewlines(currentStepData?.title)}</h3>
-                  <p className="text-gray-700 text-base lg:text-lg leading-relaxed mb-8">{renderWithNewlines(currentStepData?.content)}</p>
-
-                  {currentStepData?.code && (
-                    <div className="bg-gray-900 rounded-xl p-4 lg:p-6 mb-8 overflow-x-auto">
-                      <pre className="text-green-400 font-mono text-xs lg:text-sm leading-relaxed">{currentStepData.code}</pre>
+                  <div className="mb-8">
+                    <div className="mb-4 flex flex-wrap items-center gap-3">
+                      <span className="rounded-full border border-cyan-400/20 bg-cyan-400/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-cyan-200">Core concept</span>
+                      <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Hands-on practice path</span>
                     </div>
-                  )}
-
-                  {currentStepData?.explanation && (
-                    <div className="bg-blue-50 border-l-4 border-blue-400 p-4 lg:p-6 rounded-r-xl">
-                      <div className="flex items-start space-x-3">
-                        <div className="w-6 h-6 bg-blue-400 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5">
-                          <span className="text-white text-xs font-bold">!</span>
-                        </div>
-                        <p className="text-blue-800 leading-relaxed text-sm lg:text-base">{renderWithNewlines(currentStepData.explanation)}</p>
+                    <h3 className="text-2xl font-semibold leading-tight text-white sm:text-4xl">{renderWithNewlines(currentStepData?.title)}</h3>
+                  </div>
+                  <div className="space-y-6">
+                    <div className="rounded-[1.5rem] border border-white/10 bg-white/[0.03] px-5 py-5 text-base leading-8 text-slate-200">
+                      {renderWithNewlines(currentStepData?.content)}
+                    </div>
+                    {currentStepData?.code && (
+                      <div className="overflow-x-auto rounded-[1.5rem] border border-cyan-400/15 bg-slate-950/90 p-5">
+                        <pre className="font-mono text-sm leading-7 text-emerald-300">{currentStepData.code}</pre>
                       </div>
-                    </div>
-                  )}
+                    )}
+                    {currentStepData?.explanation && (
+                      <div className="rounded-[1.5rem] border border-cyan-400/20 bg-cyan-400/10 px-5 py-4 text-sm leading-7 text-slate-200">
+                        {renderWithNewlines(currentStepData.explanation)}
+                      </div>
+                    )}
+                  </div>
                 </>
               )}
             </div>
 
-            <div className="bg-white border-t border-gray-200 px-4 lg:px-8 py-4 sticky bottom-0 z-10">
-              <div className="max-w-4xl mx-auto flex items-center justify-between">
-                <button
-                  onClick={handlePrevious}
-                  disabled={(!isQuizMode && currentStep <= 0)}
-                  className="px-4 lg:px-6 py-2 lg:py-3 text-gray-600 hover:text-gray-800 hover:bg-gray-100 rounded-xl disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm lg:text-base"
-                >
-                  Previous
-                </button>
-
-                <div className="hidden sm:flex items-center space-x-2 text-sm text-gray-600">
-                  <Clock className="w-4 h-4" />
-                  <span>Est. {lesson.baselineTime} min</span>
-                </div>
-
-                <button
-                  onClick={showQuizResult ? handleQuestionNext : handleNext}
-                  disabled={
-                    (isCurrentStepQuestion && selectedAnswer === null && !showQuizResult) || 
-                    (showQuizResult && selectedAnswer !== currentStepData.correctAnswer)
-                  }
-                  className="flex items-center space-x-2 rounded-xl bg-blue-500 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-600 disabled:cursor-not-allowed disabled:bg-gray-400 lg:px-8 lg:py-3 lg:text-base"
-                >
-                  <span>
-                    {isCurrentStepQuestion && !showQuizResult
-                      ? "Check Answer"
-                      : showQuizResult
-                      ? (selectedAnswer === currentStepData.correctAnswer 
-                          ? "Next Step" 
-                          : "Retake Required")
-                      : currentStep >= safeTotalSteps - 1
-                        ? (effectiveQuizCount > 0 ? "Start Final Quiz" : "Finish Lesson")
-                        : "Next Step"}
-                  </span>
-                  <ArrowRight className="w-5 h-5" />
-                </button>
-              </div>
-            </div>
+            {footer}
           </div>
         </div>
       </div>
     </div>
   );
-}
+};
 
 export default LessonModal;
