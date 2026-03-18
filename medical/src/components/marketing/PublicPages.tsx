@@ -51,6 +51,7 @@ import {
 import { fetchProductAnalyticsSummary, trackEvent } from '../../lib/analytics';
 import { fetchSharedBenchmarkReport } from '../../lib/benchmarkApi';
 import { usePageMetadata } from '../../lib/pageMeta';
+import { fetchSharedTeamProof, type PublicTeamProof } from '../../lib/teams';
 import heroBg from '../../assets/design/hero-bg.jpg';
 import mascot from '../../assets/design/mascot.png';
 
@@ -66,6 +67,9 @@ const fallbackTrustMetrics = [
   { label: 'Average score improvement', value: 'Benchmark delta ready', helper: 'Repeat attempts become visible improvement proof.' },
   { label: 'Team cohorts active', value: 'Pilot-ready', helper: 'Live team workspaces now feed this count.' },
 ];
+
+const formatTeamUseCaseLabel = (slug: string) =>
+  teamUseCases.find((entry) => entry.slug === slug)?.title || slug.replace(/-/g, ' ');
 
 function useTrackPage(name: Parameters<typeof trackEvent>[0], payload?: Record<string, unknown>) {
   const trackedRef = useRef(false);
@@ -1294,6 +1298,234 @@ export function SharedReportPage({ openAuthModal }: PublicPageProps) {
                   </div>
                 }
               />
+            </div>
+          )}
+        </div>
+      </section>
+    </MarketingLayout>
+  );
+}
+
+export function SharedTeamProofPage({ openAuthModal }: PublicPageProps) {
+  const { user } = useAuth();
+  const { publicToken } = useParams();
+  const [proof, setProof] = useState<PublicTeamProof | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadSharedTeamProof = async () => {
+      if (!publicToken) {
+        setError('Shared team proof page not found.');
+        setLoading(false);
+        return;
+      }
+
+      setLoading(true);
+      try {
+        const nextProof = await fetchSharedTeamProof(publicToken);
+        if (cancelled) return;
+
+        setProof(nextProof);
+        setError('');
+        trackEvent('team_proof_page_viewed', {
+          useCase: nextProof.team.useCase,
+          memberCount: nextProof.team.memberCount,
+          benchmarkCompletionRate: nextProof.metrics.benchmarkCompletionRate,
+          medianScore: nextProof.metrics.medianScore,
+        });
+      } catch (nextError: any) {
+        if (cancelled) return;
+        setProof(null);
+        setError(nextError?.message || 'Could not load the shared team proof page.');
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      }
+    };
+
+    void loadSharedTeamProof();
+    return () => {
+      cancelled = true;
+    };
+  }, [publicToken]);
+
+  usePageMetadata({
+    title: proof ? `Codhak Team Proof | ${proof.team.name}` : 'Codhak Shared Team Proof',
+    description: proof
+      ? `See benchmark completion, score movement, and practice focus for ${proof.team.name} inside Codhak.`
+      : 'View a shared Codhak team proof page.',
+  });
+
+  return (
+    <MarketingLayout openAuthModal={openAuthModal} isAuthenticated={!!user}>
+      <section className="py-20">
+        <div className="container mx-auto px-4">
+          {loading ? (
+            <div className="rounded-2xl border border-border bg-card p-8 text-sm text-muted-foreground shadow-card">
+              Loading shared team proof...
+            </div>
+          ) : error || !proof ? (
+            <TrackOrLandingFallback
+              title="Shared team proof unavailable"
+              description={error || 'This shared team proof page is not available anymore.'}
+              ctaHref="/teams"
+              ctaLabel="See team plans"
+            />
+          ) : (
+            <div className="space-y-10">
+              <SectionHeader
+                eyebrow="Shared Team Proof"
+                title={`${proof.team.name} is using Codhak to benchmark and prove improvement.`}
+                description="This page was intentionally shared from a live Codhak team workspace. It turns private cohort performance into a clean public proof surface for schools, bootcamps, and hiring or upskilling teams."
+              />
+
+              <div className="grid gap-6 lg:grid-cols-[1.1fr_0.9fr]">
+                <div className="rounded-[1.75rem] border border-border bg-card p-6 shadow-card sm:p-8">
+                  <div className="flex flex-wrap items-center gap-3">
+                    <span className="rounded-full border border-primary/20 bg-primary/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-primary">
+                      {formatTeamUseCaseLabel(proof.team.useCase)}
+                    </span>
+                    {proof.team.publicSharedAt ? (
+                      <span className="rounded-full border border-border bg-background/70 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                        Shared {new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric' }).format(new Date(proof.team.publicSharedAt))}
+                      </span>
+                    ) : null}
+                  </div>
+                  <h2 className="mt-5 text-3xl font-bold font-display tracking-tight text-foreground sm:text-4xl">
+                    Benchmark completion, score movement, and the next practice block in one view.
+                  </h2>
+                  <p className="mt-4 max-w-3xl text-base leading-8 text-muted-foreground">
+                    {proof.team.description || 'This team uses Codhak to benchmark learners quickly, assign follow-up practice, and measure whether skill is actually improving over time.'}
+                  </p>
+
+                  <div className="mt-8 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+                    <FeatureCard
+                      icon={<Users className="h-5 w-5" />}
+                      title={`${proof.team.memberCount} learners`}
+                      description={`${proof.metrics.benchmarkCompletionRate}% of this cohort has a recorded benchmark.`}
+                    />
+                    <FeatureCard
+                      icon={<BarChart3 className="h-5 w-5" />}
+                      title={`${proof.metrics.medianScore ?? '--'}/100 median`}
+                      description="Median score is based on each learner's latest benchmark."
+                    />
+                    <FeatureCard
+                      icon={<Zap className="h-5 w-5" />}
+                      title={`${proof.metrics.averageImprovement ?? '--'} pts`}
+                      description="Average movement across learners with repeat benchmark history."
+                    />
+                    <FeatureCard
+                      icon={<Trophy className="h-5 w-5" />}
+                      title={proof.metrics.topPerformer?.name ?? 'Benchmark in progress'}
+                      description={
+                        proof.metrics.topPerformer
+                          ? `${proof.metrics.topPerformer.score ?? '--'}/100 with a ${proof.metrics.topPerformer.streak}-day streak.`
+                          : 'Top performer appears here once the cohort starts benchmarking.'
+                      }
+                    />
+                  </div>
+                </div>
+
+                <div className="rounded-[1.75rem] border border-border bg-card p-6 shadow-card sm:p-8">
+                  <div className="text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                    Progress over time
+                  </div>
+                  <div className="mt-5 space-y-4">
+                    {proof.metrics.progressTimeline.map((entry) => {
+                      const value = entry.value ?? 0;
+                      return (
+                        <div key={entry.label}>
+                          <div className="mb-2 flex items-center justify-between text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                            <span>{entry.label}</span>
+                            <span>{entry.value ?? '--'}/100</span>
+                          </div>
+                          <div className="h-2 rounded-full bg-background">
+                            <div className="h-2 rounded-full bg-primary" style={{ width: `${value}%` }} />
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  <div className="mt-8 rounded-2xl border border-primary/20 bg-primary/10 p-5">
+                    <div className="text-sm font-semibold uppercase tracking-[0.18em] text-primary">
+                      Want this for your cohort?
+                    </div>
+                    <p className="mt-3 text-sm leading-7 text-foreground/80">
+                      Start with the benchmark, then use Codhak to assign follow-up practice, run duels, and publish proof of progress when you are ready.
+                    </p>
+                    <div className="mt-4 flex flex-col gap-3 sm:flex-row">
+                      <ActionButton to="/teams" label="See team plans" primary />
+                      <ActionButton to="/benchmark" label="Run your own benchmark" />
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid gap-6 lg:grid-cols-2">
+                <div className="rounded-[1.5rem] border border-border bg-card p-6 shadow-card">
+                  <div className="text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                    Improvement leaders
+                  </div>
+                  <div className="mt-5 space-y-3">
+                    {proof.improvementLeaders.length > 0 ? (
+                      proof.improvementLeaders.map((member) => (
+                        <div key={member.userId} className="rounded-2xl border border-border bg-background/70 px-4 py-4">
+                          <div className="flex items-center justify-between gap-3">
+                            <div>
+                              <div className="text-sm font-semibold text-foreground">{member.publicName}</div>
+                              <div className="mt-1 text-xs uppercase tracking-[0.16em] text-muted-foreground">
+                                {member.recommendedAction}
+                              </div>
+                            </div>
+                            <div className="text-right">
+                              <div className="text-sm font-semibold text-foreground">
+                                {member.latestBenchmarkScore ?? '--'}/100
+                              </div>
+                              <div className="mt-1 text-xs uppercase tracking-[0.16em] text-muted-foreground">
+                                {member.improvementDelta !== null
+                                  ? `${member.improvementDelta > 0 ? '+' : ''}${member.improvementDelta} pts`
+                                  : `${member.benchmarkCount} benchmark${member.benchmarkCount === 1 ? '' : 's'}`}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      ))
+                    ) : (
+                      <div className="rounded-2xl border border-border bg-background/70 px-4 py-4 text-sm text-muted-foreground">
+                        Improvement leaders appear after the cohort completes repeat benchmarks.
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <div className="rounded-[1.5rem] border border-border bg-card p-6 shadow-card">
+                  <div className="text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                    Current assignment focus
+                  </div>
+                  <div className="mt-5 space-y-3">
+                    {proof.assignments.length > 0 ? (
+                      proof.assignments.map((assignment) => (
+                        <div key={assignment.id} className="rounded-2xl border border-border bg-background/70 px-4 py-4">
+                          <div className="text-sm font-semibold text-foreground">{assignment.title}</div>
+                          <div className="mt-1 flex items-center justify-between gap-3 text-xs uppercase tracking-[0.16em] text-muted-foreground">
+                            <span>{assignment.assignmentType.replace('_', ' ')}</span>
+                            <span>{assignment.benchmarkLanguage ? assignment.benchmarkLanguage.toUpperCase() : 'Mixed'}</span>
+                          </div>
+                        </div>
+                      ))
+                    ) : (
+                      <div className="rounded-2xl border border-border bg-background/70 px-4 py-4 text-sm text-muted-foreground">
+                        No public assignments are visible yet.
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
             </div>
           )}
         </div>

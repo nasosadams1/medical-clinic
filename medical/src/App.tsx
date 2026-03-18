@@ -14,6 +14,7 @@ import {
   PricingPage,
   ReportSamplePage,
   SharedReportPage,
+  SharedTeamProofPage,
   TeamsPage,
   TeamUseCasePage,
   TrackLandingPage,
@@ -64,6 +65,7 @@ function AppRoutes() {
           <Route path="/faq" element={<FaqPage openAuthModal={openAuthModal} />} />
           <Route path="/report-sample" element={<ReportSamplePage openAuthModal={openAuthModal} />} />
           <Route path="/reports/:publicToken" element={<SharedReportPage openAuthModal={openAuthModal} />} />
+          <Route path="/teams/proof/:publicToken" element={<SharedTeamProofPage openAuthModal={openAuthModal} />} />
           <Route path="/tracks/:trackId" element={<TrackLandingPage openAuthModal={openAuthModal} />} />
           <Route path="/languages/:language" element={<LanguageLandingPage openAuthModal={openAuthModal} />} />
           <Route path="/interview-prep/:slug" element={<InterviewPrepLandingPage openAuthModal={openAuthModal} />} />

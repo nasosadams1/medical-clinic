@@ -39,6 +39,10 @@ const TeamRouteParamsSchema = z.object({
   teamId: z.string().uuid(),
 });
 
+const SharedTeamRouteParamsSchema = z.object({
+  publicToken: z.string().trim().min(8).max(64),
+});
+
 const slugify = (value) =>
   value
     .toLowerCase()
@@ -48,6 +52,8 @@ const slugify = (value) =>
 
 const buildInviteCode = () => `CODH-${randomBytes(3).toString('hex').toUpperCase()}`;
 
+const buildPublicShareToken = () => randomBytes(12).toString('hex');
+
 const getMedian = (values) => {
   if (!values.length) return null;
   const sorted = [...values].sort((left, right) => left - right);
@@ -56,6 +62,18 @@ const getMedian = (values) => {
     return Math.round((sorted[midpoint - 1] + sorted[midpoint]) / 2);
   }
   return sorted[midpoint];
+};
+
+const formatPublicMemberName = (name) => {
+  const normalized = String(name || 'Codhak learner').trim();
+  if (!normalized) return 'Codhak learner';
+
+  const parts = normalized.split(/\s+/).filter(Boolean);
+  if (parts.length === 1) {
+    return parts[0];
+  }
+
+  return `${parts[0]} ${parts[parts.length - 1].charAt(0).toUpperCase()}.`;
 };
 
 const buildStarterAssignments = (useCase, userId) => {
@@ -141,6 +159,27 @@ const buildProgressTimeline = (reports) => {
       value: average,
     };
   });
+};
+
+const createUniquePublicTeamToken = async (supabaseAdmin) => {
+  for (let index = 0; index < 8; index += 1) {
+    const candidate = buildPublicShareToken();
+    const { data, error } = await supabaseAdmin
+      .from('skill_teams')
+      .select('id')
+      .eq('public_token', candidate)
+      .maybeSingle();
+
+    if (error) {
+      throw new Error(error.message || 'Could not create a team proof token.');
+    }
+
+    if (!data) {
+      return candidate;
+    }
+  }
+
+  return `${buildPublicShareToken()}${Date.now().toString().slice(-4)}`;
 };
 
 const getRecommendedTeamAction = ({ latestScore, improvementDelta, latestBenchmarkAt }) => {
@@ -246,6 +285,9 @@ const buildTeamDetail = ({ team, memberships, profiles, assignments, invites, re
       memberCount: members.length,
       createdAt: team.created_at,
       updatedAt: team.updated_at,
+      isPublic: Boolean(team.is_public),
+      shareToken: team.public_token || null,
+      publicSharedAt: team.public_shared_at || null,
     },
     metrics: {
       activeLearners: members.filter((member) => member.status === 'active').length,
@@ -295,6 +337,45 @@ const buildTeamDetail = ({ team, memberships, profiles, assignments, invites, re
   };
 };
 
+const buildPublicTeamProof = ({ detail }) => ({
+  team: {
+    id: detail.team.id,
+    name: detail.team.name,
+    slug: detail.team.slug,
+    description: detail.team.description,
+    useCase: detail.team.useCase,
+    memberCount: detail.team.memberCount,
+    publicSharedAt: detail.team.publicSharedAt || null,
+  },
+  metrics: detail.metrics,
+  assignments: detail.assignments.slice(0, 4).map((assignment) => ({
+    id: assignment.id,
+    title: assignment.title,
+    assignmentType: assignment.assignmentType,
+    benchmarkLanguage: assignment.benchmarkLanguage,
+    dueAt: assignment.dueAt,
+  })),
+  improvementLeaders: [...detail.members]
+    .filter((member) => member.improvementDelta !== null || member.latestBenchmarkScore !== null)
+    .sort((left, right) => {
+      const deltaDifference = Number(right.improvementDelta || -Infinity) - Number(left.improvementDelta || -Infinity);
+      if (deltaDifference !== 0 && Number.isFinite(deltaDifference)) {
+        return deltaDifference;
+      }
+
+      return Number(right.latestBenchmarkScore || 0) - Number(left.latestBenchmarkScore || 0);
+    })
+    .slice(0, 6)
+    .map((member) => ({
+      userId: member.userId,
+      publicName: formatPublicMemberName(member.name),
+      latestBenchmarkScore: member.latestBenchmarkScore,
+      improvementDelta: member.improvementDelta,
+      benchmarkCount: member.benchmarkCount,
+      recommendedAction: member.recommendedAction,
+    })),
+});
+
 const createUniqueTeamSlug = async (supabaseAdmin, name) => {
   const base = slugify(name);
   let candidate = base;
@@ -323,6 +404,68 @@ const createUniqueTeamSlug = async (supabaseAdmin, name) => {
 export const createTeamsRouter = ({ supabaseAdmin }) => {
   const router = express.Router();
   const requireAuth = createAuthenticatedUserMiddleware(supabaseAdmin, 'Teams API');
+
+  router.get('/shared/:publicToken', async (req, res) => {
+    try {
+      const { publicToken } = SharedTeamRouteParamsSchema.parse(req.params || {});
+      const { data: team, error: teamError } = await supabaseAdmin
+        .from('skill_teams')
+        .select('*')
+        .eq('public_token', publicToken)
+        .eq('is_public', true)
+        .maybeSingle();
+
+      if (teamError || !team) {
+        throw new Error(teamError?.message || 'This team proof page is not available.');
+      }
+
+      const [{ data: memberships, error: membershipsError }, { data: assignments, error: assignmentsError }] =
+        await Promise.all([
+          supabaseAdmin
+            .from('skill_team_memberships')
+            .select('*')
+            .eq('team_id', team.id)
+            .order('joined_at', { ascending: true }),
+          supabaseAdmin
+            .from('skill_team_assignments')
+            .select('*')
+            .eq('team_id', team.id)
+            .order('created_at', { ascending: false })
+            .limit(6),
+        ]);
+
+      if (membershipsError || assignmentsError) {
+        throw new Error(membershipsError?.message || assignmentsError?.message || 'This team proof page is not available.');
+      }
+
+      const userIds = (memberships || []).map((entry) => entry.user_id);
+      const [{ data: profiles, error: profilesError }, { data: reports, error: reportsError }] = await Promise.all([
+        userIds.length
+          ? supabaseAdmin.from('user_profiles').select('id, name, email, current_avatar, current_streak').in('id', userIds)
+          : Promise.resolve({ data: [], error: null }),
+        userIds.length
+          ? supabaseAdmin.from('benchmark_reports').select('user_id, overall_score, created_at').in('user_id', userIds).order('created_at', { ascending: false }).limit(500)
+          : Promise.resolve({ data: [], error: null }),
+      ]);
+
+      if (profilesError || reportsError) {
+        throw new Error(profilesError?.message || reportsError?.message || 'Could not load shared team proof.');
+      }
+
+      const detail = buildTeamDetail({
+        team,
+        memberships: memberships || [],
+        profiles: profiles || [],
+        assignments: assignments || [],
+        invites: [],
+        reports: reports || [],
+      });
+
+      return res.json(buildPublicTeamProof({ detail }));
+    } catch (error) {
+      return res.status(404).json({ error: error.message || 'This team proof page is not available.' });
+    }
+  });
 
   router.get('/', requireAuth, async (req, res) => {
     try {
@@ -371,6 +514,9 @@ export const createTeamsRouter = ({ supabaseAdmin }) => {
             currentUserRole: membership.role,
             memberCount: countsByTeamId.get(team.id) || 0,
             joinedAt: membership.joined_at,
+            isPublic: Boolean(team.is_public),
+            shareToken: team.public_token || null,
+            publicSharedAt: team.public_shared_at || null,
           };
         })
         .filter(Boolean);
@@ -435,6 +581,9 @@ export const createTeamsRouter = ({ supabaseAdmin }) => {
           seatLimit: team.seat_limit,
           currentUserRole: 'owner',
           memberCount: 1,
+          isPublic: Boolean(team.is_public),
+          shareToken: team.public_token || null,
+          publicSharedAt: team.public_shared_at || null,
         },
       });
     } catch (error) {
@@ -495,6 +644,104 @@ export const createTeamsRouter = ({ supabaseAdmin }) => {
       });
     } catch (error) {
       return res.status(400).json({ error: error.message || 'Could not load team workspace.' });
+    }
+  });
+
+  router.post('/:teamId/share', requireAuth, async (req, res) => {
+    try {
+      const { teamId } = TeamRouteParamsSchema.parse(req.params || {});
+      const membership = await ensureTeamAccess(supabaseAdmin, teamId, req.authenticatedUser.id);
+      ensureTeamRole(membership, ['owner', 'admin', 'coach']);
+
+      const { data: existingTeam, error: teamError } = await supabaseAdmin
+        .from('skill_teams')
+        .select('id, is_public, public_token, public_shared_at')
+        .eq('id', teamId)
+        .single();
+
+      if (teamError || !existingTeam) {
+        throw new Error(teamError?.message || 'Could not load team proof settings.');
+      }
+
+      const publicToken = existingTeam.public_token || (await createUniquePublicTeamToken(supabaseAdmin));
+      const publicSharedAt = existingTeam.public_shared_at || new Date().toISOString();
+
+      const { data: updatedTeam, error: updateError } = await supabaseAdmin
+        .from('skill_teams')
+        .update({
+          is_public: true,
+          public_token: publicToken,
+          public_shared_at: publicSharedAt,
+        })
+        .eq('id', teamId)
+        .select('*')
+        .single();
+
+      if (updateError || !updatedTeam) {
+        throw new Error(updateError?.message || 'Could not publish the team proof page.');
+      }
+
+      return res.json({
+        team: {
+          id: updatedTeam.id,
+          name: updatedTeam.name,
+          slug: updatedTeam.slug,
+          description: updatedTeam.description,
+          useCase: updatedTeam.use_case,
+          seatLimit: updatedTeam.seat_limit,
+          memberCount: 0,
+          createdAt: updatedTeam.created_at,
+          updatedAt: updatedTeam.updated_at,
+          currentUserRole: membership.role,
+          isPublic: Boolean(updatedTeam.is_public),
+          shareToken: updatedTeam.public_token || null,
+          publicSharedAt: updatedTeam.public_shared_at || null,
+        },
+      });
+    } catch (error) {
+      return res.status(400).json({ error: error.message || 'Could not publish the team proof page.' });
+    }
+  });
+
+  router.delete('/:teamId/share', requireAuth, async (req, res) => {
+    try {
+      const { teamId } = TeamRouteParamsSchema.parse(req.params || {});
+      const membership = await ensureTeamAccess(supabaseAdmin, teamId, req.authenticatedUser.id);
+      ensureTeamRole(membership, ['owner', 'admin', 'coach']);
+
+      const { data: updatedTeam, error: updateError } = await supabaseAdmin
+        .from('skill_teams')
+        .update({
+          is_public: false,
+          public_shared_at: null,
+        })
+        .eq('id', teamId)
+        .select('*')
+        .single();
+
+      if (updateError || !updatedTeam) {
+        throw new Error(updateError?.message || 'Could not disable the team proof page.');
+      }
+
+      return res.json({
+        team: {
+          id: updatedTeam.id,
+          name: updatedTeam.name,
+          slug: updatedTeam.slug,
+          description: updatedTeam.description,
+          useCase: updatedTeam.use_case,
+          seatLimit: updatedTeam.seat_limit,
+          memberCount: 0,
+          createdAt: updatedTeam.created_at,
+          updatedAt: updatedTeam.updated_at,
+          currentUserRole: membership.role,
+          isPublic: Boolean(updatedTeam.is_public),
+          shareToken: updatedTeam.public_token || null,
+          publicSharedAt: updatedTeam.public_shared_at || null,
+        },
+      });
+    } catch (error) {
+      return res.status(400).json({ error: error.message || 'Could not disable the team proof page.' });
     }
   });
 

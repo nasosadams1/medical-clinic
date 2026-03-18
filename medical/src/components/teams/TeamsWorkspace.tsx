@@ -4,6 +4,7 @@ import toast from 'react-hot-toast';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { teamUseCases } from '../../data/siteContent';
+import { trackEvent } from '../../lib/analytics';
 import {
   createTeam,
   createTeamAssignment,
@@ -11,9 +12,11 @@ import {
   getTeamWorkspace,
   joinTeamByCode,
   listTeams,
+  shareTeamWorkspace,
   type TeamSummary,
   type TeamUseCase,
   type TeamWorkspaceDetail,
+  unshareTeamWorkspace,
 } from '../../lib/teams';
 
 interface TeamsWorkspaceProps {
@@ -242,6 +245,14 @@ export default function TeamsWorkspace({ mode = 'public' }: TeamsWorkspaceProps)
         .slice(0, 4),
     [teamDetail?.members]
   );
+  const sharedTeamProofUrl = useMemo(() => {
+    if (!teamDetail?.team.isPublic || !teamDetail.team.shareToken) return null;
+    if (typeof window === 'undefined' || !window.location?.origin) {
+      return `/teams/proof/${teamDetail.team.shareToken}`;
+    }
+
+    return `${window.location.origin}/teams/proof/${teamDetail.team.shareToken}`;
+  }, [teamDetail?.team.isPublic, teamDetail?.team.shareToken]);
 
   useEffect(() => {
     if (mode !== 'app' || !user) return;
@@ -391,6 +402,92 @@ export default function TeamsWorkspace({ mode = 'public' }: TeamsWorkspaceProps)
       toast.success('Assignment added.');
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Could not create assignment.');
+    }
+  };
+
+  const mergeSharedTeamState = (nextTeam: TeamWorkspaceDetail['team']) => {
+    setTeamDetail((current) =>
+      current
+        ? {
+            ...current,
+            team: {
+              ...current.team,
+              isPublic: nextTeam.isPublic,
+              shareToken: nextTeam.shareToken,
+              publicSharedAt: nextTeam.publicSharedAt,
+            },
+          }
+        : current
+    );
+    setTeams((current) =>
+      current.map((team) =>
+        team.id === nextTeam.id
+          ? {
+              ...team,
+              isPublic: nextTeam.isPublic,
+              shareToken: nextTeam.shareToken,
+              publicSharedAt: nextTeam.publicSharedAt,
+            }
+          : team
+      )
+    );
+  };
+
+  const handleShareTeamProof = async () => {
+    if (!teamDetail) return;
+
+    try {
+      const nextTeam = await shareTeamWorkspace(teamDetail.team.id);
+      mergeSharedTeamState(nextTeam);
+      const nextUrl =
+        typeof window !== 'undefined' && window.location?.origin && nextTeam.shareToken
+          ? `${window.location.origin}/teams/proof/${nextTeam.shareToken}`
+          : nextTeam.shareToken
+          ? `/teams/proof/${nextTeam.shareToken}`
+          : '';
+
+      if (nextUrl) {
+        await navigator.clipboard.writeText(nextUrl);
+      }
+
+      trackEvent('team_proof_shared', {
+        teamId: teamDetail.team.id,
+        useCase: teamDetail.team.useCase,
+      });
+      toast.success('Team proof page published and copied.');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Could not publish the team proof page.');
+    }
+  };
+
+  const handleUnshareTeamProof = async () => {
+    if (!teamDetail) return;
+
+    try {
+      const nextTeam = await unshareTeamWorkspace(teamDetail.team.id);
+      mergeSharedTeamState(nextTeam);
+      trackEvent('team_proof_unshared', {
+        teamId: teamDetail.team.id,
+        useCase: teamDetail.team.useCase,
+      });
+      toast.success('Team proof page disabled.');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Could not disable the team proof page.');
+    }
+  };
+
+  const handleCopyTeamProofLink = async () => {
+    if (!sharedTeamProofUrl) return;
+
+    try {
+      await navigator.clipboard.writeText(sharedTeamProofUrl);
+      trackEvent('team_proof_link_copied', {
+        teamId: teamDetail?.team.id,
+        useCase: teamDetail?.team.useCase,
+      });
+      toast.success('Team proof link copied.');
+    } catch {
+      toast.error('Could not copy the team proof link.');
     }
   };
 
@@ -556,6 +653,52 @@ export default function TeamsWorkspace({ mode = 'public' }: TeamsWorkspaceProps)
                     <div className="mt-4 flex gap-3">
                       <input value={inviteLabel} onChange={(event) => setInviteLabel(event.target.value)} placeholder="Invite label" className={`min-w-0 flex-1 ${workspaceInputClass}`} />
                       <button type="button" onClick={handleCreateInvite} className={workspaceSecondaryButtonClass}><Copy className="h-4 w-4" />Create</button>
+                    </div>
+                  ) : null}
+                </div>
+
+                <div className={workspacePanelClass}>
+                  <div className="text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground">Public proof page</div>
+                  <p className="mt-3 text-sm leading-6 text-muted-foreground">
+                    Turn private cohort progress into a shareable proof page with benchmark completion, score movement, and current assignments.
+                  </p>
+                  <div className="mt-4 rounded-2xl border border-border bg-card px-4 py-4 text-sm text-muted-foreground">
+                    {teamDetail.team.isPublic && sharedTeamProofUrl ? (
+                      <div className="space-y-3">
+                        <div className="font-semibold text-foreground">Live now</div>
+                        <div className="break-all text-xs uppercase tracking-[0.16em] text-muted-foreground">
+                          {sharedTeamProofUrl}
+                        </div>
+                        {teamDetail.team.publicSharedAt ? (
+                          <div>
+                            Shared {new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric' }).format(new Date(teamDetail.team.publicSharedAt))}
+                          </div>
+                        ) : null}
+                      </div>
+                    ) : (
+                      <div>
+                        Keep this private until you want a clean public proof surface for schools, bootcamps, or team buyers.
+                      </div>
+                    )}
+                  </div>
+                  {canManageTeam ? (
+                    <div className="mt-4 flex flex-col gap-3 sm:flex-row">
+                      {teamDetail.team.isPublic ? (
+                        <>
+                          <button type="button" onClick={handleCopyTeamProofLink} className={workspaceSecondaryButtonClass}>
+                            <Copy className="h-4 w-4" />
+                            Copy proof link
+                          </button>
+                          <button type="button" onClick={handleUnshareTeamProof} className={workspaceSecondaryButtonClass}>
+                            Disable proof page
+                          </button>
+                        </>
+                      ) : (
+                        <button type="button" onClick={handleShareTeamProof} className={workspaceSecondaryButtonClass}>
+                          <Copy className="h-4 w-4" />
+                          Publish proof page
+                        </button>
+                      )}
                     </div>
                   ) : null}
                 </div>
