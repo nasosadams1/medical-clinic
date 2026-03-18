@@ -32,7 +32,7 @@ import { fetchLeadAdminCapabilities } from '../lib/leads';
 const USERNAME_REGEX = /^[a-zA-Z0-9_]+$/;
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const darkAccountPageClassName =
-  "min-h-screen bg-[radial-gradient(circle_at_top,_rgba(56,189,248,0.12),_transparent_28%),linear-gradient(180deg,_rgba(2,6,23,1)_0%,_rgba(4,10,28,1)_100%)] text-slate-100 [&_.bg-white]:!bg-slate-950/90 [&_.bg-slate-50]:!bg-slate-900/80 [&_.bg-blue-50]:!bg-cyan-400/10 [&_.bg-emerald-50]:!bg-emerald-400/10 [&_.bg-violet-50]:!bg-violet-400/10 [&_.bg-red-50]:!bg-rose-500/10 [&_.bg-amber-50]:!bg-amber-400/10 [&_.border-slate-200]:!border-white/10 [&_.border-red-200]:!border-rose-400/25 [&_.border-blue-200]:!border-cyan-400/25 [&_.border-amber-200]:!border-amber-400/25 [&_.text-slate-900]:!text-white [&_.text-slate-700]:!text-slate-200 [&_.text-slate-600]:!text-slate-300 [&_.text-slate-500]:!text-slate-400 [&_.text-slate-400]:!text-slate-500";
+  "min-h-full bg-[radial-gradient(circle_at_top,_rgba(56,189,248,0.12),_transparent_28%),linear-gradient(180deg,_rgba(2,6,23,1)_0%,_rgba(4,10,28,1)_100%)] text-slate-100 [&_.bg-white]:!bg-slate-950/90 [&_.bg-slate-50]:!bg-slate-900/80 [&_.bg-blue-50]:!bg-cyan-400/10 [&_.bg-emerald-50]:!bg-emerald-400/10 [&_.bg-violet-50]:!bg-violet-400/10 [&_.bg-red-50]:!bg-rose-500/10 [&_.bg-amber-50]:!bg-amber-400/10 [&_.border-slate-200]:!border-white/10 [&_.border-red-200]:!border-rose-400/25 [&_.border-blue-200]:!border-cyan-400/25 [&_.border-amber-200]:!border-amber-400/25 [&_.text-slate-900]:!text-white [&_.text-slate-700]:!text-slate-200 [&_.text-slate-600]:!text-slate-300 [&_.text-slate-500]:!text-slate-400 [&_.text-slate-400]:!text-slate-500";
 
 const Account: React.FC = () => {
   const { user, updateUser, addNotification, isAuthenticated } = useUser();
@@ -319,9 +319,9 @@ const Account: React.FC = () => {
   };
 
   return (
-    <div className={`${darkAccountPageClassName} px-3 py-4 sm:px-4 lg:px-8 lg:py-8`}>
-      <div className="mx-auto max-w-6xl">
-        <div className="mb-8 rounded-3xl border border-slate-200 bg-white p-6 shadow-[0_20px_60px_rgba(15,23,42,0.08)] sm:p-8">
+    <div className={`${darkAccountPageClassName} px-2 py-2 sm:px-3 lg:px-4 xl:px-5 lg:py-3 xl:py-4`}>
+      <div className="w-full">
+        <div className="mb-4 rounded-3xl border border-slate-200 bg-white p-6 shadow-[0_20px_60px_rgba(15,23,42,0.08)] sm:p-8">
           <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
             <div className="max-w-2xl">
               <h1 className="text-3xl font-semibold text-slate-900 sm:text-4xl">Account management</h1>
@@ -345,7 +345,7 @@ const Account: React.FC = () => {
           </div>
         </div>
 
-        <div className="grid gap-6 xl:grid-cols-[1fr_1fr]">
+        <div className="grid gap-4 2xl:grid-cols-[1fr_1fr]">
           <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-[0_16px_40px_rgba(15,23,42,0.06)] sm:p-8">
             <div className="flex items-start gap-3">
               <div className="rounded-2xl bg-blue-50 p-3 text-blue-600">
@@ -488,7 +488,7 @@ const Account: React.FC = () => {
           </section>
         </div>
 
-        <section className="mt-6 rounded-3xl border border-slate-200 bg-white p-6 shadow-[0_16px_40px_rgba(15,23,42,0.06)] sm:p-8">
+        <section className="mt-4 rounded-3xl border border-slate-200 bg-white p-6 shadow-[0_16px_40px_rgba(15,23,42,0.06)] sm:p-8">
           <div className="flex items-start gap-3">
             <div className="rounded-2xl bg-violet-50 p-3 text-violet-600">
               <FileText className="h-6 w-6" />
@@ -567,7 +567,7 @@ const Account: React.FC = () => {
           </div>
         </section>
 
-        <div className="mt-6 space-y-6">
+        <div className="mt-4 space-y-4">
           {canAccessAdminPanels && <AccountDuelModerationPanel />}
           {canAccessAdminPanels && <AccountFeedbackAdminPanel />}
           {canAccessAdminPanels && <AccountLeadsAdminPanel />}
@@ -579,4 +579,3 @@ const Account: React.FC = () => {
 };
 
 export default Account;
-

@@ -986,8 +986,14 @@ export default function BenchmarkExperience({
   );
 
   return (
-    <div className={mode === 'public' ? 'mx-auto max-w-7xl px-4 py-14 sm:px-6 lg:px-8 lg:py-20' : 'px-3 py-4 sm:px-4 lg:px-8 lg:py-8'}>
-      <div className="grid gap-6 xl:grid-cols-[0.9fr_1.1fr]">
+    <div
+      className={
+        mode === 'public'
+          ? 'mx-auto w-full max-w-[1600px] px-4 py-12 sm:px-6 lg:px-8 xl:px-10 lg:py-16 xl:py-20'
+          : 'px-2 py-2 sm:px-3 lg:px-4 xl:px-5 lg:py-3 xl:py-4'
+      }
+    >
+      <div className="grid gap-3 lg:gap-4 xl:min-h-[calc(100vh-4.5rem)] xl:grid-cols-[0.9fr_1.1fr] xl:items-start">
         <div className="space-y-6">
           {headerCard}
           <div className={surfaceCardClassName}>

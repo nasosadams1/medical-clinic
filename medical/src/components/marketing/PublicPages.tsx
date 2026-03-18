@@ -592,7 +592,7 @@ export function HomePage({ openAuthModal }: PublicPageProps) {
           <img src={heroBg} alt="" className="h-full w-full object-cover opacity-25" />
           <div className="absolute inset-0 bg-gradient-to-b from-background/50 via-background/85 to-background" />
         </div>
-        <div className="container relative z-10 mx-auto grid min-h-[90vh] items-center gap-12 px-4 py-20 lg:grid-cols-[1.05fr_0.95fr]">
+        <div className="container relative z-10 mx-auto grid min-h-[90vh] items-center gap-12 px-5 py-20 sm:px-6 lg:grid-cols-[1.05fr_0.95fr] xl:px-8">
           <div className="max-w-3xl animate-slide-up">
             <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-primary/30 bg-primary/10 px-4 py-1.5">
               <Sparkles className="h-3.5 w-3.5 text-primary" />
@@ -665,7 +665,7 @@ export function HomePage({ openAuthModal }: PublicPageProps) {
       </section>
 
       <section className="border-y border-border/60 bg-card/40">
-        <div className="container mx-auto grid grid-cols-2 gap-6 px-4 py-8 md:grid-cols-4">
+        <div className="container mx-auto grid grid-cols-2 gap-6 px-5 py-8 sm:px-6 md:grid-cols-4 xl:px-8">
           {liveTrustMetrics.map((metric) => (
             <div key={metric.label} className="text-center">
               <p className="text-2xl font-bold font-display text-foreground">{metric.value}</p>
@@ -679,14 +679,14 @@ export function HomePage({ openAuthModal }: PublicPageProps) {
       </section>
 
       <section className="py-24">
-        <div className="container mx-auto px-4">
+        <div className="container mx-auto px-5 sm:px-6 xl:px-8">
           <SectionHeader
             eyebrow="Platform"
             title="Everything you need to turn coding effort into measurable signal."
             description="From benchmarks to team dashboards, Codhak keeps the same design language and the same product story across the entire surface."
             align="center"
           />
-          <div className="mx-auto mt-12 grid max-w-6xl gap-6 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="mx-auto mt-12 grid max-w-[1480px] gap-6 sm:grid-cols-2 lg:grid-cols-3">
             {platformFeatures.map((feature) => (
               <FeatureCard key={feature.title} {...feature} />
             ))}
@@ -695,14 +695,14 @@ export function HomePage({ openAuthModal }: PublicPageProps) {
       </section>
 
       <section className="border-y border-border/60 bg-card/25 py-24">
-        <div className="container mx-auto px-4">
+        <div className="container mx-auto px-5 sm:px-6 xl:px-8">
           <SectionHeader
             eyebrow="How It Works"
             title="From benchmark to proof of progress"
             description="The product flow is intentionally tight: benchmark, report, roadmap, then measured performance."
             align="center"
           />
-          <div className="mx-auto mt-12 grid max-w-5xl gap-8 md:grid-cols-3">
+          <div className="mx-auto mt-12 grid max-w-[1320px] gap-8 md:grid-cols-3">
             {[
               ['01', 'Benchmark', 'Take a short timed assessment built from the existing Codhak lesson and challenge catalog.'],
               ['02', 'Report', 'See overall score, strengths, weaknesses, and duel-readiness in a single report card.'],
@@ -721,14 +721,14 @@ export function HomePage({ openAuthModal }: PublicPageProps) {
       </section>
 
       <section className="py-24">
-        <div className="container mx-auto px-4">
+        <div className="container mx-auto px-5 sm:px-6 xl:px-8">
           <SectionHeader
             eyebrow="Built For"
             title="Different buyers, one core value: measurable coding skill."
             description="The same benchmark-first workflow can serve an individual learner, a cohort manager, or a hiring and upskilling team."
             align="center"
           />
-          <div className="mx-auto mt-12 grid max-w-6xl gap-6 lg:grid-cols-3">
+          <div className="mx-auto mt-12 grid max-w-[1480px] gap-6 lg:grid-cols-3">
             {audienceSegments.map((segment) => (
               <Link
                 key={segment.title}
@@ -748,20 +748,20 @@ export function HomePage({ openAuthModal }: PublicPageProps) {
       </section>
 
       <section className="py-24">
-        <div className="container mx-auto px-4">
+        <div className="container mx-auto px-5 sm:px-6 xl:px-8">
           <SampleReportPreview />
         </div>
       </section>
 
       <section id="duels" className="border-y border-border/60 bg-card/25 py-24">
-        <div className="container mx-auto px-4">
+        <div className="container mx-auto px-5 sm:px-6 xl:px-8">
           <SectionHeader
             eyebrow="Tracks and Duel Prep"
             title="Use tracks, challenge packs, and duels as proof of skill."
             description="Lessons are support content. The product center of gravity stays on benchmark outputs and measurable performance."
             align="center"
           />
-          <div className="mx-auto mt-12 grid max-w-6xl gap-6 md:grid-cols-2 xl:grid-cols-3">
+          <div className="mx-auto mt-12 grid max-w-[1480px] gap-6 md:grid-cols-2 xl:grid-cols-3">
             {interviewTracks.map((track) => (
               <Link
                 key={track.id}
@@ -792,14 +792,14 @@ export function HomePage({ openAuthModal }: PublicPageProps) {
       </section>
 
       <section className="py-24">
-        <div className="container mx-auto px-4">
+        <div className="container mx-auto px-5 sm:px-6 xl:px-8">
           <SectionHeader
             eyebrow="Team Workflows"
             title="Benchmark learners, assign challenge packs, and track improvement in one place."
             description="The team wedge is intentionally lean: enough structure for pilots, without pretending to be heavyweight enterprise software."
             align="center"
           />
-          <div className="mx-auto mt-10 grid max-w-6xl gap-6 lg:grid-cols-4">
+          <div className="mx-auto mt-10 grid max-w-[1480px] gap-6 lg:grid-cols-4">
             {teamUseCases.map((useCase) => (
               <div key={useCase.slug} className="rounded-2xl border border-border bg-card p-6 shadow-card">
                 <div className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">{useCase.title}</div>
@@ -819,14 +819,14 @@ export function HomePage({ openAuthModal }: PublicPageProps) {
       </section>
 
       <section className="border-y border-border/60 bg-card/25 py-24">
-        <div className="container mx-auto px-4">
+        <div className="container mx-auto px-5 sm:px-6 xl:px-8">
           <SectionHeader
             eyebrow="Reviews"
             title="Trust elements are built into the design."
             description="These are placeholder testimonials for now, but the section is already wired so the public experience feels credible instead of incomplete."
             align="center"
           />
-          <div className="mx-auto mt-12 grid max-w-5xl gap-6 md:grid-cols-3">
+          <div className="mx-auto mt-12 grid max-w-[1320px] gap-6 md:grid-cols-3">
             {testimonialPlaceholders.map((testimonial) => (
               <div key={testimonial.attribution} className="rounded-2xl border border-border bg-card p-6 shadow-card">
                 <div className="mb-3 flex gap-1">
@@ -843,21 +843,21 @@ export function HomePage({ openAuthModal }: PublicPageProps) {
       </section>
 
       <section className="py-24">
-        <div className="container mx-auto px-4">
+        <div className="container mx-auto px-5 sm:px-6 xl:px-8">
           <SectionHeader
             eyebrow="Pricing"
             title="Simple, transparent pricing"
             description="Start free, prove the value with the report, then unlock more depth for individuals or teams."
             align="center"
           />
-          <div className="mx-auto mt-12 max-w-6xl">
+          <div className="mx-auto mt-12 max-w-[1480px]">
             <PricingGrid openAuthModal={openAuthModal} />
           </div>
         </div>
       </section>
 
       <section className="border-t border-border/60 bg-card/25 py-24">
-        <div className="container mx-auto px-4">
+        <div className="container mx-auto px-5 sm:px-6 xl:px-8">
           <SectionHeader
             eyebrow="FAQ"
             title="Answer the trust and positioning questions up front."
@@ -871,7 +871,7 @@ export function HomePage({ openAuthModal }: PublicPageProps) {
       </section>
 
       <section className="py-24">
-        <div className="container mx-auto px-4 text-center">
+        <div className="container mx-auto px-5 text-center sm:px-6 xl:px-8">
           <h2 className="text-3xl font-bold font-display text-foreground sm:text-4xl">
             Ready to find out where you stand?
           </h2>
@@ -900,7 +900,7 @@ export function BenchmarkPage({ openAuthModal }: PublicPageProps) {
   return (
     <MarketingLayout openAuthModal={openAuthModal} isAuthenticated={!!user}>
       <section className="py-20">
-        <div className="container mx-auto px-4">
+        <div className="container mx-auto px-5 sm:px-6 xl:px-8">
           <BenchmarkExperience
             mode="public"
             presetLanguage={presetLanguage}
@@ -925,7 +925,7 @@ export function TeamsPage({ openAuthModal }: PublicPageProps) {
   return (
     <MarketingLayout openAuthModal={openAuthModal} isAuthenticated={!!user}>
       <section className="py-20">
-        <div className="container mx-auto grid gap-10 px-4 lg:grid-cols-[0.95fr_1.05fr]">
+        <div className="container mx-auto grid gap-10 px-5 sm:px-6 lg:grid-cols-[0.95fr_1.05fr] xl:px-8">
           <div>
             <SectionHeader
               eyebrow="Teams"
@@ -970,7 +970,7 @@ export function TeamsPage({ openAuthModal }: PublicPageProps) {
       </section>
 
       <section className="border-t border-border/60 py-20">
-        <div className="container mx-auto px-4">
+        <div className="container mx-auto px-5 sm:px-6 xl:px-8">
           <SectionHeader
             eyebrow="Use Cases"
             title="A narrow MVP for real pilots, not bloated enterprise theater."
@@ -1000,7 +1000,7 @@ export function TeamsPage({ openAuthModal }: PublicPageProps) {
       </section>
 
       <section className="border-t border-border/60 py-20">
-        <div className="container mx-auto px-4">
+        <div className="container mx-auto px-5 sm:px-6 xl:px-8">
           <div className="grid gap-8 lg:grid-cols-[0.95fr_1.05fr]">
             <SectionHeader
               eyebrow="Pilot pipeline"
@@ -1061,7 +1061,7 @@ export function PricingPage({ openAuthModal }: PublicPageProps) {
   return (
     <MarketingLayout openAuthModal={openAuthModal} isAuthenticated={!!user}>
       <section className="py-20">
-        <div className="container mx-auto px-4">
+        <div className="container mx-auto px-5 sm:px-6 xl:px-8">
           <SectionHeader
             eyebrow="Pricing"
             title="Pay for benchmarking, roadmap depth, and team visibility."
@@ -1144,7 +1144,7 @@ export function FaqPage({ openAuthModal }: PublicPageProps) {
   return (
     <MarketingLayout openAuthModal={openAuthModal} isAuthenticated={!!user}>
       <section className="py-20">
-        <div className="container mx-auto max-w-4xl px-4">
+        <div className="container mx-auto max-w-4xl px-5 sm:px-6 xl:px-8">
           <SectionHeader
             eyebrow="FAQ"
             title="The public experience should answer these clearly."
@@ -1172,7 +1172,7 @@ export function ReportSamplePage({ openAuthModal }: PublicPageProps) {
   return (
     <MarketingLayout openAuthModal={openAuthModal} isAuthenticated={!!user}>
       <section className="py-20">
-        <div className="container mx-auto px-4">
+        <div className="container mx-auto px-5 sm:px-6 xl:px-8">
           <SectionHeader
             eyebrow="Sample Report"
             title="Preview the benchmark output before asking anyone to sign up."
@@ -1252,7 +1252,7 @@ export function SharedReportPage({ openAuthModal }: PublicPageProps) {
   return (
     <MarketingLayout openAuthModal={openAuthModal} isAuthenticated={!!user}>
       <section className="py-20">
-        <div className="container mx-auto px-4">
+        <div className="container mx-auto px-5 sm:px-6 xl:px-8">
           {loading ? (
             <div className="rounded-2xl border border-border bg-card p-8 text-sm text-muted-foreground shadow-card">
               Loading shared benchmark report...
@@ -1363,7 +1363,7 @@ export function SharedTeamProofPage({ openAuthModal }: PublicPageProps) {
   return (
     <MarketingLayout openAuthModal={openAuthModal} isAuthenticated={!!user}>
       <section className="py-20">
-        <div className="container mx-auto px-4">
+        <div className="container mx-auto px-5 sm:px-6 xl:px-8">
           {loading ? (
             <div className="rounded-2xl border border-border bg-card p-8 text-sm text-muted-foreground shadow-card">
               Loading shared team proof...
@@ -1548,7 +1548,7 @@ export function TrackLandingPage({ openAuthModal }: PublicPageProps) {
   return (
     <MarketingLayout openAuthModal={openAuthModal} isAuthenticated={!!user}>
       <section className="py-20">
-        <div className="container mx-auto px-4">
+        <div className="container mx-auto px-5 sm:px-6 xl:px-8">
           {track ? (
             <div className="grid gap-10 lg:grid-cols-[0.95fr_1.05fr]">
               <div>
@@ -1620,7 +1620,7 @@ export function LanguageLandingPage({ openAuthModal }: PublicPageProps) {
   return (
     <MarketingLayout openAuthModal={openAuthModal} isAuthenticated={!!user}>
       <section className="py-20">
-        <div className="container mx-auto px-4">
+        <div className="container mx-auto px-5 sm:px-6 xl:px-8">
           <SectionHeader
             eyebrow="Language Page"
             title={slug ? `${slug.toUpperCase()} benchmark and practice` : 'Language benchmark and practice'}
@@ -1664,7 +1664,7 @@ export function InterviewPrepLandingPage({ openAuthModal }: PublicPageProps) {
   return (
     <MarketingLayout openAuthModal={openAuthModal} isAuthenticated={!!user}>
       <section className="py-20">
-        <div className="container mx-auto px-4">
+        <div className="container mx-auto px-5 sm:px-6 xl:px-8">
           {track ? (
             <div className="grid gap-10 lg:grid-cols-[0.95fr_1.05fr]">
               <div>
@@ -1727,7 +1727,7 @@ export function TeamUseCasePage({ openAuthModal }: PublicPageProps) {
   return (
     <MarketingLayout openAuthModal={openAuthModal} isAuthenticated={!!user}>
       <section className="py-20">
-        <div className="container mx-auto px-4">
+        <div className="container mx-auto px-5 sm:px-6 xl:px-8">
           {entry ? (
             <div className="grid gap-10 lg:grid-cols-[0.95fr_1.05fr]">
               <div>
@@ -1773,7 +1773,7 @@ export function CompilerLandingPage({ openAuthModal }: PublicPageProps) {
   return (
     <MarketingLayout openAuthModal={openAuthModal} isAuthenticated={!!user}>
       <section className="py-20">
-        <div className="container mx-auto max-w-5xl px-4">
+        <div className="container mx-auto max-w-5xl px-5 sm:px-6 xl:px-8">
           <TrackOrLandingFallback
             title={`${label} compiler and practice`}
             description={`This route exists as part of the SEO foundation for compiler and language-specific landing pages. The strongest current action is still the benchmark-first flow for ${label}.`}

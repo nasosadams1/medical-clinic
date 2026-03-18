@@ -281,7 +281,7 @@ export default function AppShell({ openAuthModal }: AppShellProps) {
       ) : null}
 
       <div className={`flex flex-1 flex-col overflow-hidden transition-[padding] duration-300 ${sidebarOpen ? 'lg:pl-64' : 'lg:pl-0'}`}>
-        <header className="flex h-14 items-center justify-between border-b border-border bg-background/80 px-4 backdrop-blur">
+        <header className="flex h-14 items-center justify-between border-b border-border bg-background/80 px-4 backdrop-blur sm:px-5 lg:px-6 xl:px-8">
           <div className="flex items-center gap-3">
             <button
               type="button"

@@ -597,8 +597,8 @@ const Store: React.FC = () => {
   };
 
   return (
-    <div className="space-y-8 p-4 lg:p-8">
-      <div className="grid gap-6 xl:grid-cols-[1.05fr_0.95fr]">
+    <div className="space-y-4 px-1 py-1 sm:px-2 lg:px-3 xl:px-4 lg:py-2 xl:py-3">
+      <div className="grid gap-3 xl:grid-cols-[1.08fr_0.92fr]">
         <section className="rounded-2xl border border-border bg-card p-6 shadow-card sm:p-8">
           <div className="inline-flex items-center gap-2 rounded-full border border-primary/30 bg-primary/10 px-4 py-1.5">
             <Trophy className="h-3.5 w-3.5 text-primary" />
@@ -667,7 +667,7 @@ const Store: React.FC = () => {
         </aside>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <StoreStat
           icon={<Coins className="h-5 w-5" />}
           label="Balance"
@@ -698,7 +698,7 @@ const Store: React.FC = () => {
         />
       </div>
 
-      <section>
+      <section className="space-y-3">
         <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
           <div>
             <div className="text-sm font-semibold uppercase tracking-[0.18em] text-primary">Plans and subscriptions</div>
@@ -716,7 +716,7 @@ const Store: React.FC = () => {
           </Link>
         </div>
 
-        <div className="grid gap-6 xl:grid-cols-3">
+        <div className="grid gap-3 xl:grid-cols-3">
           {pricingPlans.map((plan) => {
             const product = getSelfServePlanProductByPlanName(plan.name);
             const entitlement = product ? getPlanEntitlement(product.id) : null;
@@ -738,9 +738,9 @@ const Store: React.FC = () => {
         </div>
       </section>
 
-      <section>
+      <section className="space-y-3">
         <div className="mb-4 text-sm font-semibold uppercase tracking-[0.18em] text-primary">Coin packs</div>
-        <div className="grid gap-6 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
           {coinPacks.map((item) => {
             const disabledReason = getDisabledReason(item);
             const isProcessing = processingItemId === item.id;
@@ -761,9 +761,9 @@ const Store: React.FC = () => {
         </div>
       </section>
 
-      <section>
+      <section className="space-y-3">
         <div className="mb-4 text-sm font-semibold uppercase tracking-[0.18em] text-primary">Practice boosts and refills</div>
-        <div className="grid gap-6 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
           {practiceBoosts.map((item) => {
             const disabledReason = getDisabledReason(item);
             const isProcessing = processingItemId === item.id;

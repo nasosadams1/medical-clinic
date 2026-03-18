@@ -52,7 +52,7 @@ const profileDebugError = (...args: any[]) => {
   }
 };
 
-const pageClassName = 'bg-background pb-10 text-foreground';
+const pageClassName = 'bg-background text-foreground';
 const cardClassName = 'rounded-2xl border border-border bg-card shadow-card';
 const panelClassName = 'rounded-2xl border border-border bg-background/80 p-4 shadow-card';
 
@@ -355,7 +355,7 @@ const Profile: React.FC = () => {
 
   return (
     <div className={pageClassName}>
-      <div className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-3 py-4 sm:px-4 lg:px-8">
+      <div className="flex w-full flex-col gap-4 px-2 py-2 sm:px-3 lg:px-4 xl:px-5 lg:py-3 xl:py-4">
         <motion.section initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className={`${cardClassName} relative overflow-hidden p-5 sm:p-6 lg:p-8`}>
           <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,_rgba(59,130,246,0.22),_transparent_35%),radial-gradient(circle_at_top_right,_rgba(217,70,239,0.18),_transparent_32%)]" />
           <div className="relative grid gap-6 xl:grid-cols-[minmax(0,1.6fr)_minmax(320px,0.95fr)]">
@@ -539,7 +539,7 @@ const Profile: React.FC = () => {
           </div>
         </motion.section>
 
-        <div className="sticky top-3 z-20 flex flex-wrap gap-2 rounded-2xl border border-border bg-card/85 p-2 shadow-card backdrop-blur">
+        <div className="sticky top-2 z-20 flex flex-wrap gap-2 rounded-2xl border border-border bg-card/85 p-2 shadow-card backdrop-blur">
           {tabs.map((tab) => {
             const Icon = tab.icon;
             const isActive = activeTab === tab.id;

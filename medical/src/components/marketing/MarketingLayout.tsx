@@ -26,7 +26,7 @@ export default function MarketingLayout({ children, openAuthModal, isAuthenticat
   return (
     <div className="min-h-screen bg-background text-foreground">
       <header className="sticky top-0 z-50 border-b border-border/70 glass">
-        <div className="container mx-auto flex h-16 items-center justify-between gap-4 px-4">
+        <div className="container mx-auto flex h-16 items-center justify-between gap-4 px-5 sm:px-6 xl:px-8">
           <Link to="/" className="flex items-center gap-2.5">
             <img src={mascot} alt="Codhak" className="h-8 w-8" />
             <div>
@@ -90,7 +90,7 @@ export default function MarketingLayout({ children, openAuthModal, isAuthenticat
         </div>
 
         {mobileMenuOpen ? (
-          <div className="border-t border-border bg-card/95 px-4 py-4 md:hidden">
+          <div className="border-t border-border bg-card/95 px-5 py-4 md:hidden">
             <nav className="grid gap-2">
               {navItems.map((item) => (
                 <Link
@@ -144,7 +144,7 @@ export default function MarketingLayout({ children, openAuthModal, isAuthenticat
       <main>{children}</main>
 
       <footer className="border-t border-border/70 bg-card/40">
-        <div className="container mx-auto flex flex-col items-center justify-between gap-5 px-4 py-8 text-center sm:flex-row sm:text-left">
+        <div className="container mx-auto flex flex-col items-center justify-between gap-5 px-5 py-8 text-center sm:px-6 sm:flex-row sm:text-left xl:px-8">
           <div className="flex items-center gap-3">
             <img src={mascot} alt="" className="h-7 w-7" />
             <div>
