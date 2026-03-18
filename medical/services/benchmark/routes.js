@@ -15,8 +15,25 @@ const BenchmarkAnswerRecordSchema = z.object({
   isCorrect: z.boolean(),
 });
 
+const BenchmarkQuestionSchema = z.object({
+  id: z.string().trim().min(1).max(200),
+  templateId: z.string().trim().min(1).max(200),
+  slotId: z.string().trim().min(1).max(120),
+  lessonId: z.string().trim().min(1).max(160),
+  lessonTitle: z.string().trim().min(1).max(200),
+  prompt: z.string().trim().min(1).max(2000),
+  options: z.array(z.string().trim().min(1).max(400)).min(2).max(8),
+  correctAnswer: z.number().int().min(0).max(7),
+  explanation: z.string().trim().min(1).max(1200),
+  competency: z.string().trim().min(1).max(120),
+  difficulty: z.enum(['beginner', 'intermediate', 'advanced']),
+  weight: z.number().min(0.5).max(5),
+});
+
 const BenchmarkReportSchema = z.object({
   id: z.string().trim().min(1).max(160),
+  benchmarkVersion: z.string().trim().min(1).max(60),
+  attemptIndex: z.number().int().min(0).max(1000),
   setup: BenchmarkSetupSchema,
   isPublic: z.boolean().optional(),
   shareToken: z.string().trim().min(1).max(160).nullable().optional(),
@@ -34,8 +51,16 @@ const BenchmarkReportSchema = z.object({
     description: z.string().trim().min(1).max(600),
     confidencePercent: z.number().int().min(0).max(100),
   }),
+  estimation: z.object({
+    label: z.string().trim().min(1).max(160),
+    description: z.string().trim().min(1).max(600),
+    targetRoleLabel: z.string().trim().min(1).max(120),
+    baselineScore: z.number().int().min(0).max(100),
+    competencyCoveragePercent: z.number().int().min(0).max(100),
+  }),
   summary: z.string().trim().min(1).max(1200),
   createdAt: z.string().trim().min(1).max(80),
+  questions: z.array(BenchmarkQuestionSchema).min(1).max(25),
   answerRecords: z.array(BenchmarkAnswerRecordSchema).max(25),
 });
 
@@ -61,7 +86,7 @@ const buildPersistedReportRow = (userId, report) => ({
   overall_score: report.overallScore,
   correct_answers: report.correctAnswers,
   total_questions: report.totalQuestions,
-  source: 'benchmark_v1',
+  source: report.benchmarkVersion || 'benchmark_v2',
   created_at: report.createdAt,
 });
 

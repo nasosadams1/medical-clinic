@@ -4,7 +4,6 @@ import { z } from 'zod';
 import { createAuthenticatedUserMiddleware, getRequestIp, resolveOptionalUser } from '../auth-utils.js';
 import {
   LEADS_ADMIN_USER_IDS,
-  LEADS_NOTIFY_WEBHOOK_URL,
   LEADS_READ_MAX,
   LEADS_READ_WINDOW_MS,
   LEADS_REQUEST_MAX,
@@ -12,7 +11,11 @@ import {
   LEADS_WRITE_MAX,
   LEADS_WRITE_WINDOW_MS,
 } from './config.js';
-import { notifyLeadChannel } from './notifications.js';
+import {
+  notifyLeadChannel,
+  isLeadEmailNotificationConfigured,
+  isLeadWebhookNotificationConfigured,
+} from './notifications.js';
 
 const LeadSourceValues = ['teams_page', 'pricing_page', 'benchmark_report', 'general'];
 const LeadIntentValues = ['team_demo', 'teams_growth', 'custom_plan', 'interview_sprint', 'pro_upgrade'];
@@ -181,9 +184,14 @@ export const createLeadsRouter = ({ supabaseAdmin }) => {
   const writeLimiter = createLimiter(LEADS_WRITE_WINDOW_MS, LEADS_WRITE_MAX, 'sales pipeline');
 
   router.get('/health', (_req, res) => {
+    const emailNotificationsConfigured = isLeadEmailNotificationConfigured();
+    const webhookNotificationsConfigured = isLeadWebhookNotificationConfigured();
+
     res.json({
       status: supabaseAdmin ? 'ok' : 'degraded',
-      notificationsConfigured: Boolean(LEADS_NOTIFY_WEBHOOK_URL),
+      notificationsConfigured: emailNotificationsConfigured || webhookNotificationsConfigured,
+      emailNotificationsConfigured,
+      webhookNotificationsConfigured,
     });
   });
 

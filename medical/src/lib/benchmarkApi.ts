@@ -1,4 +1,4 @@
-import type { BenchmarkReport } from '../data/benchmarkCatalog';
+import { hydrateBenchmarkReport, type BenchmarkReport } from '../data/benchmarkCatalog';
 import { buildApiUrl } from './apiBase';
 import { supabase } from './supabase';
 
@@ -52,7 +52,7 @@ const benchmarkFetch = async <T>(path: string, init: RequestInit = {}) => {
 
 export const listBenchmarkReports = async (limit = 8) => {
   const payload = await benchmarkFetch<{ reports: BenchmarkReport[] }>(`/reports?limit=${limit}`);
-  return payload.reports || [];
+  return (payload.reports || []).map((report) => hydrateBenchmarkReport(report));
 };
 
 export const persistBenchmarkReport = async (report: BenchmarkReport) => {
@@ -60,21 +60,21 @@ export const persistBenchmarkReport = async (report: BenchmarkReport) => {
     method: 'POST',
     body: JSON.stringify(report),
   });
-  return payload.report;
+  return hydrateBenchmarkReport(payload.report);
 };
 
 export const shareBenchmarkReport = async (reportId: string) => {
   const payload = await benchmarkFetch<{ report: BenchmarkReport }>(`/reports/${encodeURIComponent(reportId)}/share`, {
     method: 'POST',
   });
-  return payload.report;
+  return hydrateBenchmarkReport(payload.report);
 };
 
 export const unshareBenchmarkReport = async (reportId: string) => {
   const payload = await benchmarkFetch<{ report: BenchmarkReport }>(`/reports/${encodeURIComponent(reportId)}/share`, {
     method: 'DELETE',
   });
-  return payload.report;
+  return hydrateBenchmarkReport(payload.report);
 };
 
 export const fetchSharedBenchmarkReport = async (publicToken: string) => {
@@ -85,7 +85,8 @@ export const fetchSharedBenchmarkReport = async (publicToken: string) => {
       throw new Error((payload as { error?: string }).error || 'Could not load the shared benchmark report.');
     }
 
-    return (payload as { report?: BenchmarkReport }).report || null;
+    const report = (payload as { report?: BenchmarkReport }).report;
+    return report ? hydrateBenchmarkReport(report) : null;
   } catch (error) {
     if (error instanceof TypeError) {
       throw new BenchmarkApiUnavailableError('Could not reach the benchmark API.');

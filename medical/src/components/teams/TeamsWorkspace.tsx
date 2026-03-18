@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { BarChart3, CalendarDays, Copy, Loader2, Mail, Plus, Users } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { interviewTracks, publicProductMetrics, teamUseCases } from '../../data/siteContent';
 import { trackEvent } from '../../lib/analytics';
@@ -114,7 +114,7 @@ const renderProgressBars = (entries: Array<{ label: string; value: number | null
   </div>
 );
 
-const PublicTeamsWorkspace = ({ mode }: { mode: 'public' | 'app' }) => {
+const PublicTeamsWorkspace = ({ mode, inviteCode }: { mode: 'public' | 'app'; inviteCode?: string | null }) => {
   const navigate = useNavigate();
 
   return (
@@ -148,6 +148,12 @@ const PublicTeamsWorkspace = ({ mode }: { mode: 'public' | 'app' }) => {
             </a>
           </div>
         </div>
+
+        {inviteCode ? (
+          <div className="mt-6 rounded-[1.35rem] border border-primary/20 bg-primary/10 px-5 py-4 text-sm leading-6 text-primary">
+            You arrived with team invite code <span className="font-semibold text-primary-foreground">{inviteCode}</span>. Sign in to Codhak, then open the Teams workspace to join the cohort with this code already prefilled.
+          </div>
+        ) : null}
 
         <div className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
           {publicProductMetrics.map((metric) => (
@@ -254,6 +260,8 @@ const PublicTeamsWorkspace = ({ mode }: { mode: 'public' | 'app' }) => {
 
 export default function TeamsWorkspace({ mode = 'public' }: TeamsWorkspaceProps) {
   const { user } = useAuth();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const inviteCodeFromQuery = searchParams.get('invite');
   const [teams, setTeams] = useState<TeamSummary[]>([]);
   const [selectedTeamId, setSelectedTeamId] = useState('');
   const [teamDetail, setTeamDetail] = useState<TeamWorkspaceDetail | null>(null);
@@ -347,6 +355,12 @@ export default function TeamsWorkspace({ mode = 'public' }: TeamsWorkspaceProps)
   }, [mode, user?.id]);
 
   useEffect(() => {
+    const inviteFromQuery = searchParams.get('invite');
+    if (!inviteFromQuery) return;
+    setJoinCode(inviteFromQuery.toUpperCase());
+  }, [searchParams]);
+
+  useEffect(() => {
     if (mode !== 'app' || !user || !selectedTeamId) {
       setTeamDetail(null);
       return;
@@ -379,7 +393,7 @@ export default function TeamsWorkspace({ mode = 'public' }: TeamsWorkspaceProps)
   }, [mode, selectedTeamId, user?.id]);
 
   if (mode !== 'app' || !user) {
-    return <PublicTeamsWorkspace mode={mode} />;
+    return <PublicTeamsWorkspace mode={mode} inviteCode={inviteCodeFromQuery} />;
   }
 
   const refreshTeamsAndSelect = async (preferredTeamId?: string) => {
@@ -434,6 +448,9 @@ export default function TeamsWorkspace({ mode = 'public' }: TeamsWorkspaceProps)
     try {
       setJoiningTeam(true);
       const team = await joinTeamByCode(joinCode.trim().toUpperCase());
+      const nextParams = new URLSearchParams(searchParams);
+      nextParams.delete('invite');
+      setSearchParams(nextParams, { replace: true });
       setJoinCode('');
       await refreshTeamsAndSelect(team.id);
       toast.success(`Joined ${team.name}.`);
@@ -464,7 +481,15 @@ export default function TeamsWorkspace({ mode = 'public' }: TeamsWorkspaceProps)
       });
       setTeamDetail((current) => current ? { ...current, invites: [invite, ...current.invites] } : current);
       await copyTextToClipboard(invite.code);
-      toast.success('Invite code created and copied.');
+      toast.success(
+        invite.emailDelivery === 'sent'
+          ? 'Invite created, emailed, and copied.'
+          : invite.emailDelivery === 'failed'
+          ? 'Invite created and copied, but email delivery failed.'
+          : invite.email
+          ? 'Invite created and copied. Email delivery is not configured yet.'
+          : 'Invite code created and copied.'
+      );
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Could not create invite.');
     } finally {
@@ -654,6 +679,11 @@ export default function TeamsWorkspace({ mode = 'public' }: TeamsWorkspaceProps)
                   {joiningTeam ? 'Joining...' : 'Join team'}
                 </button>
               </div>
+              {searchParams.get('invite') ? (
+                <div className="mt-3 rounded-2xl border border-primary/20 bg-primary/10 px-4 py-3 text-sm leading-6 text-primary">
+                  Invite code detected from your link. Sign in if needed, then join the team directly from here.
+                </div>
+              ) : null}
               <div className="mt-6 rounded-2xl border border-border bg-card px-4 py-4 text-sm leading-6 text-muted-foreground">Create one pilot team or join an existing cohort to unlock assignments, invite codes, and benchmark-derived analytics.</div>
             </div>
           </div>

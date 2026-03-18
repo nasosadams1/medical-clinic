@@ -22,11 +22,14 @@ import {
   buildBenchmarkReport,
   buildSampleBenchmarkReport,
   clearBenchmarkSetupPreset,
+  getBenchmarkAttemptIndex,
+  getBenchmarkBlueprintSummary,
   readBenchmarkSetupPreset,
   readSavedBenchmarkHistory,
   saveBenchmarkReport,
   saveBenchmarkReportHistory,
   type BenchmarkGoal,
+  type BenchmarkQuestion,
   type BenchmarkReport,
   type BenchmarkRoleLevel,
   type BenchmarkSetup,
@@ -41,6 +44,8 @@ type AuthModalView = 'login' | 'signup';
 type BenchmarkView = 'setup' | 'assessment' | 'report';
 type BenchmarkSessionSnapshot = {
   setup: BenchmarkSetup;
+  attemptIndex: number;
+  questions: BenchmarkQuestion[];
   questionIndex: number;
   selectedAnswers: Record<string, number>;
   secondsLeft: number;
@@ -245,6 +250,8 @@ export default function BenchmarkExperience({
     language: presetLanguage ?? 'python',
     roleLevel: 'junior',
   });
+  const [assessmentQuestions, setAssessmentQuestions] = useState<BenchmarkQuestion[]>([]);
+  const [assessmentAttemptIndex, setAssessmentAttemptIndex] = useState(0);
   const [questionIndex, setQuestionIndex] = useState(0);
   const [selectedAnswers, setSelectedAnswers] = useState<Record<string, number>>({});
   const [secondsLeft, setSecondsLeft] = useState(DURATION_SECONDS);
@@ -259,10 +266,23 @@ export default function BenchmarkExperience({
   const trackedPageRef = useRef(false);
   const trackedReportRef = useRef<string | null>(null);
   const hasRestoredSessionRef = useRef(false);
-  const questions = useMemo(() => buildBenchmarkQuestions(setup), [setup]);
-  const activeQuestion = questions[questionIndex];
+  const nextAttemptIndex = useMemo(() => getBenchmarkAttemptIndex(setup, reportHistory), [reportHistory, setup]);
+  const blueprintSummary = useMemo(() => getBenchmarkBlueprintSummary(setup), [setup]);
+  const configuredQuestions = useMemo(
+    () => buildBenchmarkQuestions(setup, { attemptIndex: nextAttemptIndex, recentReports: reportHistory }),
+    [nextAttemptIndex, reportHistory, setup]
+  );
+  const activeQuestion = assessmentQuestions[questionIndex];
   const sampleReport = useMemo(() => buildSampleBenchmarkReport(), []);
-  const reportQuestions = useMemo(() => (report ? buildBenchmarkQuestions(report.setup) : []), [report]);
+  const reportQuestions = useMemo(
+    () =>
+      report?.questions?.length
+        ? report.questions
+        : report
+        ? buildBenchmarkQuestions(report.setup, { attemptIndex: report.attemptIndex ?? 0 })
+        : [],
+    [report]
+  );
   const primaryTrack = report?.recommendedTrackIds[0]
     ? interviewTracks.find((track) => track.id === report.recommendedTrackIds[0])
     : undefined;
@@ -331,7 +351,10 @@ export default function BenchmarkExperience({
 
     const updatedAt = new Date(storedSession.updatedAt).getTime();
     const isExpired = Number.isNaN(updatedAt) || Date.now() - updatedAt > BENCHMARK_SESSION_TTL_MS;
-    const restoredQuestions = buildBenchmarkQuestions(storedSession.setup);
+    const restoredQuestions =
+      storedSession.questions?.length > 0
+        ? storedSession.questions
+        : buildBenchmarkQuestions(storedSession.setup, { attemptIndex: storedSession.attemptIndex ?? 0 });
     const hasValidQuestionIndex =
       storedSession.questionIndex >= 0 && storedSession.questionIndex < restoredQuestions.length;
 
@@ -343,6 +366,8 @@ export default function BenchmarkExperience({
 
     hasRestoredSessionRef.current = true;
     setSetup(storedSession.setup);
+    setAssessmentAttemptIndex(storedSession.attemptIndex ?? 0);
+    setAssessmentQuestions(restoredQuestions);
     setQuestionIndex(storedSession.questionIndex);
     setSelectedAnswers(storedSession.selectedAnswers);
     setSecondsLeft(Math.max(1, Math.min(DURATION_SECONDS, storedSession.secondsLeft)));
@@ -477,12 +502,23 @@ export default function BenchmarkExperience({
 
     writeBenchmarkSession(benchmarkSessionKey, {
       setup,
+      attemptIndex: assessmentAttemptIndex,
+      questions: assessmentQuestions,
       questionIndex,
       selectedAnswers,
       secondsLeft,
       updatedAt: new Date().toISOString(),
     });
-  }, [benchmarkSessionKey, questionIndex, secondsLeft, selectedAnswers, setup, view]);
+  }, [
+    assessmentAttemptIndex,
+    assessmentQuestions,
+    benchmarkSessionKey,
+    questionIndex,
+    secondsLeft,
+    selectedAnswers,
+    setup,
+    view,
+  ]);
 
   useEffect(() => {
     if (view !== 'assessment') return;
@@ -553,6 +589,8 @@ export default function BenchmarkExperience({
   const resetBenchmark = () => {
     clearBenchmarkSession(benchmarkSessionKey);
     setView('setup');
+    setAssessmentQuestions([]);
+    setAssessmentAttemptIndex(0);
     setQuestionIndex(0);
     setSelectedAnswers({});
     setSecondsLeft(DURATION_SECONDS);
@@ -562,10 +600,12 @@ export default function BenchmarkExperience({
   };
 
   const startBenchmark = () => {
-    if (questions.length === 0) {
+    if (configuredQuestions.length === 0) {
       toast.error('Benchmark questions are unavailable right now.');
       return;
     }
+    setAssessmentQuestions(configuredQuestions);
+    setAssessmentAttemptIndex(nextAttemptIndex);
     setQuestionIndex(0);
     setSelectedAnswers({});
     setSecondsLeft(DURATION_SECONDS);
@@ -578,13 +618,14 @@ export default function BenchmarkExperience({
       language: setup.language,
       goal: setup.goal,
       roleLevel: setup.roleLevel,
-      questionCount: questions.length,
+      questionCount: configuredQuestions.length,
+      attemptIndex: nextAttemptIndex,
     });
   };
 
   const finishBenchmark = async () => {
     if (isFinishing) return;
-    if (questions.length === 0) {
+    if (assessmentQuestions.length === 0) {
       toast.error('Benchmark questions are unavailable right now.');
       setView('setup');
       return;
@@ -592,7 +633,7 @@ export default function BenchmarkExperience({
 
     setIsFinishing(true);
 
-    const answerRecords = questions.map((question) => {
+    const answerRecords = assessmentQuestions.map((question) => {
       const selectedAnswer = selectedAnswers[question.id] ?? -1;
       return {
         questionId: question.id,
@@ -601,7 +642,9 @@ export default function BenchmarkExperience({
       };
     });
 
-    const nextReport = buildBenchmarkReport(setup, questions, answerRecords);
+    const nextReport = buildBenchmarkReport(setup, assessmentQuestions, answerRecords, {
+      attemptIndex: assessmentAttemptIndex,
+    });
     setHistoryMessage(null);
     saveBenchmarkReport(nextReport);
     if (user?.id) {
@@ -619,6 +662,7 @@ export default function BenchmarkExperience({
       goal: setup.goal,
       roleLevel: setup.roleLevel,
       score: nextReport.overallScore,
+      attemptIndex: assessmentAttemptIndex,
     });
 
     if (!user?.id) {
@@ -649,7 +693,7 @@ export default function BenchmarkExperience({
       toast.error('Choose an answer before continuing.');
       return;
     }
-    if (questionIndex === questions.length - 1) {
+    if (questionIndex === assessmentQuestions.length - 1) {
       void finishBenchmark();
       return;
     }
@@ -818,23 +862,30 @@ export default function BenchmarkExperience({
         <div className={`${mutedPanelClassName} px-4 py-4`}>
           <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
             <Clock3 className="h-4 w-4 text-primary" />
-            10-minute window
+            {blueprintSummary.questionCount} calibrated questions
           </div>
-          <div className="mt-2 text-sm leading-6 text-muted-foreground">Fast enough for onboarding, real enough to be useful.</div>
+          <div className="mt-2 text-sm leading-6 text-muted-foreground">
+            Stable difficulty for this setup, with rotated question variants across retakes.
+          </div>
         </div>
         <div className={`${mutedPanelClassName} px-4 py-4`}>
           <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
             <BarChart3 className="h-4 w-4 text-xp" />
-            Skill report
+            Difficulty mix
           </div>
-          <div className="mt-2 text-sm leading-6 text-muted-foreground">See strengths, gaps, duel readiness, and your recommended next track.</div>
+          <div className="mt-2 text-sm leading-6 text-muted-foreground">
+            {blueprintSummary.difficultyMix.beginner} foundational, {blueprintSummary.difficultyMix.intermediate} applied, {blueprintSummary.difficultyMix.advanced} stretch questions.
+          </div>
         </div>
         <div className={`${mutedPanelClassName} px-4 py-4`}>
           <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
             <Target className="h-4 w-4 text-accent" />
-            Outcome-first
+            Measured competencies
           </div>
-          <div className="mt-2 text-sm leading-6 text-muted-foreground">Built for interview prep, cohorts, and measurable improvement.</div>
+          <div className="mt-2 text-sm leading-6 text-muted-foreground">
+            {blueprintSummary.competencies.slice(0, 3).join(', ')}
+            {blueprintSummary.competencies.length > 3 ? ', and more.' : '.'}
+          </div>
         </div>
       </div>
       {savedReport && view === 'setup' ? (
@@ -937,7 +988,29 @@ export default function BenchmarkExperience({
                   <div className="text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground">Benchmark setup</div>
                   <h2 className="mt-2 text-2xl font-semibold text-foreground">Start with the outcome you need.</h2>
                 </div>
-                <div className="rounded-full border border-border bg-background px-3 py-1 text-xs font-medium text-muted-foreground">{questions.length} questions ready</div>
+                <div className="rounded-full border border-border bg-background px-3 py-1 text-xs font-medium text-muted-foreground">
+                  {configuredQuestions.length} questions ready
+                </div>
+              </div>
+              <div className="mt-4 rounded-[1.35rem] border border-border bg-background/70 px-4 py-4">
+                <div className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">Current benchmark blueprint</div>
+                <div className="mt-2 text-sm leading-6 text-muted-foreground">
+                  {setup.goal === 'interview_prep'
+                    ? 'Emphasizes screening-style problem solving and pressure readiness.'
+                    : setup.goal === 'class_improvement'
+                    ? 'Emphasizes foundational coverage and instructional gap detection.'
+                    : 'Emphasizes skill-growth coverage and repeatable practice planning.'}
+                </div>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {blueprintSummary.competencies.map((competency) => (
+                    <span
+                      key={competency}
+                      className="inline-flex rounded-full border border-border bg-card px-3 py-1 text-xs font-medium text-foreground"
+                    >
+                      {competency}
+                    </span>
+                  ))}
+                </div>
               </div>
               <div className="mt-8 space-y-8">
                 <section>
@@ -1006,7 +1079,9 @@ export default function BenchmarkExperience({
             <div className={surfaceCardClassName}>
               <div className="flex flex-col gap-4 border-b border-border pb-6 sm:flex-row sm:items-center sm:justify-between">
                 <div>
-                  <div className="text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground">Question {questionIndex + 1} of {questions.length}</div>
+                  <div className="text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                    Question {questionIndex + 1} of {assessmentQuestions.length}
+                  </div>
                   <div className="mt-2 text-xl font-semibold text-foreground">{activeQuestion.lessonTitle}</div>
                 </div>
                 <div className="inline-flex items-center gap-2 rounded-full border border-primary/20 bg-primary/10 px-4 py-2 text-sm font-medium text-primary">
@@ -1015,7 +1090,10 @@ export default function BenchmarkExperience({
                 </div>
               </div>
               <div className="mt-6 h-2 w-full overflow-hidden rounded-full bg-background">
-                <div className="h-full rounded-full bg-primary transition-all" style={{ width: `${((questionIndex + 1) / questions.length) * 100}%` }} />
+                <div
+                  className="h-full rounded-full bg-primary transition-all"
+                  style={{ width: `${((questionIndex + 1) / Math.max(1, assessmentQuestions.length)) * 100}%` }}
+                />
               </div>
               <div className="mt-6 rounded-[1.5rem] border border-border bg-background/70 p-6">
                 <div className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">{activeQuestion.competency}</div>
@@ -1045,7 +1123,13 @@ export default function BenchmarkExperience({
                   Restart
                 </button>
                 <button type="button" onClick={goToNextQuestion} disabled={isFinishing} className={primaryButtonClassName}>
-                  <span>{isFinishing ? 'Generating report...' : questionIndex === questions.length - 1 ? 'Generate report' : 'Next question'}</span>
+                  <span>
+                    {isFinishing
+                      ? 'Generating report...'
+                      : questionIndex === assessmentQuestions.length - 1
+                      ? 'Generate report'
+                      : 'Next question'}
+                  </span>
                   <ArrowRight className="h-4 w-4" />
                 </button>
               </div>

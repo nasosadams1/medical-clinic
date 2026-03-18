@@ -26,6 +26,7 @@ export interface TeamInvite {
   code: string;
   label: string;
   email: string | null;
+  emailDelivery?: 'sent' | 'skipped' | 'failed';
   role: Exclude<TeamRole, 'owner'>;
   maxUses: number;
   useCount: number;

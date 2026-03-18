@@ -1,7 +1,9 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { X, CheckCircle, ArrowRight, Heart, Clock, BookOpen, RotateCcw, Zap, ArrowLeft } from "lucide-react";
 import { useUser } from "../context/UserContext";
-import { getLessonById, calculateXP, allLessons as lessonsData } from "../data/lessons";
+import { getLessonCatalogEntry, getLessonCountByLanguage } from "../data/lessonCatalog";
+import { loadLessonsModule } from "../data/lessonsLoader";
+import { calculateXP } from "../data/lessonUtils";
 
 interface LessonModalProps {
   content?: any;
@@ -44,7 +46,6 @@ const primaryButton =
 const LessonModal: React.FC<LessonModalProps> = ({
   content: contentProp,
   lesson,
-  allLessons: allLessonsProp,
   onClose,
   onHeartLoss,
   onRedirectToLearn,
@@ -68,14 +69,48 @@ const LessonModal: React.FC<LessonModalProps> = ({
   const loseHeartFn = loseHeartOverride ?? loseHeart;
   const resetHeartLossFn = resetHeartLossOverride ?? resetHeartLoss;
   const calculateXPFn = calculateXPOverride ?? calculateXP;
-  const allLessons = allLessonsProp ?? lessonsData;
   const activeBoosts = getActiveBoosts();
   const retakeTimerRef = useRef<number | null>(null);
+  const [loadedLesson, setLoadedLesson] = useState<any | null>(null);
+  const [lessonLoadError, setLessonLoadError] = useState<string | null>(null);
+  const lessonCatalogEntry = useMemo(() => getLessonCatalogEntry(lesson?.id), [lesson?.id]);
+  const lessonLanguage = (lessonCatalogEntry?.language || lesson?.language || "python") as "python" | "javascript" | "cpp" | "java";
+  const languageLessonCount = useMemo(() => getLessonCountByLanguage(lessonLanguage), [lessonLanguage]);
+  const lessonIndex = useMemo(() => Math.max(0, lessonCatalogEntry?.languageIndex ?? 0), [lessonCatalogEntry?.languageIndex]);
 
-  const fullLesson = useMemo(() => (getLessonById ? getLessonById(lesson?.id) : null), [lesson?.id]);
+  useEffect(() => {
+    let cancelled = false;
+
+    if (!lesson?.id || contentProp || lesson?.content) {
+      setLoadedLesson(null);
+      setLessonLoadError(null);
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    setLessonLoadError(null);
+
+    void loadLessonsModule()
+      .then((module) => {
+        if (cancelled) return;
+        setLoadedLesson(module.getLessonById?.(lesson.id) || null);
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        console.error("Failed to load lesson details:", error);
+        setLoadedLesson(null);
+        setLessonLoadError("Lesson content could not be loaded.");
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [contentProp, lesson?.content, lesson?.id]);
+
   const content: { steps: any[]; quiz?: any[] } = useMemo(
-    () => contentProp ?? fullLesson?.content ?? lesson?.content ?? { steps: [], quiz: [] },
-    [contentProp, fullLesson?.content, lesson?.content]
+    () => contentProp ?? loadedLesson?.content ?? lesson?.content ?? { steps: [], quiz: [] },
+    [contentProp, loadedLesson?.content, lesson?.content]
   );
 
   const safeTotalSteps = Math.max(0, content.steps?.length ?? 0);
@@ -83,8 +118,6 @@ const LessonModal: React.FC<LessonModalProps> = ({
   const effectiveQuizCount = forceSkipQuiz ? 0 : safeTotalQuiz;
   const safeTotalAll = Math.max(1, safeTotalSteps + effectiveQuizCount);
   const questionSteps = useMemo(() => (content.steps || []).filter((step) => step?.type === "question"), [content.steps]);
-  const languageLessons = useMemo(() => allLessons.filter((item) => item.language === lesson.language), [allLessons, lesson.language]);
-  const lessonIndex = useMemo(() => languageLessons.findIndex((item) => item.id === lesson.id), [languageLessons, lesson.id]);
 
   const [currentStep, setCurrentStep] = useState(0);
   const [isCompleted, setIsCompleted] = useState(false);
@@ -138,7 +171,7 @@ const LessonModal: React.FC<LessonModalProps> = ({
       lesson.baseXP,
       lesson.difficulty,
       lessonIndex,
-      languageLessons.length,
+      languageLessonCount,
       actualTimeMinutes,
       lesson.baselineTime
     );
@@ -224,8 +257,10 @@ const LessonModal: React.FC<LessonModalProps> = ({
           <div className="mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-[1.5rem] border border-cyan-400/20 bg-cyan-400/10 text-cyan-200">
             <BookOpen className="h-8 w-8" />
           </div>
-          <h2 className="text-2xl font-semibold text-white">Preparing lesson workspace</h2>
-          <p className="mt-3 text-sm leading-6 text-slate-300">We are loading the lesson content and quiz checks for this track.</p>
+          <h2 className="text-2xl font-semibold text-white">{lessonLoadError ? "Lesson unavailable" : "Preparing lesson workspace"}</h2>
+          <p className="mt-3 text-sm leading-6 text-slate-300">
+            {lessonLoadError || "We are loading the lesson content and quiz checks for this track."}
+          </p>
           <button type="button" onClick={onClose} className={`${primaryButton} mt-6 w-full`}>Close</button>
         </div>
       </div>
@@ -276,7 +311,7 @@ const LessonModal: React.FC<LessonModalProps> = ({
       lesson.baseXP,
       lesson.difficulty,
       lessonIndex,
-      languageLessons.length,
+      languageLessonCount,
       actualTimeSeconds / 60,
       lesson.baselineTime
     );

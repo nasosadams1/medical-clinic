@@ -2,6 +2,9 @@ import express from 'express';
 import { randomBytes } from 'node:crypto';
 import { z } from 'zod';
 import { createAuthenticatedUserMiddleware } from '../auth-utils.js';
+import { FRONTEND_URL } from '../email/config.js';
+import { sendTransactionalEmail } from '../email/mailer.js';
+import { buildTeamInviteEmail } from '../email/templates.js';
 
 const TEAM_USE_CASES = ['bootcamps', 'universities', 'coding-clubs', 'upskilling', 'general'];
 const ASSIGNMENT_TYPES = ['benchmark', 'challenge_pack', 'roadmap'];
@@ -53,6 +56,9 @@ const slugify = (value) =>
 const buildInviteCode = () => `CODH-${randomBytes(3).toString('hex').toUpperCase()}`;
 
 const buildPublicShareToken = () => randomBytes(12).toString('hex');
+
+const buildTeamInviteJoinUrl = (inviteCode) =>
+  `${FRONTEND_URL}/app?section=teams&invite=${encodeURIComponent(inviteCode)}`;
 
 const getMedian = (values) => {
   if (!values.length) return null;
@@ -751,6 +757,16 @@ export const createTeamsRouter = ({ supabaseAdmin }) => {
       const membership = await ensureTeamAccess(supabaseAdmin, teamId, req.authenticatedUser.id);
       ensureTeamRole(membership, ['owner', 'admin', 'coach']);
 
+      const { data: teamSummary, error: teamSummaryError } = await supabaseAdmin
+        .from('skill_teams')
+        .select('id, name, slug')
+        .eq('id', teamId)
+        .single();
+
+      if (teamSummaryError || !teamSummary) {
+        throw new Error(teamSummaryError?.message || 'Could not load team details for invite delivery.');
+      }
+
       const parsed = CreateInviteSchema.parse(req.body || {});
       const code = buildInviteCode();
       const expiresAt = new Date(Date.now() + parsed.expiresInDays * 24 * 60 * 60 * 1000).toISOString();
@@ -776,6 +792,28 @@ export const createTeamsRouter = ({ supabaseAdmin }) => {
         throw new Error(error?.message || 'Could not create invite.');
       }
 
+      let emailDelivery = 'skipped';
+
+      if (parsed.email) {
+        const emailPayload = buildTeamInviteEmail({
+          teamName: teamSummary.name,
+          inviteCode: data.code,
+          inviteRole: data.role,
+          inviteLabel: data.label,
+          expiresAt: data.expires_at,
+          joinUrl: buildTeamInviteJoinUrl(data.code),
+        });
+
+        const delivery = await sendTransactionalEmail({
+          to: parsed.email,
+          subject: emailPayload.subject,
+          text: emailPayload.text,
+          html: emailPayload.html,
+        });
+
+        emailDelivery = delivery.delivered ? 'sent' : delivery.skipped ? 'skipped' : 'failed';
+      }
+
       return res.status(201).json({
         invite: {
           id: data.id,
@@ -788,6 +826,7 @@ export const createTeamsRouter = ({ supabaseAdmin }) => {
           expiresAt: data.expires_at,
           status: data.status,
           createdAt: data.created_at,
+          emailDelivery,
         },
       });
     } catch (error) {

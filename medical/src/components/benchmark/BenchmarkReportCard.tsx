@@ -2,7 +2,7 @@ import React from 'react';
 import { ArrowRight, Award, BarChart3, CheckCircle2, Swords, Target } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import type { BenchmarkReport } from '../../data/benchmarkCatalog';
-import { getLessonById } from '../../data/lessons';
+import { getLessonCatalogEntry } from '../../data/lessonCatalog';
 import { interviewTracks } from '../../data/siteContent';
 
 interface BenchmarkReportCardProps {
@@ -11,12 +11,19 @@ interface BenchmarkReportCardProps {
 }
 
 export default function BenchmarkReportCard({ report, actions }: BenchmarkReportCardProps) {
+  const estimation = report.estimation ?? {
+    label: 'Benchmark estimate unavailable',
+    description: report.summary,
+    targetRoleLabel: 'selected baseline',
+    baselineScore: 0,
+    competencyCoveragePercent: 0,
+  };
   const recommendedTracks = report.recommendedTrackIds
     .map((trackId) => interviewTracks.find((track) => track.id === trackId))
     .filter((track) => Boolean(track));
 
   const suggestedLessons = report.suggestedLessonIds
-    .map((lessonId) => getLessonById(lessonId))
+    .map((lessonId) => getLessonCatalogEntry(lessonId))
     .filter((lesson) => Boolean(lesson));
 
   return (
@@ -32,11 +39,18 @@ export default function BenchmarkReportCard({ report, actions }: BenchmarkReport
           <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground sm:text-base">{report.summary}</p>
         </div>
 
-        <div className="grid gap-3 sm:min-w-[220px]">
+        <div className="grid gap-3 sm:min-w-[260px]">
           <div className="rounded-2xl border border-border bg-background/70 px-4 py-3">
             <div className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Correct answers</div>
             <div className="mt-1 text-lg font-semibold text-foreground">
               {report.correctAnswers}/{report.totalQuestions}
+            </div>
+          </div>
+          <div className="rounded-2xl border border-border bg-background/70 px-4 py-3">
+            <div className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Role estimate</div>
+            <div className="mt-1 text-lg font-semibold text-foreground">{estimation.label}</div>
+            <div className="text-sm text-muted-foreground">
+              {estimation.competencyCoveragePercent}% blueprint coverage
             </div>
           </div>
           <div className="rounded-2xl border border-border bg-background/70 px-4 py-3">
@@ -79,11 +93,11 @@ export default function BenchmarkReportCard({ report, actions }: BenchmarkReport
         <div className="rounded-2xl border border-border bg-background/70 p-5">
           <div className="flex items-center gap-2 text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground">
             <BarChart3 className="h-4 w-4 text-primary" />
-            Next move
+            Benchmark estimate
           </div>
           <div className="mt-4 rounded-2xl border border-border bg-card px-4 py-4">
-            <div className="text-sm font-semibold text-foreground">{report.duelReadiness.label}</div>
-            <p className="mt-2 text-sm leading-6 text-muted-foreground">{report.duelReadiness.description}</p>
+            <div className="text-sm font-semibold text-foreground">{estimation.label}</div>
+            <p className="mt-2 text-sm leading-6 text-muted-foreground">{estimation.description}</p>
           </div>
         </div>
       </div>
@@ -125,7 +139,9 @@ export default function BenchmarkReportCard({ report, actions }: BenchmarkReport
                 {suggestedLessons.map((lesson) => (
                   <li key={lesson!.id} className="rounded-2xl border border-border bg-card px-4 py-3">
                     <div className="text-sm font-semibold text-foreground">{lesson!.title}</div>
-                    <div className="mt-1 text-sm text-muted-foreground">{lesson!.category}</div>
+                    <div className="mt-1 text-sm text-muted-foreground">
+                      {lesson!.language.toUpperCase()} practice path
+                    </div>
                   </li>
                 ))}
               </ul>

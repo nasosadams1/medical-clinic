@@ -1,4 +1,8 @@
-import { allLessons, getLessonById } from './lessons';
+import {
+  getBenchmarkQuestionCandidates,
+  type BenchmarkQuestionDifficulty,
+  type BenchmarkQuestionTemplate,
+} from './benchmarkQuestionBank';
 import { interviewTracks, type LanguageSlug } from './siteContent';
 import { duelProblemCatalog } from '../../data/duel-problem-catalog.js';
 
@@ -13,6 +17,8 @@ export interface BenchmarkSetup {
 
 export interface BenchmarkQuestion {
   id: string;
+  templateId: string;
+  slotId: string;
   lessonId: string;
   lessonTitle: string;
   prompt: string;
@@ -20,7 +26,8 @@ export interface BenchmarkQuestion {
   correctAnswer: number;
   explanation: string;
   competency: string;
-  difficulty: 'beginner' | 'intermediate' | 'advanced';
+  difficulty: BenchmarkQuestionDifficulty;
+  weight: number;
 }
 
 export interface BenchmarkAnswerRecord {
@@ -29,8 +36,18 @@ export interface BenchmarkAnswerRecord {
   isCorrect: boolean;
 }
 
+export interface BenchmarkEstimation {
+  label: string;
+  description: string;
+  targetRoleLabel: string;
+  baselineScore: number;
+  competencyCoveragePercent: number;
+}
+
 export interface BenchmarkReport {
   id: string;
+  benchmarkVersion: string;
+  attemptIndex: number;
   isSample?: boolean;
   isPublic?: boolean;
   shareToken?: string | null;
@@ -49,112 +66,337 @@ export interface BenchmarkReport {
     description: string;
     confidencePercent: number;
   };
+  estimation: BenchmarkEstimation;
   summary: string;
   createdAt: string;
+  questions: BenchmarkQuestion[];
   answerRecords: BenchmarkAnswerRecord[];
 }
 
 const BENCHMARK_SETUP_PRESET_STORAGE_KEY = 'codhak-benchmark-setup-preset';
 const BENCHMARK_HISTORY_STORAGE_KEY = 'codhak-benchmark-history';
+const BENCHMARK_VERSION = 'v2-calibrated';
 
-type QuestionBlueprint = {
-  lessonId: string;
-  questionIndex: number;
+type BenchmarkPlanSlot = {
+  slotId: string;
   competency: string;
-  difficulty: 'beginner' | 'intermediate' | 'advanced';
+  difficulty: BenchmarkQuestionDifficulty;
 };
 
-const languageBlueprints: Record<LanguageSlug, QuestionBlueprint[]> = {
-  python: [
-    { lessonId: 'python-variables-1', questionIndex: 0, competency: 'Syntax and variables', difficulty: 'beginner' },
-    { lessonId: 'python-variables-2', questionIndex: 0, competency: 'Data types and operators', difficulty: 'beginner' },
-    { lessonId: 'python-if-statements', questionIndex: 0, competency: 'Control flow', difficulty: 'beginner' },
-    { lessonId: 'python-lists', questionIndex: 0, competency: 'Collections', difficulty: 'intermediate' },
-    { lessonId: 'python-functions', questionIndex: 0, competency: 'Functions', difficulty: 'intermediate' },
-    { lessonId: 'python-oop', questionIndex: 0, competency: 'Objects and classes', difficulty: 'advanced' },
-  ],
-  javascript: [
-    { lessonId: 'javascript-variables-1', questionIndex: 0, competency: 'Variables and syntax', difficulty: 'beginner' },
-    { lessonId: 'javascript-datatypes-1', questionIndex: 0, competency: 'Data types and coercion', difficulty: 'beginner' },
-    { lessonId: 'javascript-if-else-1', questionIndex: 0, competency: 'Control flow', difficulty: 'beginner' },
-    { lessonId: 'javascript-functions-1', questionIndex: 0, competency: 'Functions', difficulty: 'intermediate' },
-    { lessonId: 'javascript-arrays-1', questionIndex: 0, competency: 'Arrays', difficulty: 'intermediate' },
-    { lessonId: 'js-classes-1', questionIndex: 0, competency: 'Objects and classes', difficulty: 'advanced' },
-  ],
-  cpp: [
-    { lessonId: 'cpp-variables', questionIndex: 0, competency: 'Syntax and variables', difficulty: 'beginner' },
-    { lessonId: 'cpp-data-types', questionIndex: 0, competency: 'Data types', difficulty: 'beginner' },
-    { lessonId: 'cpp-if-else', questionIndex: 0, competency: 'Control flow', difficulty: 'beginner' },
-    { lessonId: 'cpp-functions', questionIndex: 0, competency: 'Functions', difficulty: 'intermediate' },
-    { lessonId: 'cpp-arrays', questionIndex: 0, competency: 'Arrays', difficulty: 'intermediate' },
-    { lessonId: 'cpp-classes-objects', questionIndex: 0, competency: 'Classes and objects', difficulty: 'advanced' },
-  ],
-  java: [
-    { lessonId: 'java-variables', questionIndex: 0, competency: 'Syntax and variables', difficulty: 'beginner' },
-    { lessonId: 'java-data-types', questionIndex: 0, competency: 'Data types', difficulty: 'beginner' },
-    { lessonId: 'java-if-else', questionIndex: 0, competency: 'Control flow', difficulty: 'beginner' },
-    { lessonId: 'java-methods', questionIndex: 0, competency: 'Methods', difficulty: 'intermediate' },
-    { lessonId: 'java-arrays', questionIndex: 0, competency: 'Arrays', difficulty: 'intermediate' },
-    { lessonId: 'java-oop', questionIndex: 0, competency: 'OOP foundations', difficulty: 'advanced' },
-  ],
+type BuildBenchmarkQuestionOptions = {
+  attemptIndex?: number;
+  recentReports?: BenchmarkReport[];
 };
 
-const getQuestionFromBlueprint = (language: LanguageSlug, blueprint: QuestionBlueprint): BenchmarkQuestion | null => {
-  const lesson = getLessonById(blueprint.lessonId);
-  const questionSteps = lesson?.content?.steps?.filter((step) => step.type === 'question') ?? [];
-  const question = questionSteps[blueprint.questionIndex] ?? questionSteps[0];
+export interface BenchmarkBlueprintSummary {
+  questionCount: number;
+  difficultyMix: Record<BenchmarkQuestionDifficulty, number>;
+  competencies: string[];
+}
 
-  if (!lesson || !question || !question.options) {
-    const fallbackLesson = allLessons.find(
-      (entry) => entry.language === language && entry.content.steps.some((step) => step.type === 'question')
-    );
-    const fallbackQuestion = fallbackLesson?.content.steps.find((step) => step.type === 'question');
+const slot = (
+  slotId: string,
+  competency: string,
+  difficulty: BenchmarkQuestionDifficulty
+): BenchmarkPlanSlot => ({ slotId, competency, difficulty });
 
-    if (!fallbackLesson || !fallbackQuestion || fallbackQuestion.type !== 'question') {
-      return null;
-    }
+const difficultyWeights: Record<BenchmarkQuestionDifficulty, number> = {
+  beginner: 1,
+  intermediate: 1.35,
+  advanced: 1.7,
+};
 
-    return {
-      id: `${fallbackLesson.id}-benchmark-fallback`,
-      lessonId: fallbackLesson.id,
-      lessonTitle: fallbackLesson.title,
-      prompt: fallbackQuestion.question,
-      options: fallbackQuestion.options,
-      correctAnswer: fallbackQuestion.correctAnswer,
-      explanation: fallbackQuestion.explanation,
-      competency: blueprint.competency,
-      difficulty: blueprint.difficulty,
-    };
-  }
+const benchmarkPlans: Record<BenchmarkGoal, Record<BenchmarkRoleLevel, BenchmarkPlanSlot[]>> = {
+  interview_prep: {
+    beginner: [
+      slot('vars-1', 'Syntax and variables', 'beginner'),
+      slot('types-1', 'Data types and operators', 'beginner'),
+      slot('flow-1', 'Control flow', 'beginner'),
+      slot('functions-1', 'Functions', 'intermediate'),
+      slot('problem-solving-1', 'Problem solving', 'intermediate'),
+      slot('collections-1', 'Collections', 'intermediate'),
+    ],
+    intern: [
+      slot('types-1', 'Data types and operators', 'beginner'),
+      slot('flow-1', 'Control flow', 'beginner'),
+      slot('collections-1', 'Collections', 'intermediate'),
+      slot('functions-1', 'Functions', 'intermediate'),
+      slot('problem-solving-1', 'Problem solving', 'intermediate'),
+      slot('problem-solving-2', 'Problem solving', 'intermediate'),
+      slot('oop-1', 'Objects and classes', 'advanced'),
+    ],
+    junior: [
+      slot('flow-1', 'Control flow', 'beginner'),
+      slot('functions-1', 'Functions', 'intermediate'),
+      slot('collections-1', 'Collections', 'intermediate'),
+      slot('problem-solving-1', 'Problem solving', 'intermediate'),
+      slot('problem-solving-2', 'Problem solving', 'intermediate'),
+      slot('oop-1', 'Objects and classes', 'advanced'),
+      slot('oop-2', 'Objects and classes', 'advanced'),
+      slot('functions-2', 'Functions', 'intermediate'),
+    ],
+    general_practice: [
+      slot('vars-1', 'Syntax and variables', 'beginner'),
+      slot('types-1', 'Data types and operators', 'beginner'),
+      slot('flow-1', 'Control flow', 'beginner'),
+      slot('functions-1', 'Functions', 'intermediate'),
+      slot('collections-1', 'Collections', 'intermediate'),
+      slot('problem-solving-1', 'Problem solving', 'intermediate'),
+      slot('oop-1', 'Objects and classes', 'advanced'),
+    ],
+  },
+  class_improvement: {
+    beginner: [
+      slot('vars-1', 'Syntax and variables', 'beginner'),
+      slot('types-1', 'Data types and operators', 'beginner'),
+      slot('flow-1', 'Control flow', 'beginner'),
+      slot('flow-2', 'Control flow', 'beginner'),
+      slot('collections-1', 'Collections', 'intermediate'),
+      slot('functions-1', 'Functions', 'intermediate'),
+    ],
+    intern: [
+      slot('vars-1', 'Syntax and variables', 'beginner'),
+      slot('types-1', 'Data types and operators', 'beginner'),
+      slot('flow-1', 'Control flow', 'beginner'),
+      slot('collections-1', 'Collections', 'intermediate'),
+      slot('functions-1', 'Functions', 'intermediate'),
+      slot('functions-2', 'Functions', 'intermediate'),
+      slot('problem-solving-1', 'Problem solving', 'intermediate'),
+    ],
+    junior: [
+      slot('vars-1', 'Syntax and variables', 'beginner'),
+      slot('flow-1', 'Control flow', 'beginner'),
+      slot('types-1', 'Data types and operators', 'beginner'),
+      slot('functions-1', 'Functions', 'intermediate'),
+      slot('functions-2', 'Functions', 'intermediate'),
+      slot('collections-1', 'Collections', 'intermediate'),
+      slot('problem-solving-1', 'Problem solving', 'intermediate'),
+      slot('oop-1', 'Objects and classes', 'advanced'),
+      slot('flow-2', 'Control flow', 'beginner'),
+    ],
+    general_practice: [
+      slot('vars-1', 'Syntax and variables', 'beginner'),
+      slot('types-1', 'Data types and operators', 'beginner'),
+      slot('flow-1', 'Control flow', 'beginner'),
+      slot('collections-1', 'Collections', 'intermediate'),
+      slot('functions-1', 'Functions', 'intermediate'),
+      slot('problem-solving-1', 'Problem solving', 'intermediate'),
+    ],
+  },
+  skill_growth: {
+    beginner: [
+      slot('vars-1', 'Syntax and variables', 'beginner'),
+      slot('types-1', 'Data types and operators', 'beginner'),
+      slot('flow-1', 'Control flow', 'beginner'),
+      slot('collections-1', 'Collections', 'intermediate'),
+      slot('functions-1', 'Functions', 'intermediate'),
+      slot('functions-2', 'Functions', 'intermediate'),
+    ],
+    intern: [
+      slot('vars-1', 'Syntax and variables', 'beginner'),
+      slot('collections-1', 'Collections', 'intermediate'),
+      slot('functions-1', 'Functions', 'intermediate'),
+      slot('functions-2', 'Functions', 'intermediate'),
+      slot('problem-solving-1', 'Problem solving', 'intermediate'),
+      slot('collections-2', 'Collections', 'intermediate'),
+      slot('flow-1', 'Control flow', 'beginner'),
+      slot('oop-1', 'Objects and classes', 'advanced'),
+    ],
+    junior: [
+      slot('collections-1', 'Collections', 'intermediate'),
+      slot('functions-1', 'Functions', 'intermediate'),
+      slot('functions-2', 'Functions', 'intermediate'),
+      slot('problem-solving-1', 'Problem solving', 'intermediate'),
+      slot('problem-solving-2', 'Problem solving', 'intermediate'),
+      slot('oop-1', 'Objects and classes', 'advanced'),
+      slot('collections-2', 'Collections', 'intermediate'),
+      slot('oop-2', 'Objects and classes', 'advanced'),
+    ],
+    general_practice: [
+      slot('vars-1', 'Syntax and variables', 'beginner'),
+      slot('types-1', 'Data types and operators', 'beginner'),
+      slot('flow-1', 'Control flow', 'beginner'),
+      slot('collections-1', 'Collections', 'intermediate'),
+      slot('functions-1', 'Functions', 'intermediate'),
+      slot('functions-2', 'Functions', 'intermediate'),
+      slot('oop-1', 'Objects and classes', 'advanced'),
+    ],
+  },
+};
+
+const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
+
+const hashString = (value: string) =>
+  Array.from(value).reduce((total, char) => ((total << 5) - total + char.charCodeAt(0)) | 0, 0);
+
+const matchesSetup = (left: BenchmarkSetup, right: BenchmarkSetup) =>
+  left.goal === right.goal && left.language === right.language && left.roleLevel === right.roleLevel;
+
+const getBenchmarkPlan = (setup: BenchmarkSetup) => benchmarkPlans[setup.goal][setup.roleLevel];
+
+export const getBenchmarkAttemptIndex = (setup: BenchmarkSetup, reports: BenchmarkReport[]) =>
+  reports.filter((report) => matchesSetup(report.setup, setup)).length;
+
+export const getBenchmarkBlueprintSummary = (setup: BenchmarkSetup): BenchmarkBlueprintSummary => {
+  const plan = getBenchmarkPlan(setup);
 
   return {
-    id: `${lesson.id}-benchmark-${blueprint.questionIndex}`,
-    lessonId: lesson.id,
-    lessonTitle: lesson.title,
-    prompt: question.question,
-    options: question.options,
-    correctAnswer: question.correctAnswer,
-    explanation: question.explanation,
-    competency: blueprint.competency,
-    difficulty: blueprint.difficulty,
+    questionCount: plan.length,
+    difficultyMix: plan.reduce(
+      (mix, entry) => {
+        mix[entry.difficulty] += 1;
+        return mix;
+      },
+      {
+        beginner: 0,
+        intermediate: 0,
+        advanced: 0,
+      } as Record<BenchmarkQuestionDifficulty, number>
+    ),
+    competencies: Array.from(new Set(plan.map((entry) => entry.competency))),
   };
 };
 
-export const buildBenchmarkQuestions = (setup: BenchmarkSetup): BenchmarkQuestion[] =>
-  languageBlueprints[setup.language]
-    .map((blueprint) => getQuestionFromBlueprint(setup.language, blueprint))
+const getQuestionWeight = (setup: BenchmarkSetup, template: BenchmarkQuestionTemplate) => {
+  let weight = difficultyWeights[template.difficulty];
+
+  if (setup.goal === 'interview_prep' && (template.competency === 'Problem solving' || template.competency === 'Objects and classes')) {
+    weight *= 1.12;
+  }
+
+  if (
+    setup.goal === 'class_improvement' &&
+    (template.competency === 'Syntax and variables' ||
+      template.competency === 'Data types and operators' ||
+      template.competency === 'Control flow')
+  ) {
+    weight *= 1.1;
+  }
+
+  if (
+    setup.goal === 'skill_growth' &&
+    (template.competency === 'Functions' || template.competency === 'Problem solving')
+  ) {
+    weight *= 1.08;
+  }
+
+  return Math.round(weight * 100) / 100;
+};
+
+const getCandidatePool = (
+  language: LanguageSlug,
+  slotDefinition: BenchmarkPlanSlot
+): BenchmarkQuestionTemplate[] => {
+  const candidates = getBenchmarkQuestionCandidates(language);
+  const exactMatches = candidates.filter(
+    (candidate) =>
+      candidate.competency === slotDefinition.competency && candidate.difficulty === slotDefinition.difficulty
+  );
+
+  if (exactMatches.length > 0) return exactMatches;
+
+  const competencyMatches = candidates.filter((candidate) => candidate.competency === slotDefinition.competency);
+  if (competencyMatches.length > 0) return competencyMatches;
+
+  const difficultyMatches = candidates.filter((candidate) => candidate.difficulty === slotDefinition.difficulty);
+  if (difficultyMatches.length > 0) return difficultyMatches;
+
+  return candidates;
+};
+
+const selectQuestionTemplate = (
+  language: LanguageSlug,
+  slotDefinition: BenchmarkPlanSlot,
+  setup: BenchmarkSetup,
+  attemptIndex: number,
+  slotIndex: number,
+  usedTemplateIds: Set<string>,
+  recentlyUsedTemplateIds: Set<string>
+) => {
+  const candidates = getCandidatePool(language, slotDefinition);
+  if (candidates.length === 0) return null;
+
+  const orderedCandidates = [...candidates].sort((left, right) => left.templateId.localeCompare(right.templateId));
+  const seed = Math.abs(hashString(`${setup.language}:${setup.goal}:${setup.roleLevel}:${attemptIndex}:${slotDefinition.slotId}`));
+  const freshCandidates = orderedCandidates.filter(
+    (candidate) => !usedTemplateIds.has(candidate.templateId) && !recentlyUsedTemplateIds.has(candidate.templateId)
+  );
+  const unusedCandidates = orderedCandidates.filter((candidate) => !usedTemplateIds.has(candidate.templateId));
+  const activePool =
+    freshCandidates.length > 0 ? freshCandidates : unusedCandidates.length > 0 ? unusedCandidates : orderedCandidates;
+
+  return activePool[(seed + slotIndex) % activePool.length];
+};
+
+export const buildBenchmarkQuestions = (
+  setup: BenchmarkSetup,
+  options: BuildBenchmarkQuestionOptions = {}
+): BenchmarkQuestion[] => {
+  const attemptIndex = options.attemptIndex ?? 0;
+  const usedTemplateIds = new Set<string>();
+  const recentRelevantReports = (options.recentReports || [])
+    .filter((report) => matchesSetup(report.setup, setup) && report.questions?.length)
+    .sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime())
+    .slice(0, 2);
+  const recentlyUsedTemplateIds = new Set(
+    recentRelevantReports.flatMap((report) => report.questions.map((question) => question.templateId))
+  );
+
+  return getBenchmarkPlan(setup)
+    .map((slotDefinition, slotIndex) => {
+      const template = selectQuestionTemplate(
+        setup.language,
+        slotDefinition,
+        setup,
+        attemptIndex,
+        slotIndex,
+        usedTemplateIds,
+        recentlyUsedTemplateIds
+      );
+
+      if (!template) return null;
+
+      usedTemplateIds.add(template.templateId);
+
+      return {
+        id: `${template.templateId}-a${attemptIndex + 1}-s${slotIndex + 1}`,
+        templateId: template.templateId,
+        slotId: slotDefinition.slotId,
+        lessonId: template.lessonId,
+        lessonTitle: template.lessonTitle,
+        prompt: template.prompt,
+        options: template.options,
+        correctAnswer: template.correctAnswer,
+        explanation: template.explanation,
+        competency: template.competency,
+        difficulty: template.difficulty,
+        weight: getQuestionWeight(setup, template),
+      };
+    })
     .filter((question): question is BenchmarkQuestion => Boolean(question));
+};
 
 const getTrackRecommendations = (setup: BenchmarkSetup, weaknesses: string[]): string[] => {
   const directTrack = interviewTracks.find(
     (track) => track.benchmarkLanguage === setup.language && track.benchmarkRole === setup.roleLevel && track.benchmarkGoal === setup.goal
   );
   const fallbackLanguageTrack = interviewTracks.find((track) => track.language === setup.language);
-  const weaknessTrack = weaknesses.some((weakness) => weakness.toLowerCase().includes('arrays'))
+  const weaknessTrack = weaknesses.some(
+    (weakness) =>
+      weakness.toLowerCase().includes('collections') ||
+      weakness.toLowerCase().includes('problem solving') ||
+      weakness.toLowerCase().includes('objects and classes')
+  )
     ? interviewTracks.find((track) => track.id === 'data-structures-algorithms')
     : undefined;
+  const goalTrack =
+    setup.goal === 'interview_prep'
+      ? interviewTracks.find((track) => track.id === 'junior-developer-screening')
+      : setup.goal === 'skill_growth'
+      ? interviewTracks.find((track) => track.id === 'backend-problem-solving')
+      : undefined;
 
-  return [directTrack?.id, weaknessTrack?.id, fallbackLanguageTrack?.id].filter(
+  return [directTrack?.id, weaknessTrack?.id, goalTrack?.id, fallbackLanguageTrack?.id].filter(
     (value, index, values): value is string => Boolean(value) && values.indexOf(value) === index
   );
 };
@@ -172,8 +414,7 @@ const getSuggestedLessons = (questions: BenchmarkQuestion[], weaknesses: string[
 };
 
 const getSuggestedDuelProblems = (overallScore: number) => {
-  const targetDifficulty =
-    overallScore >= 80 ? 'medium' : overallScore >= 55 ? 'easy' : 'easy';
+  const targetDifficulty = overallScore >= 80 ? 'medium' : 'easy';
 
   return duelProblemCatalog
     .filter((problem) => problem.difficulty === targetDifficulty)
@@ -181,16 +422,93 @@ const getSuggestedDuelProblems = (overallScore: number) => {
     .map((problem) => problem.title);
 };
 
-const getSummary = (setup: BenchmarkSetup, overallScore: number) => {
-  if (overallScore >= 80) {
-    return `You already show strong ${setup.language} readiness. Use duels and interview tracks to prove consistency under pressure.`;
+const benchmarkRoleBaselineScores: Record<BenchmarkRoleLevel, number> = {
+  beginner: 44,
+  intern: 58,
+  junior: 72,
+  general_practice: 60,
+};
+
+const benchmarkRoleCompetencies: Record<BenchmarkRoleLevel, string[]> = {
+  beginner: ['Syntax and variables', 'Data types and operators', 'Control flow'],
+  intern: ['Control flow', 'Collections', 'Functions'],
+  junior: ['Functions', 'Collections', 'Problem solving', 'Objects and classes'],
+  general_practice: ['Collections', 'Functions', 'Problem solving'],
+};
+
+const benchmarkGoalCompetencies: Record<BenchmarkGoal, string[]> = {
+  interview_prep: ['Problem solving', 'Objects and classes'],
+  class_improvement: ['Syntax and variables', 'Data types and operators', 'Control flow'],
+  skill_growth: ['Collections', 'Functions', 'Problem solving'],
+};
+
+const getRoleEstimate = (
+  setup: BenchmarkSetup,
+  overallScore: number,
+  competencyScores: Array<{ competency: string; ratio: number }>
+): BenchmarkEstimation => {
+  const targetRoleLabel = {
+    beginner: 'beginner baseline',
+    intern: 'intern-ready baseline',
+    junior: 'junior screening baseline',
+    general_practice: 'general practice baseline',
+  }[setup.roleLevel];
+  const baselineScore =
+    benchmarkRoleBaselineScores[setup.roleLevel] +
+    (setup.goal === 'interview_prep' && setup.roleLevel !== 'beginner' ? 3 : 0) -
+    (setup.goal === 'class_improvement' && setup.roleLevel === 'beginner' ? 2 : 0);
+  const scoreMap = new Map(competencyScores.map((entry) => [entry.competency, entry.ratio]));
+  const requiredCompetencies = Array.from(
+    new Set([...benchmarkRoleCompetencies[setup.roleLevel], ...benchmarkGoalCompetencies[setup.goal]])
+  );
+  const competencyCoveragePercent = clamp(
+    Math.round(
+      (requiredCompetencies.reduce((total, competency) => total + (scoreMap.get(competency) ?? 0), 0) /
+        Math.max(1, requiredCompetencies.length)) *
+        100
+    ),
+    0,
+    100
+  );
+  const calibratedScore = Math.round(overallScore * 0.78 + competencyCoveragePercent * 0.22);
+
+  if (calibratedScore >= baselineScore + 10) {
+    return {
+      label: `At or above the selected ${targetRoleLabel}`,
+      description: `Your score and competency coverage both land above the expected range for the selected ${targetRoleLabel} in ${setup.language}.`,
+      targetRoleLabel,
+      baselineScore,
+      competencyCoveragePercent,
+    };
   }
 
-  if (overallScore >= 55) {
-    return `You have a workable ${setup.language} base, but you need a tighter practice loop before relying on live duels or interview screens.`;
+  if (calibratedScore >= baselineScore - 2) {
+    return {
+      label: `Close to the selected ${targetRoleLabel}`,
+      description: `You are within reach of the selected ${targetRoleLabel}, but the benchmark still shows inconsistent performance in the required competencies.`,
+      targetRoleLabel,
+      baselineScore,
+      competencyCoveragePercent,
+    };
   }
 
-  return `Your benchmark shows foundational gaps in ${setup.language}. Focus on the roadmap first, then move into timed challenge practice.`;
+  if (calibratedScore >= baselineScore - 14) {
+    return {
+      label: `Developing toward the selected ${targetRoleLabel}`,
+      description: `You have partial readiness for the selected ${targetRoleLabel}, but the benchmark still shows material gaps that should be closed before relying on performance under pressure.`,
+      targetRoleLabel,
+      baselineScore,
+      competencyCoveragePercent,
+    };
+  }
+
+  return {
+    label: `Below the selected ${targetRoleLabel}`,
+    description: `Your benchmark shows foundational gaps relative to the selected ${targetRoleLabel}. Focus on the roadmap first, then retake to measure the next delta.`,
+    targetRoleLabel,
+    baselineScore,
+    competencyCoveragePercent,
+  };
 };
 
 const isValidBenchmarkSetup = (value: any): value is BenchmarkSetup =>
@@ -199,53 +517,90 @@ const isValidBenchmarkSetup = (value: any): value is BenchmarkSetup =>
   (value.language === 'python' || value.language === 'javascript' || value.language === 'java' || value.language === 'cpp') &&
   (value.roleLevel === 'beginner' || value.roleLevel === 'intern' || value.roleLevel === 'junior' || value.roleLevel === 'general_practice');
 
-const getDuelReadiness = (overallScore: number) => {
+const getSummary = (setup: BenchmarkSetup, estimate: BenchmarkEstimation) => {
+  const coverageLabel = `${estimate.competencyCoveragePercent}% of the required competency blueprint`;
+
+  if (setup.goal === 'class_improvement') {
+    return `${estimate.label}. This attempt covered ${coverageLabel}, so use it to identify who needs guided remediation before the next cohort checkpoint.`;
+  }
+
+  if (setup.goal === 'interview_prep') {
+    return `${estimate.label}. This attempt covered ${coverageLabel}, so use interview-style practice and another benchmark pass to prove that the score holds under repeat pressure.`;
+  }
+
+  return `${estimate.label}. This attempt covered ${coverageLabel}, so use the roadmap to strengthen the weakest competencies, then retake to turn practice into visible score movement.`;
+};
+
+const getDuelReadiness = (overallScore: number, answeredRatio: number) => {
+  const coverageBonus = Math.round(answeredRatio * 10);
+
   if (overallScore >= 80) {
     return {
       label: 'Ready for ranked duels',
       description: 'You can start using duels as proof of skill while keeping a practice path active.',
-      confidencePercent: 86,
+      confidencePercent: clamp(78 + coverageBonus, 0, 94),
     };
   }
 
-  if (overallScore >= 55) {
+  if (overallScore >= 60) {
     return {
       label: 'Practice before ranked duels',
       description: 'You are close. Focus on the suggested path, then step into duels with better confidence.',
-      confidencePercent: 64,
+      confidencePercent: clamp(56 + coverageBonus, 0, 88),
     };
   }
 
   return {
     label: 'Build fundamentals first',
     description: 'Use the roadmap to strengthen fundamentals before relying on duel performance as a signal.',
-    confidencePercent: 32,
+    confidencePercent: clamp(28 + coverageBonus, 0, 72),
   };
 };
 
 export const buildBenchmarkReport = (
   setup: BenchmarkSetup,
   questions: BenchmarkQuestion[],
-  answerRecords: BenchmarkAnswerRecord[]
+  answerRecords: BenchmarkAnswerRecord[],
+  options: BuildBenchmarkQuestionOptions = {}
 ): BenchmarkReport => {
+  const attemptIndex = options.attemptIndex ?? 0;
   const correctAnswers = answerRecords.filter((record) => record.isCorrect).length;
   const totalQuestions = Math.max(1, questions.length);
-  const overallScore = Math.round((correctAnswers / totalQuestions) * 100);
+  const answerRecordMap = new Map(answerRecords.map((record) => [record.questionId, record]));
+  let weightedCorrect = 0;
+  let weightedTotal = 0;
+  const answeredCount = answerRecords.filter((record) => record.selectedAnswer >= 0).length;
+  const competencyMap = new Map<string, { correctWeight: number; totalWeight: number; correct: number; total: number }>();
 
-  const competencyMap = new Map<string, { correct: number; total: number }>();
   questions.forEach((question) => {
-    const current = competencyMap.get(question.competency) ?? { correct: 0, total: 0 };
-    const answer = answerRecords.find((record) => record.questionId === question.id);
+    const current = competencyMap.get(question.competency) ?? {
+      correctWeight: 0,
+      totalWeight: 0,
+      correct: 0,
+      total: 0,
+    };
+    const answer = answerRecordMap.get(question.id);
+    const weight = question.weight || difficultyWeights[question.difficulty];
+
+    weightedTotal += weight;
+    if (answer?.isCorrect) {
+      weightedCorrect += weight;
+    }
+
     competencyMap.set(question.competency, {
+      totalWeight: current.totalWeight + weight,
+      correctWeight: current.correctWeight + (answer?.isCorrect ? weight : 0),
       total: current.total + 1,
       correct: current.correct + (answer?.isCorrect ? 1 : 0),
     });
   });
 
+  const overallScore = clamp(Math.round((weightedCorrect / Math.max(1, weightedTotal)) * 100), 0, 100);
   const competencyScores = Array.from(competencyMap.entries()).map(([competency, score]) => ({
     competency,
-    ratio: score.total > 0 ? score.correct / score.total : 0,
+    ratio: score.totalWeight > 0 ? score.correctWeight / score.totalWeight : 0,
   }));
+  const estimation = getRoleEstimate(setup, overallScore, competencyScores);
 
   const strengths = competencyScores
     .filter((entry) => entry.ratio >= 0.7)
@@ -267,6 +622,8 @@ export const buildBenchmarkReport = (
 
   return {
     id: reportId,
+    benchmarkVersion: BENCHMARK_VERSION,
+    attemptIndex,
     setup,
     overallScore,
     correctAnswers,
@@ -276,9 +633,52 @@ export const buildBenchmarkReport = (
     recommendedTrackIds,
     suggestedLessonIds: getSuggestedLessons(questions, weaknesses, recommendedTrackIds),
     suggestedDuelProblemTitles: getSuggestedDuelProblems(overallScore),
-    duelReadiness: getDuelReadiness(overallScore),
-    summary: getSummary(setup, overallScore),
+    duelReadiness: getDuelReadiness(overallScore, answeredCount / totalQuestions),
+    estimation,
+    summary: getSummary(setup, estimation),
     createdAt: new Date().toISOString(),
+    questions,
+    answerRecords,
+  };
+};
+
+export const hydrateBenchmarkReport = (report: BenchmarkReport): BenchmarkReport => {
+  if (!report?.setup || !isValidBenchmarkSetup(report.setup)) {
+    return report;
+  }
+
+  const attemptIndex = typeof report.attemptIndex === 'number' ? report.attemptIndex : 0;
+  const questions =
+    Array.isArray(report.questions) && report.questions.length > 0
+      ? report.questions
+      : buildBenchmarkQuestions(report.setup, { attemptIndex });
+  const answerRecords = Array.isArray(report.answerRecords) ? report.answerRecords : [];
+  const fallback = buildBenchmarkReport(report.setup, questions, answerRecords, { attemptIndex });
+
+  return {
+    ...report,
+    benchmarkVersion: report.benchmarkVersion || BENCHMARK_VERSION,
+    attemptIndex,
+    correctAnswers: Number.isFinite(report.correctAnswers) ? report.correctAnswers : fallback.correctAnswers,
+    totalQuestions: Number.isFinite(report.totalQuestions) ? report.totalQuestions : questions.length,
+    strengths: Array.isArray(report.strengths) && report.strengths.length > 0 ? report.strengths : fallback.strengths,
+    weaknesses: Array.isArray(report.weaknesses) && report.weaknesses.length > 0 ? report.weaknesses : fallback.weaknesses,
+    recommendedTrackIds:
+      Array.isArray(report.recommendedTrackIds) && report.recommendedTrackIds.length > 0
+        ? report.recommendedTrackIds
+        : fallback.recommendedTrackIds,
+    suggestedLessonIds:
+      Array.isArray(report.suggestedLessonIds) && report.suggestedLessonIds.length > 0
+        ? report.suggestedLessonIds
+        : fallback.suggestedLessonIds,
+    suggestedDuelProblemTitles:
+      Array.isArray(report.suggestedDuelProblemTitles) && report.suggestedDuelProblemTitles.length > 0
+        ? report.suggestedDuelProblemTitles
+        : fallback.suggestedDuelProblemTitles,
+    duelReadiness: report.duelReadiness || fallback.duelReadiness,
+    estimation: report.estimation || fallback.estimation,
+    summary: report.summary || fallback.summary,
+    questions,
     answerRecords,
   };
 };
@@ -292,7 +692,7 @@ const normalizeBenchmarkHistory = (reports: Array<BenchmarkReport | null | undef
     reports
       .filter((report): report is BenchmarkReport => Boolean(report?.id && report?.createdAt))
       .reduce((map, report) => {
-        map.set(report.id, report);
+        map.set(report.id, hydrateBenchmarkReport(report));
         return map;
       }, new Map<string, BenchmarkReport>())
       .values()
@@ -383,13 +783,18 @@ export const buildSampleBenchmarkReport = (): BenchmarkReport => {
     language: 'python',
     roleLevel: 'junior',
   };
-  const questions = buildBenchmarkQuestions(setup);
-  const answerRecords = questions.map((question, index) => ({
-    questionId: question.id,
-    selectedAnswer: index % 3 === 0 ? question.correctAnswer : 0,
-    isCorrect: index % 3 === 0 || index % 2 === 0,
-  }));
-  const report = buildBenchmarkReport(setup, questions, answerRecords);
+  const questions = buildBenchmarkQuestions(setup, { attemptIndex: 1 });
+  const answerRecords = questions.map((question, index) => {
+    const shouldBeCorrect = index % 3 === 0 || index % 2 === 0;
+    const incorrectOption = question.options.findIndex((_, optionIndex) => optionIndex !== question.correctAnswer);
+
+    return {
+      questionId: question.id,
+      selectedAnswer: shouldBeCorrect ? question.correctAnswer : Math.max(0, incorrectOption),
+      isCorrect: shouldBeCorrect,
+    };
+  });
+  const report = buildBenchmarkReport(setup, questions, answerRecords, { attemptIndex: 1 });
 
   return {
     ...report,
@@ -397,9 +802,9 @@ export const buildSampleBenchmarkReport = (): BenchmarkReport => {
     isSample: true,
     overallScore: 72,
     correctAnswers: 4,
-    totalQuestions: 6,
+    totalQuestions: questions.length,
     strengths: ['Syntax and variables', 'Control flow'],
-    weaknesses: ['Collections', 'Objects and classes'],
+    weaknesses: ['Problem solving', 'Objects and classes'],
     recommendedTrackIds: ['python-fundamentals', 'backend-problem-solving'],
     suggestedLessonIds: ['python-lists', 'python-functions', 'python-oop', 'python-dictionaries'],
     suggestedDuelProblemTitles: ['Curie\'s Cold Notes', 'Franklin\'s Signal Majority', 'Galileo\'s Rising Streak'],
@@ -407,6 +812,14 @@ export const buildSampleBenchmarkReport = (): BenchmarkReport => {
       label: 'Practice before ranked duels',
       description: 'You are close. One focused practice block would make your duel performance much more reliable.',
       confidencePercent: 68,
+    },
+    estimation: {
+      label: 'Close to the selected junior screening baseline',
+      description:
+        'This sample report shows a learner who is near junior-level screening readiness, but still needs more consistent performance in problem solving and object-oriented questions.',
+      targetRoleLabel: 'junior screening baseline',
+      baselineScore: 75,
+      competencyCoveragePercent: 69,
     },
     summary:
       'This sample report shows how Codhak turns a short benchmark into a score, a roadmap, and clear next steps for interview-style practice.',
