@@ -4,7 +4,15 @@ import { Link } from 'react-router-dom';
 import { useUser } from '../context/UserContext';
 import { useAuth } from '../context/AuthContext';
 import { usePlanEntitlements } from '../hooks/usePlanEntitlements';
-import { formatPlanRenewalDate, getSelfServePlanProductByPlanName, type PlanStoreProduct } from '../lib/billing';
+import {
+  createCustomerPortalSession,
+  createPlanCheckoutSession,
+  formatPlanRenewalDate,
+  getSelfServePlanProductByPlanName,
+  isRecurringPlanEntitlement,
+  isRecurringPlanProduct,
+  type PlanStoreProduct,
+} from '../lib/billing';
 import StripeCheckout from './StripeCheckout';
 import MascotIcon from './branding/MascotIcon';
 import { purchaseStoreItem } from '../lib/store';
@@ -426,6 +434,7 @@ const Store: React.FC = () => {
   const [selectedCheckout, setSelectedCheckout] = useState<CheckoutSelection | null>(null);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [processingItemId, setProcessingItemId] = useState<string | null>(null);
+  const [managingBilling, setManagingBilling] = useState(false);
 
   const storeItems = useMemo(() => {
     return (STORE_ITEMS as StoreCatalogItem[])
@@ -512,6 +521,24 @@ const Store: React.FC = () => {
   };
 
   const handlePlanCheckout = (product: PlanStoreProduct) => {
+    if (isRecurringPlanProduct(product)) {
+      setProcessingItemId(product.id);
+      void (async () => {
+        try {
+          const payload = await createPlanCheckoutSession(product.id, '/pricing?source=store');
+          window.location.assign(payload.url);
+        } catch (error: any) {
+          setProcessingItemId(null);
+          addNotification({
+            message: error?.message || 'Subscription checkout could not be started.',
+            type: 'error',
+            icon: '\u274C',
+          });
+        }
+      })();
+      return;
+    }
+
     setSelectedCheckout({
       itemId: product.id,
       amount: product.stripeAmountCents,
@@ -521,6 +548,23 @@ const Store: React.FC = () => {
       successMessage: `${product.planName} is active for ${product.durationDays} days.`,
     });
     setShowPaymentModal(true);
+  };
+
+  const handleManageBilling = async () => {
+    if (managingBilling) return;
+
+    setManagingBilling(true);
+    try {
+      const payload = await createCustomerPortalSession('/app?section=store');
+      window.location.assign(payload.url);
+    } catch (error: any) {
+      setManagingBilling(false);
+      addNotification({
+        message: error?.message || 'Billing management is not available right now.',
+        type: 'error',
+        icon: '\u274C',
+      });
+    }
   };
 
   const handlePaymentSuccess = async (paymentResult: { coinsGranted?: number }) => {
@@ -607,6 +651,17 @@ const Store: React.FC = () => {
                   ) : null}
                 </div>
               ) : null}
+              {primaryPlan && isRecurringPlanEntitlement(primaryPlan) ? (
+                <button
+                  type="button"
+                  onClick={handleManageBilling}
+                  disabled={managingBilling}
+                  className="mt-4 inline-flex items-center gap-2 rounded-xl border border-border bg-card px-4 py-2.5 text-sm font-semibold text-foreground transition hover:bg-secondary disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  <span>{managingBilling ? 'Opening billing portal...' : 'Manage billing'}</span>
+                  <ArrowRight className="h-4 w-4" />
+                </button>
+              ) : null}
             </div>
           </div>
         </aside>
@@ -673,7 +728,10 @@ const Store: React.FC = () => {
                 onCheckout={handlePlanCheckout}
                 isActive={Boolean(entitlement)}
                 activeUntilLabel={formatPlanRenewalDate(entitlement?.currentPeriodEnd)}
-                isCheckoutProcessing={selectedCheckout?.kind === 'plan' && product?.id === selectedCheckout.itemId}
+                isCheckoutProcessing={
+                  processingItemId === product?.id ||
+                  (selectedCheckout?.kind === 'plan' && product?.id === selectedCheckout.itemId)
+                }
               />
             );
           })}

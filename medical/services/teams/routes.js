@@ -143,6 +143,30 @@ const buildProgressTimeline = (reports) => {
   });
 };
 
+const getRecommendedTeamAction = ({ latestScore, improvementDelta, latestBenchmarkAt }) => {
+  if (latestScore === null || latestScore === undefined) {
+    return 'Needs first benchmark';
+  }
+
+  const benchmarkAgeDays = latestBenchmarkAt
+    ? Math.floor((Date.now() - new Date(latestBenchmarkAt).getTime()) / (1000 * 60 * 60 * 24))
+    : null;
+
+  if (latestScore < 55) {
+    return 'Needs guided practice';
+  }
+
+  if ((improvementDelta !== null && improvementDelta >= 8) || (benchmarkAgeDays !== null && benchmarkAgeDays >= 7)) {
+    return 'Ready for retake';
+  }
+
+  if (latestScore >= 80) {
+    return 'Ready for competitive proof';
+  }
+
+  return 'Continue roadmap';
+};
+
 const buildTeamDetail = ({ team, memberships, profiles, assignments, invites, reports }) => {
   const profileMap = new Map((profiles || []).map((profile) => [profile.id, profile]));
   const latestReportsByUser = new Map();
@@ -162,7 +186,18 @@ const buildTeamDetail = ({ team, memberships, profiles, assignments, invites, re
 
   const members = memberships.map((membership) => {
     const profile = profileMap.get(membership.user_id);
+    const memberReports = reportsByUser.get(membership.user_id) || [];
+    const orderedReports = [...memberReports].sort(
+      (left, right) => new Date(left.created_at).getTime() - new Date(right.created_at).getTime()
+    );
     const latestReport = latestReportsByUser.get(membership.user_id);
+    const earliestReport = orderedReports[0];
+    const improvementDelta =
+      orderedReports.length >= 2
+        ? Number(latestReport?.overall_score || 0) - Number(earliestReport?.overall_score || 0)
+        : null;
+    const latestScore = latestReport ? Number(latestReport.overall_score || 0) : null;
+
     return {
       userId: membership.user_id,
       name: profile?.name || profile?.email || 'Codhak learner',
@@ -172,9 +207,16 @@ const buildTeamDetail = ({ team, memberships, profiles, assignments, invites, re
       status: membership.status,
       joinedAt: membership.joined_at,
       currentStreak: Number(profile?.current_streak || 0),
-      latestBenchmarkScore: latestReport ? Number(latestReport.overall_score || 0) : null,
+      latestBenchmarkScore: latestScore,
       latestBenchmarkAt: latestReport?.created_at || null,
+      benchmarkCount: orderedReports.length,
+      improvementDelta,
       latestBenchmarkStatus: latestReport ? 'Benchmarked' : 'Benchmark pending',
+      recommendedAction: getRecommendedTeamAction({
+        latestScore,
+        improvementDelta,
+        latestBenchmarkAt: latestReport?.created_at || null,
+      }),
     };
   });
 
@@ -213,6 +255,10 @@ const buildTeamDetail = ({ team, memberships, profiles, assignments, invites, re
       averageImprovement: improvementDeltas.length
         ? Math.round(improvementDeltas.reduce((total, value) => total + value, 0) / improvementDeltas.length)
         : null,
+      needsAttentionCount: members.filter(
+        (member) => member.latestBenchmarkScore === null || Number(member.latestBenchmarkScore || 0) < 55
+      ).length,
+      retakeReadyCount: members.filter((member) => member.recommendedAction === 'Ready for retake').length,
       topPerformer: topPerformer
         ? {
             name: topPerformer.name,

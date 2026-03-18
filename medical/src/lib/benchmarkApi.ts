@@ -63,3 +63,34 @@ export const persistBenchmarkReport = async (report: BenchmarkReport) => {
   return payload.report;
 };
 
+export const shareBenchmarkReport = async (reportId: string) => {
+  const payload = await benchmarkFetch<{ report: BenchmarkReport }>(`/reports/${encodeURIComponent(reportId)}/share`, {
+    method: 'POST',
+  });
+  return payload.report;
+};
+
+export const unshareBenchmarkReport = async (reportId: string) => {
+  const payload = await benchmarkFetch<{ report: BenchmarkReport }>(`/reports/${encodeURIComponent(reportId)}/share`, {
+    method: 'DELETE',
+  });
+  return payload.report;
+};
+
+export const fetchSharedBenchmarkReport = async (publicToken: string) => {
+  try {
+    const response = await fetch(buildBenchmarkApiUrl(`/shared/${encodeURIComponent(publicToken)}`));
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error((payload as { error?: string }).error || 'Could not load the shared benchmark report.');
+    }
+
+    return (payload as { report?: BenchmarkReport }).report || null;
+  } catch (error) {
+    if (error instanceof TypeError) {
+      throw new BenchmarkApiUnavailableError('Could not reach the benchmark API.');
+    }
+
+    throw error;
+  }
+};

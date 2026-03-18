@@ -227,6 +227,21 @@ export default function TeamsWorkspace({ mode = 'public' }: TeamsWorkspaceProps)
   const [assignmentTitle, setAssignmentTitle] = useState('');
 
   const canManageTeam = useMemo(() => ['owner', 'admin', 'coach'].includes(teamDetail?.team.currentUserRole || ''), [teamDetail?.team.currentUserRole]);
+  const improvementLeaders = useMemo(
+    () =>
+      [...(teamDetail?.members || [])]
+        .filter((member) => member.improvementDelta !== null)
+        .sort((left, right) => Number(right.improvementDelta || 0) - Number(left.improvementDelta || 0))
+        .slice(0, 4),
+    [teamDetail?.members]
+  );
+  const attentionQueue = useMemo(
+    () =>
+      [...(teamDetail?.members || [])]
+        .filter((member) => member.latestBenchmarkScore === null || Number(member.latestBenchmarkScore || 0) < 55)
+        .slice(0, 4),
+    [teamDetail?.members]
+  );
 
   useEffect(() => {
     if (mode !== 'app' || !user) return;
@@ -442,7 +457,7 @@ export default function TeamsWorkspace({ mode = 'public' }: TeamsWorkspaceProps)
           </div>
         ) : (
           <>
-            <div className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+            <div className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
               <div className={workspaceMetricClass}>
                 <div className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Active learners</div>
                 <div className="mt-2 text-3xl font-semibold text-foreground">{teamDetail.metrics.activeLearners}</div>
@@ -458,6 +473,16 @@ export default function TeamsWorkspace({ mode = 'public' }: TeamsWorkspaceProps)
                 <div className="mt-2 text-3xl font-semibold text-foreground">{teamDetail.metrics.medianScore ?? '--'}/100</div>
                 <p className="mt-1 text-sm text-muted-foreground">Based on each learner's latest benchmark.</p>
               </div>
+              <div className={workspaceMetricClass}>
+                <div className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Retake ready</div>
+                <div className="mt-2 text-3xl font-semibold text-foreground">{teamDetail.metrics.retakeReadyCount}</div>
+                <p className="mt-1 text-sm text-muted-foreground">Learners with enough signal for another benchmark pass.</p>
+              </div>
+              <div className={workspaceMetricClass}>
+                <div className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Needs attention</div>
+                <div className="mt-2 text-3xl font-semibold text-foreground">{teamDetail.metrics.needsAttentionCount}</div>
+                <p className="mt-1 text-sm text-muted-foreground">Learners still below baseline or missing a first benchmark.</p>
+              </div>
             </div>
 
             <div className="mt-6 grid gap-4 lg:grid-cols-2">
@@ -469,11 +494,20 @@ export default function TeamsWorkspace({ mode = 'public' }: TeamsWorkspaceProps)
                       <div className="flex items-center justify-between gap-3">
                         <div>
                           <div className="text-sm font-semibold text-foreground">{member.name}</div>
-                          <div className="mt-1 text-sm text-muted-foreground">{member.latestBenchmarkStatus} - {member.role}</div>
+                          <div className="mt-1 text-sm text-muted-foreground">
+                            {member.latestBenchmarkStatus} - {member.role}
+                          </div>
+                          <div className="mt-2 inline-flex rounded-full bg-background px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                            {member.recommendedAction}
+                          </div>
                         </div>
                         <div className="text-right">
                           <div className="text-sm font-semibold text-foreground">{member.latestBenchmarkScore ?? '--'}/100</div>
-                          <div className="mt-1 text-xs uppercase tracking-[0.18em] text-muted-foreground">{member.currentStreak}d streak</div>
+                          <div className="mt-1 text-xs uppercase tracking-[0.18em] text-muted-foreground">
+                            {member.improvementDelta !== null
+                              ? `${member.improvementDelta > 0 ? '+' : ''}${member.improvementDelta} pts`
+                              : `${member.currentStreak}d streak`}
+                          </div>
                         </div>
                       </div>
                     </li>
@@ -535,6 +569,60 @@ export default function TeamsWorkspace({ mode = 'public' }: TeamsWorkspaceProps)
         <div className={workspacePanelClass}>
           <div className="text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground">Progress over time</div>
           {renderProgressBars(teamDetail?.metrics.progressTimeline || demoTimeline)}
+        </div>
+
+        <div className={workspacePanelClass}>
+          <div className="text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground">Improvement leaders</div>
+          <div className="mt-4 space-y-3 text-sm text-muted-foreground">
+            {improvementLeaders.length > 0 ? (
+              improvementLeaders.map((member) => (
+                <div key={member.userId} className="rounded-2xl border border-border bg-card px-4 py-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <div className="font-semibold text-foreground">{member.name}</div>
+                      <div className="mt-1 text-xs uppercase tracking-[0.16em] text-muted-foreground">
+                        {member.benchmarkCount} benchmark{member.benchmarkCount === 1 ? '' : 's'}
+                      </div>
+                    </div>
+                    <div className="text-right font-semibold text-foreground">
+                      {member.improvementDelta !== null ? `${member.improvementDelta > 0 ? '+' : ''}${member.improvementDelta} pts` : '--'}
+                    </div>
+                  </div>
+                </div>
+              ))
+            ) : (
+              <div className="rounded-2xl border border-border bg-card px-4 py-3">
+                Repeat benchmarks will populate cohort improvement leaders here.
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className={workspacePanelClass}>
+          <div className="text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground">Attention queue</div>
+          <div className="mt-4 space-y-3 text-sm text-muted-foreground">
+            {attentionQueue.length > 0 ? (
+              attentionQueue.map((member) => (
+                <div key={member.userId} className="rounded-2xl border border-border bg-card px-4 py-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <div className="font-semibold text-foreground">{member.name}</div>
+                      <div className="mt-1 text-xs uppercase tracking-[0.16em] text-muted-foreground">
+                        {member.recommendedAction}
+                      </div>
+                    </div>
+                    <div className="text-right font-semibold text-foreground">
+                      {member.latestBenchmarkScore ?? '--'}/100
+                    </div>
+                  </div>
+                </div>
+              ))
+            ) : (
+              <div className="rounded-2xl border border-border bg-card px-4 py-3">
+                No immediate attention cases. This cohort is either benchmarked or above the current baseline.
+              </div>
+            )}
+          </div>
         </div>
 
         <div className={workspacePanelClass}>

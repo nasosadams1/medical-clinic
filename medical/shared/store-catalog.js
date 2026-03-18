@@ -3,6 +3,9 @@ export const STORE_ITEMS = Object.freeze([
     id: 'pro_monthly',
     source: 'stripe',
     kind: 'plan',
+    billingMode: 'subscription',
+    billingInterval: 'month',
+    billingIntervalCount: 1,
     name: 'Pro',
     description: 'Full skill reports, unlimited assessed practice, interview tracks, and advanced duel analytics.',
     stripeAmountCents: 1900,
@@ -17,6 +20,7 @@ export const STORE_ITEMS = Object.freeze([
     id: 'interview_sprint',
     source: 'stripe',
     kind: 'plan',
+    billingMode: 'fixed_term',
     name: 'Interview Sprint',
     description: 'An 8-week interview-readiness package with focused benchmark, practice, and challenge coverage.',
     stripeAmountCents: 14900,
@@ -219,4 +223,8 @@ export function isCoinStoreItem(item) {
 
 export function isPlanStoreItem(item) {
   return Boolean(item && item.kind === 'plan');
+}
+
+export function isSubscriptionPlanStoreItem(item) {
+  return Boolean(item && item.kind === 'plan' && item.billingMode === 'subscription');
 }

@@ -26,6 +26,7 @@ import DemoRequestCard from './DemoRequestCard';
 import MarketingLayout from './MarketingLayout';
 import { useAuth } from '../../context/AuthContext';
 import { usePlanEntitlements } from '../../hooks/usePlanEntitlements';
+import type { BenchmarkReport } from '../../data/benchmarkCatalog';
 import { buildSampleBenchmarkReport } from '../../data/benchmarkCatalog';
 import {
   audienceSegments,
@@ -37,8 +38,18 @@ import {
   testimonialPlaceholders,
   type LanguageSlug,
 } from '../../data/siteContent';
-import { formatPlanRenewalDate, getSelfServePlanProductByPlanName, type PlanStoreProduct } from '../../lib/billing';
+import {
+  createCustomerPortalSession,
+  createPlanCheckoutSession,
+  finalizePlanCheckoutSession,
+  formatPlanRenewalDate,
+  getSelfServePlanProductByPlanName,
+  isRecurringPlanEntitlement,
+  isRecurringPlanProduct,
+  type PlanStoreProduct,
+} from '../../lib/billing';
 import { fetchProductAnalyticsSummary, trackEvent } from '../../lib/analytics';
+import { fetchSharedBenchmarkReport } from '../../lib/benchmarkApi';
 import { usePageMetadata } from '../../lib/pageMeta';
 import heroBg from '../../assets/design/hero-bg.jpg';
 import mascot from '../../assets/design/mascot.png';
@@ -130,10 +141,60 @@ function FeatureCard({
 function PricingGrid({ openAuthModal }: { openAuthModal: (view?: AuthModalView) => void }) {
   const navigate = useNavigate();
   const { user } = useAuth();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { getPlanEntitlement, refresh: refreshPlanEntitlements } = usePlanEntitlements();
   const [selectedPlanProduct, setSelectedPlanProduct] = useState<PlanStoreProduct | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [redirectingPlanId, setRedirectingPlanId] = useState<string | null>(null);
+  const [managingBilling, setManagingBilling] = useState(false);
+  const checkoutHandledRef = useRef('');
+
+  useEffect(() => {
+    const checkoutState = searchParams.get('checkout');
+    const sessionId = searchParams.get('session_id');
+
+    if (checkoutState === 'success' && sessionId && checkoutHandledRef.current !== sessionId) {
+      checkoutHandledRef.current = sessionId;
+
+      void (async () => {
+        try {
+          const payload = await finalizePlanCheckoutSession(sessionId);
+          const refreshedEntitlements = await refreshPlanEntitlements();
+          const activeEntitlement =
+            refreshedEntitlements.find((entitlement) => entitlement.id === payload.entitlement.id) || payload.entitlement;
+
+          setErrorMessage(null);
+          setSuccessMessage(
+            `${activeEntitlement.planName} is now active${
+              activeEntitlement.currentPeriodEnd
+                ? ` through ${formatPlanRenewalDate(activeEntitlement.currentPeriodEnd) || 'your current billing window'}`
+                : ''
+            }.`
+          );
+        } catch (error: any) {
+          setErrorMessage(error?.message || 'We could not verify the subscription after checkout.');
+        } finally {
+          const nextParams = new URLSearchParams(searchParams);
+          nextParams.delete('checkout');
+          nextParams.delete('session_id');
+          nextParams.delete('plan');
+          setSearchParams(nextParams, { replace: true });
+        }
+      })();
+
+      return;
+    }
+
+    if (checkoutState === 'cancelled') {
+      setErrorMessage('Checkout was cancelled before the subscription started.');
+      const nextParams = new URLSearchParams(searchParams);
+      nextParams.delete('checkout');
+      nextParams.delete('session_id');
+      nextParams.delete('plan');
+      setSearchParams(nextParams, { replace: true });
+    }
+  }, [refreshPlanEntitlements, searchParams, setSearchParams]);
 
   const handlePlanClick = (planName: string) => {
     trackEvent('subscription_cta_clicked', { plan: planName, source: 'pricing_grid' });
@@ -165,6 +226,23 @@ function PricingGrid({ openAuthModal }: { openAuthModal: (view?: AuthModalView) 
         return;
       }
 
+      if (isRecurringPlanProduct(selfServeProduct)) {
+        setRedirectingPlanId(selfServeProduct.id);
+        setErrorMessage(null);
+        setSuccessMessage(null);
+
+        void (async () => {
+          try {
+            const payload = await createPlanCheckoutSession(selfServeProduct.id, '/pricing');
+            window.location.assign(payload.url);
+          } catch (error: any) {
+            setErrorMessage(error?.message || 'Checkout could not be started right now.');
+            setRedirectingPlanId(null);
+          }
+        })();
+        return;
+      }
+
       setSelectedPlanProduct(selfServeProduct);
       setErrorMessage(null);
       return;
@@ -176,6 +254,19 @@ function PricingGrid({ openAuthModal }: { openAuthModal: (view?: AuthModalView) 
     }
 
     openAuthModal('signup');
+  };
+
+  const handleManageBilling = async () => {
+    if (managingBilling) return;
+
+    setManagingBilling(true);
+    try {
+      const payload = await createCustomerPortalSession('/pricing');
+      window.location.assign(payload.url);
+    } catch (error: any) {
+      setErrorMessage(error?.message || 'Billing management is not available right now.');
+      setManagingBilling(false);
+    }
   };
 
   return (
@@ -196,6 +287,7 @@ function PricingGrid({ openAuthModal }: { openAuthModal: (view?: AuthModalView) 
           const highlighted = plan.badge === 'Most popular';
           const selfServeProduct = getSelfServePlanProductByPlanName(plan.name);
           const activeEntitlement = selfServeProduct ? getPlanEntitlement(selfServeProduct.id) : null;
+          const isRecurringPlan = isRecurringPlanProduct(selfServeProduct);
 
           return (
             <div
@@ -252,10 +344,29 @@ function PricingGrid({ openAuthModal }: { openAuthModal: (view?: AuthModalView) 
                     ? 'bg-primary text-primary-foreground shadow-glow hover:bg-primary/90'
                     : 'border border-border bg-transparent text-foreground hover:bg-secondary'
                 }`}
+                disabled={redirectingPlanId === selfServeProduct?.id}
               >
-                <span>{activeEntitlement ? 'Open workspace' : plan.ctaLabel}</span>
+                <span>
+                  {activeEntitlement
+                    ? 'Open workspace'
+                    : redirectingPlanId === selfServeProduct?.id
+                    ? 'Redirecting to Stripe...'
+                    : plan.ctaLabel}
+                </span>
                 <ArrowRight className="h-4 w-4" />
               </button>
+
+              {activeEntitlement && isRecurringPlan && isRecurringPlanEntitlement(activeEntitlement) ? (
+                <button
+                  type="button"
+                  onClick={handleManageBilling}
+                  disabled={managingBilling}
+                  className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-xl border border-border bg-transparent px-4 py-3 text-sm font-semibold text-foreground transition hover:bg-secondary disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  <span>{managingBilling ? 'Opening billing portal...' : 'Manage billing'}</span>
+                  <ArrowRight className="h-4 w-4" />
+                </button>
+              ) : null}
             </div>
           );
         })}
@@ -1066,6 +1177,125 @@ export function ReportSamplePage({ openAuthModal }: PublicPageProps) {
           <div className="mt-12">
             <BenchmarkReportCard report={sampleReport} />
           </div>
+        </div>
+      </section>
+    </MarketingLayout>
+  );
+}
+
+export function SharedReportPage({ openAuthModal }: PublicPageProps) {
+  const { user } = useAuth();
+  const { publicToken } = useParams();
+  const [report, setReport] = useState<BenchmarkReport | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadSharedReport = async () => {
+      if (!publicToken) {
+        setError('Shared benchmark report not found.');
+        setLoading(false);
+        return;
+      }
+
+      setLoading(true);
+      try {
+        const nextReport = await fetchSharedBenchmarkReport(publicToken);
+        if (cancelled) return;
+
+        if (!nextReport) {
+          setError('Shared benchmark report not found.');
+          setReport(null);
+          return;
+        }
+
+        setReport(nextReport);
+        setError('');
+        trackEvent('benchmark_shared_report_viewed', {
+          language: nextReport.setup.language,
+          goal: nextReport.setup.goal,
+          roleLevel: nextReport.setup.roleLevel,
+          score: nextReport.overallScore,
+        });
+      } catch (nextError: any) {
+        if (cancelled) return;
+        setReport(null);
+        setError(nextError?.message || 'Could not load the shared benchmark report.');
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      }
+    };
+
+    void loadSharedReport();
+    return () => {
+      cancelled = true;
+    };
+  }, [publicToken]);
+
+  usePageMetadata({
+    title: report
+      ? `Codhak Shared Benchmark | ${report.overallScore}/100 in ${report.setup.language.toUpperCase()}`
+      : 'Codhak Shared Benchmark Report',
+    description: report
+      ? `See a shared Codhak benchmark report for ${report.setup.language}, including strengths, weaknesses, and recommended next steps.`
+      : 'View a shared Codhak benchmark report.',
+  });
+
+  return (
+    <MarketingLayout openAuthModal={openAuthModal} isAuthenticated={!!user}>
+      <section className="py-20">
+        <div className="container mx-auto px-4">
+          {loading ? (
+            <div className="rounded-2xl border border-border bg-card p-8 text-sm text-muted-foreground shadow-card">
+              Loading shared benchmark report...
+            </div>
+          ) : error || !report ? (
+            <TrackOrLandingFallback
+              title="Shared report unavailable"
+              description={error || 'This shared benchmark report is not available anymore.'}
+              ctaHref="/benchmark"
+              ctaLabel="Start your own benchmark"
+            />
+          ) : (
+            <div className="space-y-8">
+              <SectionHeader
+                eyebrow="Shared Benchmark Report"
+                title="A public proof-of-skill snapshot from Codhak."
+                description="This report was intentionally shared from a completed Codhak benchmark so other people can see the score, focus areas, and next recommended path."
+              />
+              <BenchmarkReportCard
+                report={report}
+                actions={
+                  <div className="grid gap-4 lg:grid-cols-[1.1fr_0.9fr]">
+                    <div className="rounded-[1.5rem] border border-border bg-background/70 p-5">
+                      <div className="text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                        Why this matters
+                      </div>
+                      <p className="mt-3 text-sm leading-7 text-muted-foreground">
+                        Codhak is designed to turn coding practice into visible skill evidence. Benchmarks create a score, roadmap, and repeatable improvement signal instead of a vague learning streak.
+                      </p>
+                    </div>
+                    <div className="rounded-[1.5rem] border border-primary/20 bg-primary/10 p-5">
+                      <div className="text-sm font-semibold uppercase tracking-[0.18em] text-primary">
+                        Run your own benchmark
+                      </div>
+                      <p className="mt-3 text-sm leading-7 text-foreground/80">
+                        Choose a goal, language, and level, then get a Codhak report immediately after completion.
+                      </p>
+                      <div className="mt-4 flex flex-col gap-3 sm:flex-row">
+                        <ActionButton to="/benchmark" label="Start free benchmark" primary />
+                        <ActionButton to="/pricing" label="See plans" />
+                      </div>
+                    </div>
+                  </div>
+                }
+              />
+            </div>
+          )}
         </div>
       </section>
     </MarketingLayout>

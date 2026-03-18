@@ -17,6 +17,7 @@ import { useAuth } from '../context/AuthContext';
 import AccountFeedbackPanel from './account/AccountFeedbackPanel';
 import AccountFeedbackAdminPanel from './account/AccountFeedbackAdminPanel';
 import AccountDuelModerationPanel from './account/AccountDuelModerationPanel';
+import AccountLeadsAdminPanel from './account/AccountLeadsAdminPanel';
 import {
   acceptLatestLegalDocuments,
   fetchLegalStatus,
@@ -26,6 +27,7 @@ import {
 } from '../lib/legal';
 import { fetchDuelAdminCapabilities } from '../lib/duelAdmin';
 import { fetchFeedbackAdminCapabilities } from '../lib/feedback';
+import { fetchLeadAdminCapabilities } from '../lib/leads';
 
 const USERNAME_REGEX = /^[a-zA-Z0-9_]+$/;
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -137,9 +139,10 @@ const Account: React.FC = () => {
         return;
       }
 
-      const [duelCapability, feedbackCapability] = await Promise.allSettled([
+      const [duelCapability, feedbackCapability, leadCapability] = await Promise.allSettled([
         fetchDuelAdminCapabilities(session.access_token),
         fetchFeedbackAdminCapabilities(session.access_token),
+        fetchLeadAdminCapabilities(),
       ]);
 
       if (cancelled) {
@@ -148,7 +151,8 @@ const Account: React.FC = () => {
 
       const canReviewDuels = duelCapability.status === 'fulfilled' && duelCapability.value.canReview;
       const canReviewFeedback = feedbackCapability.status === 'fulfilled' && feedbackCapability.value.canReview;
-      setCanAccessAdminPanels(canReviewDuels || canReviewFeedback);
+      const canReviewLeads = leadCapability.status === 'fulfilled' && leadCapability.value.canReview;
+      setCanAccessAdminPanels(canReviewDuels || canReviewFeedback || canReviewLeads);
     };
 
     void loadAdminCapabilities();
@@ -566,6 +570,7 @@ const Account: React.FC = () => {
         <div className="mt-6 space-y-6">
           {canAccessAdminPanels && <AccountDuelModerationPanel />}
           {canAccessAdminPanels && <AccountFeedbackAdminPanel />}
+          {canAccessAdminPanels && <AccountLeadsAdminPanel />}
           <AccountFeedbackPanel />
         </div>
       </div>
@@ -574,5 +579,4 @@ const Account: React.FC = () => {
 };
 
 export default Account;
-
 

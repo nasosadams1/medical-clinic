@@ -32,6 +32,9 @@ export interface BenchmarkAnswerRecord {
 export interface BenchmarkReport {
   id: string;
   isSample?: boolean;
+  isPublic?: boolean;
+  shareToken?: string | null;
+  publicSharedAt?: string | null;
   setup: BenchmarkSetup;
   overallScore: number;
   correctAnswers: number;
@@ -50,6 +53,8 @@ export interface BenchmarkReport {
   createdAt: string;
   answerRecords: BenchmarkAnswerRecord[];
 }
+
+const BENCHMARK_SETUP_PRESET_STORAGE_KEY = 'codhak-benchmark-setup-preset';
 
 type QuestionBlueprint = {
   lessonId: string;
@@ -184,6 +189,12 @@ const getSummary = (setup: BenchmarkSetup, overallScore: number) => {
   return `Your benchmark shows foundational gaps in ${setup.language}. Focus on the roadmap first, then move into timed challenge practice.`;
 };
 
+const isValidBenchmarkSetup = (value: any): value is BenchmarkSetup =>
+  value &&
+  (value.goal === 'interview_prep' || value.goal === 'class_improvement' || value.goal === 'skill_growth') &&
+  (value.language === 'python' || value.language === 'javascript' || value.language === 'java' || value.language === 'cpp') &&
+  (value.roleLevel === 'beginner' || value.roleLevel === 'intern' || value.roleLevel === 'junior' || value.roleLevel === 'general_practice');
+
 const getDuelReadiness = (overallScore: number) => {
   if (overallScore >= 80) {
     return {
@@ -285,6 +296,39 @@ export const readSavedBenchmarkReport = (userId?: string | null): BenchmarkRepor
     return JSON.parse(stored) as BenchmarkReport;
   } catch {
     return null;
+  }
+};
+
+export const saveBenchmarkSetupPreset = (setup: BenchmarkSetup) => {
+  if (typeof window === 'undefined') return;
+
+  try {
+    window.localStorage.setItem(BENCHMARK_SETUP_PRESET_STORAGE_KEY, JSON.stringify(setup));
+  } catch {
+    // Ignore storage failures for MVP.
+  }
+};
+
+export const readBenchmarkSetupPreset = (): BenchmarkSetup | null => {
+  if (typeof window === 'undefined') return null;
+
+  try {
+    const stored = window.localStorage.getItem(BENCHMARK_SETUP_PRESET_STORAGE_KEY);
+    if (!stored) return null;
+    const parsed = JSON.parse(stored);
+    return isValidBenchmarkSetup(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+};
+
+export const clearBenchmarkSetupPreset = () => {
+  if (typeof window === 'undefined') return;
+
+  try {
+    window.localStorage.removeItem(BENCHMARK_SETUP_PRESET_STORAGE_KEY);
+  } catch {
+    // Ignore storage failures for MVP.
   }
 };
 

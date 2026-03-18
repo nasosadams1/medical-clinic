@@ -21,6 +21,8 @@ import {
   buildBenchmarkQuestions,
   buildBenchmarkReport,
   buildSampleBenchmarkReport,
+  clearBenchmarkSetupPreset,
+  readBenchmarkSetupPreset,
   readSavedBenchmarkReport,
   saveBenchmarkReport,
   type BenchmarkGoal,
@@ -29,7 +31,7 @@ import {
   type BenchmarkSetup,
 } from '../../data/benchmarkCatalog';
 import { interviewTracks, type LanguageSlug } from '../../data/siteContent';
-import { listBenchmarkReports, persistBenchmarkReport } from '../../lib/benchmarkApi';
+import { listBenchmarkReports, persistBenchmarkReport, shareBenchmarkReport, unshareBenchmarkReport } from '../../lib/benchmarkApi';
 import { formatPlanRenewalDate } from '../../lib/billing';
 import { trackEvent } from '../../lib/analytics';
 import BenchmarkReportCard from './BenchmarkReportCard';
@@ -226,6 +228,8 @@ export default function BenchmarkExperience({
   const [reportHistory, setReportHistory] = useState<BenchmarkReport[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyMessage, setHistoryMessage] = useState<string | null>(null);
+  const [sharingReportId, setSharingReportId] = useState<string | null>(null);
+  const [unsharingReportId, setUnsharingReportId] = useState<string | null>(null);
   const trackedPageRef = useRef(false);
   const trackedReportRef = useRef<string | null>(null);
   const hasRestoredSessionRef = useRef(false);
@@ -253,6 +257,13 @@ export default function BenchmarkExperience({
     () => getBenchmarkSessionStorageKey(mode, user?.id),
     [mode, user?.id]
   );
+  const sharedReportUrl = useMemo(() => {
+    if (!report?.isPublic || !report.shareToken) return null;
+    if (typeof window === 'undefined' || !window.location?.origin) {
+      return `/reports/${report.shareToken}`;
+    }
+    return `${window.location.origin}/reports/${report.shareToken}`;
+  }, [report?.isPublic, report?.shareToken]);
 
   useEffect(() => {
     if (presetLanguage && setup.language !== presetLanguage) {
@@ -270,6 +281,15 @@ export default function BenchmarkExperience({
 
     const storedSession = readBenchmarkSession(benchmarkSessionKey);
     if (!storedSession) {
+      const presetSetup = readBenchmarkSetupPreset();
+      if (presetSetup) {
+        setSetup({
+          ...presetSetup,
+          language: presetLanguage ?? presetSetup.language,
+        });
+        setHistoryMessage('Benchmark setup was pre-filled from your practice workspace.');
+        clearBenchmarkSetupPreset();
+      }
       hasRestoredSessionRef.current = true;
       return;
     }
@@ -469,6 +489,12 @@ export default function BenchmarkExperience({
     setView('report');
   };
 
+  const applyUpdatedReport = (nextReport: BenchmarkReport) => {
+    setReport(nextReport);
+    setSavedReport((current) => (current?.id === nextReport.id ? nextReport : current));
+    setReportHistory((current) => mergeReports([nextReport], current));
+  };
+
   const resetBenchmark = () => {
     clearBenchmarkSession(benchmarkSessionKey);
     setView('setup');
@@ -638,6 +664,82 @@ export default function BenchmarkExperience({
     }
 
     navigate(user ? '/app?section=store' : '/pricing');
+  };
+
+  const copySharedReportLink = async () => {
+    if (!sharedReportUrl) return;
+
+    try {
+      await navigator.clipboard.writeText(sharedReportUrl);
+      toast.success('Public report link copied.');
+      trackEvent('benchmark_report_shared', {
+        action: 'copied',
+        language: report?.setup.language ?? setup.language,
+        goal: report?.setup.goal ?? setup.goal,
+      });
+    } catch {
+      toast.error('Could not copy the public report link.');
+    }
+  };
+
+  const handlePublishReport = async () => {
+    if (!report?.id) return;
+    if (!user) {
+      unlockRoadmap();
+      return;
+    }
+
+    setSharingReportId(report.id);
+    try {
+      await persistBenchmarkReport(report);
+      const sharedReport = await shareBenchmarkReport(report.id);
+      applyUpdatedReport(sharedReport);
+
+      const nextUrl =
+        sharedReport.shareToken && typeof window !== 'undefined' && window.location?.origin
+          ? `${window.location.origin}/reports/${sharedReport.shareToken}`
+          : null;
+
+      if (nextUrl) {
+        await navigator.clipboard.writeText(nextUrl);
+        toast.success('Public report published and link copied.');
+      } else {
+        toast.success('Public report published.');
+      }
+
+      trackEvent('benchmark_report_shared', {
+        action: 'published',
+        language: sharedReport.setup.language,
+        goal: sharedReport.setup.goal,
+        roleLevel: sharedReport.setup.roleLevel,
+        score: sharedReport.overallScore,
+      });
+    } catch (error: any) {
+      toast.error(error?.message || 'Could not publish the public benchmark report.');
+    } finally {
+      setSharingReportId(null);
+    }
+  };
+
+  const handleUnshareReport = async () => {
+    if (!report?.id) return;
+
+    setUnsharingReportId(report.id);
+    try {
+      const nextReport = await unshareBenchmarkReport(report.id);
+      applyUpdatedReport(nextReport);
+      toast.success('Public report link disabled.');
+      trackEvent('benchmark_report_shared', {
+        action: 'disabled',
+        language: nextReport.setup.language,
+        goal: nextReport.setup.goal,
+        roleLevel: nextReport.setup.roleLevel,
+      });
+    } catch (error: any) {
+      toast.error(error?.message || 'Could not disable the public benchmark link.');
+    } finally {
+      setUnsharingReportId(null);
+    }
   };
 
   const historyPreview = reportHistory.slice(0, 3);
@@ -898,7 +1000,7 @@ export default function BenchmarkExperience({
                 <div className="flex flex-col gap-4">
                   <div className="rounded-[1.5rem] border border-border bg-background/70 p-5">
                     <div className="text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground">What to do next</div>
-                    <div className="mt-4 grid gap-3 lg:grid-cols-3">
+                    <div className={`mt-4 grid gap-3 ${user ? 'lg:grid-cols-4' : 'lg:grid-cols-3'}`}>
                       <button type="button" onClick={openRecommendedTrack} className={primaryButtonClassName}>
                         <span>{primaryTrack ? 'Open recommended track' : 'Open practice path'}</span>
                         <ArrowRight className="h-4 w-4" />
@@ -911,6 +1013,17 @@ export default function BenchmarkExperience({
                         <Copy className="h-4 w-4" />
                         <span>Copy progress summary</span>
                       </button>
+                      {user ? (
+                        <button
+                          type="button"
+                          onClick={sharedReportUrl ? copySharedReportLink : handlePublishReport}
+                          disabled={sharingReportId === report.id}
+                          className={secondaryButtonClassName}
+                        >
+                          {sharingReportId === report.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+                          <span>{sharedReportUrl ? 'Copy public link' : 'Publish public report'}</span>
+                        </button>
+                      ) : null}
                     </div>
                   </div>
                   {scoreDelta !== null ? (
@@ -979,7 +1092,45 @@ export default function BenchmarkExperience({
                         <CheckCircle2 className="h-4 w-4" />
                         Saved to your workspace
                       </div>
-                      <p className="mt-2 text-sm leading-6 text-foreground/80">Your report is saved to benchmark history when the API is available, with local fallback still preserved for this account.</p>
+                      <p className="mt-2 text-sm leading-6 text-foreground/80">
+                        Your report is saved to benchmark history when the API is available, with local fallback still preserved for this account.
+                      </p>
+                      <div className="mt-4 rounded-2xl border border-border bg-background/70 px-4 py-3 text-sm text-foreground">
+                        {sharedReportUrl ? (
+                          <>
+                            Public proof link is live.
+                            <span className="text-foreground/75">
+                              {' '}Anyone with the link can view this report.
+                            </span>
+                          </>
+                        ) : (
+                          <>
+                            Keep this private by default, or publish a public proof-of-skill link when you want to share progress.
+                          </>
+                        )}
+                      </div>
+                      <div className="mt-4 flex flex-col gap-3 sm:flex-row">
+                        <button
+                          type="button"
+                          onClick={sharedReportUrl ? copySharedReportLink : handlePublishReport}
+                          disabled={sharingReportId === report.id}
+                          className={primaryButtonClassName}
+                        >
+                          {sharingReportId === report.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+                          <span>{sharedReportUrl ? 'Copy public report link' : 'Publish public report'}</span>
+                        </button>
+                        {sharedReportUrl ? (
+                          <button
+                            type="button"
+                            onClick={handleUnshareReport}
+                            disabled={unsharingReportId === report.id}
+                            className={secondaryButtonClassName}
+                          >
+                            {unsharingReportId === report.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCcw className="h-4 w-4" />}
+                            <span>Disable public link</span>
+                          </button>
+                        ) : null}
+                      </div>
                     </div>
                   )}
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">

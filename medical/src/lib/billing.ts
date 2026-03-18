@@ -1,7 +1,10 @@
 import { getStoreItem, isPlanStoreItem } from '../../shared/store-catalog.js';
+import { isApiNetworkError, resolveApiBaseUrl } from './apiBase';
 import { supabase } from './supabase';
 
 export type SelfServePlanId = 'pro_monthly' | 'interview_sprint';
+const resolveStripeServerUrl = () =>
+  (import.meta.env.VITE_STRIPE_SERVER_URL as string | undefined)?.trim() || resolveApiBaseUrl();
 
 export interface PlanEntitlement {
   id: string;
@@ -29,6 +32,9 @@ export interface PlanStoreProduct {
   durationDays: number;
   planName: string;
   planScope: string;
+  billingMode?: 'subscription' | 'fixed_term';
+  billingInterval?: 'day' | 'week' | 'month' | 'year';
+  billingIntervalCount?: number;
 }
 
 const PRICING_PLAN_TO_PRODUCT_ID: Record<string, SelfServePlanId> = {
@@ -70,6 +76,14 @@ export function getSelfServePlanProductByPlanName(planName: string): PlanStorePr
   return productId ? getSelfServePlanProductById(productId) : null;
 }
 
+export function isRecurringPlanProduct(product: PlanStoreProduct | null | undefined): boolean {
+  return Boolean(product && product.billingMode === 'subscription');
+}
+
+export function isRecurringPlanEntitlement(entitlement: PlanEntitlement | null | undefined): boolean {
+  return entitlement?.metadata?.billing_mode === 'subscription';
+}
+
 export function formatPlanRenewalDate(value: string | null | undefined) {
   if (!value) return null;
 
@@ -95,4 +109,72 @@ export async function listPlanEntitlements(): Promise<PlanEntitlement[]> {
   }
 
   return (data || []).map((row) => mapEntitlement(row as Record<string, any>));
+}
+
+async function getAccessToken() {
+  const { data } = await supabase.auth.getSession();
+  return data.session?.access_token || null;
+}
+
+async function authorizedBillingFetch(path: string, init: RequestInit = {}) {
+  const accessToken = await getAccessToken();
+  if (!accessToken) {
+    throw new Error('You must be signed in to manage billing.');
+  }
+
+  let response: Response;
+  try {
+    response = await fetch(`${resolveStripeServerUrl()}${path.startsWith('/') ? path : `/${path}`}`, {
+      ...init,
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${accessToken}`,
+        ...(init.headers || {}),
+      },
+    });
+  } catch (error) {
+    if (isApiNetworkError(error)) {
+      throw new Error('Could not reach the billing service right now.');
+    }
+
+    throw error;
+  }
+
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error((payload as { error?: string }).error || 'Billing request failed.');
+  }
+
+  return payload;
+}
+
+export async function createPlanCheckoutSession(planId: SelfServePlanId, returnPath = '/pricing') {
+  return authorizedBillingFetch('/api/create-checkout-session', {
+    method: 'POST',
+    body: JSON.stringify({
+      itemId: planId,
+      returnPath,
+    }),
+  }) as Promise<{ url: string; sessionId: string }>;
+}
+
+export async function finalizePlanCheckoutSession(sessionId: string) {
+  return authorizedBillingFetch('/api/finalize-checkout-session', {
+    method: 'POST',
+    body: JSON.stringify({
+      session_id: sessionId,
+    }),
+  }) as Promise<{
+    success: boolean;
+    entitlement: PlanEntitlement;
+  }>;
+}
+
+export async function createCustomerPortalSession(returnPath = '/pricing') {
+  return authorizedBillingFetch('/api/create-customer-portal-session', {
+    method: 'POST',
+    body: JSON.stringify({
+      returnPath,
+    }),
+  }) as Promise<{ url: string }>;
 }

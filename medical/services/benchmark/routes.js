@@ -1,4 +1,5 @@
 import express from 'express';
+import { randomBytes } from 'node:crypto';
 import { z } from 'zod';
 import { createAuthenticatedUserMiddleware } from '../auth-utils.js';
 
@@ -17,6 +18,9 @@ const BenchmarkAnswerRecordSchema = z.object({
 const BenchmarkReportSchema = z.object({
   id: z.string().trim().min(1).max(160),
   setup: BenchmarkSetupSchema,
+  isPublic: z.boolean().optional(),
+  shareToken: z.string().trim().min(1).max(160).nullable().optional(),
+  publicSharedAt: z.string().trim().min(1).max(80).nullable().optional(),
   overallScore: z.number().int().min(0).max(100),
   correctAnswers: z.number().int().min(0).max(100),
   totalQuestions: z.number().int().min(1).max(100),
@@ -39,6 +43,14 @@ const ListReportsQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(20).optional(),
 });
 
+const ReportRouteParamsSchema = z.object({
+  reportId: z.string().trim().min(1).max(160),
+});
+
+const SharedReportRouteParamsSchema = z.object({
+  publicToken: z.string().trim().min(6).max(160),
+});
+
 const buildPersistedReportRow = (userId, report) => ({
   user_id: userId,
   client_report_id: report.id,
@@ -53,9 +65,63 @@ const buildPersistedReportRow = (userId, report) => ({
   created_at: report.createdAt,
 });
 
+const mergeReportRow = (row) => ({
+  ...(row.report_payload || {}),
+  isPublic: Boolean(row.is_public),
+  shareToken: row.public_token || null,
+  publicSharedAt: row.public_shared_at || null,
+});
+
+const buildPublicShareToken = () => randomBytes(12).toString('base64url');
+
+const createUniquePublicShareToken = async (supabaseAdmin) => {
+  for (let attempt = 0; attempt < 6; attempt += 1) {
+    const candidate = buildPublicShareToken();
+    const { data, error } = await supabaseAdmin
+      .from('benchmark_reports')
+      .select('id')
+      .eq('public_token', candidate)
+      .maybeSingle();
+
+    if (error) {
+      throw new Error(error.message || 'Could not create a public share token.');
+    }
+
+    if (!data) {
+      return candidate;
+    }
+  }
+
+  throw new Error('Could not create a unique public share token.');
+};
+
 export const createBenchmarkRouter = ({ supabaseAdmin }) => {
   const router = express.Router();
   const requireAuth = createAuthenticatedUserMiddleware(supabaseAdmin, 'Benchmark API');
+
+  router.get('/shared/:publicToken', async (req, res) => {
+    try {
+      const { publicToken } = SharedReportRouteParamsSchema.parse(req.params || {});
+      const { data, error } = await supabaseAdmin
+        .from('benchmark_reports')
+        .select('report_payload, is_public, public_token, public_shared_at')
+        .eq('public_token', publicToken)
+        .eq('is_public', true)
+        .maybeSingle();
+
+      if (error) {
+        throw new Error(error.message || 'Could not load the shared benchmark report.');
+      }
+
+      if (!data?.report_payload) {
+        return res.status(404).json({ error: 'Shared benchmark report not found.' });
+      }
+
+      return res.json({ report: mergeReportRow(data) });
+    } catch (error) {
+      return res.status(400).json({ error: error.message || 'Could not load the shared benchmark report.' });
+    }
+  });
 
   router.get('/reports', requireAuth, async (req, res) => {
     try {
@@ -72,7 +138,7 @@ export const createBenchmarkRouter = ({ supabaseAdmin }) => {
       }
 
       const reports = (data || [])
-        .map((row) => row.report_payload)
+        .map((row) => mergeReportRow(row))
         .filter(Boolean);
 
       return res.json({ reports });
@@ -89,16 +155,111 @@ export const createBenchmarkRouter = ({ supabaseAdmin }) => {
         .upsert(buildPersistedReportRow(req.authenticatedUser.id, report), {
           onConflict: 'user_id,client_report_id',
         })
-        .select('report_payload')
+        .select('report_payload, is_public, public_token, public_shared_at')
         .single();
 
       if (error || !data) {
         throw new Error(error?.message || 'Could not save benchmark report.');
       }
 
-      return res.status(201).json({ report: data.report_payload });
+      return res.status(201).json({ report: mergeReportRow(data) });
     } catch (error) {
       return res.status(400).json({ error: error.message || 'Could not save benchmark report.' });
+    }
+  });
+
+  router.post('/reports/:reportId/share', requireAuth, async (req, res) => {
+    try {
+      const { reportId } = ReportRouteParamsSchema.parse(req.params || {});
+      const { data: existingRow, error: existingError } = await supabaseAdmin
+        .from('benchmark_reports')
+        .select('*')
+        .eq('user_id', req.authenticatedUser.id)
+        .eq('client_report_id', reportId)
+        .maybeSingle();
+
+      if (existingError) {
+        throw new Error(existingError.message || 'Could not load the benchmark report for sharing.');
+      }
+
+      if (!existingRow) {
+        return res.status(404).json({ error: 'Benchmark report not found.' });
+      }
+
+      const publicToken = existingRow.public_token || (await createUniquePublicShareToken(supabaseAdmin));
+      const publicSharedAt = new Date().toISOString();
+      const mergedReportPayload = {
+        ...(existingRow.report_payload || {}),
+        isPublic: true,
+        shareToken: publicToken,
+        publicSharedAt,
+      };
+
+      const { data, error } = await supabaseAdmin
+        .from('benchmark_reports')
+        .update({
+          is_public: true,
+          public_token: publicToken,
+          public_shared_at: publicSharedAt,
+          report_payload: mergedReportPayload,
+        })
+        .eq('id', existingRow.id)
+        .select('report_payload, is_public, public_token, public_shared_at')
+        .single();
+
+      if (error || !data) {
+        throw new Error(error?.message || 'Could not publish the benchmark report.');
+      }
+
+      return res.json({ report: mergeReportRow(data) });
+    } catch (error) {
+      return res.status(400).json({ error: error.message || 'Could not publish the benchmark report.' });
+    }
+  });
+
+  router.delete('/reports/:reportId/share', requireAuth, async (req, res) => {
+    try {
+      const { reportId } = ReportRouteParamsSchema.parse(req.params || {});
+      const { data: existingRow, error: existingError } = await supabaseAdmin
+        .from('benchmark_reports')
+        .select('*')
+        .eq('user_id', req.authenticatedUser.id)
+        .eq('client_report_id', reportId)
+        .maybeSingle();
+
+      if (existingError) {
+        throw new Error(existingError.message || 'Could not load the benchmark report.');
+      }
+
+      if (!existingRow) {
+        return res.status(404).json({ error: 'Benchmark report not found.' });
+      }
+
+      const mergedReportPayload = {
+        ...(existingRow.report_payload || {}),
+        isPublic: false,
+        shareToken: existingRow.public_token || null,
+        publicSharedAt: null,
+      };
+
+      const { data, error } = await supabaseAdmin
+        .from('benchmark_reports')
+        .update({
+          is_public: false,
+          public_shared_at: null,
+          report_payload: mergedReportPayload,
+        })
+        .eq('id', existingRow.id)
+        .select('report_payload, is_public, public_token, public_shared_at')
+        .single();
+
+      if (error || !data) {
+        throw new Error(error?.message || 'Could not disable the public benchmark link.');
+      }
+
+      return res.json({ report: mergeReportRow(data) });
+    } catch (error) {
+      return res.status(400).json({ error: error.message || 'Could not disable the public benchmark link.' });
     }
   });
 

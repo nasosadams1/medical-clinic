@@ -16,6 +16,9 @@ export interface TeamSummary {
   currentUserRole: TeamRole;
   memberCount: number;
   joinedAt?: string;
+  isPublic?: boolean;
+  shareToken?: string | null;
+  publicSharedAt?: string | null;
 }
 
 export interface TeamInvite {
@@ -54,7 +57,10 @@ export interface TeamMember {
   currentStreak: number;
   latestBenchmarkScore: number | null;
   latestBenchmarkAt: string | null;
+  benchmarkCount: number;
+  improvementDelta: number | null;
   latestBenchmarkStatus: string;
+  recommendedAction: string;
 }
 
 export interface TeamWorkspaceDetail {
@@ -65,12 +71,36 @@ export interface TeamWorkspaceDetail {
     benchmarkCompletionRate: number;
     medianScore: number | null;
     averageImprovement: number | null;
+    needsAttentionCount: number;
+    retakeReadyCount: number;
     topPerformer: { name: string; score: number | null; streak: number } | null;
     progressTimeline: Array<{ label: string; value: number | null }>;
   };
   members: TeamMember[];
   assignments: TeamAssignment[];
   invites: TeamInvite[];
+}
+
+export interface PublicTeamProof {
+  team: {
+    id: string;
+    name: string;
+    slug: string;
+    description: string;
+    useCase: TeamUseCase;
+    memberCount: number;
+    publicSharedAt: string | null;
+  };
+  metrics: TeamWorkspaceDetail['metrics'];
+  assignments: Array<Pick<TeamAssignment, 'id' | 'title' | 'assignmentType' | 'benchmarkLanguage' | 'dueAt'>>;
+  improvementLeaders: Array<{
+    userId: string;
+    publicName: string;
+    latestBenchmarkScore: number | null;
+    improvementDelta: number | null;
+    benchmarkCount: number;
+    recommendedAction: string;
+  }>;
 }
 
 export class TeamsApiUnavailableError extends Error {
@@ -143,6 +173,20 @@ export const getTeamWorkspace = async (teamId: string) => {
   return teamsFetch<TeamWorkspaceDetail>(`/${teamId}`);
 };
 
+export const shareTeamWorkspace = async (teamId: string) => {
+  const payload = await teamsFetch<{ team: TeamWorkspaceDetail['team'] }>(`/${teamId}/share`, {
+    method: 'POST',
+  });
+  return payload.team;
+};
+
+export const unshareTeamWorkspace = async (teamId: string) => {
+  const payload = await teamsFetch<{ team: TeamWorkspaceDetail['team'] }>(`/${teamId}/share`, {
+    method: 'DELETE',
+  });
+  return payload.team;
+};
+
 export const createTeamInvite = async (
   teamId: string,
   input: {
@@ -184,4 +228,15 @@ export const createTeamAssignment = async (
     body: JSON.stringify(input),
   });
   return payload.assignment;
+};
+
+export const fetchSharedTeamProof = async (publicToken: string) => {
+  const response = await fetch(buildTeamsApiUrl(`/shared/${encodeURIComponent(publicToken)}`));
+  const payload = await response.json().catch(() => ({}));
+
+  if (!response.ok) {
+    throw new Error((payload as { error?: string }).error || 'Could not load the shared team proof.');
+  }
+
+  return payload as PublicTeamProof;
 };

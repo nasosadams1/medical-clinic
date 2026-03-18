@@ -5,12 +5,23 @@ import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import helmet from 'helmet';
 import Stripe from 'stripe';
 import { createClient } from '@supabase/supabase-js';
-import { getStoreItem, isCoinStoreItem, isPlanStoreItem, isStripeStoreItem, STORE_ITEMS, STRIPE_STORE_ITEMS } from './shared/store-catalog.js';
+import {
+  getStoreItem,
+  isCoinStoreItem,
+  isPlanStoreItem,
+  isStripeStoreItem,
+  isSubscriptionPlanStoreItem,
+  STORE_ITEMS,
+  STRIPE_STORE_ITEMS,
+} from './shared/store-catalog.js';
 import { formatAllowedOriginsError, isAllowedOrigin, resolveAllowedOrigins } from './services/allowed-origins.js';
 import {
   CoinPurchaseSchema,
   ConfirmPaymentSchema,
+  CreateCheckoutSessionSchema,
+  CreateCustomerPortalSessionSchema,
   CreatePaymentIntentSchema,
+  FinalizeCheckoutSessionSchema,
 } from './shared/store-contract.js';
 
 dotenv.config();
@@ -142,6 +153,9 @@ function getPublicCatalog() {
     coinCost: item.coinCost || null,
     durationHours: item.durationHours || null,
     durationDays: item.durationDays || null,
+    billingMode: item.billingMode || null,
+    billingInterval: item.billingInterval || null,
+    billingIntervalCount: item.billingIntervalCount || null,
     multiplier: item.multiplier || null,
     planName: item.planName || null,
     planScope: item.planScope || null,
@@ -151,6 +165,172 @@ function getPublicCatalog() {
     popular: Boolean(item.popular),
     bestValue: Boolean(item.bestValue),
   }));
+}
+
+function isRelativeReturnPath(value) {
+  return typeof value === 'string' && value.startsWith('/') && !value.startsWith('//');
+}
+
+function buildAppReturnUrl(req, returnPath, fallbackPath = '/pricing') {
+  const rawOrigin =
+    (typeof req.headers.origin === 'string' && req.headers.origin.trim()) ||
+    (process.env.FRONTEND_URL || '').trim() ||
+    (process.env.RENDER_EXTERNAL_URL || '').trim();
+
+  if (!rawOrigin) {
+    throw new Error('Could not determine the frontend origin for Stripe redirects.');
+  }
+
+  const safePath = isRelativeReturnPath(returnPath) ? returnPath : fallbackPath;
+  return new URL(safePath, rawOrigin).toString();
+}
+
+function appendQueryParams(url, params) {
+  const nextUrl = new URL(url);
+  Object.entries(params).forEach(([key, value]) => {
+    if (value === undefined || value === null || value === '') {
+      return;
+    }
+    nextUrl.searchParams.set(key, String(value));
+  });
+  return nextUrl.toString();
+}
+
+function mapStripeSubscriptionStatus(subscription) {
+  switch (subscription?.status) {
+    case 'active':
+    case 'trialing':
+    case 'past_due':
+      return 'active';
+    case 'canceled':
+      return 'cancelled';
+    case 'incomplete_expired':
+    case 'unpaid':
+      return 'expired';
+    default:
+      return subscription?.ended_at ? 'cancelled' : 'active';
+  }
+}
+
+function resolveStripeSubscriptionPeriod(subscription) {
+  const startSeconds = Number(subscription?.current_period_start || 0);
+  const endSeconds = Number(subscription?.current_period_end || 0);
+
+  return {
+    currentPeriodStart: startSeconds > 0 ? new Date(startSeconds * 1000).toISOString() : new Date().toISOString(),
+    currentPeriodEnd: endSeconds > 0 ? new Date(endSeconds * 1000).toISOString() : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+  };
+}
+
+async function syncStripeSubscriptionEntitlement({
+  userId,
+  itemId,
+  planName,
+  customerId,
+  subscriptionId,
+  priceId,
+  subscription,
+}) {
+  if (!supabaseAdmin) {
+    throw new Error('Supabase store fulfillment is not configured.');
+  }
+
+  if (!userId || !itemId || !planName || !subscriptionId) {
+    throw new Error('Subscription sync is missing required metadata.');
+  }
+
+  const { currentPeriodStart, currentPeriodEnd } = resolveStripeSubscriptionPeriod(subscription);
+  const nextStatus = mapStripeSubscriptionStatus(subscription);
+  const nextMetadata = {
+    billing_mode: 'subscription',
+    stripe_customer_id: customerId || null,
+    stripe_subscription_id: subscriptionId,
+    stripe_price_id: priceId || null,
+    stripe_status: subscription?.status || null,
+    cancel_at_period_end: Boolean(subscription?.cancel_at_period_end),
+    updated_from: 'stripe_subscription',
+    updated_at: new Date().toISOString(),
+  };
+
+  const { data: existingRow, error: existingRowError } = await supabaseAdmin
+    .from('plan_entitlements')
+    .select('*')
+    .eq('user_id', userId)
+    .eq('item_id', itemId)
+    .maybeSingle();
+
+  if (existingRowError) {
+    throw new Error(existingRowError.message || 'Could not load the existing plan entitlement.');
+  }
+
+  if (existingRow) {
+    const { data, error } = await supabaseAdmin
+      .from('plan_entitlements')
+      .update({
+        plan_name: planName,
+        status: nextStatus,
+        current_period_start: currentPeriodStart,
+        current_period_end: currentPeriodEnd,
+        purchase_count: Math.max(Number(existingRow.purchase_count || 1), 1),
+        metadata: {
+          ...(typeof existingRow.metadata === 'object' && existingRow.metadata ? existingRow.metadata : {}),
+          ...nextMetadata,
+        },
+      })
+      .eq('id', existingRow.id)
+      .select('*')
+      .single();
+
+    if (error || !data) {
+      throw new Error(error?.message || 'Could not update the recurring plan entitlement.');
+    }
+
+    return data;
+  }
+
+  const { data, error } = await supabaseAdmin
+    .from('plan_entitlements')
+    .insert({
+      user_id: userId,
+      item_id: itemId,
+      plan_name: planName,
+      status: nextStatus,
+      current_period_start: currentPeriodStart,
+      current_period_end: currentPeriodEnd,
+      purchase_count: 1,
+      metadata: nextMetadata,
+    })
+    .select('*')
+    .single();
+
+  if (error || !data) {
+    throw new Error(error?.message || 'Could not create the recurring plan entitlement.');
+  }
+
+  return data;
+}
+
+async function syncEntitlementFromStripeSubscription(subscription, overrides = {}) {
+  if (!subscription) {
+    throw new Error('Stripe subscription payload is required.');
+  }
+
+  const userId = overrides.userId || subscription.metadata?.userId || '';
+  const itemId = overrides.itemId || subscription.metadata?.itemId || '';
+  const planName = overrides.planName || subscription.metadata?.planName || '';
+  const customerId = typeof subscription.customer === 'string' ? subscription.customer : subscription.customer?.id;
+  const subscriptionId = subscription.id;
+  const priceId = subscription.items?.data?.[0]?.price?.id || null;
+
+  return syncStripeSubscriptionEntitlement({
+    userId,
+    itemId,
+    planName,
+    customerId,
+    subscriptionId,
+    priceId,
+    subscription,
+  });
 }
 
 function mapCoinPurchaseError(error) {
@@ -319,6 +499,29 @@ app.post('/webhook', express.raw({ type: 'application/json' }), async (req, res)
     const event = stripe.webhooks.constructEvent(req.body, sig, STRIPE_WEBHOOK_SECRET);
 
     switch (event.type) {
+      case 'checkout.session.completed': {
+        const session = event.data.object;
+        if (session.mode === 'subscription' && session.subscription) {
+          const subscription =
+            typeof session.subscription === 'string'
+              ? await stripe.subscriptions.retrieve(session.subscription)
+              : session.subscription;
+
+          await syncEntitlementFromStripeSubscription(subscription, {
+            userId: session.client_reference_id || session.metadata?.userId,
+            itemId: session.metadata?.itemId,
+            planName: session.metadata?.planName,
+          });
+          console.log('Stripe subscription checkout synced:', session.id);
+        }
+        break;
+      }
+      case 'customer.subscription.updated':
+      case 'customer.subscription.deleted': {
+        await syncEntitlementFromStripeSubscription(event.data.object);
+        console.log('Stripe subscription entitlement synced:', event.data.object.id, event.type);
+        break;
+      }
       case 'payment_intent.succeeded': {
         const result = await fulfillStripeProduct(event.data.object);
         console.log('Stripe payment fulfilled via webhook:', event.data.object.id, result);
@@ -353,6 +556,8 @@ app.use(express.json({ limit: API_JSON_LIMIT }));
 const paymentIntentLimiter = createLimiter({ max: 10, windowMs: 10 * 60 * 1000, label: 'Payment intent' });
 const paymentConfirmLimiter = createLimiter({ max: 20, windowMs: 10 * 60 * 1000, label: 'Payment confirmation' });
 const storePurchaseLimiter = createLimiter({ max: 20, windowMs: 5 * 60 * 1000, label: 'Store purchase' });
+const checkoutSessionLimiter = createLimiter({ max: 10, windowMs: 10 * 60 * 1000, label: 'Checkout session' });
+const billingPortalLimiter = createLimiter({ max: 10, windowMs: 10 * 60 * 1000, label: 'Billing portal' });
 
 app.get('/health', (_req, res) => {
   res.json({
@@ -373,6 +578,208 @@ app.get('/api/stripe-config', (_req, res) => {
 
 app.get('/api/store/catalog', (_req, res) => {
   res.json({ items: getPublicCatalog() });
+});
+
+app.post('/api/create-checkout-session', checkoutSessionLimiter, async (req, res) => {
+  try {
+    if (!stripe) {
+      return res.status(503).json({ error: 'Stripe is not configured. Set a valid STRIPE_SECRET_KEY.' });
+    }
+
+    const parsed = CreateCheckoutSessionSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'Invalid checkout session request.' });
+    }
+
+    const { user, error: authError } = await getAuthenticatedUser(req);
+    if (authError || !user) {
+      return res.status(401).json({ error: authError || 'Unauthorized' });
+    }
+
+    const product = getStoreItem(parsed.data.itemId);
+    if (!product || !isSubscriptionPlanStoreItem(product)) {
+      return res.status(400).json({ error: 'This plan is not configured for recurring checkout.' });
+    }
+
+    const baseReturnUrl = buildAppReturnUrl(req, parsed.data.returnPath, '/pricing');
+    const successUrl = appendQueryParams(baseReturnUrl, {
+      checkout: 'success',
+      session_id: '{CHECKOUT_SESSION_ID}',
+      plan: product.id,
+    });
+    const cancelUrl = appendQueryParams(baseReturnUrl, {
+      checkout: 'cancelled',
+      plan: product.id,
+    });
+
+    const session = await stripe.checkout.sessions.create({
+      mode: 'subscription',
+      success_url: successUrl,
+      cancel_url: cancelUrl,
+      client_reference_id: user.id,
+      customer_email: user.email || undefined,
+      allow_promotion_codes: true,
+      line_items: [
+        {
+          quantity: 1,
+          price_data: {
+            currency: product.currency,
+            unit_amount: product.stripeAmountCents,
+            recurring: {
+              interval: product.billingInterval || 'month',
+              interval_count: Number(product.billingIntervalCount || 1),
+            },
+            product_data: {
+              name: product.name,
+              description: product.description,
+            },
+          },
+        },
+      ],
+      metadata: {
+        userId: user.id,
+        itemId: product.id,
+        planName: product.planName,
+      },
+      subscription_data: {
+        metadata: {
+          userId: user.id,
+          itemId: product.id,
+          planName: product.planName,
+        },
+      },
+    });
+
+    return res.json({
+      url: session.url,
+      sessionId: session.id,
+    });
+  } catch (error) {
+    console.error('Error creating checkout session:', error);
+    return res.status(500).json({ error: error.message || 'Failed to create checkout session.' });
+  }
+});
+
+app.post('/api/finalize-checkout-session', paymentConfirmLimiter, async (req, res) => {
+  try {
+    if (!stripe) {
+      return res.status(503).json({ error: 'Stripe is not configured. Set a valid STRIPE_SECRET_KEY.' });
+    }
+
+    const parsed = FinalizeCheckoutSessionSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'Invalid checkout finalization request.' });
+    }
+
+    const { user, error: authError } = await getAuthenticatedUser(req);
+    if (authError || !user) {
+      return res.status(401).json({ error: authError || 'Unauthorized' });
+    }
+
+    const session = await stripe.checkout.sessions.retrieve(parsed.data.session_id, {
+      expand: ['subscription'],
+    });
+
+    const sessionUserId = session.client_reference_id || session.metadata?.userId || '';
+    if (sessionUserId !== user.id) {
+      return res.status(403).json({ error: 'This checkout session does not belong to the authenticated user.' });
+    }
+
+    if (session.mode !== 'subscription' || !session.subscription) {
+      return res.status(400).json({ error: 'This checkout session is not a subscription checkout.' });
+    }
+
+    const subscription =
+      typeof session.subscription === 'string'
+        ? await stripe.subscriptions.retrieve(session.subscription)
+        : session.subscription;
+
+    const entitlement = await syncEntitlementFromStripeSubscription(subscription, {
+      userId: user.id,
+      itemId: session.metadata?.itemId || subscription.metadata?.itemId,
+      planName: session.metadata?.planName || subscription.metadata?.planName,
+    });
+
+    return res.json({
+      success: true,
+      entitlement: {
+        id: entitlement.id,
+        userId: entitlement.user_id,
+        itemId: entitlement.item_id,
+        planName: entitlement.plan_name,
+        status: entitlement.status,
+        currentPeriodStart: entitlement.current_period_start,
+        currentPeriodEnd: entitlement.current_period_end,
+        purchaseCount: entitlement.purchase_count,
+        lastPaymentIntentId: entitlement.last_payment_intent_id || null,
+        metadata: entitlement.metadata || {},
+        createdAt: entitlement.created_at,
+        updatedAt: entitlement.updated_at,
+        isActive:
+          entitlement.status === 'active' &&
+          entitlement.current_period_end &&
+          new Date(entitlement.current_period_end).getTime() > Date.now(),
+      },
+    });
+  } catch (error) {
+    console.error('Error finalizing checkout session:', error);
+    return res.status(500).json({ error: error.message || 'Failed to finalize checkout session.' });
+  }
+});
+
+app.post('/api/create-customer-portal-session', billingPortalLimiter, async (req, res) => {
+  try {
+    if (!stripe) {
+      return res.status(503).json({ error: 'Stripe is not configured. Set a valid STRIPE_SECRET_KEY.' });
+    }
+
+    const parsed = CreateCustomerPortalSessionSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'Invalid customer portal request.' });
+    }
+
+    const { user, error: authError } = await getAuthenticatedUser(req);
+    if (authError || !user) {
+      return res.status(401).json({ error: authError || 'Unauthorized' });
+    }
+
+    if (!supabaseAdmin) {
+      return res.status(503).json({ error: 'Supabase store fulfillment is not configured.' });
+    }
+
+    const { data, error } = await supabaseAdmin
+      .from('plan_entitlements')
+      .select('*')
+      .eq('user_id', user.id)
+      .order('updated_at', { ascending: false })
+      .limit(20);
+
+    if (error) {
+      throw error;
+    }
+
+    const recurringEntitlement = (data || []).find((entry) => {
+      const metadata = typeof entry.metadata === 'object' && entry.metadata ? entry.metadata : {};
+      return metadata.billing_mode === 'subscription' && typeof metadata.stripe_customer_id === 'string' && metadata.stripe_customer_id;
+    });
+
+    if (!recurringEntitlement) {
+      return res.status(404).json({ error: 'No recurring subscription was found for this account.' });
+    }
+
+    const metadata = recurringEntitlement.metadata || {};
+    const portalSession = await stripe.billingPortal.sessions.create({
+      customer: metadata.stripe_customer_id,
+      return_url: buildAppReturnUrl(req, parsed.data.returnPath, '/pricing'),
+    });
+
+    return res.json({
+      url: portalSession.url,
+    });
+  } catch (error) {
+    console.error('Error creating customer portal session:', error);
+    return res.status(500).json({ error: error.message || 'Failed to create customer portal session.' });
+  }
 });
 
 app.post('/api/store/purchase', storePurchaseLimiter, async (req, res) => {
