@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { ArrowRight, Menu, X } from 'lucide-react';
 import { Link } from 'react-router-dom';
+import mascot from '../../assets/design/mascot.png';
 
 type AuthModalView = 'login' | 'signup';
 
@@ -13,7 +14,7 @@ interface MarketingLayoutProps {
 const navItems = [
   { label: 'Benchmark', href: '/benchmark' },
   { label: 'Practice', href: '/tracks/python-fundamentals' },
-  { label: 'Duels', href: '/#duels' },
+  { label: 'Duels', href: '/interview-prep/data-structures-algorithms' },
   { label: 'Teams', href: '/teams' },
   { label: 'Pricing', href: '/pricing' },
   { label: 'FAQ', href: '/faq' },
@@ -23,32 +24,36 @@ export default function MarketingLayout({ children, openAuthModal, isAuthenticat
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   return (
-    <div className="min-h-screen bg-[linear-gradient(180deg,#f8fafc_0%,#eef6ff_42%,#ffffff_100%)] text-slate-950">
-      <header className="sticky top-0 z-50 border-b border-white/50 bg-white/90 backdrop-blur">
-        <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 py-4 sm:px-6 lg:px-8">
-          <Link to="/" className="inline-flex items-center gap-3">
-            <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-slate-950 text-sm font-bold text-white shadow-lg shadow-slate-900/20">
-              C
-            </div>
+    <div className="min-h-screen bg-background text-foreground">
+      <header className="sticky top-0 z-50 border-b border-border/70 glass">
+        <div className="container mx-auto flex h-16 items-center justify-between gap-4 px-4">
+          <Link to="/" className="flex items-center gap-2.5">
+            <img src={mascot} alt="Codhak" className="h-8 w-8" />
             <div>
-              <div className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Codhak</div>
-              <div className="text-sm font-semibold text-slate-900">Developer skill benchmark</div>
+              <div className="text-xl font-bold font-display text-foreground">Codhak</div>
+              <div className="text-[10px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">
+                Developer skill benchmark
+              </div>
             </div>
           </Link>
 
-          <nav className="hidden items-center gap-6 lg:flex">
+          <nav className="hidden items-center gap-8 md:flex">
             {navItems.map((item) => (
-              <Link key={item.href} to={item.href} className="text-sm font-medium text-slate-600 transition hover:text-slate-950">
+              <Link
+                key={item.href}
+                to={item.href}
+                className="text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
+              >
                 {item.label}
               </Link>
             ))}
           </nav>
 
-          <div className="hidden items-center gap-3 lg:flex">
+          <div className="hidden items-center gap-3 md:flex">
             {isAuthenticated ? (
               <Link
                 to="/app"
-                className="inline-flex items-center gap-2 rounded-2xl bg-slate-950 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-slate-800"
+                className="inline-flex items-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground shadow-glow transition hover:bg-primary/90"
               >
                 <span>Open workspace</span>
                 <ArrowRight className="h-4 w-4" />
@@ -58,16 +63,16 @@ export default function MarketingLayout({ children, openAuthModal, isAuthenticat
                 <button
                   type="button"
                   onClick={() => openAuthModal('login')}
-                  className="rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
+                  className="rounded-lg px-3 py-2 text-sm font-medium text-muted-foreground transition hover:bg-secondary hover:text-foreground"
                 >
-                  Log in
+                  Log In
                 </button>
                 <button
                   type="button"
                   onClick={() => openAuthModal('signup')}
-                  className="inline-flex items-center gap-2 rounded-2xl bg-slate-950 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-slate-800"
+                  className="inline-flex items-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground shadow-glow transition hover:bg-primary/90"
                 >
-                  <span>Get started</span>
+                  <span>Start Free</span>
                   <ArrowRight className="h-4 w-4" />
                 </button>
               </>
@@ -77,22 +82,22 @@ export default function MarketingLayout({ children, openAuthModal, isAuthenticat
           <button
             type="button"
             onClick={() => setMobileMenuOpen((current) => !current)}
-            className="inline-flex h-11 w-11 items-center justify-center rounded-2xl border border-slate-200 bg-white lg:hidden"
+            className="inline-flex h-11 w-11 items-center justify-center rounded-xl border border-border bg-card text-foreground md:hidden"
             aria-label="Toggle navigation"
           >
-            {mobileMenuOpen ? <X className="h-5 w-5 text-slate-700" /> : <Menu className="h-5 w-5 text-slate-700" />}
+            {mobileMenuOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
           </button>
         </div>
 
         {mobileMenuOpen ? (
-          <div className="border-t border-slate-200 bg-white px-4 py-4 lg:hidden">
+          <div className="border-t border-border bg-card/95 px-4 py-4 md:hidden">
             <nav className="grid gap-2">
               {navItems.map((item) => (
                 <Link
                   key={item.href}
                   to={item.href}
                   onClick={() => setMobileMenuOpen(false)}
-                  className="rounded-2xl px-4 py-3 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
+                  className="rounded-xl px-4 py-3 text-sm font-medium text-muted-foreground transition hover:bg-secondary hover:text-foreground"
                 >
                   {item.label}
                 </Link>
@@ -101,7 +106,7 @@ export default function MarketingLayout({ children, openAuthModal, isAuthenticat
                 <Link
                   to="/app"
                   onClick={() => setMobileMenuOpen(false)}
-                  className="inline-flex items-center justify-center gap-2 rounded-2xl bg-slate-950 px-4 py-3 text-sm font-medium text-white transition hover:bg-slate-800"
+                  className="inline-flex items-center justify-center gap-2 rounded-xl bg-primary px-4 py-3 text-sm font-semibold text-primary-foreground"
                 >
                   <span>Open workspace</span>
                   <ArrowRight className="h-4 w-4" />
@@ -114,9 +119,9 @@ export default function MarketingLayout({ children, openAuthModal, isAuthenticat
                       setMobileMenuOpen(false);
                       openAuthModal('login');
                     }}
-                    className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
+                    className="rounded-xl border border-border bg-card px-4 py-3 text-sm font-medium text-muted-foreground transition hover:bg-secondary hover:text-foreground"
                   >
-                    Log in
+                    Log In
                   </button>
                   <button
                     type="button"
@@ -124,9 +129,9 @@ export default function MarketingLayout({ children, openAuthModal, isAuthenticat
                       setMobileMenuOpen(false);
                       openAuthModal('signup');
                     }}
-                    className="inline-flex items-center justify-center gap-2 rounded-2xl bg-slate-950 px-4 py-3 text-sm font-medium text-white transition hover:bg-slate-800"
+                    className="inline-flex items-center justify-center gap-2 rounded-xl bg-primary px-4 py-3 text-sm font-semibold text-primary-foreground"
                   >
-                    <span>Get started</span>
+                    <span>Start Free</span>
                     <ArrowRight className="h-4 w-4" />
                   </button>
                 </div>
@@ -138,21 +143,25 @@ export default function MarketingLayout({ children, openAuthModal, isAuthenticat
 
       <main>{children}</main>
 
-      <footer className="border-t border-slate-200 bg-white/90">
-        <div className="mx-auto grid max-w-7xl gap-8 px-4 py-10 sm:px-6 lg:grid-cols-[1.2fr_0.8fr] lg:px-8">
-          <div>
-            <div className="text-lg font-semibold text-slate-950">Measure coding skill. Build proof of progress.</div>
-            <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-600">
-              Codhak helps individuals get interview-ready and gives teams a practical way to benchmark, coach, and track coding fluency.
-            </p>
+      <footer className="border-t border-border/70 bg-card/40">
+        <div className="container mx-auto flex flex-col items-center justify-between gap-5 px-4 py-8 text-center sm:flex-row sm:text-left">
+          <div className="flex items-center gap-3">
+            <img src={mascot} alt="" className="h-7 w-7" />
+            <div>
+              <div className="font-semibold text-foreground">Codhak</div>
+              <div className="text-xs uppercase tracking-[0.18em] text-muted-foreground">
+                Measure coding skill. Build proof of progress.
+              </div>
+            </div>
           </div>
-          <div className="grid gap-2 text-sm text-slate-600 sm:grid-cols-2">
-            <Link to="/benchmark" className="transition hover:text-slate-950">Benchmark</Link>
-            <Link to="/pricing" className="transition hover:text-slate-950">Pricing</Link>
-            <Link to="/teams" className="transition hover:text-slate-950">Teams</Link>
-            <Link to="/faq" className="transition hover:text-slate-950">FAQ</Link>
-            <Link to="/terms" className="transition hover:text-slate-950">Terms</Link>
-            <Link to="/privacy" className="transition hover:text-slate-950">Privacy</Link>
+
+          <div className="flex flex-wrap items-center justify-center gap-5 text-xs font-medium text-muted-foreground">
+            <Link to="/benchmark" className="hover:text-foreground">Benchmark</Link>
+            <Link to="/pricing" className="hover:text-foreground">Pricing</Link>
+            <Link to="/teams" className="hover:text-foreground">Teams</Link>
+            <Link to="/faq" className="hover:text-foreground">FAQ</Link>
+            <Link to="/terms" className="hover:text-foreground">Terms</Link>
+            <Link to="/privacy" className="hover:text-foreground">Privacy</Link>
           </div>
         </div>
       </footer>

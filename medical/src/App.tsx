@@ -26,7 +26,7 @@ const ResetPasswordPage = lazyWithPreload(() => import('./components/ResetPasswo
 const LegalDocumentPage = lazyWithPreload(() => import('./components/legal/LegalDocumentPage'));
 
 const SectionFallback = () => (
-  <div className="flex min-h-[40vh] items-center justify-center px-6 py-16 text-sm font-medium text-slate-500">
+  <div className="flex min-h-[40vh] items-center justify-center px-6 py-16 text-sm font-medium text-muted-foreground">
     Loading...
   </div>
 );

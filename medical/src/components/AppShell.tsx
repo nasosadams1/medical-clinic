@@ -1,16 +1,33 @@
 import React, { Suspense, startTransition, useEffect, useMemo, useState } from 'react';
-import { BarChart3, BookOpen, Menu, Swords, User as UserIcon, UserPlus, Users } from 'lucide-react';
+import {
+  BarChart3,
+  BookOpen,
+  Menu,
+  Swords,
+  User as UserIcon,
+  UserPlus,
+  Users,
+} from 'lucide-react';
 import { useSearchParams } from 'react-router-dom';
-import { useAuth } from '../context/AuthContext';
 import Sidebar from './Sidebar';
 import Learn from './Learn';
 import BenchmarkExperience from './benchmark/BenchmarkExperience';
 import TeamsWorkspace from './teams/TeamsWorkspace';
+import { useAuth } from '../context/AuthContext';
 import { preloadLessonsModule } from '../data/lessonsLoader';
 import { lazyWithPreload } from '../lib/lazyWithPreload';
+import mascot from '../assets/design/mascot.png';
 
 type AuthModalView = 'login' | 'signup';
-type SectionId = 'benchmark' | 'practice' | 'duels' | 'teams' | 'store' | 'leaderboard' | 'profile' | 'account';
+type SectionId =
+  | 'benchmark'
+  | 'practice'
+  | 'duels'
+  | 'teams'
+  | 'store'
+  | 'leaderboard'
+  | 'profile'
+  | 'account';
 
 interface AppShellProps {
   openAuthModal: (view?: AuthModalView) => void;
@@ -23,7 +40,7 @@ const Account = lazyWithPreload(() => import('./Account'));
 const DuelsDashboard = lazyWithPreload(() => import('./DuelsDashboard'));
 
 const SectionFallback = () => (
-  <div className="flex min-h-[40vh] items-center justify-center px-6 py-16 text-sm font-medium text-slate-500">
+  <div className="flex min-h-[40vh] items-center justify-center px-6 py-16 text-sm font-medium text-muted-foreground">
     Loading...
   </div>
 );
@@ -117,9 +134,7 @@ export default function AppShell({ openAuthModal }: AppShellProps) {
     <Learn
       setCurrentSection={(section) => {
         if (section === 'practice' || section === 'benchmark' || section === 'duels') {
-          if (section === 'practice') {
-            preloadLessonsModule();
-          }
+          if (section === 'practice') preloadLessonsModule();
           startTransition(() => setCurrentSection(section));
           setSidebarOpen(false);
           window.scrollTo({ top: 0, behavior: 'auto' });
@@ -147,7 +162,7 @@ export default function AppShell({ openAuthModal }: AppShellProps) {
       case 'leaderboard':
         return isAuthenticated
           ? withSuspense(
-              <div className="p-2 sm:p-4 lg:p-6 xl:p-8">
+              <div className="p-3 sm:p-4 lg:p-8">
                 <RealTimeLeaderboard currentUserId={user?.id || 'guest'} />
               </div>
             )
@@ -179,9 +194,7 @@ export default function AppShell({ openAuthModal }: AppShellProps) {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 text-gray-900">
-      {sidebarOpen ? <div className="fixed inset-0 z-40 bg-black/50 lg:hidden" onClick={() => setSidebarOpen(false)} /> : null}
-
+    <div className="flex h-screen overflow-hidden bg-background text-foreground">
       <Sidebar
         currentSection={currentSection}
         setCurrentSection={(section) => handleSectionChange(section as SectionId)}
@@ -191,61 +204,56 @@ export default function AppShell({ openAuthModal }: AppShellProps) {
         onClose={() => setSidebarOpen(false)}
       />
 
-      <main className="min-h-screen pb-24 lg:ml-72 lg:min-h-screen lg:pb-0 xl:ml-80">
-        <div className="sticky top-0 z-30 flex items-center justify-between border-b border-slate-200 bg-white/90 px-4 py-3 backdrop-blur lg:hidden">
-          <div>
-            <div className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Codhak</div>
-            <div className="text-sm font-semibold text-slate-900">Developer skill workspace</div>
+      {sidebarOpen ? (
+        <div className="fixed inset-0 z-40 bg-background/80 backdrop-blur-sm lg:hidden" onClick={() => setSidebarOpen(false)} />
+      ) : null}
+
+      <div className="flex flex-1 flex-col overflow-hidden">
+        <header className="flex h-14 items-center justify-between border-b border-border px-4 lg:hidden">
+          <div className="flex items-center gap-2">
+            <img src={mascot} alt="" className="h-6 w-6" />
+            <span className="font-bold font-display text-foreground">Codhak</span>
           </div>
           <button
             type="button"
             onClick={() => setSidebarOpen(true)}
-            className="inline-flex h-11 w-11 items-center justify-center rounded-2xl border border-slate-200 bg-white text-slate-700 shadow-sm"
+            className="rounded-xl border border-border bg-card p-2 text-muted-foreground transition hover:bg-secondary hover:text-foreground"
             aria-label="Open workspace navigation"
           >
             <Menu className="h-5 w-5" />
           </button>
-        </div>
-        <div className="min-h-screen">{renderSection()}</div>
-      </main>
+        </header>
 
-      <nav className="fixed inset-x-0 bottom-0 z-50 border-t border-gray-200 bg-white/95 px-2 pb-[max(env(safe-area-inset-bottom),0.5rem)] pt-2 backdrop-blur lg:hidden">
-        <ul className="grid gap-1" style={{ gridTemplateColumns: `repeat(${navItems.length}, minmax(0, 1fr))` }}>
+        <main className="flex-1 overflow-y-auto bg-background">
+          {renderSection()}
+        </main>
+
+        <nav className="flex border-t border-border bg-card lg:hidden">
           {navItems.map((item) => {
             const Icon = item.icon;
             const isActive = item.id === 'signup' ? false : currentSection === item.id;
+
             return (
-              <li key={item.id}>
-                <button
-                  onClick={() => {
-                    if (item.id === 'signup') {
-                      openAuthModal('signup');
-                      return;
-                    }
-                    handleSectionChange(item.id);
-                  }}
-                  onMouseEnter={() => {
-                    if (item.id === 'signup') return;
-                    preloadSection(item.id);
-                  }}
-                  onFocus={() => {
-                    if (item.id === 'signup') return;
-                    preloadSection(item.id);
-                  }}
-                  className={`flex w-full flex-col items-center justify-center rounded-2xl px-2 py-2 text-[11px] font-medium transition ${
-                    isActive
-                      ? 'bg-slate-950 text-white shadow-md'
-                      : 'text-gray-500 hover:bg-gray-100 hover:text-gray-800'
-                  }`}
-                >
-                  <Icon className="mb-1 h-4 w-4" />
-                  <span>{item.label}</span>
-                </button>
-              </li>
+              <button
+                key={item.id}
+                onClick={() => {
+                  if (item.id === 'signup') {
+                    openAuthModal('signup');
+                    return;
+                  }
+                  handleSectionChange(item.id);
+                }}
+                className={`flex flex-1 flex-col items-center gap-0.5 py-2 text-[10px] font-medium transition-colors ${
+                  isActive ? 'text-primary' : 'text-muted-foreground'
+                }`}
+              >
+                <Icon className="h-5 w-5" />
+                {item.label}
+              </button>
             );
           })}
-        </ul>
-      </nav>
+        </nav>
+      </div>
     </div>
   );
 }
