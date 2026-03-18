@@ -211,11 +211,11 @@ export default function MatchmakingQueue({
             <div className="mx-auto h-16 w-16 sm:h-20 sm:w-20"><MascotIcon mascot="duel" className="h-full w-full" imageClassName="drop-shadow-md" /></div>
           </div>
 
-          <h2 className="mb-3 text-3xl font-bold text-gray-800 sm:text-4xl">Code Duels</h2>
+          <h2 className="mb-3 text-3xl font-bold text-gray-800 sm:text-4xl">Duels as Skill Proof</h2>
           <p className="mb-6 text-gray-600">
             {isRankedMode
-              ? 'Compete against another player in a real-time coding battle'
-              : 'Jump into a casual 1v1 coding battle with no ranking changes'}
+              ? 'Compete in a live judged match where performance contributes to your rating signal'
+              : 'Use a casual 1v1 match to practice under pressure without rating changes'}
           </p>
 
           <div className="mb-8 grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -251,20 +251,20 @@ export default function MatchmakingQueue({
               <div className="rounded-lg bg-blue-50 p-6">
                 <Trophy className="mx-auto mb-2 h-8 w-8 text-blue-600" />
                 <div className="text-2xl font-bold text-blue-600">{rating}</div>
-                <div className="text-sm text-gray-600">Your Rating</div>
+                <div className="text-sm text-gray-600">Your skill signal</div>
               </div>
             ) : (
               <div className="rounded-lg bg-slate-50 p-6">
                 <Swords className="mx-auto mb-2 h-8 w-8 text-slate-700" />
                 <div className="text-2xl font-bold text-slate-700">Casual 1v1</div>
-                <div className="text-sm text-gray-600">Head-to-head practice duel</div>
+                <div className="text-sm text-gray-600">Head-to-head practice under real duel conditions</div>
               </div>
             )}
 
             <div className="rounded-lg bg-green-50 p-6">
               <Users className="mx-auto mb-2 h-8 w-8 text-green-600" />
               <div className="text-2xl font-bold text-green-600">{playersOnline}</div>
-              <div className="text-sm text-gray-600">Coding</div>
+              <div className="text-sm text-gray-600">Players available</div>
             </div>
           </div>
 

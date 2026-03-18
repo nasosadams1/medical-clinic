@@ -14,6 +14,9 @@ import { createLegalRouter } from './services/legal/routes.js';
 import { createDuelAdminRouter } from './services/duel-admin/routes.js';
 import { createDuelProblemAdminRouter } from './services/duel-problems/routes.js';
 import { createProgressionRouter } from './services/progression/routes.js';
+import { createBenchmarkRouter } from './services/benchmark/routes.js';
+import { createTeamsRouter } from './services/teams/routes.js';
+import { createAnalyticsRouter } from './services/analytics/routes.js';
 import { formatAllowedOriginsError, isAllowedOrigin, resolveAllowedOrigins } from './services/allowed-origins.js';
 
 dotenv.config();
@@ -887,6 +890,9 @@ app.use('/api/legal', createLegalRouter({ supabaseAdmin }));
 app.use('/api/duel/admin', createDuelAdminRouter({ supabaseAdmin }));
 app.use('/api/duel/problems', createDuelProblemAdminRouter({ supabaseAdmin }));
 app.use('/api/progression', createProgressionRouter({ supabaseAdmin }));
+app.use('/api/benchmark', createBenchmarkRouter({ supabaseAdmin }));
+app.use('/api/teams', createTeamsRouter({ supabaseAdmin }));
+app.use('/api/analytics', createAnalyticsRouter({ supabaseAdmin }));
 
 // REST API Endpoints
 app.get('/', (req, res) => {

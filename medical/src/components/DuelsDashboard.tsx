@@ -319,7 +319,7 @@ export default function DuelsDashboard() {
           </div>
           <h1 className="text-3xl font-bold text-gray-900">Enter the duel lobby with an account</h1>
           <p className="mt-3 max-w-2xl text-base text-gray-600">
-            Ranked matchmaking is only available for signed-in players. You can still browse lessons, the store, and the leaderboard without logging in.
+            Ranked matchmaking is only available for signed-in players. You can still use the benchmark, open practice paths, and review pricing before you log in.
           </p>
           <div className="mt-8 grid gap-4 sm:grid-cols-3">
             <div className="rounded-2xl border border-gray-200 bg-gray-50 p-4">

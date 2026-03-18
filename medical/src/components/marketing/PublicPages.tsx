@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowRight, BarChart3, BadgeCheck, Briefcase, Building2, CheckCircle2, GraduationCap, Swords, Target, Users } from 'lucide-react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import BenchmarkExperience from '../benchmark/BenchmarkExperience';
@@ -17,7 +17,7 @@ import {
   testimonialPlaceholders,
   type LanguageSlug,
 } from '../../data/siteContent';
-import { trackEvent } from '../../lib/analytics';
+import { fetchProductAnalyticsSummary, trackEvent } from '../../lib/analytics';
 import { usePageMetadata } from '../../lib/pageMeta';
 
 type AuthModalView = 'login' | 'signup';
@@ -177,11 +177,49 @@ function SampleReportPreview() {
 export function HomePage({ openAuthModal }: PublicPageProps) {
   const { user } = useAuth();
   const handleTeamDemo = useTeamDemoCta();
+  const [liveTrustMetrics, setLiveTrustMetrics] = useState(trustBarMetrics);
   usePageMetadata({
     title: 'Codhak | Developer Skills Benchmark and Interview Readiness',
     description: 'Measure real coding skill with live challenges, duels, interview-style feedback, and cohort-ready reporting.',
   });
   useTrackPage('homepage_visit', { page: 'home' });
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadSummary = async () => {
+      const summary = await fetchProductAnalyticsSummary();
+      if (!summary || cancelled) return;
+
+      setLiveTrustMetrics([
+        {
+          label: 'Challenges completed',
+          value: `${summary.challengesCompleted}`,
+          helper: 'Lesson and practice completions recorded across the product.',
+        },
+        {
+          label: 'Duel matches played',
+          value: `${summary.duelMatchesPlayed}`,
+          helper: 'Completed matches pulled from the live duel system.',
+        },
+        {
+          label: 'Average score improvement',
+          value: summary.averageScoreImprovement === null ? 'Waiting for repeat attempts' : `${summary.averageScoreImprovement > 0 ? '+' : ''}${summary.averageScoreImprovement} pts`,
+          helper: 'Calculated from benchmark history when learners retake the assessment.',
+        },
+        {
+          label: 'Cohort and team usage',
+          value: summary.teamCount > 0 ? `${summary.teamCount} live teams` : 'Pilot-ready',
+          helper: 'Counts active team workspaces created in Codhak.',
+        },
+      ]);
+    };
+
+    void loadSummary();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   return (
     <MarketingLayout openAuthModal={openAuthModal} isAuthenticated={!!user}>
@@ -250,7 +288,7 @@ export function HomePage({ openAuthModal }: PublicPageProps) {
 
       <section className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
         <div className="grid gap-4 lg:grid-cols-4">
-          {trustBarMetrics.map((metric) => (
+          {liveTrustMetrics.map((metric) => (
             <div key={metric.label} className="rounded-[1.75rem] border border-slate-200 bg-white p-5 shadow-[0_20px_50px_rgba(15,23,42,0.04)]">
               <div className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">{metric.label}</div>
               <div className="mt-3 text-2xl font-semibold tracking-tight text-slate-950">{metric.value}</div>
@@ -377,6 +415,28 @@ export function HomePage({ openAuthModal }: PublicPageProps) {
               <div className="mt-1 text-xs uppercase tracking-[0.18em] text-slate-400">Placeholder slot</div>
             </div>
           ))}
+        </div>
+      </section>
+
+      <section className="mx-auto max-w-7xl px-4 py-14 sm:px-6 lg:px-8 lg:py-20">
+        <SectionIntro
+          eyebrow="Credibility"
+          title="Add trust before you add scale."
+          description="These blocks are ready for founder credibility, instructor proof, and anti-cheat transparency so early pilot prospects do not have to guess how the product works."
+        />
+        <div className="mt-10 grid gap-4 lg:grid-cols-3">
+          <div className="rounded-[2rem] border border-dashed border-slate-300 bg-white p-6 shadow-[0_20px_60px_rgba(15,23,42,0.04)]">
+            <div className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Founder / instructor slot</div>
+            <p className="mt-4 text-sm leading-7 text-slate-600">Placeholder for founder background, teaching credibility, or hiring-assessment experience.</p>
+          </div>
+          <div className="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-[0_20px_60px_rgba(15,23,42,0.08)]">
+            <div className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Anti-cheat stance</div>
+            <p className="mt-4 text-sm leading-7 text-slate-600">Benchmarks and duels are designed around timed prompts, judged outputs, and behavior telemetry rather than passive content completion.</p>
+          </div>
+          <div className="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-[0_20px_60px_rgba(15,23,42,0.08)]">
+            <div className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Founder-led onboarding</div>
+            <p className="mt-4 text-sm leading-7 text-slate-600">Placeholder for pilot walkthroughs, onboarding support, and hands-on setup for the first cohort customers.</p>
+          </div>
         </div>
       </section>
 
@@ -528,6 +588,40 @@ export function PricingPage({ openAuthModal }: PublicPageProps) {
         />
         <div className="mt-10">
           <PricingGrid openAuthModal={openAuthModal} />
+        </div>
+        <div className="mt-10 grid gap-4 lg:grid-cols-2">
+          <div className="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-[0_20px_60px_rgba(15,23,42,0.08)]">
+            <div className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">What is free</div>
+            <ul className="mt-4 space-y-3">
+              {[
+                'First benchmark',
+                'Starter path',
+                'Limited duels',
+                'Public profile basics',
+              ].map((item) => (
+                <li key={item} className="flex items-start gap-3 text-sm leading-6 text-slate-700">
+                  <CheckCircle2 className="mt-1 h-4 w-4 shrink-0 text-emerald-600" />
+                  <span>{item}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+          <div className="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-[0_20px_60px_rgba(15,23,42,0.08)]">
+            <div className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">What unlocks first</div>
+            <ul className="mt-4 space-y-3">
+              {[
+                'Full skill reports',
+                'Personalized roadmap',
+                'Unlimited assessed practice',
+                'Interview tracks and advanced duel analytics',
+              ].map((item) => (
+                <li key={item} className="flex items-start gap-3 text-sm leading-6 text-slate-700">
+                  <CheckCircle2 className="mt-1 h-4 w-4 shrink-0 text-sky-600" />
+                  <span>{item}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
         </div>
       </section>
     </MarketingLayout>

@@ -13,6 +13,7 @@ import StripeCheckout from './StripeCheckout';
 import MascotIcon from './branding/MascotIcon';
 import { purchaseStoreItem } from '../lib/store';
 import { STORE_ITEMS } from '../../shared/store-catalog.js';
+import { Link } from 'react-router-dom';
 
 type StoreSource = 'stripe' | 'coins';
 type StoreKind = 'coin_pack' | 'xp_boost' | 'heart_refill' | 'unlimited_hearts';
@@ -163,6 +164,12 @@ const Store: React.FC = () => {
       .reduce((max, item) => Math.max(max, item.bonusPercent || 0), 0);
   }, [storeItems]);
 
+  const [coinPacks, practiceBoosts] = useMemo(() => {
+    const packs = storeItems.filter((item) => item.kind === 'coin_pack');
+    const boosts = storeItems.filter((item) => item.kind !== 'coin_pack');
+    return [packs, boosts];
+  }, [storeItems]);
+
   const getDisabledReason = (item: StoreItemView) => {
     if (item.source !== 'coins') {
       return null;
@@ -258,11 +265,26 @@ const Store: React.FC = () => {
           </div>
         </div>
 
+        <div className="mx-0 mb-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+            <div>
+              <div className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">Optional workspace add-ons</div>
+              <h3 className="mt-2 text-2xl font-semibold text-slate-950">Codhak makes money through plans and team access. The store is secondary.</h3>
+              <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-600">
+                Use these add-ons only if you want extra practice fuel inside the workspace. Benchmark reports, interview tracks, and team plans live on the public pricing page.
+              </p>
+            </div>
+            <Link to="/pricing" className="inline-flex items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-slate-950 px-4 py-3 text-sm font-medium text-white transition hover:bg-slate-800">
+              <span>See plans</span>
+            </Link>
+          </div>
+        </div>
+
         <div className="mx-0 mb-8 rounded-2xl bg-gradient-to-r from-orange-400 via-pink-500 to-purple-600 p-4 text-white shadow-xl sm:p-5 lg:p-6">
           <div className="flex flex-col items-center justify-between text-center sm:flex-row sm:text-left">
             <div>
-              <h3 className="mb-2 text-xl font-bold lg:text-2xl">Best-Selling Bundles</h3>
-              <p className="text-sm text-white/90 lg:text-base">Get up to {maxBundleBonus}% more coins in premium bundles</p>
+              <h3 className="mb-2 text-xl font-bold lg:text-2xl">Premium bundles</h3>
+              <p className="text-sm text-white/90 lg:text-base">Get up to {maxBundleBonus}% more coins in premium bundles for optional workspace purchases.</p>
             </div>
             <div className="mt-4 text-center sm:mt-0 sm:text-right">
               <div className="text-3xl font-bold">{maxBundleBonus}%</div>
@@ -271,8 +293,76 @@ const Store: React.FC = () => {
           </div>
         </div>
 
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 lg:gap-6 xl:grid-cols-4">
-          {storeItems.map((item) => {
+        <div className="mb-10">
+          <div className="mb-4 text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">Coin packs</div>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 lg:gap-6 xl:grid-cols-4">
+            {coinPacks.map((item) => {
+              const disabledReason = getDisabledReason(item);
+              const isProcessing = processingItemId === item.id;
+              const buttonDisabled = Boolean(disabledReason) || isProcessing;
+              const buttonLabel = item.source === 'stripe'
+                ? 'Buy now'
+                : disabledReason || 'Use coins';
+
+              return (
+                <div
+                  key={item.id}
+                  className={`relative overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-lg transition-all duration-300 hover:-translate-y-1 hover:shadow-2xl ${item.glowColor}`}
+                >
+                  <div className="absolute left-3 top-3 z-10">
+                    {item.popular ? (
+                      <div className="mb-2 rounded-full bg-red-500 px-2 py-1 text-xs font-bold text-white lg:px-3">
+                        POPULAR
+                      </div>
+                    ) : null}
+                    {item.bestValue ? (
+                      <div className="mb-2 rounded-full bg-green-500 px-2 py-1 text-xs font-bold text-white lg:px-3">
+                        BEST VALUE
+                      </div>
+                    ) : null}
+                    {(item.bonusPercent || 0) > 0 ? (
+                      <div className="rounded-full bg-orange-500 px-2 py-1 text-xs font-bold text-white lg:px-3">
+                        +{item.bonusPercent}%
+                      </div>
+                    ) : null}
+                  </div>
+
+                  <div className={`bg-gradient-to-r ${item.gradient} p-6 text-white`}>
+                    <div className="mb-4 flex items-center justify-between pt-8">
+                      <div className="rounded-2xl bg-white/20 p-3 backdrop-blur-sm">{item.icon}</div>
+                      <div className="text-right">
+                        <div className="text-3xl font-bold">{item.coinsGranted?.toLocaleString()}</div>
+                        <div className="text-sm text-white/80">Coins</div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="p-6">
+                    <h3 className="mb-2 text-xl font-bold text-gray-900">{item.name}</h3>
+                    <p className="mb-4 min-h-[48px] text-gray-600">{item.description}</p>
+
+                    <div className="mb-6 flex items-center justify-between">
+                      <div className="text-3xl font-bold text-gray-900">{item.priceLabel}</div>
+                    </div>
+
+                    <button
+                      onClick={() => handlePurchase(item)}
+                      disabled={buttonDisabled}
+                      className={`w-full rounded-xl py-3 font-semibold transition-all duration-200 ${buttonDisabled ? 'cursor-not-allowed bg-gray-200 text-gray-500' : `bg-gradient-to-r ${item.gradient} text-white shadow-lg hover:shadow-xl`} `}
+                    >
+                      {isProcessing ? 'Processing...' : buttonLabel}
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        <div>
+          <div className="mb-4 text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">Practice boosts and refills</div>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 lg:gap-6 xl:grid-cols-4">
+            {practiceBoosts.map((item) => {
             const disabledReason = getDisabledReason(item);
             const isProcessing = processingItemId === item.id;
             const buttonDisabled = Boolean(disabledReason) || isProcessing;
@@ -280,80 +370,58 @@ const Store: React.FC = () => {
               ? 'Buy now'
               : disabledReason || 'Use coins';
 
-            return (
-              <div
-                key={item.id}
-                className={`relative overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-lg transition-all duration-300 hover:-translate-y-1 hover:shadow-2xl ${item.glowColor}`}
-              >
-                <div className="absolute left-3 top-3 z-10">
-                  {item.popular ? (
-                    <div className="mb-2 rounded-full bg-red-500 px-2 py-1 text-xs font-bold text-white lg:px-3">
-                      POPULAR
+              return (
+                <div
+                  key={item.id}
+                  className={`relative overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-lg transition-all duration-300 hover:-translate-y-1 hover:shadow-2xl ${item.glowColor}`}
+                >
+                  <div className={`bg-gradient-to-r ${item.gradient} p-6 text-white`}>
+                    <div className="mb-4 flex items-center justify-between">
+                      <div className="rounded-2xl bg-white/20 p-3 backdrop-blur-sm">{item.icon}</div>
+                      {item.kind === 'xp_boost' ? (
+                        <div className="text-right">
+                          <div className="text-2xl font-bold">{item.multiplier}x XP</div>
+                          <div className="text-sm text-white/80">{item.durationHours}h duration</div>
+                        </div>
+                      ) : item.kind === 'heart_refill' ? (
+                        <div className="text-right">
+                          <div className="text-2xl font-bold">Full Hearts</div>
+                          <div className="text-sm text-white/80">Instant refill</div>
+                        </div>
+                      ) : (
+                        <div className="text-right">
+                          <div className="text-2xl font-bold">Unlimited</div>
+                          <div className="text-sm text-white/80">{item.durationHours}h duration</div>
+                        </div>
+                      )}
                     </div>
-                  ) : null}
-                  {item.bestValue ? (
-                    <div className="mb-2 rounded-full bg-green-500 px-2 py-1 text-xs font-bold text-white lg:px-3">
-                      BEST VALUE
-                    </div>
-                  ) : null}
-                  {(item.bonusPercent || 0) > 0 ? (
-                    <div className="rounded-full bg-orange-500 px-2 py-1 text-xs font-bold text-white lg:px-3">
-                      +{item.bonusPercent}%
-                    </div>
-                  ) : null}
-                </div>
-
-                <div className={`bg-gradient-to-r ${item.gradient} p-6 text-white`}>
-                  <div className="mb-4 flex items-center justify-between pt-8">
-                    <div className="rounded-2xl bg-white/20 p-3 backdrop-blur-sm">{item.icon}</div>
-                    {item.kind === 'coin_pack' && item.coinsGranted ? (
-                      <div className="text-right">
-                        <div className="text-3xl font-bold">{item.coinsGranted.toLocaleString()}</div>
-                        <div className="text-sm text-white/80">Coins</div>
-                      </div>
-                    ) : item.kind === 'xp_boost' ? (
-                      <div className="text-right">
-                        <div className="text-2xl font-bold">{item.multiplier}x XP</div>
-                        <div className="text-sm text-white/80">{item.durationHours}h duration</div>
-                      </div>
-                    ) : item.kind === 'heart_refill' ? (
-                      <div className="text-right">
-                        <div className="text-2xl font-bold">Full Hearts</div>
-                        <div className="text-sm text-white/80">Instant refill</div>
-                      </div>
-                    ) : (
-                      <div className="text-right">
-                        <div className="text-2xl font-bold">Unlimited</div>
-                        <div className="text-sm text-white/80">{item.durationHours}h duration</div>
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                <div className="p-6">
-                  <h3 className="mb-2 text-xl font-bold text-gray-900">{item.name}</h3>
-                  <p className="mb-4 min-h-[48px] text-gray-600">{item.description}</p>
-
-                  <div className="mb-6 flex items-center justify-between">
-                    <div className="text-3xl font-bold text-gray-900">{item.priceLabel}</div>
-                    {item.source === 'coins' && item.durationHours ? (
-                      <div className="flex items-center text-sm text-gray-500">
-                        <span>{item.durationHours}h</span>
-                      </div>
-                    ) : null}
                   </div>
 
-                  <button
-                    onClick={() => handlePurchase(item)}
-                    disabled={buttonDisabled}
-                    className={`w-full rounded-xl py-3 font-semibold transition-all duration-200 ${buttonDisabled ? 'cursor-not-allowed bg-gray-200 text-gray-500' : `bg-gradient-to-r ${item.gradient} text-white shadow-lg hover:shadow-xl`} `}
-                  >
-                    {isProcessing ? 'Processing...' : buttonLabel}
-                  </button>
+                  <div className="p-6">
+                    <h3 className="mb-2 text-xl font-bold text-gray-900">{item.name}</h3>
+                    <p className="mb-4 min-h-[48px] text-gray-600">{item.description}</p>
+
+                    <div className="mb-6 flex items-center justify-between">
+                      <div className="text-3xl font-bold text-gray-900">{item.priceLabel}</div>
+                      {item.source === 'coins' && item.durationHours ? (
+                        <div className="flex items-center text-sm text-gray-500">
+                          <span>{item.durationHours}h</span>
+                        </div>
+                      ) : null}
+                    </div>
+
+                    <button
+                      onClick={() => handlePurchase(item)}
+                      disabled={buttonDisabled}
+                      className={`w-full rounded-xl py-3 font-semibold transition-all duration-200 ${buttonDisabled ? 'cursor-not-allowed bg-gray-200 text-gray-500' : `bg-gradient-to-r ${item.gradient} text-white shadow-lg hover:shadow-xl`} `}
+                    >
+                      {isProcessing ? 'Processing...' : buttonLabel}
+                    </button>
+                  </div>
                 </div>
-              </div>
-            );
-          })}
+              );
+            })}
+          </div>
         </div>
 
         {showPaymentModal && selectedItem ? (
