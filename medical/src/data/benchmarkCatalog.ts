@@ -4,6 +4,7 @@ import {
   type BenchmarkQuestionTemplate,
 } from './benchmarkQuestionBank';
 import { interviewTracks, type LanguageSlug } from './siteContent';
+import { normalizeCodeForComparison } from '../lib/codeAssessment';
 import { duelProblemCatalog } from '../../data/duel-problem-catalog.js';
 
 export type BenchmarkGoal = 'interview_prep' | 'class_improvement' | 'skill_growth';
@@ -21,9 +22,14 @@ export interface BenchmarkQuestion {
   slotId: string;
   lessonId: string;
   lessonTitle: string;
+  kind: 'multiple_choice' | 'code';
   prompt: string;
-  options: string[];
-  correctAnswer: number;
+  options?: string[];
+  correctAnswer?: number;
+  starterCode?: string;
+  referenceCode?: string;
+  validationMode?: 'exact' | 'includes_all';
+  requiredSnippets?: string[];
   explanation: string;
   competency: string;
   difficulty: BenchmarkQuestionDifficulty;
@@ -32,7 +38,9 @@ export interface BenchmarkQuestion {
 
 export interface BenchmarkAnswerRecord {
   questionId: string;
-  selectedAnswer: number;
+  selectedAnswer?: number;
+  submittedCode?: string;
+  evaluationMessage?: string;
   isCorrect: boolean;
 }
 
@@ -81,6 +89,7 @@ type BenchmarkPlanSlot = {
   slotId: string;
   competency: string;
   difficulty: BenchmarkQuestionDifficulty;
+  preferredKind?: 'multiple_choice' | 'code';
 };
 
 type BuildBenchmarkQuestionOptions = {
@@ -97,8 +106,9 @@ export interface BenchmarkBlueprintSummary {
 const slot = (
   slotId: string,
   competency: string,
-  difficulty: BenchmarkQuestionDifficulty
-): BenchmarkPlanSlot => ({ slotId, competency, difficulty });
+  difficulty: BenchmarkQuestionDifficulty,
+  preferredKind?: 'multiple_choice' | 'code'
+): BenchmarkPlanSlot => ({ slotId, competency, difficulty, preferredKind });
 
 const difficultyWeights: Record<BenchmarkQuestionDifficulty, number> = {
   beginner: 1,
@@ -109,116 +119,116 @@ const difficultyWeights: Record<BenchmarkQuestionDifficulty, number> = {
 const benchmarkPlans: Record<BenchmarkGoal, Record<BenchmarkRoleLevel, BenchmarkPlanSlot[]>> = {
   interview_prep: {
     beginner: [
-      slot('vars-1', 'Syntax and variables', 'beginner'),
+      slot('vars-1', 'Syntax and variables', 'beginner', 'code'),
       slot('types-1', 'Data types and operators', 'beginner'),
-      slot('flow-1', 'Control flow', 'beginner'),
-      slot('functions-1', 'Functions', 'intermediate'),
-      slot('problem-solving-1', 'Problem solving', 'intermediate'),
-      slot('collections-1', 'Collections', 'intermediate'),
+      slot('flow-1', 'Control flow', 'beginner', 'code'),
+      slot('functions-1', 'Functions', 'intermediate', 'code'),
+      slot('problem-solving-1', 'Problem solving', 'intermediate', 'code'),
+      slot('collections-1', 'Collections', 'intermediate', 'code'),
     ],
     intern: [
       slot('types-1', 'Data types and operators', 'beginner'),
-      slot('flow-1', 'Control flow', 'beginner'),
-      slot('collections-1', 'Collections', 'intermediate'),
-      slot('functions-1', 'Functions', 'intermediate'),
-      slot('problem-solving-1', 'Problem solving', 'intermediate'),
-      slot('problem-solving-2', 'Problem solving', 'intermediate'),
+      slot('flow-1', 'Control flow', 'beginner', 'code'),
+      slot('collections-1', 'Collections', 'intermediate', 'code'),
+      slot('functions-1', 'Functions', 'intermediate', 'code'),
+      slot('problem-solving-1', 'Problem solving', 'intermediate', 'code'),
+      slot('problem-solving-2', 'Problem solving', 'intermediate', 'code'),
       slot('oop-1', 'Objects and classes', 'advanced'),
     ],
     junior: [
-      slot('flow-1', 'Control flow', 'beginner'),
-      slot('functions-1', 'Functions', 'intermediate'),
-      slot('collections-1', 'Collections', 'intermediate'),
-      slot('problem-solving-1', 'Problem solving', 'intermediate'),
-      slot('problem-solving-2', 'Problem solving', 'intermediate'),
+      slot('flow-1', 'Control flow', 'beginner', 'code'),
+      slot('functions-1', 'Functions', 'intermediate', 'code'),
+      slot('collections-1', 'Collections', 'intermediate', 'code'),
+      slot('problem-solving-1', 'Problem solving', 'intermediate', 'code'),
+      slot('problem-solving-2', 'Problem solving', 'intermediate', 'code'),
       slot('oop-1', 'Objects and classes', 'advanced'),
       slot('oop-2', 'Objects and classes', 'advanced'),
-      slot('functions-2', 'Functions', 'intermediate'),
+      slot('functions-2', 'Functions', 'intermediate', 'code'),
     ],
     general_practice: [
-      slot('vars-1', 'Syntax and variables', 'beginner'),
+      slot('vars-1', 'Syntax and variables', 'beginner', 'code'),
       slot('types-1', 'Data types and operators', 'beginner'),
-      slot('flow-1', 'Control flow', 'beginner'),
-      slot('functions-1', 'Functions', 'intermediate'),
-      slot('collections-1', 'Collections', 'intermediate'),
-      slot('problem-solving-1', 'Problem solving', 'intermediate'),
+      slot('flow-1', 'Control flow', 'beginner', 'code'),
+      slot('functions-1', 'Functions', 'intermediate', 'code'),
+      slot('collections-1', 'Collections', 'intermediate', 'code'),
+      slot('problem-solving-1', 'Problem solving', 'intermediate', 'code'),
       slot('oop-1', 'Objects and classes', 'advanced'),
     ],
   },
   class_improvement: {
     beginner: [
-      slot('vars-1', 'Syntax and variables', 'beginner'),
+      slot('vars-1', 'Syntax and variables', 'beginner', 'code'),
       slot('types-1', 'Data types and operators', 'beginner'),
-      slot('flow-1', 'Control flow', 'beginner'),
-      slot('flow-2', 'Control flow', 'beginner'),
-      slot('collections-1', 'Collections', 'intermediate'),
-      slot('functions-1', 'Functions', 'intermediate'),
+      slot('flow-1', 'Control flow', 'beginner', 'code'),
+      slot('flow-2', 'Control flow', 'beginner', 'code'),
+      slot('collections-1', 'Collections', 'intermediate', 'code'),
+      slot('functions-1', 'Functions', 'intermediate', 'code'),
     ],
     intern: [
-      slot('vars-1', 'Syntax and variables', 'beginner'),
+      slot('vars-1', 'Syntax and variables', 'beginner', 'code'),
       slot('types-1', 'Data types and operators', 'beginner'),
-      slot('flow-1', 'Control flow', 'beginner'),
-      slot('collections-1', 'Collections', 'intermediate'),
-      slot('functions-1', 'Functions', 'intermediate'),
-      slot('functions-2', 'Functions', 'intermediate'),
-      slot('problem-solving-1', 'Problem solving', 'intermediate'),
+      slot('flow-1', 'Control flow', 'beginner', 'code'),
+      slot('collections-1', 'Collections', 'intermediate', 'code'),
+      slot('functions-1', 'Functions', 'intermediate', 'code'),
+      slot('functions-2', 'Functions', 'intermediate', 'code'),
+      slot('problem-solving-1', 'Problem solving', 'intermediate', 'code'),
     ],
     junior: [
-      slot('vars-1', 'Syntax and variables', 'beginner'),
-      slot('flow-1', 'Control flow', 'beginner'),
+      slot('vars-1', 'Syntax and variables', 'beginner', 'code'),
+      slot('flow-1', 'Control flow', 'beginner', 'code'),
       slot('types-1', 'Data types and operators', 'beginner'),
-      slot('functions-1', 'Functions', 'intermediate'),
-      slot('functions-2', 'Functions', 'intermediate'),
-      slot('collections-1', 'Collections', 'intermediate'),
-      slot('problem-solving-1', 'Problem solving', 'intermediate'),
+      slot('functions-1', 'Functions', 'intermediate', 'code'),
+      slot('functions-2', 'Functions', 'intermediate', 'code'),
+      slot('collections-1', 'Collections', 'intermediate', 'code'),
+      slot('problem-solving-1', 'Problem solving', 'intermediate', 'code'),
       slot('oop-1', 'Objects and classes', 'advanced'),
-      slot('flow-2', 'Control flow', 'beginner'),
+      slot('flow-2', 'Control flow', 'beginner', 'code'),
     ],
     general_practice: [
-      slot('vars-1', 'Syntax and variables', 'beginner'),
+      slot('vars-1', 'Syntax and variables', 'beginner', 'code'),
       slot('types-1', 'Data types and operators', 'beginner'),
-      slot('flow-1', 'Control flow', 'beginner'),
-      slot('collections-1', 'Collections', 'intermediate'),
-      slot('functions-1', 'Functions', 'intermediate'),
-      slot('problem-solving-1', 'Problem solving', 'intermediate'),
+      slot('flow-1', 'Control flow', 'beginner', 'code'),
+      slot('collections-1', 'Collections', 'intermediate', 'code'),
+      slot('functions-1', 'Functions', 'intermediate', 'code'),
+      slot('problem-solving-1', 'Problem solving', 'intermediate', 'code'),
     ],
   },
   skill_growth: {
     beginner: [
-      slot('vars-1', 'Syntax and variables', 'beginner'),
+      slot('vars-1', 'Syntax and variables', 'beginner', 'code'),
       slot('types-1', 'Data types and operators', 'beginner'),
-      slot('flow-1', 'Control flow', 'beginner'),
-      slot('collections-1', 'Collections', 'intermediate'),
-      slot('functions-1', 'Functions', 'intermediate'),
-      slot('functions-2', 'Functions', 'intermediate'),
+      slot('flow-1', 'Control flow', 'beginner', 'code'),
+      slot('collections-1', 'Collections', 'intermediate', 'code'),
+      slot('functions-1', 'Functions', 'intermediate', 'code'),
+      slot('functions-2', 'Functions', 'intermediate', 'code'),
     ],
     intern: [
-      slot('vars-1', 'Syntax and variables', 'beginner'),
-      slot('collections-1', 'Collections', 'intermediate'),
-      slot('functions-1', 'Functions', 'intermediate'),
-      slot('functions-2', 'Functions', 'intermediate'),
-      slot('problem-solving-1', 'Problem solving', 'intermediate'),
-      slot('collections-2', 'Collections', 'intermediate'),
-      slot('flow-1', 'Control flow', 'beginner'),
+      slot('vars-1', 'Syntax and variables', 'beginner', 'code'),
+      slot('collections-1', 'Collections', 'intermediate', 'code'),
+      slot('functions-1', 'Functions', 'intermediate', 'code'),
+      slot('functions-2', 'Functions', 'intermediate', 'code'),
+      slot('problem-solving-1', 'Problem solving', 'intermediate', 'code'),
+      slot('collections-2', 'Collections', 'intermediate', 'code'),
+      slot('flow-1', 'Control flow', 'beginner', 'code'),
       slot('oop-1', 'Objects and classes', 'advanced'),
     ],
     junior: [
-      slot('collections-1', 'Collections', 'intermediate'),
-      slot('functions-1', 'Functions', 'intermediate'),
-      slot('functions-2', 'Functions', 'intermediate'),
-      slot('problem-solving-1', 'Problem solving', 'intermediate'),
-      slot('problem-solving-2', 'Problem solving', 'intermediate'),
+      slot('collections-1', 'Collections', 'intermediate', 'code'),
+      slot('functions-1', 'Functions', 'intermediate', 'code'),
+      slot('functions-2', 'Functions', 'intermediate', 'code'),
+      slot('problem-solving-1', 'Problem solving', 'intermediate', 'code'),
+      slot('problem-solving-2', 'Problem solving', 'intermediate', 'code'),
       slot('oop-1', 'Objects and classes', 'advanced'),
-      slot('collections-2', 'Collections', 'intermediate'),
+      slot('collections-2', 'Collections', 'intermediate', 'code'),
       slot('oop-2', 'Objects and classes', 'advanced'),
     ],
     general_practice: [
-      slot('vars-1', 'Syntax and variables', 'beginner'),
+      slot('vars-1', 'Syntax and variables', 'beginner', 'code'),
       slot('types-1', 'Data types and operators', 'beginner'),
-      slot('flow-1', 'Control flow', 'beginner'),
-      slot('collections-1', 'Collections', 'intermediate'),
-      slot('functions-1', 'Functions', 'intermediate'),
-      slot('functions-2', 'Functions', 'intermediate'),
+      slot('flow-1', 'Control flow', 'beginner', 'code'),
+      slot('collections-1', 'Collections', 'intermediate', 'code'),
+      slot('functions-1', 'Functions', 'intermediate', 'code'),
+      slot('functions-2', 'Functions', 'intermediate', 'code'),
       slot('oop-1', 'Objects and classes', 'advanced'),
     ],
   },
@@ -290,15 +300,25 @@ const getCandidatePool = (
   const candidates = getBenchmarkQuestionCandidates(language);
   const exactMatches = candidates.filter(
     (candidate) =>
-      candidate.competency === slotDefinition.competency && candidate.difficulty === slotDefinition.difficulty
+      candidate.competency === slotDefinition.competency &&
+      candidate.difficulty === slotDefinition.difficulty &&
+      (!slotDefinition.preferredKind || candidate.kind === slotDefinition.preferredKind)
   );
 
   if (exactMatches.length > 0) return exactMatches;
 
-  const competencyMatches = candidates.filter((candidate) => candidate.competency === slotDefinition.competency);
+  const competencyMatches = candidates.filter(
+    (candidate) =>
+      candidate.competency === slotDefinition.competency &&
+      (!slotDefinition.preferredKind || candidate.kind === slotDefinition.preferredKind)
+  );
   if (competencyMatches.length > 0) return competencyMatches;
 
-  const difficultyMatches = candidates.filter((candidate) => candidate.difficulty === slotDefinition.difficulty);
+  const difficultyMatches = candidates.filter(
+    (candidate) =>
+      candidate.difficulty === slotDefinition.difficulty &&
+      (!slotDefinition.preferredKind || candidate.kind === slotDefinition.preferredKind)
+  );
   if (difficultyMatches.length > 0) return difficultyMatches;
 
   return candidates;
@@ -364,9 +384,14 @@ export const buildBenchmarkQuestions = (
         slotId: slotDefinition.slotId,
         lessonId: template.lessonId,
         lessonTitle: template.lessonTitle,
+        kind: template.kind,
         prompt: template.prompt,
         options: template.options,
         correctAnswer: template.correctAnswer,
+        starterCode: template.starterCode,
+        referenceCode: template.referenceCode,
+        validationMode: template.validationMode,
+        requiredSnippets: template.requiredSnippets,
         explanation: template.explanation,
         competency: template.competency,
         difficulty: template.difficulty,
@@ -567,9 +592,34 @@ export const buildBenchmarkReport = (
   const correctAnswers = answerRecords.filter((record) => record.isCorrect).length;
   const totalQuestions = Math.max(1, questions.length);
   const answerRecordMap = new Map(answerRecords.map((record) => [record.questionId, record]));
+  const questionMap = new Map(questions.map((question) => [question.id, question]));
   let weightedCorrect = 0;
   let weightedTotal = 0;
-  const answeredCount = answerRecords.filter((record) => record.selectedAnswer >= 0).length;
+  const answeredCount = answerRecords.filter(
+    (record) => {
+      if (typeof record.selectedAnswer === 'number' && record.selectedAnswer >= 0) {
+        return true;
+      }
+
+      if (!record.submittedCode?.trim()) {
+        return false;
+      }
+
+      const question = questionMap.get(record.questionId);
+      if (!question || question.kind !== 'code') {
+        return true;
+      }
+
+      if (record.evaluationMessage?.trim()) {
+        return true;
+      }
+
+      return (
+        normalizeCodeForComparison(record.submittedCode) !==
+        normalizeCodeForComparison(question.starterCode || '')
+      );
+    }
+  ).length;
   const competencyMap = new Map<string, { correctWeight: number; totalWeight: number; correct: number; total: number }>();
 
   questions.forEach((question) => {
@@ -650,7 +700,14 @@ export const hydrateBenchmarkReport = (report: BenchmarkReport): BenchmarkReport
   const attemptIndex = typeof report.attemptIndex === 'number' ? report.attemptIndex : 0;
   const questions =
     Array.isArray(report.questions) && report.questions.length > 0
-      ? report.questions
+      ? report.questions.map((question) => ({
+          ...question,
+          kind:
+            question.kind ||
+            (Array.isArray(question.options) && typeof question.correctAnswer === 'number'
+              ? 'multiple_choice'
+              : 'code'),
+        }))
       : buildBenchmarkQuestions(report.setup, { attemptIndex });
   const answerRecords = Array.isArray(report.answerRecords) ? report.answerRecords : [];
   const fallback = buildBenchmarkReport(report.setup, questions, answerRecords, { attemptIndex });
@@ -786,12 +843,32 @@ export const buildSampleBenchmarkReport = (): BenchmarkReport => {
   const questions = buildBenchmarkQuestions(setup, { attemptIndex: 1 });
   const answerRecords = questions.map((question, index) => {
     const shouldBeCorrect = index % 3 === 0 || index % 2 === 0;
-    const incorrectOption = question.options.findIndex((_, optionIndex) => optionIndex !== question.correctAnswer);
+    const incorrectOption =
+      Array.isArray(question.options) && typeof question.correctAnswer === 'number'
+        ? question.options.findIndex((_, optionIndex) => optionIndex !== question.correctAnswer)
+        : -1;
 
     return {
       questionId: question.id,
-      selectedAnswer: shouldBeCorrect ? question.correctAnswer : Math.max(0, incorrectOption),
+      selectedAnswer:
+        question.kind === 'multiple_choice'
+          ? shouldBeCorrect
+            ? question.correctAnswer
+            : Math.max(0, incorrectOption)
+          : undefined,
+      submittedCode:
+        question.kind === 'code'
+          ? shouldBeCorrect
+            ? question.referenceCode || question.starterCode || ''
+            : `${question.starterCode || ''}\n// incomplete`
+          : undefined,
       isCorrect: shouldBeCorrect,
+      evaluationMessage:
+        question.kind === 'code'
+          ? shouldBeCorrect
+            ? 'Code includes the required logic.'
+            : 'The submission did not include the required logic.'
+          : undefined,
     };
   });
   const report = buildBenchmarkReport(setup, questions, answerRecords, { attemptIndex: 1 });

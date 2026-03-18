@@ -1,4 +1,5 @@
 import type { LanguageSlug } from './siteContent';
+import { benchmarkCodeChallengeBankByLanguage } from './benchmarkCodeChallengeBank';
 
 export type BenchmarkQuestionDifficulty = 'beginner' | 'intermediate' | 'advanced';
 
@@ -8,9 +9,14 @@ export interface BenchmarkQuestionTemplate {
   lessonTitle: string;
   competency: string;
   difficulty: BenchmarkQuestionDifficulty;
+  kind: 'multiple_choice' | 'code';
   prompt: string;
-  options: string[];
-  correctAnswer: number;
+  options?: string[];
+  correctAnswer?: number;
+  starterCode?: string;
+  referenceCode?: string;
+  validationMode?: 'exact' | 'includes_all';
+  requiredSnippets?: string[];
   explanation: string;
 }
 
@@ -32,6 +38,7 @@ const defineQuestions = (
     lessonTitle,
     competency,
     difficulty,
+    kind: 'multiple_choice',
     ...variant,
   }));
 
@@ -613,10 +620,10 @@ const javaTemplates: BenchmarkQuestionTemplate[] = [
 ];
 
 export const benchmarkQuestionBankByLanguage: Record<LanguageSlug, BenchmarkQuestionTemplate[]> = {
-  python: pythonTemplates,
-  javascript: javascriptTemplates,
-  cpp: cppTemplates,
-  java: javaTemplates,
+  python: [...pythonTemplates, ...benchmarkCodeChallengeBankByLanguage.python],
+  javascript: [...javascriptTemplates, ...benchmarkCodeChallengeBankByLanguage.javascript],
+  cpp: [...cppTemplates, ...benchmarkCodeChallengeBankByLanguage.cpp],
+  java: [...javaTemplates, ...benchmarkCodeChallengeBankByLanguage.java],
 };
 
 export const getBenchmarkQuestionCandidates = (language: LanguageSlug) => benchmarkQuestionBankByLanguage[language] || [];

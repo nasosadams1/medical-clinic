@@ -11,7 +11,9 @@ const BenchmarkSetupSchema = z.object({
 
 const BenchmarkAnswerRecordSchema = z.object({
   questionId: z.string().trim().min(1).max(160),
-  selectedAnswer: z.number().int().min(-1).max(20),
+  selectedAnswer: z.number().int().min(-1).max(20).optional(),
+  submittedCode: z.string().max(12000).optional(),
+  evaluationMessage: z.string().trim().min(1).max(800).optional(),
   isCorrect: z.boolean(),
 });
 
@@ -21,9 +23,14 @@ const BenchmarkQuestionSchema = z.object({
   slotId: z.string().trim().min(1).max(120),
   lessonId: z.string().trim().min(1).max(160),
   lessonTitle: z.string().trim().min(1).max(200),
+  kind: z.enum(['multiple_choice', 'code']),
   prompt: z.string().trim().min(1).max(2000),
-  options: z.array(z.string().trim().min(1).max(400)).min(2).max(8),
-  correctAnswer: z.number().int().min(0).max(7),
+  options: z.array(z.string().trim().min(1).max(400)).min(2).max(8).optional(),
+  correctAnswer: z.number().int().min(0).max(7).optional(),
+  starterCode: z.string().max(12000).optional(),
+  referenceCode: z.string().max(12000).optional(),
+  validationMode: z.enum(['exact', 'includes_all']).optional(),
+  requiredSnippets: z.array(z.string().trim().min(1).max(400)).max(12).optional(),
   explanation: z.string().trim().min(1).max(1200),
   competency: z.string().trim().min(1).max(120),
   difficulty: z.enum(['beginner', 'intermediate', 'advanced']),

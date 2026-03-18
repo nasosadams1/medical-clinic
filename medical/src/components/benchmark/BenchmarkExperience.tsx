@@ -39,6 +39,11 @@ import { listBenchmarkReports, persistBenchmarkReport, shareBenchmarkReport, uns
 import { formatPlanRenewalDate } from '../../lib/billing';
 import { trackEvent } from '../../lib/analytics';
 import BenchmarkReportCard from './BenchmarkReportCard';
+import CodeTypingEditor from '../CodeTypingEditor';
+import {
+  type CodeAssessmentResult,
+  validateCodeAssessment,
+} from '../../lib/codeAssessment';
 
 type AuthModalView = 'login' | 'signup';
 type BenchmarkView = 'setup' | 'assessment' | 'report';
@@ -48,6 +53,8 @@ type BenchmarkSessionSnapshot = {
   questions: BenchmarkQuestion[];
   questionIndex: number;
   selectedAnswers: Record<string, number>;
+  codeAnswers: Record<string, string>;
+  codeEvaluations: Record<string, CodeAssessmentResult | null>;
   secondsLeft: number;
   updatedAt: string;
 };
@@ -254,6 +261,8 @@ export default function BenchmarkExperience({
   const [assessmentAttemptIndex, setAssessmentAttemptIndex] = useState(0);
   const [questionIndex, setQuestionIndex] = useState(0);
   const [selectedAnswers, setSelectedAnswers] = useState<Record<string, number>>({});
+  const [codeAnswers, setCodeAnswers] = useState<Record<string, string>>({});
+  const [codeEvaluations, setCodeEvaluations] = useState<Record<string, CodeAssessmentResult | null>>({});
   const [secondsLeft, setSecondsLeft] = useState(DURATION_SECONDS);
   const [report, setReport] = useState<BenchmarkReport | null>(null);
   const [isFinishing, setIsFinishing] = useState(false);
@@ -370,6 +379,8 @@ export default function BenchmarkExperience({
     setAssessmentQuestions(restoredQuestions);
     setQuestionIndex(storedSession.questionIndex);
     setSelectedAnswers(storedSession.selectedAnswers);
+    setCodeAnswers(storedSession.codeAnswers ?? {});
+    setCodeEvaluations(storedSession.codeEvaluations ?? {});
     setSecondsLeft(Math.max(1, Math.min(DURATION_SECONDS, storedSession.secondsLeft)));
     setView('assessment');
     setHistoryMessage('Restored your in-progress benchmark.');
@@ -506,6 +517,8 @@ export default function BenchmarkExperience({
       questions: assessmentQuestions,
       questionIndex,
       selectedAnswers,
+      codeAnswers,
+      codeEvaluations,
       secondsLeft,
       updatedAt: new Date().toISOString(),
     });
@@ -513,6 +526,8 @@ export default function BenchmarkExperience({
     assessmentAttemptIndex,
     assessmentQuestions,
     benchmarkSessionKey,
+    codeAnswers,
+    codeEvaluations,
     questionIndex,
     secondsLeft,
     selectedAnswers,
@@ -593,6 +608,8 @@ export default function BenchmarkExperience({
     setAssessmentAttemptIndex(0);
     setQuestionIndex(0);
     setSelectedAnswers({});
+    setCodeAnswers({});
+    setCodeEvaluations({});
     setSecondsLeft(DURATION_SECONDS);
     setReport(null);
     setIsFinishing(false);
@@ -608,6 +625,15 @@ export default function BenchmarkExperience({
     setAssessmentAttemptIndex(nextAttemptIndex);
     setQuestionIndex(0);
     setSelectedAnswers({});
+    setCodeAnswers(
+      configuredQuestions.reduce<Record<string, string>>((drafts, question) => {
+        if (question.kind === 'code') {
+          drafts[question.id] = question.starterCode || '';
+        }
+        return drafts;
+      }, {})
+    );
+    setCodeEvaluations({});
     setSecondsLeft(DURATION_SECONDS);
     setReport(null);
     setIsFinishing(false);
@@ -634,11 +660,19 @@ export default function BenchmarkExperience({
     setIsFinishing(true);
 
     const answerRecords = assessmentQuestions.map((question) => {
-      const selectedAnswer = selectedAnswers[question.id] ?? -1;
+      const selectedAnswer =
+        question.kind === 'multiple_choice' ? selectedAnswers[question.id] ?? -1 : undefined;
+      const submittedCode = question.kind === 'code' ? codeAnswers[question.id] ?? '' : undefined;
+      const evaluation = question.kind === 'code' ? codeEvaluations[question.id] : null;
       return {
         questionId: question.id,
         selectedAnswer,
-        isCorrect: selectedAnswer === question.correctAnswer,
+        submittedCode,
+        evaluationMessage: evaluation?.message,
+        isCorrect:
+          question.kind === 'multiple_choice'
+            ? selectedAnswer === question.correctAnswer
+            : Boolean(evaluation?.passed),
       };
     });
 
@@ -663,6 +697,7 @@ export default function BenchmarkExperience({
       roleLevel: setup.roleLevel,
       score: nextReport.overallScore,
       attemptIndex: assessmentAttemptIndex,
+      codeQuestionCount: assessmentQuestions.filter((question) => question.kind === 'code').length,
     });
 
     if (!user?.id) {
@@ -689,6 +724,18 @@ export default function BenchmarkExperience({
   const goToNextQuestion = () => {
     if (!activeQuestion) return;
     if (isFinishing) return;
+    if (activeQuestion.kind === 'code') {
+      if (!codeEvaluations[activeQuestion.id]) {
+        toast.error('Check your code before continuing.');
+        return;
+      }
+      if (questionIndex === assessmentQuestions.length - 1) {
+        void finishBenchmark();
+        return;
+      }
+      setQuestionIndex((current) => current + 1);
+      return;
+    }
     if (selectedAnswers[activeQuestion.id] === undefined) {
       toast.error('Choose an answer before continuing.');
       return;
@@ -698,6 +745,30 @@ export default function BenchmarkExperience({
       return;
     }
     setQuestionIndex((current) => current + 1);
+  };
+
+  const handleCodeCheck = () => {
+    if (!activeQuestion || activeQuestion.kind !== 'code') return;
+
+    const currentCode = codeAnswers[activeQuestion.id] ?? '';
+    const evaluation = validateCodeAssessment(currentCode, {
+      language: setup.language,
+      starterCode: activeQuestion.starterCode || '',
+      referenceCode: activeQuestion.referenceCode || '',
+      validationMode: activeQuestion.validationMode || 'exact',
+      requiredSnippets: activeQuestion.requiredSnippets,
+    });
+
+    setCodeEvaluations((current) => ({
+      ...current,
+      [activeQuestion.id]: evaluation,
+    }));
+
+    if (evaluation.passed) {
+      toast.success('Code check passed.');
+    } else {
+      toast.error(evaluation.message);
+    }
   };
 
   const copySummary = async () => {
@@ -1098,40 +1169,79 @@ export default function BenchmarkExperience({
               <div className="mt-6 rounded-[1.5rem] border border-border bg-background/70 p-6">
                 <div className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">{activeQuestion.competency}</div>
                 <h3 className="mt-3 text-2xl font-semibold tracking-tight text-foreground">{activeQuestion.prompt}</h3>
-                <div className="mt-6 grid gap-3">
-                  {activeQuestion.options.map((option, optionIndex) => {
-                    const isSelected = selectedAnswers[activeQuestion.id] === optionIndex;
-                    return (
-                      <button
-                        key={`${activeQuestion.id}-${optionIndex}`}
-                        type="button"
-                        onClick={() => setSelectedAnswers((current) => ({ ...current, [activeQuestion.id]: optionIndex }))}
-                        className={`rounded-2xl border px-5 py-4 text-left transition ${isSelected ? 'border-primary/40 bg-primary/10 text-foreground' : 'border-border bg-card hover:border-primary/25 hover:bg-background'}`}
+                {activeQuestion.kind === 'multiple_choice' ? (
+                  <div className="mt-6 grid gap-3">
+                    {(activeQuestion.options || []).map((option, optionIndex) => {
+                      const isSelected = selectedAnswers[activeQuestion.id] === optionIndex;
+                      return (
+                        <button
+                          key={`${activeQuestion.id}-${optionIndex}`}
+                          type="button"
+                          onClick={() => setSelectedAnswers((current) => ({ ...current, [activeQuestion.id]: optionIndex }))}
+                          className={`rounded-2xl border px-5 py-4 text-left transition ${isSelected ? 'border-primary/40 bg-primary/10 text-foreground' : 'border-border bg-card hover:border-primary/25 hover:bg-background'}`}
+                        >
+                          <div className="flex items-start gap-3">
+                            <div className={`mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full border text-xs font-semibold ${isSelected ? 'border-primary/40 bg-primary/15 text-primary' : 'border-border text-muted-foreground'}`}>{String.fromCharCode(65 + optionIndex)}</div>
+                            <span className={`text-sm leading-6 ${isSelected ? 'text-foreground' : 'text-muted-foreground'}`}>{option}</span>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="mt-6 space-y-4">
+                    <div className="rounded-2xl border border-border bg-card px-4 py-3 text-sm leading-6 text-muted-foreground">
+                      Type the code directly. Practical benchmark prompts are code-first, while theory-heavy prompts may still use multiple choice.
+                    </div>
+                    <CodeTypingEditor
+                      language={setup.language}
+                      value={codeAnswers[activeQuestion.id] ?? activeQuestion.starterCode ?? ''}
+                      onChange={(value) => {
+                        setCodeAnswers((current) => ({ ...current, [activeQuestion.id]: value }));
+                        setCodeEvaluations((current) => ({ ...current, [activeQuestion.id]: null }));
+                      }}
+                      height="320px"
+                    />
+                    {codeEvaluations[activeQuestion.id] ? (
+                      <div
+                        className={`rounded-2xl border px-4 py-3 text-sm leading-6 ${
+                          codeEvaluations[activeQuestion.id]?.passed
+                            ? 'border-emerald-400/20 bg-emerald-500/10 text-emerald-100'
+                            : 'border-amber-400/20 bg-amber-500/10 text-amber-100'
+                        }`}
                       >
-                        <div className="flex items-start gap-3">
-                          <div className={`mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full border text-xs font-semibold ${isSelected ? 'border-primary/40 bg-primary/15 text-primary' : 'border-border text-muted-foreground'}`}>{String.fromCharCode(65 + optionIndex)}</div>
-                          <span className={`text-sm leading-6 ${isSelected ? 'text-foreground' : 'text-muted-foreground'}`}>{option}</span>
+                        <div className="font-semibold">
+                          {codeEvaluations[activeQuestion.id]?.passed ? 'Code accepted' : 'Keep refining this answer'}
                         </div>
-                      </button>
-                    );
-                  })}
-                </div>
+                        <div className="mt-1">{codeEvaluations[activeQuestion.id]?.message}</div>
+                      </div>
+                    ) : null}
+                  </div>
+                )}
               </div>
               <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <button type="button" onClick={resetBenchmark} disabled={isFinishing} className={secondaryButtonClassName}>
                   <RefreshCcw className="h-4 w-4" />
                   Restart
                 </button>
-                <button type="button" onClick={goToNextQuestion} disabled={isFinishing} className={primaryButtonClassName}>
-                  <span>
-                    {isFinishing
-                      ? 'Generating report...'
-                      : questionIndex === assessmentQuestions.length - 1
-                      ? 'Generate report'
-                      : 'Next question'}
-                  </span>
-                  <ArrowRight className="h-4 w-4" />
-                </button>
+                <div className="flex flex-col gap-3 sm:flex-row">
+                  {activeQuestion.kind === 'code' ? (
+                    <button type="button" onClick={handleCodeCheck} disabled={isFinishing} className={secondaryButtonClassName}>
+                      <span>Check code</span>
+                      <Play className="h-4 w-4" />
+                    </button>
+                  ) : null}
+                  <button type="button" onClick={goToNextQuestion} disabled={isFinishing} className={primaryButtonClassName}>
+                    <span>
+                      {isFinishing
+                        ? 'Generating report...'
+                        : questionIndex === assessmentQuestions.length - 1
+                        ? 'Generate report'
+                        : 'Next question'}
+                    </span>
+                    <ArrowRight className="h-4 w-4" />
+                  </button>
+                </div>
               </div>
             </div>
           ) : null}
@@ -1292,7 +1402,10 @@ export default function BenchmarkExperience({
                       {reportQuestions.map((question) => {
                         const answerRecord = report.answerRecords.find((entry) => entry.questionId === question.id);
                         const selectedAnswer =
-                          answerRecord && answerRecord.selectedAnswer >= 0
+                          answerRecord &&
+                          typeof answerRecord.selectedAnswer === 'number' &&
+                          answerRecord.selectedAnswer >= 0 &&
+                          Array.isArray(question.options)
                             ? question.options[answerRecord.selectedAnswer]
                             : 'No answer selected';
 
@@ -1308,18 +1421,44 @@ export default function BenchmarkExperience({
                               </span>
                             </div>
                             <div className="mt-4 grid gap-3 lg:grid-cols-2">
-                              <div className="rounded-2xl bg-background px-4 py-3">
-                                <div className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">Your answer</div>
-                                <div className="mt-1 text-sm text-foreground">{selectedAnswer}</div>
-                              </div>
-                              <div className="rounded-2xl bg-background px-4 py-3">
-                                <div className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">Correct answer</div>
-                                <div className="mt-1 text-sm text-foreground">{question.options[question.correctAnswer]}</div>
-                              </div>
+                              {question.kind === 'multiple_choice' ? (
+                                <>
+                                  <div className="rounded-2xl bg-background px-4 py-3">
+                                    <div className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">Your answer</div>
+                                    <div className="mt-1 text-sm text-foreground">{selectedAnswer}</div>
+                                  </div>
+                                  <div className="rounded-2xl bg-background px-4 py-3">
+                                    <div className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">Correct answer</div>
+                                    <div className="mt-1 text-sm text-foreground">
+                                      {Array.isArray(question.options) && typeof question.correctAnswer === 'number'
+                                        ? question.options[question.correctAnswer]
+                                        : 'Reference answer unavailable'}
+                                    </div>
+                                  </div>
+                                </>
+                              ) : (
+                                <>
+                                  <div className="rounded-2xl bg-background px-4 py-3">
+                                    <div className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">Your code</div>
+                                    <pre className="mt-2 overflow-x-auto whitespace-pre-wrap rounded-xl bg-slate-950/90 p-3 text-xs leading-6 text-slate-100">
+                                      {answerRecord?.submittedCode?.trim() || 'No code submitted'}
+                                    </pre>
+                                  </div>
+                                  <div className="rounded-2xl bg-background px-4 py-3">
+                                    <div className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">Reference code</div>
+                                    <pre className="mt-2 overflow-x-auto whitespace-pre-wrap rounded-xl bg-slate-950/90 p-3 text-xs leading-6 text-emerald-200">
+                                      {question.referenceCode?.trim() || 'Reference answer unavailable'}
+                                    </pre>
+                                  </div>
+                                </>
+                              )}
                             </div>
                             <div className="mt-3 rounded-2xl border border-border bg-background px-4 py-3">
                               <div className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">Why it matters</div>
                               <div className="mt-1 text-sm leading-6 text-muted-foreground">{question.explanation}</div>
+                              {answerRecord?.evaluationMessage ? (
+                                <div className="mt-2 text-sm text-foreground/80">{answerRecord.evaluationMessage}</div>
+                              ) : null}
                             </div>
                           </div>
                         );

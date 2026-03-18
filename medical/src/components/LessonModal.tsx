@@ -4,6 +4,8 @@ import { useUser } from "../context/UserContext";
 import { getLessonCatalogEntry, getLessonCountByLanguage } from "../data/lessonCatalog";
 import { loadLessonsModule } from "../data/lessonsLoader";
 import { calculateXP } from "../data/lessonUtils";
+import CodeTypingEditor from "./CodeTypingEditor";
+import { validateCodeAssessment, type CodeAssessmentResult } from "../lib/codeAssessment";
 
 interface LessonModalProps {
   content?: any;
@@ -118,6 +120,10 @@ const LessonModal: React.FC<LessonModalProps> = ({
   const effectiveQuizCount = forceSkipQuiz ? 0 : safeTotalQuiz;
   const safeTotalAll = Math.max(1, safeTotalSteps + effectiveQuizCount);
   const questionSteps = useMemo(() => (content.steps || []).filter((step) => step?.type === "question"), [content.steps]);
+  const codePracticeSteps = useMemo(
+    () => (content.steps || []).filter((step) => step?.type === "theory" && Boolean(step?.code?.trim?.())),
+    [content.steps]
+  );
 
   const [currentStep, setCurrentStep] = useState(0);
   const [isCompleted, setIsCompleted] = useState(false);
@@ -125,8 +131,11 @@ const LessonModal: React.FC<LessonModalProps> = ({
   const [currentQuizIndex, setCurrentQuizIndex] = useState(0);
   const [selectedAnswer, setSelectedAnswer] = useState<number | null>(null);
   const [showQuizResult, setShowQuizResult] = useState(false);
-  const [quizResults, setQuizResults] = useState<boolean[]>([]);
-  const [midLessonResults, setMidLessonResults] = useState<boolean[]>([]);
+  const [quizResults, setQuizResults] = useState<Record<number, boolean>>({});
+  const [midLessonResults, setMidLessonResults] = useState<Record<number, boolean>>({});
+  const [codePracticeResults, setCodePracticeResults] = useState<Record<number, boolean>>({});
+  const [typedTheoryCode, setTypedTheoryCode] = useState("");
+  const [theoryCodeResult, setTheoryCodeResult] = useState<CodeAssessmentResult | null>(null);
   const [startTime] = useState(Date.now());
   const [showRetakeModal, setShowRetakeModal] = useState(false);
   const [shouldClose, setShouldClose] = useState(false);
@@ -134,7 +143,9 @@ const LessonModal: React.FC<LessonModalProps> = ({
   const currentStepData = (content.steps || [])[currentStep] ?? null;
   const currentQuizItem = (content.quiz || [])[currentQuizIndex] ?? null;
   const isCurrentStepQuestion = !isQuizMode && currentStepData?.type === "question" && Boolean(currentStepData?.question);
-  const currentProgress = isQuizMode ? midLessonResults.filter(Boolean).length + currentQuizIndex + 1 : currentStep + 1;
+  const isTheoryCodeStep =
+    !isQuizMode && currentStepData?.type === "theory" && Boolean(currentStepData?.code?.trim?.());
+  const currentProgress = isQuizMode ? Object.values(midLessonResults).filter(Boolean).length + currentQuizIndex + 1 : currentStep + 1;
   const percent = Math.round((Math.min(currentProgress, safeTotalAll) / safeTotalAll) * 100);
 
   const clearRetakeTimer = () => {
@@ -214,8 +225,11 @@ const LessonModal: React.FC<LessonModalProps> = ({
     setCurrentQuizIndex(0);
     setSelectedAnswer(null);
     setShowQuizResult(false);
-    setQuizResults([]);
-    setMidLessonResults([]);
+    setQuizResults({});
+    setMidLessonResults({});
+    setCodePracticeResults({});
+    setTypedTheoryCode("");
+    setTheoryCodeResult(null);
     setShowRetakeModal(false);
     resetHeartLossFn?.();
   };
@@ -238,8 +252,11 @@ const LessonModal: React.FC<LessonModalProps> = ({
     setShowQuizResult(false);
     setIsQuizMode(false);
     setIsCompleted(false);
-    setQuizResults([]);
-    setMidLessonResults([]);
+    setQuizResults({});
+    setMidLessonResults({});
+    setCodePracticeResults({});
+    setTypedTheoryCode("");
+    setTheoryCodeResult(null);
     setShowRetakeModal(false);
     setShouldClose(false);
   }, [lesson?.id, content]);
@@ -247,6 +264,17 @@ const LessonModal: React.FC<LessonModalProps> = ({
   useEffect(() => {
     if (shouldClose) onClose();
   }, [shouldClose, onClose]);
+
+  useEffect(() => {
+    if (!isTheoryCodeStep) {
+      setTypedTheoryCode("");
+      setTheoryCodeResult(null);
+      return;
+    }
+
+    setTypedTheoryCode("");
+    setTheoryCodeResult(null);
+  }, [currentStep, isQuizMode, isTheoryCodeStep]);
 
   if (user?.hearts <= 0 && !isUnlimitedHeartsActive()) return null;
 
@@ -304,8 +332,9 @@ const LessonModal: React.FC<LessonModalProps> = ({
   }
 
   if (isCompleted) {
-    const correctAnswers = quizResults.filter(Boolean).length;
-    const correctMidAnswers = midLessonResults.filter(Boolean).length;
+    const correctAnswers = Object.values(quizResults).filter(Boolean).length;
+    const correctMidAnswers = Object.values(midLessonResults).filter(Boolean).length;
+    const correctCodeChecks = Object.values(codePracticeResults).filter(Boolean).length;
     const actualTimeSeconds = (Date.now() - startTime) / 1000;
     const baseXP = calculateXPFn(
       lesson.baseXP,
@@ -328,10 +357,11 @@ const LessonModal: React.FC<LessonModalProps> = ({
             <h2 className="text-3xl font-semibold text-white">Lesson complete</h2>
             <p className="mt-3 text-sm leading-6 text-slate-300">The next practice unit is ready. This lesson now counts toward your progress path.</p>
           </div>
-          <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="mt-8 grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
             <div className="rounded-2xl border border-white/10 bg-white/5 p-4"><div className="text-xs uppercase tracking-[0.2em] text-slate-500">Earned XP</div><div className="mt-2 text-lg font-semibold text-white">{earnedXP} XP</div></div>
-            <div className="rounded-2xl border border-white/10 bg-white/5 p-4"><div className="text-xs uppercase tracking-[0.2em] text-slate-500">Quick Checks</div><div className="mt-2 text-lg font-semibold text-white">{correctMidAnswers}/{questionSteps.length || 0}</div></div>
+            <div className="rounded-2xl border border-white/10 bg-white/5 p-4"><div className="text-xs uppercase tracking-[0.2em] text-slate-500">Code Checks</div><div className="mt-2 text-lg font-semibold text-white">{correctCodeChecks}/{codePracticeSteps.length || 0}</div></div>
             <div className="rounded-2xl border border-white/10 bg-white/5 p-4"><div className="text-xs uppercase tracking-[0.2em] text-slate-500">Final Quiz</div><div className="mt-2 text-lg font-semibold text-white">{effectiveQuizCount > 0 ? `${correctAnswers}/${effectiveQuizCount}` : "Skipped"}</div></div>
+            <div className="rounded-2xl border border-white/10 bg-white/5 p-4"><div className="text-xs uppercase tracking-[0.2em] text-slate-500">Theory Checks</div><div className="mt-2 text-lg font-semibold text-white">{correctMidAnswers}/{questionSteps.length || 0}</div></div>
             <div className="rounded-2xl border border-white/10 bg-white/5 p-4"><div className="text-xs uppercase tracking-[0.2em] text-slate-500">Duration</div><div className="mt-2 text-lg font-semibold text-white">{formatTime(actualTimeSeconds)}</div></div>
           </div>
           {boostMultiplier > 1 && (
@@ -348,13 +378,31 @@ const LessonModal: React.FC<LessonModalProps> = ({
   const handleStepSubmit = () => {
     if (!currentStepData) return;
     if (currentStepData.type !== "question") {
+      if (isTheoryCodeStep) {
+        const evaluation =
+          theoryCodeResult ??
+          validateCodeAssessment(typedTheoryCode, {
+            language: lessonLanguage,
+            starterCode: "",
+            referenceCode: currentStepData.code,
+            validationMode: "exact",
+          });
+
+        setTheoryCodeResult(evaluation);
+
+        if (!evaluation.passed) {
+          return;
+        }
+
+        setCodePracticeResults((prev) => ({ ...prev, [currentStep]: true }));
+      }
       moveForward();
       return;
     }
     if (selectedAnswer === null) return;
     const isCorrect = selectedAnswer === currentStepData.correctAnswer;
     if (!showQuizResult) {
-      setMidLessonResults((prev) => [...prev, isCorrect]);
+      setMidLessonResults((prev) => ({ ...prev, [currentStep]: isCorrect }));
       setShowQuizResult(true);
       if (!isCorrect) {
         loseHeartFn?.();
@@ -373,7 +421,7 @@ const LessonModal: React.FC<LessonModalProps> = ({
     if (!currentQuizItem || selectedAnswer === null) return;
     const isCorrect = selectedAnswer === currentQuizItem.correctAnswer;
     if (!showQuizResult) {
-      setQuizResults((prev) => [...prev, isCorrect]);
+      setQuizResults((prev) => ({ ...prev, [currentQuizIndex]: isCorrect }));
       setShowQuizResult(true);
       if (!isCorrect) {
         loseHeartFn?.();
@@ -481,6 +529,14 @@ const LessonModal: React.FC<LessonModalProps> = ({
                     : "Next question"
                   : "Retake required"
                 : "Check answer"
+              : isTheoryCodeStep
+                ? theoryCodeResult?.passed
+                  ? currentStep >= safeTotalSteps - 1
+                    ? effectiveQuizCount > 0
+                      ? "Start final quiz"
+                      : "Finish lesson"
+                    : "Next step"
+                  : "Check code"
               : isCurrentStepQuestion && !showQuizResult
                 ? "Check answer"
                 : showQuizResult
@@ -614,6 +670,44 @@ const LessonModal: React.FC<LessonModalProps> = ({
                     {currentStepData?.code && (
                       <div className="overflow-x-auto rounded-[1.5rem] border border-cyan-400/15 bg-slate-950/90 p-5">
                         <pre className="font-mono text-sm leading-7 text-emerald-300">{currentStepData.code}</pre>
+                      </div>
+                    )}
+                    {isTheoryCodeStep && (
+                      <div className="rounded-[1.5rem] border border-white/10 bg-white/[0.03] p-5">
+                        <div className="flex flex-wrap items-center justify-between gap-3">
+                          <div>
+                            <div className="text-xs font-semibold uppercase tracking-[0.24em] text-cyan-300">Type it yourself</div>
+                            <p className="mt-2 text-sm leading-6 text-slate-300">
+                              Re-type the lesson example to lock in the syntax before moving on. Theory checks can still be multiple choice, but practical steps are now code-first.
+                            </p>
+                          </div>
+                          <div className="rounded-full border border-cyan-400/20 bg-cyan-400/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-cyan-100">
+                            Practical checkpoint
+                          </div>
+                        </div>
+                        <div className="mt-5">
+                          <CodeTypingEditor
+                            language={lessonLanguage}
+                            value={typedTheoryCode}
+                            onChange={(value) => {
+                              setTypedTheoryCode(value);
+                              setTheoryCodeResult(null);
+                            }}
+                            height="260px"
+                          />
+                        </div>
+                        {theoryCodeResult ? (
+                          <div
+                            className={`mt-4 rounded-[1.4rem] border px-4 py-3 text-sm leading-6 ${
+                              theoryCodeResult.passed
+                                ? "border-emerald-400/20 bg-emerald-500/10 text-emerald-100"
+                                : "border-amber-400/20 bg-amber-400/10 text-amber-100"
+                            }`}
+                          >
+                            <div className="font-semibold">{theoryCodeResult.passed ? "Code matched" : "Keep editing"}</div>
+                            <div className="mt-1 text-slate-200">{theoryCodeResult.message}</div>
+                          </div>
+                        ) : null}
                       </div>
                     )}
                     {currentStepData?.explanation && (
