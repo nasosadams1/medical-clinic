@@ -40,10 +40,13 @@ const ANALYTICS_ANONYMOUS_ID_KEY = 'codhak-anonymous-id';
 const ANALYTICS_SESSION_ID_KEY = 'codhak-analytics-session-id';
 const MAX_STORED_EVENTS = 200;
 const FLUSH_BATCH_SIZE = 25;
+const ANALYTICS_FAILURE_BACKOFF_MS = 30_000;
 
 const isBrowser = typeof window !== 'undefined';
 let flushTimeoutId: number | null = null;
 let flushInFlight: Promise<void> | null = null;
+let analyticsBackoffUntil = 0;
+let hasWarnedAnalyticsUnavailable = false;
 
 const createId = () => {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
@@ -111,6 +114,10 @@ export const flushAnalyticsEvents = async () => {
     return flushInFlight;
   }
 
+  if (Date.now() < analyticsBackoffUntil) {
+    return;
+  }
+
   const events = readEvents();
   if (events.length === 0) return;
 
@@ -128,15 +135,27 @@ export const flushAnalyticsEvents = async () => {
       });
 
       if (!response.ok) {
+        analyticsBackoffUntil = Date.now() + ANALYTICS_FAILURE_BACKOFF_MS;
         return;
       }
 
+      analyticsBackoffUntil = 0;
+      hasWarnedAnalyticsUnavailable = false;
       removeFlushedEvents(batch.length);
     } catch {
+      analyticsBackoffUntil = Date.now() + ANALYTICS_FAILURE_BACKOFF_MS;
+      if (!hasWarnedAnalyticsUnavailable) {
+        hasWarnedAnalyticsUnavailable = true;
+        console.warn(
+          `[Codhak analytics] Analytics API unreachable at ${buildApiUrl(
+            '/api/analytics/events/batch'
+          )}. Retrying in ${Math.round(ANALYTICS_FAILURE_BACKOFF_MS / 1000)}s.`
+        );
+      }
       // Keep the buffered events locally and retry on the next interaction.
     } finally {
       flushInFlight = null;
-      if (readEvents().length > 0) {
+      if (readEvents().length > 0 && Date.now() >= analyticsBackoffUntil) {
         scheduleAnalyticsFlush();
       }
     }
@@ -147,6 +166,7 @@ export const flushAnalyticsEvents = async () => {
 
 const scheduleAnalyticsFlush = () => {
   if (!isBrowser) return;
+  if (Date.now() < analyticsBackoffUntil) return;
   if (flushTimeoutId) {
     window.clearTimeout(flushTimeoutId);
   }

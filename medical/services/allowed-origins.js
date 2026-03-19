@@ -10,6 +10,7 @@ const DEV_ALLOWED_ORIGINS = [
 const normalizeOrigin = (origin = "") => String(origin).trim().replace(/\/+$/, "");
 const escapeRegex = (value) => value.replace(/[|\\{}()[\]^$+?.]/g, "\\$&");
 const dedupeOrigins = (origins = []) => [...new Set(origins.map(normalizeOrigin).filter(Boolean))];
+const LOCALHOST_ORIGIN_PATTERN = /^https?:\/\/(localhost|127(?:\.\d{1,3}){3})(?::\d+)?$/i;
 
 export function resolveRequestOrigin(req) {
   if (!req) return "";
@@ -43,6 +44,14 @@ export function matchesAllowedOrigin(origin, allowedOrigin) {
 
   const pattern = `^${escapeRegex(normalizedAllowedOrigin).replace(/\*/g, "[^/]+")}$`;
   return new RegExp(pattern).test(normalizedOrigin);
+}
+
+export function isLocalhostOrigin(origin) {
+  return LOCALHOST_ORIGIN_PATTERN.test(normalizeOrigin(origin));
+}
+
+export function getDevAllowedOrigins() {
+  return [...DEV_ALLOWED_ORIGINS];
 }
 
 export function resolveAllowedOrigins(envKeys = [], options = {}) {

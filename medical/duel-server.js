@@ -20,7 +20,9 @@ import { createDuelProblemAdminRouter } from "./services/duel-problems/routes.js
 import { createProgressionRouter } from "./services/progression/routes.js";
 import {
   formatAllowedOriginsError,
+  getDevAllowedOrigins,
   isAllowedOriginForRequest,
+  isLocalhostOrigin,
   resolveAllowedOrigins,
 } from "./services/allowed-origins.js";
 
@@ -35,6 +37,10 @@ const HAS_EXPLICIT_BROWSER_ORIGIN_CONFIG = ["DUEL_ALLOWED_ORIGINS", "API_ALLOWED
 );
 const ALLOW_RENDER_BROWSER_ORIGIN_FALLBACK =
   IS_RENDER && IS_PRODUCTION && !HAS_EXPLICIT_BROWSER_ORIGIN_CONFIG;
+const ALLOW_LOCALHOST_DEV_ORIGINS =
+  (process.env.ALLOW_LOCALHOST_DEV_ORIGINS || "").trim() === ""
+    ? true
+    : process.env.ALLOW_LOCALHOST_DEV_ORIGINS === "1";
 
 const DUEL_ALLOWED_ORIGIN_ENV_KEYS = ["DUEL_ALLOWED_ORIGINS", "API_ALLOWED_ORIGINS", "FRONTEND_URL", "RENDER_EXTERNAL_URL"];
 const { origins: allowedOrigins, sourceEnv: allowedOriginsSourceEnv } = resolveAllowedOrigins(DUEL_ALLOWED_ORIGIN_ENV_KEYS, {
@@ -46,9 +52,15 @@ const isRenderBrowserOriginFallbackAllowed = (origin) =>
   typeof origin === "string" &&
   /^https:\/\/[^/]+$/i.test(origin.trim());
 
+const isLocalhostDevOriginAllowed = (origin) =>
+  ALLOW_LOCALHOST_DEV_ORIGINS &&
+  isLocalhostOrigin(origin) &&
+  getDevAllowedOrigins().some((allowedOrigin) => allowedOrigin === String(origin).trim().replace(/\/+$/, ""));
+
 const isOriginAllowed = (origin, req) =>
   isAllowedOriginForRequest(origin, allowedOrigins, IS_PRODUCTION, req) ||
-  isRenderBrowserOriginFallbackAllowed(origin);
+  isRenderBrowserOriginFallbackAllowed(origin) ||
+  isLocalhostDevOriginAllowed(origin);
 
 const corsOptionsDelegate = (req, callback) => {
   callback(null, {
@@ -160,6 +172,9 @@ if (ALLOW_RENDER_BROWSER_ORIGIN_FALLBACK) {
   console.warn(
     "Duel server is allowing HTTPS browser origins because only Render self-origin config was detected. Set DUEL_ALLOWED_ORIGINS or FRONTEND_URL to lock this down."
   );
+}
+if (ALLOW_LOCALHOST_DEV_ORIGINS) {
+  console.log(`Duel server localhost dev origins enabled: ${getDevAllowedOrigins().join(", ")}`);
 }
 
 const eloRatingService = new EloRatingService();
