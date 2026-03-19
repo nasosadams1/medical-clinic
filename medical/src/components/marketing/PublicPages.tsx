@@ -1258,8 +1258,8 @@ export function TeamsPage({ openAuthModal }: PublicPageProps) {
   return (
     <MarketingLayout openAuthModal={openAuthModal} isAuthenticated={!!user}>
       <section className="py-20">
-        <div className="container mx-auto grid gap-10 px-5 sm:px-6 lg:grid-cols-[0.95fr_1.05fr] xl:px-8">
-          <div>
+        <div className="container mx-auto px-5 sm:px-6 xl:px-8">
+          <div className="max-w-4xl">
             <SectionHeader
               eyebrow="Teams"
               title="Bring Codhak to a team."
@@ -1294,11 +1294,13 @@ export function TeamsPage({ openAuthModal }: PublicPageProps) {
                 <span>Book a demo</span>
                 <ArrowRight className="h-4 w-4" />
               </button>
-              <ActionButton to="/pricing" label="See team pricing" />
+              <ActionButton to={user ? '/app?section=teams' : '/pricing'} label={user ? 'Open teams workspace' : 'See team pricing'} />
             </div>
           </div>
 
-          <TeamsWorkspace mode={user ? 'app' : 'public'} />
+          <div className="mt-10">
+            <TeamsWorkspace mode="public" />
+          </div>
         </div>
       </section>
 

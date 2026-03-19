@@ -220,57 +220,59 @@ function StoreCard({
     hearts: 'bg-destructive/10 text-destructive',
     primary: 'bg-primary/10 text-primary',
   }[item.tone];
+  const valueLabel =
+    item.kind === 'coin_pack'
+      ? item.coinsGranted?.toLocaleString()
+      : item.kind === 'xp_boost'
+      ? `${item.multiplier}x XP`
+      : item.kind === 'heart_refill'
+      ? 'Full'
+      : 'Unlimited';
+  const metaLabel =
+    item.kind === 'coin_pack'
+      ? 'Coins'
+      : item.kind === 'heart_refill'
+      ? 'Hearts'
+      : `${item.durationHours}h duration`;
 
   return (
     <div className="relative overflow-hidden rounded-2xl border border-border bg-card shadow-card transition-all duration-300 hover:border-primary/20">
-      <div className="absolute right-4 top-4 z-10 flex max-w-[45%] flex-col items-end gap-2">
-        {item.popular ? (
-          <span className="rounded-full border border-destructive/20 bg-destructive/10 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.18em] text-destructive">
-            Popular
-          </span>
-        ) : null}
-        {item.bestValue ? (
-          <span className="rounded-full border border-xp/20 bg-xp/10 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.18em] text-xp">
-            Best value
-          </span>
-        ) : null}
-        {(item.bonusPercent || 0) > 0 ? (
-          <span className="rounded-full border border-coins/20 bg-coins/10 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.18em] text-coins">
-            +{item.bonusPercent}%
-          </span>
-        ) : null}
-      </div>
-
       <div className="p-6">
         <div className="flex items-start justify-between gap-4">
-          <div className="flex min-w-0 items-start gap-4 pr-24">
+          <div className="flex min-w-0 items-start gap-4">
             <div className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl ${toneClasses}`}>
               {item.icon}
             </div>
             <div className="min-w-0">
               <div className="text-lg font-semibold font-display text-foreground">{item.name}</div>
-              <p className="mt-2 min-h-[72px] text-sm leading-7 text-muted-foreground">{item.description}</p>
+              <p className="mt-2 min-h-[48px] text-sm leading-7 text-muted-foreground">{item.description}</p>
             </div>
           </div>
-          <div className="text-right">
-            <div className="text-xl font-semibold font-display text-foreground">
-              {item.kind === 'coin_pack'
-                ? item.coinsGranted?.toLocaleString()
-                : item.kind === 'xp_boost'
-                ? `${item.multiplier}x XP`
-                : item.kind === 'heart_refill'
-                ? 'Full'
-                : 'Unlimited'}
-            </div>
-            <div className="mt-1 text-xs uppercase tracking-[0.18em] text-muted-foreground">
-              {item.kind === 'coin_pack'
-                ? 'Coins'
-                : item.kind === 'heart_refill'
-                ? 'Hearts'
-                : `${item.durationHours}h duration`}
-            </div>
+          <div className="shrink-0 text-right">
+            <div className="text-xl font-semibold font-display text-foreground">{valueLabel}</div>
+            <div className="mt-1 text-xs uppercase tracking-[0.18em] text-muted-foreground">{metaLabel}</div>
           </div>
         </div>
+
+        {(item.popular || item.bestValue || (item.bonusPercent || 0) > 0) ? (
+          <div className="mt-4 flex flex-wrap gap-2">
+            {item.popular ? (
+              <span className="rounded-full border border-destructive/20 bg-destructive/10 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.18em] text-destructive">
+                Popular
+              </span>
+            ) : null}
+            {item.bestValue ? (
+              <span className="rounded-full border border-xp/20 bg-xp/10 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.18em] text-xp">
+                Best value
+              </span>
+            ) : null}
+            {(item.bonusPercent || 0) > 0 ? (
+              <span className="rounded-full border border-coins/20 bg-coins/10 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.18em] text-coins">
+                +{item.bonusPercent}%
+              </span>
+            ) : null}
+          </div>
+        ) : null}
 
         <div className="mt-5 flex items-end justify-between gap-4 rounded-2xl border border-border bg-background/70 px-4 py-3">
           <div>
@@ -745,7 +747,7 @@ const Store: React.FC = () => {
 
       <section className="space-y-3">
         <div className="mb-4 text-sm font-semibold uppercase tracking-[0.18em] text-primary">Coin packs</div>
-        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
           {coinPacks.map((item) => {
             const disabledReason = getDisabledReason(item);
             const isProcessing = processingItemId === item.id;
@@ -768,7 +770,7 @@ const Store: React.FC = () => {
 
       <section className="space-y-3">
         <div className="mb-4 text-sm font-semibold uppercase tracking-[0.18em] text-primary">Practice boosts and refills</div>
-        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
           {practiceBoosts.map((item) => {
             const disabledReason = getDisabledReason(item);
             const isProcessing = processingItemId === item.id;

@@ -119,7 +119,7 @@ const PublicTeamsWorkspace = ({ mode, inviteCode }: { mode: 'public' | 'app'; in
   const navigate = useNavigate();
 
   return (
-    <div className="grid gap-4 xl:grid-cols-[0.95fr_1.05fr]">
+    <div className="grid gap-4 xl:grid-cols-[1.12fr_0.88fr]">
       <section className={workspaceShellClass}>
         <div className="flex flex-col gap-4 border-b border-border pb-6 sm:flex-row sm:items-start sm:justify-between">
           <div>
@@ -134,11 +134,11 @@ const PublicTeamsWorkspace = ({ mode, inviteCode }: { mode: 'public' | 'app'; in
           <div className="grid gap-3 sm:min-w-[260px]">
             <button
               type="button"
-              onClick={() => navigate('/benchmark')}
+              onClick={() => navigate('/skill-check')}
               className={workspacePrimaryButtonClass}
             >
               <Users className="h-4 w-4" />
-              Start with benchmark
+              Start with skill check
             </button>
             <a
               href={`mailto:${supportEmail}?subject=${encodeURIComponent('Codhak pilot walkthrough request')}`}
@@ -166,7 +166,7 @@ const PublicTeamsWorkspace = ({ mode, inviteCode }: { mode: 'public' | 'app'; in
           ))}
         </div>
 
-        <div className="mt-6 grid gap-4 lg:grid-cols-2">
+        <div className="mt-6 grid gap-4 xl:grid-cols-[0.9fr_1.1fr]">
           <div className={workspacePanelClass}>
             <div className="flex items-center gap-2 text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground">
               <BarChart3 className="h-4 w-4 text-primary" />
@@ -208,8 +208,8 @@ const PublicTeamsWorkspace = ({ mode, inviteCode }: { mode: 'public' | 'app'; in
             </div>
 
             <div className={workspacePanelClass}>
-              <div className="text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground">Use cases</div>
-              <div className="mt-4 grid gap-3">
+              <div className="text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground">Common team use cases</div>
+              <div className="mt-4 grid gap-3 sm:grid-cols-2">
                 {teamUseCases.map((useCase) => (
                   <button
                     key={useCase.slug}
@@ -229,7 +229,7 @@ const PublicTeamsWorkspace = ({ mode, inviteCode }: { mode: 'public' | 'app'; in
 
       <aside className="min-w-0 grid gap-4">
         <div className={workspacePanelClass}>
-          <div className="text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground">Assignable tracks</div>
+          <div className="text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground">Preview what teams unlock</div>
           <div className="mt-4 space-y-3">
             {interviewTracks.slice(0, 4).map((track) => (
               <div key={track.id} className="rounded-2xl border border-border bg-card px-4 py-4">
@@ -243,17 +243,21 @@ const PublicTeamsWorkspace = ({ mode, inviteCode }: { mode: 'public' | 'app'; in
           </div>
         </div>
 
-        {teamUseCases.map((useCase) => (
-          <div key={useCase.slug} className={workspacePanelClass}>
-            <div className="text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground">{useCase.title}</div>
-            <p className="mt-3 text-sm leading-6 text-muted-foreground">{useCase.description}</p>
-            <ul className="mt-4 space-y-2 text-sm text-foreground">
-              {useCase.outcomes.map((outcome) => (
-                <li key={outcome} className="rounded-2xl border border-border bg-card px-4 py-3 text-foreground">{outcome}</li>
-              ))}
-            </ul>
+        <div className={workspacePanelClass}>
+          <div className="text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground">Before launch</div>
+          <div className="mt-4 space-y-3">
+            {[
+              'Create one workspace per cohort or program.',
+              'Use invite codes for coaches and learners.',
+              'Start with a benchmark assignment.',
+              'Share the proof page only after real results.',
+            ].map((item) => (
+              <div key={item} className="rounded-2xl border border-border bg-card px-4 py-3 text-sm text-foreground">
+                {item}
+              </div>
+            ))}
           </div>
-        ))}
+        </div>
       </aside>
     </div>
   );
