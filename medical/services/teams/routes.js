@@ -1,7 +1,7 @@
 import express from 'express';
 import { randomBytes } from 'node:crypto';
 import { z } from 'zod';
-import { createAuthenticatedUserMiddleware } from '../auth-utils.js';
+import { createAuthenticatedUserMiddleware, isPrivilegedAdmin } from '../auth-utils.js';
 import { FRONTEND_URL } from '../email/config.js';
 import { sendTransactionalEmail } from '../email/mailer.js';
 import { buildTeamInviteEmail } from '../email/templates.js';
@@ -9,6 +9,7 @@ import { buildTeamInviteEmail } from '../email/templates.js';
 const TEAM_USE_CASES = ['bootcamps', 'universities', 'coding-clubs', 'upskilling', 'general'];
 const ASSIGNMENT_TYPES = ['benchmark', 'challenge_pack', 'roadmap'];
 const BENCHMARK_LANGUAGES = ['python', 'javascript', 'java', 'cpp'];
+const TEAM_FEEDBACK_STATUSES = ['draft', 'shared', 'resolved'];
 
 const CreateTeamSchema = z.object({
   name: z.string().trim().min(2).max(80),
@@ -38,8 +39,90 @@ const CreateAssignmentSchema = z.object({
   dueAt: z.union([z.string().trim().min(1).max(80), z.null()]).optional().default(null),
 });
 
+const UpdateAssignmentSchema = z
+  .object({
+    title: z.string().trim().min(2).max(120).optional(),
+    description: z.string().trim().max(500).optional(),
+    assignmentType: z.enum(ASSIGNMENT_TYPES).optional(),
+    benchmarkLanguage: z.union([z.enum(BENCHMARK_LANGUAGES), z.null()]).optional(),
+    trackId: z.union([z.string().trim().min(1).max(120), z.null()]).optional(),
+    dueAt: z.union([z.string().trim().min(1).max(80), z.null()]).optional(),
+  })
+  .refine((value) => Object.keys(value).length > 0, {
+    message: 'Provide at least one assignment field to update.',
+  });
+
+const UpdateInviteSchema = z
+  .object({
+    label: z.string().trim().max(80).optional(),
+    email: z.union([z.string().trim().email(), z.literal('')]).optional().transform((value) => (value === '' ? null : value)),
+    role: z.enum(['admin', 'coach', 'learner']).optional(),
+    expiresInDays: z.number().int().min(1).max(90).optional(),
+    maxUses: z.number().int().min(1).max(500).optional(),
+    status: z.enum(['active', 'expired', 'revoked']).optional(),
+  })
+  .refine((value) => Object.keys(value).length > 0, {
+    message: 'Provide at least one invite field to update.',
+  });
+
+const UpdateMembershipSchema = z
+  .object({
+    role: z.enum(['admin', 'coach', 'learner']).optional(),
+    status: z.enum(['active', 'inactive']).optional(),
+  })
+  .refine((value) => Object.keys(value).length > 0, {
+    message: 'Provide at least one membership field to update.',
+  });
+
+const CreateFeedbackSchema = z.object({
+  memberUserId: z.string().uuid(),
+  assignmentId: z.union([z.string().uuid(), z.null()]).optional().default(null),
+  rubricScore: z.union([z.number().int().min(0).max(100), z.null()]).optional().default(null),
+  status: z.enum(TEAM_FEEDBACK_STATUSES).optional().default('draft'),
+  summary: z.string().trim().max(800).optional().default(''),
+  strengths: z.string().trim().max(800).optional().default(''),
+  focusAreas: z.string().trim().max(800).optional().default(''),
+  coachNotes: z.string().trim().max(1600).optional().default(''),
+  sharedWithMember: z.boolean().optional().default(false),
+});
+
+const UpdateFeedbackSchema = z
+  .object({
+    assignmentId: z.union([z.string().uuid(), z.null()]).optional(),
+    rubricScore: z.union([z.number().int().min(0).max(100), z.null()]).optional(),
+    status: z.enum(TEAM_FEEDBACK_STATUSES).optional(),
+    summary: z.string().trim().max(800).optional(),
+    strengths: z.string().trim().max(800).optional(),
+    focusAreas: z.string().trim().max(800).optional(),
+    coachNotes: z.string().trim().max(1600).optional(),
+    sharedWithMember: z.boolean().optional(),
+  })
+  .refine((value) => Object.keys(value).length > 0, {
+    message: 'Provide at least one feedback field to update.',
+  });
+
 const TeamRouteParamsSchema = z.object({
   teamId: z.string().uuid(),
+});
+
+const TeamMemberRouteParamsSchema = TeamRouteParamsSchema.extend({
+  userId: z.string().uuid(),
+});
+
+const TeamInviteRouteParamsSchema = TeamRouteParamsSchema.extend({
+  inviteId: z.string().uuid(),
+});
+
+const TeamAssignmentRouteParamsSchema = TeamRouteParamsSchema.extend({
+  assignmentId: z.string().uuid(),
+});
+
+const TeamFeedbackRouteParamsSchema = TeamRouteParamsSchema.extend({
+  feedbackId: z.string().uuid(),
+});
+
+const TeamExportQuerySchema = z.object({
+  format: z.enum(['json', 'csv']).optional().default('json'),
 });
 
 const SharedTeamRouteParamsSchema = z.object({
@@ -69,6 +152,21 @@ const getMedian = (values) => {
   }
   return sorted[midpoint];
 };
+
+const getAverage = (values) => {
+  if (!values.length) return null;
+  return Math.round(values.reduce((total, value) => total + value, 0) / values.length);
+};
+
+const escapeCsvValue = (value) => {
+  const normalized = value === null || value === undefined ? '' : String(value);
+  if (/[",\n]/.test(normalized)) {
+    return `"${normalized.replace(/"/g, '""')}"`;
+  }
+  return normalized;
+};
+
+const createCsvSection = (title, rows) => [title, ...rows.map((row) => row.map(escapeCsvValue).join(',')), ''].join('\n');
 
 const formatPublicMemberName = (name) => {
   const normalized = String(name || 'Codhak learner').trim();
@@ -129,9 +227,20 @@ const loadMembership = async (supabaseAdmin, teamId, userId) => {
   return data;
 };
 
-const ensureTeamAccess = async (supabaseAdmin, teamId, userId) => {
+const ensureTeamAccess = async (supabaseAdmin, teamId, userId, authenticatedUser = null) => {
   const membership = await loadMembership(supabaseAdmin, teamId, userId);
   if (!membership || membership.status !== 'active') {
+    if (isPrivilegedAdmin(authenticatedUser)) {
+      return {
+        team_id: teamId,
+        user_id: userId,
+        role: 'owner',
+        status: 'active',
+        joined_at: null,
+        is_admin_override: true,
+      };
+    }
+
     throw new Error('You do not have access to this team.');
   }
   return membership;
@@ -212,8 +321,9 @@ const getRecommendedTeamAction = ({ latestScore, improvementDelta, latestBenchma
   return 'Continue roadmap';
 };
 
-const buildTeamDetail = ({ team, memberships, profiles, assignments, invites, reports }) => {
+const buildTeamDetail = ({ team, memberships, profiles, assignments, invites, reports, feedback = [] }) => {
   const profileMap = new Map((profiles || []).map((profile) => [profile.id, profile]));
+  const assignmentMap = new Map((assignments || []).map((assignment) => [assignment.id, assignment]));
   const latestReportsByUser = new Map();
   const reportsByUser = new Map();
 
@@ -340,6 +450,24 @@ const buildTeamDetail = ({ team, memberships, profiles, assignments, invites, re
       status: invite.status,
       createdAt: invite.created_at,
     })),
+    feedback: feedback.map((entry) => ({
+      id: entry.id,
+      memberUserId: entry.member_user_id,
+      memberName: profileMap.get(entry.member_user_id)?.name || profileMap.get(entry.member_user_id)?.email || 'Learner',
+      assignmentId: entry.assignment_id,
+      assignmentTitle: entry.assignment_id ? assignmentMap.get(entry.assignment_id)?.title || null : null,
+      authorUserId: entry.author_user_id,
+      authorName: profileMap.get(entry.author_user_id)?.name || profileMap.get(entry.author_user_id)?.email || 'Coach',
+      rubricScore: entry.rubric_score,
+      status: entry.status,
+      summary: entry.summary || '',
+      strengths: entry.strengths || '',
+      focusAreas: entry.focus_areas || '',
+      coachNotes: entry.coach_notes || '',
+      sharedWithMember: Boolean(entry.shared_with_member),
+      createdAt: entry.created_at,
+      updatedAt: entry.updated_at,
+    })),
   };
 };
 
@@ -407,9 +535,225 @@ const createUniqueTeamSlug = async (supabaseAdmin, name) => {
   return `${base}-${Date.now().toString().slice(-4)}`;
 };
 
+const loadTeamWorkspaceResources = async (supabaseAdmin, teamId) => {
+  const [
+    { data: team, error: teamError },
+    { data: memberships, error: membershipsError },
+    { data: assignments, error: assignmentsError },
+    { data: invites, error: invitesError },
+    { data: feedback, error: feedbackError },
+  ] = await Promise.all([
+    supabaseAdmin.from('skill_teams').select('*').eq('id', teamId).single(),
+    supabaseAdmin.from('skill_team_memberships').select('*').eq('team_id', teamId).order('joined_at', { ascending: true }),
+    supabaseAdmin.from('skill_team_assignments').select('*').eq('team_id', teamId).order('created_at', { ascending: false }),
+    supabaseAdmin.from('skill_team_invites').select('*').eq('team_id', teamId).order('created_at', { ascending: false }),
+    supabaseAdmin.from('skill_team_feedback').select('*').eq('team_id', teamId).order('updated_at', { ascending: false }),
+  ]);
+
+  const firstError = teamError || membershipsError || assignmentsError || invitesError || feedbackError;
+  if (firstError || !team) {
+    throw new Error(firstError?.message || 'Could not load team workspace.');
+  }
+
+  const userIds = Array.from(
+    new Set(
+      [
+        ...(memberships || []).map((entry) => entry.user_id),
+        ...(feedback || []).flatMap((entry) => [entry.member_user_id, entry.author_user_id].filter(Boolean)),
+      ].filter(Boolean)
+    )
+  );
+
+  const [{ data: profiles, error: profilesError }, { data: reports, error: reportsError }] = await Promise.all([
+    userIds.length
+      ? supabaseAdmin.from('user_profiles').select('id, name, email, current_avatar, current_streak').in('id', userIds)
+      : Promise.resolve({ data: [], error: null }),
+    userIds.length
+      ? supabaseAdmin.from('benchmark_reports').select('user_id, overall_score, created_at').in('user_id', userIds).order('created_at', { ascending: false }).limit(1000)
+      : Promise.resolve({ data: [], error: null }),
+  ]);
+
+  if (profilesError || reportsError) {
+    throw new Error(profilesError?.message || reportsError?.message || 'Could not load team analytics.');
+  }
+
+  return {
+    team,
+    memberships: memberships || [],
+    assignments: assignments || [],
+    invites: invites || [],
+    feedback: feedback || [],
+    profiles: profiles || [],
+    reports: reports || [],
+  };
+};
+
+const buildTeamAnalytics = ({ detail }) => {
+  const scoreBands = [
+    { label: '0-54', count: 0 },
+    { label: '55-69', count: 0 },
+    { label: '70-84', count: 0 },
+    { label: '85-100', count: 0 },
+  ];
+  const roleDistribution = {
+    owner: 0,
+    admin: 0,
+    coach: 0,
+    learner: 0,
+  };
+  const recency = {
+    recent: 0,
+    warm: 0,
+    stale: 0,
+    missing: 0,
+  };
+
+  detail.members.forEach((member) => {
+    roleDistribution[member.role] += 1;
+
+    const score = member.latestBenchmarkScore;
+    if (typeof score === 'number') {
+      if (score < 55) scoreBands[0].count += 1;
+      else if (score < 70) scoreBands[1].count += 1;
+      else if (score < 85) scoreBands[2].count += 1;
+      else scoreBands[3].count += 1;
+    }
+
+    if (!member.latestBenchmarkAt) {
+      recency.missing += 1;
+      return;
+    }
+
+    const ageDays = Math.floor((Date.now() - new Date(member.latestBenchmarkAt).getTime()) / (1000 * 60 * 60 * 24));
+    if (ageDays <= 7) recency.recent += 1;
+    else if (ageDays <= 30) recency.warm += 1;
+    else recency.stale += 1;
+  });
+
+  const inviteStats = {
+    total: detail.invites.length,
+    active: detail.invites.filter((invite) => invite.status === 'active').length,
+    expired: detail.invites.filter((invite) => invite.status === 'expired').length,
+    revoked: detail.invites.filter((invite) => invite.status === 'revoked').length,
+    uses: detail.invites.reduce((total, invite) => total + Number(invite.useCount || 0), 0),
+  };
+
+  const assignmentStats = {
+    total: detail.assignments.length,
+    benchmark: detail.assignments.filter((assignment) => assignment.assignmentType === 'benchmark').length,
+    challengePack: detail.assignments.filter((assignment) => assignment.assignmentType === 'challenge_pack').length,
+    roadmap: detail.assignments.filter((assignment) => assignment.assignmentType === 'roadmap').length,
+    dueSoon: detail.assignments.filter((assignment) => {
+      if (!assignment.dueAt) return false;
+      const dueAt = new Date(assignment.dueAt).getTime();
+      return dueAt >= Date.now() && dueAt <= Date.now() + 7 * 24 * 60 * 60 * 1000;
+    }).length,
+  };
+
+  const streakValues = detail.members.map((member) => Number(member.currentStreak || 0));
+  const benchmarkValues = detail.members
+    .map((member) => member.latestBenchmarkScore)
+    .filter((value) => typeof value === 'number');
+
+  return {
+    scoreBands,
+    roleDistribution,
+    recency,
+    inviteStats,
+    assignmentStats,
+    streakStats: {
+      average: getAverage(streakValues),
+      highest: streakValues.length ? Math.max(...streakValues) : 0,
+    },
+    benchmarkStats: {
+      average: getAverage(benchmarkValues),
+      median: detail.metrics.medianScore,
+      completionRate: detail.metrics.benchmarkCompletionRate,
+    },
+    feedbackStats: {
+      total: detail.feedback.length,
+      shared: detail.feedback.filter((entry) => entry.status === 'shared').length,
+      resolved: detail.feedback.filter((entry) => entry.status === 'resolved').length,
+      drafts: detail.feedback.filter((entry) => entry.status === 'draft').length,
+    },
+  };
+};
+
+const buildTeamExportPayload = ({ detail, analytics }) => ({
+  exportedAt: new Date().toISOString(),
+  team: detail.team,
+  metrics: detail.metrics,
+  analytics,
+  members: detail.members,
+  assignments: detail.assignments,
+  invites: detail.invites,
+  feedback: detail.feedback,
+});
+
+const buildTeamCsvExport = ({ detail, analytics }) =>
+  [
+    createCsvSection('team_summary', [
+      ['name', 'use_case', 'members', 'completion_rate', 'median_score', 'average_improvement'],
+      [
+        detail.team.name,
+        detail.team.useCase,
+        detail.team.memberCount,
+        detail.metrics.benchmarkCompletionRate,
+        detail.metrics.medianScore ?? '',
+        detail.metrics.averageImprovement ?? '',
+      ],
+    ]),
+    createCsvSection('members', [
+      ['name', 'email', 'role', 'status', 'latest_score', 'benchmark_count', 'improvement_delta', 'recommended_action'],
+      ...detail.members.map((member) => [
+        member.name,
+        member.email || '',
+        member.role,
+        member.status,
+        member.latestBenchmarkScore ?? '',
+        member.benchmarkCount,
+        member.improvementDelta ?? '',
+        member.recommendedAction,
+      ]),
+    ]),
+    createCsvSection('assignments', [
+      ['title', 'type', 'language', 'track_id', 'due_at'],
+      ...detail.assignments.map((assignment) => [
+        assignment.title,
+        assignment.assignmentType,
+        assignment.benchmarkLanguage || '',
+        assignment.trackId || '',
+        assignment.dueAt || '',
+      ]),
+    ]),
+    createCsvSection('feedback', [
+      ['member', 'assignment', 'score', 'status', 'shared_with_member', 'summary'],
+      ...detail.feedback.map((entry) => [
+        entry.memberName,
+        entry.assignmentTitle || '',
+        entry.rubricScore ?? '',
+        entry.status,
+        entry.sharedWithMember ? 'yes' : 'no',
+        entry.summary,
+      ]),
+    ]),
+    createCsvSection('analytics', [
+      ['metric', 'value'],
+      ['active_invites', analytics.inviteStats.active],
+      ['invite_uses', analytics.inviteStats.uses],
+      ['recent_benchmarks', analytics.recency.recent],
+      ['warm_benchmarks', analytics.recency.warm],
+      ['stale_benchmarks', analytics.recency.stale],
+      ['missing_benchmarks', analytics.recency.missing],
+      ['feedback_shared', analytics.feedbackStats.shared],
+    ]),
+  ].join('\n');
+
 export const createTeamsRouter = ({ supabaseAdmin }) => {
   const router = express.Router();
   const requireAuth = createAuthenticatedUserMiddleware(supabaseAdmin, 'Teams API');
+  const getActorMembership = (teamId, req) =>
+    ensureTeamAccess(supabaseAdmin, teamId, req.authenticatedUser.id, req.authenticatedUser);
 
   router.get('/shared/:publicToken', async (req, res) => {
     try {
@@ -475,6 +819,40 @@ export const createTeamsRouter = ({ supabaseAdmin }) => {
 
   router.get('/', requireAuth, async (req, res) => {
     try {
+      if (isPrivilegedAdmin(req.authenticatedUser)) {
+        const [{ data: teams, error: teamsError }, { data: allMemberships, error: membershipError }] = await Promise.all([
+          supabaseAdmin.from('skill_teams').select('*').order('created_at', { ascending: true }),
+          supabaseAdmin.from('skill_team_memberships').select('team_id, status'),
+        ]);
+
+        if (teamsError || membershipError) {
+          throw new Error(teamsError?.message || membershipError?.message || 'Could not load team summaries.');
+        }
+
+        const countsByTeamId = new Map();
+        (allMemberships || []).forEach((membership) => {
+          const current = countsByTeamId.get(membership.team_id) || 0;
+          countsByTeamId.set(membership.team_id, current + (membership.status === 'active' ? 1 : 0));
+        });
+
+        return res.json({
+          teams: (teams || []).map((team) => ({
+            id: team.id,
+            name: team.name,
+            slug: team.slug,
+            description: team.description,
+            useCase: team.use_case,
+            seatLimit: team.seat_limit,
+            currentUserRole: 'owner',
+            memberCount: countsByTeamId.get(team.id) || 0,
+            joinedAt: team.created_at,
+            isPublic: Boolean(team.is_public),
+            shareToken: team.public_token || null,
+            publicSharedAt: team.public_shared_at || null,
+          })),
+        });
+      }
+
       const { data: memberships, error } = await supabaseAdmin
         .from('skill_team_memberships')
         .select('team_id, role, status, joined_at')
@@ -600,46 +978,9 @@ export const createTeamsRouter = ({ supabaseAdmin }) => {
   router.get('/:teamId', requireAuth, async (req, res) => {
     try {
       const { teamId } = TeamRouteParamsSchema.parse(req.params || {});
-      const membership = await ensureTeamAccess(supabaseAdmin, teamId, req.authenticatedUser.id);
-      const [
-        { data: team, error: teamError },
-        { data: memberships, error: membershipsError },
-        { data: assignments, error: assignmentsError },
-        { data: invites, error: invitesError },
-      ] = await Promise.all([
-        supabaseAdmin.from('skill_teams').select('*').eq('id', teamId).single(),
-        supabaseAdmin.from('skill_team_memberships').select('*').eq('team_id', teamId).order('joined_at', { ascending: true }),
-        supabaseAdmin.from('skill_team_assignments').select('*').eq('team_id', teamId).order('created_at', { ascending: false }),
-        supabaseAdmin.from('skill_team_invites').select('*').eq('team_id', teamId).order('created_at', { ascending: false }).limit(8),
-      ]);
-
-      const firstError = teamError || membershipsError || assignmentsError || invitesError;
-      if (firstError || !team) {
-        throw new Error(firstError?.message || 'Could not load team workspace.');
-      }
-
-      const userIds = (memberships || []).map((entry) => entry.user_id);
-      const [{ data: profiles, error: profilesError }, { data: reports, error: reportsError }] = await Promise.all([
-        userIds.length
-          ? supabaseAdmin.from('user_profiles').select('id, name, email, current_avatar, current_streak').in('id', userIds)
-          : Promise.resolve({ data: [], error: null }),
-        userIds.length
-          ? supabaseAdmin.from('benchmark_reports').select('user_id, overall_score, created_at').in('user_id', userIds).order('created_at', { ascending: false }).limit(500)
-          : Promise.resolve({ data: [], error: null }),
-      ]);
-
-      if (profilesError || reportsError) {
-        throw new Error(profilesError?.message || reportsError?.message || 'Could not load team analytics.');
-      }
-
-      const detail = buildTeamDetail({
-        team,
-        memberships: memberships || [],
-        profiles: profiles || [],
-        assignments: assignments || [],
-        invites: invites || [],
-        reports: reports || [],
-      });
+      const membership = await getActorMembership(teamId, req);
+      const resources = await loadTeamWorkspaceResources(supabaseAdmin, teamId);
+      const detail = buildTeamDetail(resources);
 
       return res.json({
         ...detail,
@@ -656,7 +997,7 @@ export const createTeamsRouter = ({ supabaseAdmin }) => {
   router.post('/:teamId/share', requireAuth, async (req, res) => {
     try {
       const { teamId } = TeamRouteParamsSchema.parse(req.params || {});
-      const membership = await ensureTeamAccess(supabaseAdmin, teamId, req.authenticatedUser.id);
+      const membership = await getActorMembership(teamId, req);
       ensureTeamRole(membership, ['owner', 'admin', 'coach']);
 
       const { data: existingTeam, error: teamError } = await supabaseAdmin
@@ -712,7 +1053,7 @@ export const createTeamsRouter = ({ supabaseAdmin }) => {
   router.delete('/:teamId/share', requireAuth, async (req, res) => {
     try {
       const { teamId } = TeamRouteParamsSchema.parse(req.params || {});
-      const membership = await ensureTeamAccess(supabaseAdmin, teamId, req.authenticatedUser.id);
+      const membership = await getActorMembership(teamId, req);
       ensureTeamRole(membership, ['owner', 'admin', 'coach']);
 
       const { data: updatedTeam, error: updateError } = await supabaseAdmin
@@ -754,7 +1095,7 @@ export const createTeamsRouter = ({ supabaseAdmin }) => {
   router.post('/:teamId/invites', requireAuth, async (req, res) => {
     try {
       const { teamId } = TeamRouteParamsSchema.parse(req.params || {});
-      const membership = await ensureTeamAccess(supabaseAdmin, teamId, req.authenticatedUser.id);
+      const membership = await getActorMembership(teamId, req);
       ensureTeamRole(membership, ['owner', 'admin', 'coach']);
 
       const { data: teamSummary, error: teamSummaryError } = await supabaseAdmin
@@ -919,7 +1260,7 @@ export const createTeamsRouter = ({ supabaseAdmin }) => {
   router.post('/:teamId/assignments', requireAuth, async (req, res) => {
     try {
       const { teamId } = TeamRouteParamsSchema.parse(req.params || {});
-      const membership = await ensureTeamAccess(supabaseAdmin, teamId, req.authenticatedUser.id);
+      const membership = await getActorMembership(teamId, req);
       ensureTeamRole(membership, ['owner', 'admin', 'coach']);
       const parsed = CreateAssignmentSchema.parse(req.body || {});
 
@@ -958,6 +1299,374 @@ export const createTeamsRouter = ({ supabaseAdmin }) => {
       });
     } catch (error) {
       return res.status(400).json({ error: error.message || 'Could not create assignment.' });
+    }
+  });
+
+  router.patch('/:teamId/assignments/:assignmentId', requireAuth, async (req, res) => {
+    try {
+      const { teamId, assignmentId } = TeamAssignmentRouteParamsSchema.parse(req.params || {});
+      const membership = await getActorMembership(teamId, req);
+      ensureTeamRole(membership, ['owner', 'admin', 'coach']);
+      const parsed = UpdateAssignmentSchema.parse(req.body || {});
+
+      const updatePayload = {};
+      if (parsed.title !== undefined) updatePayload.title = parsed.title;
+      if (parsed.description !== undefined) updatePayload.description = parsed.description;
+      if (parsed.assignmentType !== undefined) updatePayload.assignment_type = parsed.assignmentType;
+      if (parsed.benchmarkLanguage !== undefined) updatePayload.benchmark_language = parsed.benchmarkLanguage;
+      if (parsed.trackId !== undefined) updatePayload.track_id = parsed.trackId;
+      if (parsed.dueAt !== undefined) updatePayload.due_at = parsed.dueAt;
+
+      const { data, error } = await supabaseAdmin
+        .from('skill_team_assignments')
+        .update(updatePayload)
+        .eq('id', assignmentId)
+        .eq('team_id', teamId)
+        .select('*')
+        .single();
+
+      if (error || !data) {
+        throw new Error(error?.message || 'Could not update assignment.');
+      }
+
+      return res.json({
+        assignment: {
+          id: data.id,
+          title: data.title,
+          description: data.description,
+          assignmentType: data.assignment_type,
+          benchmarkLanguage: data.benchmark_language,
+          trackId: data.track_id,
+          dueAt: data.due_at,
+          createdAt: data.created_at,
+          metadata: data.metadata || {},
+        },
+      });
+    } catch (error) {
+      return res.status(400).json({ error: error.message || 'Could not update assignment.' });
+    }
+  });
+
+  router.delete('/:teamId/assignments/:assignmentId', requireAuth, async (req, res) => {
+    try {
+      const { teamId, assignmentId } = TeamAssignmentRouteParamsSchema.parse(req.params || {});
+      const membership = await getActorMembership(teamId, req);
+      ensureTeamRole(membership, ['owner', 'admin', 'coach']);
+
+      const { error } = await supabaseAdmin
+        .from('skill_team_assignments')
+        .delete()
+        .eq('id', assignmentId)
+        .eq('team_id', teamId);
+
+      if (error) {
+        throw new Error(error.message || 'Could not delete assignment.');
+      }
+
+      return res.status(204).send();
+    } catch (error) {
+      return res.status(400).json({ error: error.message || 'Could not delete assignment.' });
+    }
+  });
+
+  router.patch('/:teamId/invites/:inviteId', requireAuth, async (req, res) => {
+    try {
+      const { teamId, inviteId } = TeamInviteRouteParamsSchema.parse(req.params || {});
+      const membership = await getActorMembership(teamId, req);
+      ensureTeamRole(membership, ['owner', 'admin', 'coach']);
+      const parsed = UpdateInviteSchema.parse(req.body || {});
+
+      const updatePayload = {};
+      if (parsed.label !== undefined) updatePayload.label = parsed.label;
+      if (parsed.email !== undefined) updatePayload.email = parsed.email;
+      if (parsed.role !== undefined) updatePayload.role = parsed.role;
+      if (parsed.maxUses !== undefined) updatePayload.max_uses = parsed.maxUses;
+      if (parsed.status !== undefined) updatePayload.status = parsed.status;
+      if (parsed.expiresInDays !== undefined) {
+        updatePayload.expires_at = new Date(Date.now() + parsed.expiresInDays * 24 * 60 * 60 * 1000).toISOString();
+      }
+
+      const { data, error } = await supabaseAdmin
+        .from('skill_team_invites')
+        .update(updatePayload)
+        .eq('id', inviteId)
+        .eq('team_id', teamId)
+        .select('*')
+        .single();
+
+      if (error || !data) {
+        throw new Error(error?.message || 'Could not update invite.');
+      }
+
+      return res.json({
+        invite: {
+          id: data.id,
+          code: data.code,
+          label: data.label,
+          email: data.email,
+          role: data.role,
+          maxUses: data.max_uses,
+          useCount: data.use_count,
+          expiresAt: data.expires_at,
+          status: data.status,
+          createdAt: data.created_at,
+        },
+      });
+    } catch (error) {
+      return res.status(400).json({ error: error.message || 'Could not update invite.' });
+    }
+  });
+
+  router.delete('/:teamId/invites/:inviteId', requireAuth, async (req, res) => {
+    try {
+      const { teamId, inviteId } = TeamInviteRouteParamsSchema.parse(req.params || {});
+      const membership = await getActorMembership(teamId, req);
+      ensureTeamRole(membership, ['owner', 'admin', 'coach']);
+
+      const { error } = await supabaseAdmin
+        .from('skill_team_invites')
+        .delete()
+        .eq('id', inviteId)
+        .eq('team_id', teamId);
+
+      if (error) {
+        throw new Error(error.message || 'Could not delete invite.');
+      }
+
+      return res.status(204).send();
+    } catch (error) {
+      return res.status(400).json({ error: error.message || 'Could not delete invite.' });
+    }
+  });
+
+  router.patch('/:teamId/members/:userId', requireAuth, async (req, res) => {
+    try {
+      const { teamId, userId } = TeamMemberRouteParamsSchema.parse(req.params || {});
+      const membership = await getActorMembership(teamId, req);
+      ensureTeamRole(membership, ['owner', 'admin']);
+      const parsed = UpdateMembershipSchema.parse(req.body || {});
+      const targetMembership = await loadMembership(supabaseAdmin, teamId, userId);
+
+      if (!targetMembership) {
+        throw new Error('Could not find that team member.');
+      }
+
+      if (targetMembership.role === 'owner' && membership.role !== 'owner') {
+        throw new Error('Only an owner can manage another owner.');
+      }
+
+      const { data, error } = await supabaseAdmin
+        .from('skill_team_memberships')
+        .update(parsed)
+        .eq('team_id', teamId)
+        .eq('user_id', userId)
+        .select('*')
+        .single();
+
+      if (error || !data) {
+        throw new Error(error?.message || 'Could not update team member.');
+      }
+
+      return res.json({ membership: data });
+    } catch (error) {
+      return res.status(400).json({ error: error.message || 'Could not update team member.' });
+    }
+  });
+
+  router.delete('/:teamId/members/:userId', requireAuth, async (req, res) => {
+    try {
+      const { teamId, userId } = TeamMemberRouteParamsSchema.parse(req.params || {});
+      const membership = await getActorMembership(teamId, req);
+      ensureTeamRole(membership, ['owner', 'admin']);
+      const targetMembership = await loadMembership(supabaseAdmin, teamId, userId);
+
+      if (!targetMembership) {
+        throw new Error('Could not find that team member.');
+      }
+
+      if (targetMembership.role === 'owner') {
+        const { data: owners, error: ownerError } = await supabaseAdmin
+          .from('skill_team_memberships')
+          .select('user_id')
+          .eq('team_id', teamId)
+          .eq('role', 'owner')
+          .eq('status', 'active');
+
+        if (ownerError) {
+          throw new Error(ownerError.message || 'Could not validate team ownership.');
+        }
+
+        if ((owners || []).length <= 1) {
+          throw new Error('The last owner cannot be removed.');
+        }
+      }
+
+      const { error } = await supabaseAdmin
+        .from('skill_team_memberships')
+        .delete()
+        .eq('team_id', teamId)
+        .eq('user_id', userId);
+
+      if (error) {
+        throw new Error(error.message || 'Could not remove team member.');
+      }
+
+      return res.status(204).send();
+    } catch (error) {
+      return res.status(400).json({ error: error.message || 'Could not remove team member.' });
+    }
+  });
+
+  router.get('/:teamId/feedback', requireAuth, async (req, res) => {
+    try {
+      const { teamId } = TeamRouteParamsSchema.parse(req.params || {});
+      const membership = await getActorMembership(teamId, req);
+      ensureTeamRole(membership, ['owner', 'admin', 'coach']);
+      const resources = await loadTeamWorkspaceResources(supabaseAdmin, teamId);
+      const detail = buildTeamDetail(resources);
+      return res.json({ feedback: detail.feedback });
+    } catch (error) {
+      return res.status(400).json({ error: error.message || 'Could not load team feedback.' });
+    }
+  });
+
+  router.post('/:teamId/feedback', requireAuth, async (req, res) => {
+    try {
+      const { teamId } = TeamRouteParamsSchema.parse(req.params || {});
+      const membership = await getActorMembership(teamId, req);
+      ensureTeamRole(membership, ['owner', 'admin', 'coach']);
+      const parsed = CreateFeedbackSchema.parse(req.body || {});
+      const targetMembership = await loadMembership(supabaseAdmin, teamId, parsed.memberUserId);
+
+      if (!targetMembership) {
+        throw new Error('The selected learner is not part of this team.');
+      }
+
+      const { data, error } = await supabaseAdmin
+        .from('skill_team_feedback')
+        .insert({
+          team_id: teamId,
+          member_user_id: parsed.memberUserId,
+          assignment_id: parsed.assignmentId,
+          author_user_id: req.authenticatedUser.id,
+          rubric_score: parsed.rubricScore,
+          status: parsed.status,
+          summary: parsed.summary,
+          strengths: parsed.strengths,
+          focus_areas: parsed.focusAreas,
+          coach_notes: parsed.coachNotes,
+          shared_with_member: parsed.sharedWithMember,
+        })
+        .select('*')
+        .single();
+
+      if (error || !data) {
+        throw new Error(error?.message || 'Could not create feedback entry.');
+      }
+
+      const resources = await loadTeamWorkspaceResources(supabaseAdmin, teamId);
+      const detail = buildTeamDetail(resources);
+      const feedbackEntry = detail.feedback.find((entry) => entry.id === data.id);
+      return res.status(201).json({ feedback: feedbackEntry });
+    } catch (error) {
+      return res.status(400).json({ error: error.message || 'Could not create feedback entry.' });
+    }
+  });
+
+  router.patch('/:teamId/feedback/:feedbackId', requireAuth, async (req, res) => {
+    try {
+      const { teamId, feedbackId } = TeamFeedbackRouteParamsSchema.parse(req.params || {});
+      const membership = await getActorMembership(teamId, req);
+      ensureTeamRole(membership, ['owner', 'admin', 'coach']);
+      const parsed = UpdateFeedbackSchema.parse(req.body || {});
+
+      const updatePayload = {};
+      if (parsed.assignmentId !== undefined) updatePayload.assignment_id = parsed.assignmentId;
+      if (parsed.rubricScore !== undefined) updatePayload.rubric_score = parsed.rubricScore;
+      if (parsed.status !== undefined) updatePayload.status = parsed.status;
+      if (parsed.summary !== undefined) updatePayload.summary = parsed.summary;
+      if (parsed.strengths !== undefined) updatePayload.strengths = parsed.strengths;
+      if (parsed.focusAreas !== undefined) updatePayload.focus_areas = parsed.focusAreas;
+      if (parsed.coachNotes !== undefined) updatePayload.coach_notes = parsed.coachNotes;
+      if (parsed.sharedWithMember !== undefined) updatePayload.shared_with_member = parsed.sharedWithMember;
+
+      const { data, error } = await supabaseAdmin
+        .from('skill_team_feedback')
+        .update(updatePayload)
+        .eq('id', feedbackId)
+        .eq('team_id', teamId)
+        .select('*')
+        .single();
+
+      if (error || !data) {
+        throw new Error(error?.message || 'Could not update feedback entry.');
+      }
+
+      const resources = await loadTeamWorkspaceResources(supabaseAdmin, teamId);
+      const detail = buildTeamDetail(resources);
+      const feedbackEntry = detail.feedback.find((entry) => entry.id === data.id);
+      return res.json({ feedback: feedbackEntry });
+    } catch (error) {
+      return res.status(400).json({ error: error.message || 'Could not update feedback entry.' });
+    }
+  });
+
+  router.delete('/:teamId/feedback/:feedbackId', requireAuth, async (req, res) => {
+    try {
+      const { teamId, feedbackId } = TeamFeedbackRouteParamsSchema.parse(req.params || {});
+      const membership = await getActorMembership(teamId, req);
+      ensureTeamRole(membership, ['owner', 'admin', 'coach']);
+
+      const { error } = await supabaseAdmin
+        .from('skill_team_feedback')
+        .delete()
+        .eq('id', feedbackId)
+        .eq('team_id', teamId);
+
+      if (error) {
+        throw new Error(error.message || 'Could not delete feedback entry.');
+      }
+
+      return res.status(204).send();
+    } catch (error) {
+      return res.status(400).json({ error: error.message || 'Could not delete feedback entry.' });
+    }
+  });
+
+  router.get('/:teamId/analytics', requireAuth, async (req, res) => {
+    try {
+      const { teamId } = TeamRouteParamsSchema.parse(req.params || {});
+      const membership = await getActorMembership(teamId, req);
+      ensureTeamRole(membership, ['owner', 'admin', 'coach']);
+      const resources = await loadTeamWorkspaceResources(supabaseAdmin, teamId);
+      const detail = buildTeamDetail(resources);
+      const analytics = buildTeamAnalytics({ detail });
+      return res.json({ analytics });
+    } catch (error) {
+      return res.status(400).json({ error: error.message || 'Could not load team analytics.' });
+    }
+  });
+
+  router.get('/:teamId/export', requireAuth, async (req, res) => {
+    try {
+      const { teamId } = TeamRouteParamsSchema.parse(req.params || {});
+      const { format } = TeamExportQuerySchema.parse(req.query || {});
+      const membership = await getActorMembership(teamId, req);
+      ensureTeamRole(membership, ['owner', 'admin', 'coach']);
+      const resources = await loadTeamWorkspaceResources(supabaseAdmin, teamId);
+      const detail = buildTeamDetail(resources);
+      const analytics = buildTeamAnalytics({ detail });
+
+      if (format === 'csv') {
+        const csv = buildTeamCsvExport({ detail, analytics });
+        res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+        res.setHeader('Content-Disposition', `attachment; filename="${detail.team.slug || detail.team.id}-team-report.csv"`);
+        return res.status(200).send(csv);
+      }
+
+      return res.json(buildTeamExportPayload({ detail, analytics }));
+    } catch (error) {
+      return res.status(400).json({ error: error.message || 'Could not export team report.' });
     }
   });
 

@@ -1,3 +1,18 @@
+const parseUserIds = (value) =>
+  String(value || '')
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean);
+
+const PLATFORM_ADMIN_USER_IDS = [
+  ...new Set([
+    ...parseUserIds(process.env.ADMIN_USER_IDS || ''),
+    ...parseUserIds(process.env.FEEDBACK_ADMIN_USER_IDS || ''),
+    ...parseUserIds(process.env.DUEL_ADMIN_USER_IDS || ''),
+    ...parseUserIds(process.env.LEADS_ADMIN_USER_IDS || ''),
+  ]),
+];
+
 const getBearerToken = (req) => {
   const authHeader = req.headers.authorization || '';
   if (!authHeader.startsWith('Bearer ')) {
@@ -44,6 +59,16 @@ export const resolveOptionalUser = async (supabaseAdmin, req) => {
   }
 
   return data.user;
+};
+
+export const isPrivilegedAdmin = (user) => {
+  if (!user) return false;
+  if (PLATFORM_ADMIN_USER_IDS.includes(user.id)) return true;
+  if (user.app_metadata?.role === 'admin') return true;
+  if (user.app_metadata?.is_admin === true) return true;
+  if (user.user_metadata?.role === 'admin') return true;
+  if (user.user_metadata?.is_admin === true) return true;
+  return false;
 };
 
 export const getRequestIp = (req) => {

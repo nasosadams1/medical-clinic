@@ -383,10 +383,10 @@ export default function DuelsDashboard() {
           ensureSocketRegistered={ensureSocketRegistered}
           onMatchFound={handleDuelStarted}
           onMatchEnd={handleMatchEnd}
-          allowedMatchTypes={hasPaidLearnerAccess ? ['casual', 'ranked'] : ['casual']}
+          allowedMatchTypes={['casual', 'ranked']}
           remainingFreeDuels={hasPaidLearnerAccess ? null : freeDuelRemaining}
           freeDuelLimit={hasPaidLearnerAccess ? null : freeDuelLimit}
-          advancedAnalyticsUnlocked={hasPaidLearnerAccess}
+          advancedAnalyticsUnlocked
           onDuelStarted={handleTrackedDuelStart}
         />
       )}

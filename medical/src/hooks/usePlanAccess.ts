@@ -2,6 +2,7 @@ import { useCallback, useMemo, useState } from 'react';
 import type { LanguageSlug } from '../data/siteContent';
 import { useAuth } from '../context/AuthContext';
 import { usePlanEntitlements } from './usePlanEntitlements';
+import { useAdminAccess } from './useAdminAccess';
 import {
   FREE_DUEL_DAILY_LIMIT,
   canAccessStarterLesson,
@@ -11,42 +12,113 @@ import {
   readFreeDuelUsage,
   STARTER_PATH_LANGUAGE,
 } from '../lib/planAccess';
+import type { PlanEntitlement } from '../lib/billing';
+
+const createAdminOverrideEntitlement = (
+  userId: string,
+  itemId: string,
+  planName: string
+): PlanEntitlement => ({
+  id: `admin-override:${itemId}`,
+  userId,
+  itemId,
+  planName,
+  status: 'active',
+  currentPeriodStart: new Date(0).toISOString(),
+  currentPeriodEnd: new Date('2099-12-31T00:00:00.000Z').toISOString(),
+  purchaseCount: 1,
+  lastPaymentIntentId: null,
+  metadata: {
+    admin_override: true,
+  },
+  createdAt: new Date(0).toISOString(),
+  updatedAt: new Date(0).toISOString(),
+  isActive: true,
+});
 
 export function usePlanAccess() {
   const { user } = useAuth();
+  const { hasAdminAccess } = useAdminAccess();
   const {
     activeEntitlements,
-    activePlanNames,
-    getEntitlementByPlanName,
-    getPlanEntitlement,
+    primaryPlan: entitlementPrimaryPlan,
     ...entitlementState
   } = usePlanEntitlements();
   const [duelUsageVersion, setDuelUsageVersion] = useState(0);
 
+  const adminOverrideEntitlements = useMemo(() => {
+    if (!hasAdminAccess || !user?.id) return [];
+
+    const adminPlans: PlanEntitlement[] = [
+      createAdminOverrideEntitlement(user.id, 'pro_monthly', 'Pro'),
+      createAdminOverrideEntitlement(user.id, 'interview_sprint', 'Interview Sprint'),
+      createAdminOverrideEntitlement(user.id, 'teams_monthly', 'Teams'),
+      createAdminOverrideEntitlement(user.id, 'teams_growth_monthly', 'Teams Growth'),
+      createAdminOverrideEntitlement(user.id, 'admin_custom', 'Custom'),
+    ];
+
+    return adminPlans.filter(
+      (entitlement) =>
+        !activeEntitlements.some(
+          (candidate) =>
+            candidate.itemId === entitlement.itemId ||
+            candidate.planName.trim().toLowerCase() === entitlement.planName.trim().toLowerCase()
+        )
+    );
+  }, [activeEntitlements, hasAdminAccess, user?.id]);
+
+  const mergedActiveEntitlements = useMemo(
+    () => [...activeEntitlements, ...adminOverrideEntitlements],
+    [activeEntitlements, adminOverrideEntitlements]
+  );
+
+  const mergedActivePlanNames = useMemo(
+    () =>
+      mergedActiveEntitlements
+        .map((entitlement) => entitlement.planName)
+        .filter((planName) => planName.trim().length > 0),
+    [mergedActiveEntitlements]
+  );
+
+  const getMergedPlanEntitlement = useCallback(
+    (planId: string) => mergedActiveEntitlements.find((entitlement) => entitlement.itemId === planId) || null,
+    [mergedActiveEntitlements]
+  );
+
+  const getMergedEntitlementByPlanName = useCallback(
+    (planName: string) =>
+      mergedActiveEntitlements.find(
+        (entitlement) => entitlement.planName.trim().toLowerCase() === planName.trim().toLowerCase()
+      ) || null,
+    [mergedActiveEntitlements]
+  );
+
   const hasPro = useMemo(
     () =>
-      Boolean(getPlanEntitlement('pro_monthly')) ||
-      activePlanNames.some((planName) => planName.trim().toLowerCase() === 'pro'),
-    [activePlanNames, getPlanEntitlement]
+      Boolean(getMergedPlanEntitlement('pro_monthly')) ||
+      mergedActivePlanNames.some((planName) => planName.trim().toLowerCase() === 'pro'),
+    [getMergedPlanEntitlement, mergedActivePlanNames]
   );
 
   const hasInterviewSprint = useMemo(
     () =>
-      Boolean(getPlanEntitlement('interview_sprint')) ||
-      activePlanNames.some((planName) => planName.trim().toLowerCase() === 'interview sprint'),
-    [activePlanNames, getPlanEntitlement]
+      Boolean(getMergedPlanEntitlement('interview_sprint')) ||
+      mergedActivePlanNames.some((planName) => planName.trim().toLowerCase() === 'interview sprint'),
+    [getMergedPlanEntitlement, mergedActivePlanNames]
   );
 
   const hasPaidLearnerAccess = hasPro || hasInterviewSprint;
   const hasAnyTeamPlan = useMemo(
-    () => activePlanNames.some((planName) => isTeamPlanName(planName)),
-    [activePlanNames]
+    () => mergedActivePlanNames.some((planName) => isTeamPlanName(planName)),
+    [mergedActivePlanNames]
   );
 
   const activeTeamEntitlement = useMemo(
-    () => activeEntitlements.find((entitlement) => isTeamPlanName(entitlement.planName)) || null,
-    [activeEntitlements]
+    () => mergedActiveEntitlements.find((entitlement) => isTeamPlanName(entitlement.planName)) || null,
+    [mergedActiveEntitlements]
   );
+
+  const primaryPlan = entitlementPrimaryPlan || adminOverrideEntitlements[0] || null;
 
   const freeDuelUsage = useMemo(() => readFreeDuelUsage(user?.id), [duelUsageVersion, user?.id]);
   const freeDuelRemaining = useMemo(
@@ -74,22 +146,26 @@ export function usePlanAccess() {
 
   const hasPlanName = useCallback(
     (planName: string) =>
-      activePlanNames.some((candidate) => candidate.trim().toLowerCase() === planName.trim().toLowerCase()),
-    [activePlanNames]
+      mergedActivePlanNames.some((candidate) => candidate.trim().toLowerCase() === planName.trim().toLowerCase()),
+    [mergedActivePlanNames]
   );
 
   return {
     ...entitlementState,
-    activeEntitlements,
-    activePlanNames,
-    getPlanEntitlement,
-    getEntitlementByPlanName,
+    activeEntitlements: mergedActiveEntitlements,
+    activePlanNames: mergedActivePlanNames,
+    primaryPlan,
+    getPlanEntitlement: getMergedPlanEntitlement,
+    getEntitlementByPlanName: getMergedEntitlementByPlanName,
+    hasActivePlan: (planId: string) => Boolean(getMergedPlanEntitlement(planId)),
+    hasActivePlanName: (planName: string) => Boolean(getMergedEntitlementByPlanName(planName)),
     hasPlanName,
     hasPro,
     hasInterviewSprint,
     hasPaidLearnerAccess,
     hasAnyTeamPlan,
     activeTeamEntitlement,
+    hasAdminAccess,
     freeDuelLimit: FREE_DUEL_DAILY_LIMIT,
     freeDuelUsage,
     freeDuelRemaining,

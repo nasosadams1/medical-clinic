@@ -5,6 +5,7 @@ export type TeamUseCase = 'bootcamps' | 'universities' | 'coding-clubs' | 'upski
 export type TeamRole = 'owner' | 'admin' | 'coach' | 'learner';
 export type TeamAssignmentType = 'benchmark' | 'challenge_pack' | 'roadmap';
 export type BenchmarkLanguage = 'python' | 'javascript' | 'java' | 'cpp';
+export type TeamFeedbackStatus = 'draft' | 'shared' | 'resolved';
 
 export interface TeamSummary {
   id: string;
@@ -47,6 +48,25 @@ export interface TeamAssignment {
   metadata?: Record<string, unknown>;
 }
 
+export interface TeamFeedback {
+  id: string;
+  memberUserId: string;
+  memberName: string;
+  assignmentId: string | null;
+  assignmentTitle: string | null;
+  authorUserId: string | null;
+  authorName: string;
+  rubricScore: number | null;
+  status: TeamFeedbackStatus;
+  summary: string;
+  strengths: string;
+  focusAreas: string;
+  coachNotes: string;
+  sharedWithMember: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface TeamMember {
   userId: string;
   name: string;
@@ -80,6 +100,47 @@ export interface TeamWorkspaceDetail {
   members: TeamMember[];
   assignments: TeamAssignment[];
   invites: TeamInvite[];
+  feedback: TeamFeedback[];
+}
+
+export interface TeamAnalytics {
+  scoreBands: Array<{ label: string; count: number }>;
+  roleDistribution: Record<TeamRole, number>;
+  recency: {
+    recent: number;
+    warm: number;
+    stale: number;
+    missing: number;
+  };
+  inviteStats: {
+    total: number;
+    active: number;
+    expired: number;
+    revoked: number;
+    uses: number;
+  };
+  assignmentStats: {
+    total: number;
+    benchmark: number;
+    challengePack: number;
+    roadmap: number;
+    dueSoon: number;
+  };
+  streakStats: {
+    average: number | null;
+    highest: number;
+  };
+  benchmarkStats: {
+    average: number | null;
+    median: number | null;
+    completionRate: number;
+  };
+  feedbackStats: {
+    total: number;
+    shared: number;
+    resolved: number;
+    drafts: number;
+  };
 }
 
 export interface PublicTeamProof {
@@ -127,6 +188,17 @@ const getAuthHeaders = async () => {
   };
 };
 
+const getAuthToken = async () => {
+  const { data } = await supabase.auth.getSession();
+  const accessToken = data.session?.access_token;
+
+  if (!accessToken) {
+    throw new Error('You must be signed in to use team workspaces.');
+  }
+
+  return accessToken;
+};
+
 const teamsFetch = async <T>(path: string, init: RequestInit = {}) => {
   try {
     const response = await fetch(buildTeamsApiUrl(path), {
@@ -143,6 +215,32 @@ const teamsFetch = async <T>(path: string, init: RequestInit = {}) => {
     }
 
     return payload as T;
+  } catch (error) {
+    if (error instanceof TypeError) {
+      throw new TeamsApiUnavailableError('Could not reach the teams API.');
+    }
+
+    throw error;
+  }
+};
+
+const teamsFetchRaw = async (path: string, init: RequestInit = {}) => {
+  try {
+    const accessToken = await getAuthToken();
+    const response = await fetch(buildTeamsApiUrl(path), {
+      ...init,
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        ...(init.headers || {}),
+      },
+    });
+
+    if (!response.ok) {
+      const payload = await response.json().catch(() => ({}));
+      throw new Error((payload as { error?: string }).error || 'Teams request failed.');
+    }
+
+    return response;
   } catch (error) {
     if (error instanceof TypeError) {
       throw new TeamsApiUnavailableError('Could not reach the teams API.');
@@ -229,6 +327,140 @@ export const createTeamAssignment = async (
     body: JSON.stringify(input),
   });
   return payload.assignment;
+};
+
+export const updateTeamAssignment = async (
+  teamId: string,
+  assignmentId: string,
+  input: Partial<{
+    title: string;
+    description: string;
+    assignmentType: TeamAssignmentType;
+    benchmarkLanguage: BenchmarkLanguage | null;
+    trackId: string | null;
+    dueAt: string | null;
+  }>
+) => {
+  const payload = await teamsFetch<{ assignment: TeamAssignment }>(`/${teamId}/assignments/${assignmentId}`, {
+    method: 'PATCH',
+    body: JSON.stringify(input),
+  });
+  return payload.assignment;
+};
+
+export const deleteTeamAssignment = async (teamId: string, assignmentId: string) => {
+  await teamsFetch<void>(`/${teamId}/assignments/${assignmentId}`, {
+    method: 'DELETE',
+  });
+};
+
+export const updateTeamInvite = async (
+  teamId: string,
+  inviteId: string,
+  input: Partial<{
+    label: string;
+    email: string | null;
+    role: Exclude<TeamRole, 'owner'>;
+    expiresInDays: number;
+    maxUses: number;
+    status: TeamInvite['status'];
+  }>
+) => {
+  const payload = await teamsFetch<{ invite: TeamInvite }>(`/${teamId}/invites/${inviteId}`, {
+    method: 'PATCH',
+    body: JSON.stringify(input),
+  });
+  return payload.invite;
+};
+
+export const deleteTeamInvite = async (teamId: string, inviteId: string) => {
+  await teamsFetch<void>(`/${teamId}/invites/${inviteId}`, {
+    method: 'DELETE',
+  });
+};
+
+export const updateTeamMember = async (
+  teamId: string,
+  userId: string,
+  input: Partial<{
+    role: Exclude<TeamRole, 'owner'>;
+    status: TeamMember['status'];
+  }>
+) => {
+  const payload = await teamsFetch<{ membership: { role: TeamRole; status: TeamMember['status'] } }>(`/${teamId}/members/${userId}`, {
+    method: 'PATCH',
+    body: JSON.stringify(input),
+  });
+  return payload.membership;
+};
+
+export const removeTeamMember = async (teamId: string, userId: string) => {
+  await teamsFetch<void>(`/${teamId}/members/${userId}`, {
+    method: 'DELETE',
+  });
+};
+
+export const listTeamFeedback = async (teamId: string) => {
+  const payload = await teamsFetch<{ feedback: TeamFeedback[] }>(`/${teamId}/feedback`);
+  return payload.feedback || [];
+};
+
+export const createTeamFeedback = async (
+  teamId: string,
+  input: {
+    memberUserId: string;
+    assignmentId?: string | null;
+    rubricScore?: number | null;
+    status?: TeamFeedbackStatus;
+    summary?: string;
+    strengths?: string;
+    focusAreas?: string;
+    coachNotes?: string;
+    sharedWithMember?: boolean;
+  }
+) => {
+  const payload = await teamsFetch<{ feedback: TeamFeedback }>(`/${teamId}/feedback`, {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+  return payload.feedback;
+};
+
+export const updateTeamFeedback = async (
+  teamId: string,
+  feedbackId: string,
+  input: Partial<{
+    assignmentId: string | null;
+    rubricScore: number | null;
+    status: TeamFeedbackStatus;
+    summary: string;
+    strengths: string;
+    focusAreas: string;
+    coachNotes: string;
+    sharedWithMember: boolean;
+  }>
+) => {
+  const payload = await teamsFetch<{ feedback: TeamFeedback }>(`/${teamId}/feedback/${feedbackId}`, {
+    method: 'PATCH',
+    body: JSON.stringify(input),
+  });
+  return payload.feedback;
+};
+
+export const deleteTeamFeedback = async (teamId: string, feedbackId: string) => {
+  await teamsFetch<void>(`/${teamId}/feedback/${feedbackId}`, {
+    method: 'DELETE',
+  });
+};
+
+export const fetchTeamAnalytics = async (teamId: string) => {
+  const payload = await teamsFetch<{ analytics: TeamAnalytics }>(`/${teamId}/analytics`);
+  return payload.analytics;
+};
+
+export const exportTeamReport = async (teamId: string, format: 'json' | 'csv') => {
+  const response = await teamsFetchRaw(`/${teamId}/export?format=${encodeURIComponent(format)}`);
+  return response.blob();
 };
 
 export const fetchSharedTeamProof = async (publicToken: string) => {
