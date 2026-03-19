@@ -6,10 +6,17 @@ import { interviewTracks, type LanguageSlug } from './siteContent';
 import { normalizeCodeForComparison } from '../lib/codeAssessment';
 import { duelProblemCatalog } from '../../data/duel-problem-catalog.js';
 import {
+  benchmarkFormatLabels,
   benchmarkDimensionLabels,
   benchmarkSectionLabels,
+  type BenchmarkCalibrationState,
   type BenchmarkCodeRubric,
   type BenchmarkDimensionKey,
+  type BenchmarkEvaluationStrategy,
+  type BenchmarkExecutionCase,
+  type BenchmarkFormat,
+  type BenchmarkItemMetadata,
+  type BenchmarkPublicTestCase,
   type BenchmarkQuestionAssessmentType,
   type BenchmarkQuestionDifficulty,
   type BenchmarkQuestionSection,
@@ -17,6 +24,7 @@ import {
 
 export type BenchmarkGoal = 'interview_prep' | 'class_improvement' | 'skill_growth';
 export type BenchmarkRoleLevel = 'beginner' | 'intern' | 'junior' | 'general_practice';
+export type { BenchmarkFormat } from './benchmarkModel';
 
 export interface BenchmarkSetup {
   goal: BenchmarkGoal;
@@ -52,6 +60,13 @@ export interface BenchmarkQuestion {
   competency: string;
   difficulty: BenchmarkQuestionDifficulty;
   weight: number;
+  evaluationStrategy: BenchmarkEvaluationStrategy;
+  executionCases?: BenchmarkExecutionCase[];
+  publicTestCases?: BenchmarkPublicTestCase[];
+  expectedDurationSeconds: BenchmarkItemMetadata['expectedDurationSeconds'];
+  discrimination: BenchmarkItemMetadata['discrimination'];
+  version: BenchmarkItemMetadata['version'];
+  calibrationState: BenchmarkCalibrationState;
 }
 
 export interface BenchmarkAnswerRecord {
@@ -60,12 +75,23 @@ export interface BenchmarkAnswerRecord {
   submittedCode?: string;
   evaluationMessage?: string;
   scorePercent?: number;
+  evaluationStrategy?: BenchmarkEvaluationStrategy;
   rubricBreakdown?: {
     correctness: number;
     edgeCaseHandling: number;
     codeQuality: number;
     efficiency: number;
   };
+  testResults?: Array<{
+    label?: string;
+    passed: boolean;
+    reason: string;
+    hidden?: boolean;
+    actual?: string;
+    stderr?: string;
+  }>;
+  latencyMs?: number;
+  runCount?: number;
   isCorrect: boolean;
 }
 
@@ -97,10 +123,32 @@ export interface BenchmarkConfidenceBand {
   description: string;
 }
 
+export interface BenchmarkConfidenceInterval {
+  low: number;
+  high: number;
+  standardError: number;
+}
+
+export interface BenchmarkTrustSignal {
+  score: number;
+  label: string;
+  description: string;
+  suspiciousFlags: string[];
+}
+
+export interface BenchmarkTelemetrySummary {
+  blurCount: number;
+  copyPasteCount: number;
+  codeRunCount: number;
+  activeTypingSeconds: number;
+  suspiciousFlags: string[];
+}
+
 export interface BenchmarkReport {
   id: string;
   benchmarkVersion: string;
   attemptIndex: number;
+  format: BenchmarkFormat;
   isSample?: boolean;
   isPublic?: boolean;
   shareToken?: string | null;
@@ -114,6 +162,9 @@ export interface BenchmarkReport {
   dimensionScores: BenchmarkReportDimensionScore[];
   sectionScores: BenchmarkReportSectionScore[];
   confidenceBand: BenchmarkConfidenceBand;
+  confidenceInterval: BenchmarkConfidenceInterval;
+  trustSignal: BenchmarkTrustSignal;
+  telemetrySummary: BenchmarkTelemetrySummary;
   recommendedTrackIds: string[];
   suggestedLessonIds: string[];
   suggestedDuelProblemTitles: string[];
@@ -146,6 +197,11 @@ type BenchmarkPlanSlot = {
 type BuildBenchmarkQuestionOptions = {
   attemptIndex?: number;
   recentReports?: BenchmarkReport[];
+  format?: BenchmarkFormat;
+  stage?: 'baseline' | 'followup' | 'full';
+  provisionalDifficulty?: BenchmarkQuestionDifficulty;
+  targetWeaknesses?: string[];
+  telemetrySummary?: BenchmarkTelemetrySummary;
 };
 
 export interface BenchmarkBlueprintSummary {
@@ -624,11 +680,70 @@ const matchesSetup = (left: BenchmarkSetup, right: BenchmarkSetup) =>
 
 const getBenchmarkPlan = (setup: BenchmarkSetup) => benchmarkPlans[setup.goal][setup.roleLevel];
 
+const rebalanceDifficultyForBand = (
+  difficulty: BenchmarkQuestionDifficulty,
+  provisionalDifficulty?: BenchmarkQuestionDifficulty
+): BenchmarkQuestionDifficulty => {
+  if (!provisionalDifficulty) return difficulty;
+
+  if (provisionalDifficulty === 'advanced') {
+    if (difficulty === 'beginner') return 'intermediate';
+    if (difficulty === 'intermediate') return 'advanced';
+    return difficulty;
+  }
+
+  if (provisionalDifficulty === 'beginner') {
+    if (difficulty === 'advanced') return 'intermediate';
+    if (difficulty === 'intermediate') return 'beginner';
+  }
+
+  return difficulty;
+};
+
+const sortSlotsForWeaknesses = (plan: BenchmarkPlanSlot[], targetWeaknesses: string[] = []) => {
+  if (targetWeaknesses.length === 0) return plan;
+
+  const weaknessSet = new Set(targetWeaknesses.map((value) => value.toLowerCase()));
+  return [...plan].sort((left, right) => {
+    const leftPriority = weaknessSet.has(left.competency.toLowerCase()) ? 1 : 0;
+    const rightPriority = weaknessSet.has(right.competency.toLowerCase()) ? 1 : 0;
+    if (leftPriority !== rightPriority) {
+      return rightPriority - leftPriority;
+    }
+    return left.slotId.localeCompare(right.slotId);
+  });
+};
+
+const getBenchmarkPlanForFormat = (
+  setup: BenchmarkSetup,
+  format: BenchmarkFormat = 'quick',
+  stage: 'baseline' | 'followup' | 'full' = 'full',
+  targetWeaknesses: string[] = []
+) => {
+  const plan = getBenchmarkPlan(setup);
+  const baseline = plan.filter((entry) => entry.section === 'baseline');
+  const followupBase = sortSlotsForWeaknesses(plan.filter((entry) => entry.section !== 'baseline'), targetWeaknesses);
+  const followup =
+    format === 'quick'
+      ? followupBase.slice(0, 3)
+      : format === 'retake'
+      ? followupBase.slice(0, 4)
+      : followupBase;
+
+  if (stage === 'baseline') return baseline;
+  if (stage === 'followup') return followup;
+  return [...baseline, ...followup];
+};
+
 export const getBenchmarkAttemptIndex = (setup: BenchmarkSetup, reports: BenchmarkReport[]) =>
   reports.filter((report) => matchesSetup(report.setup, setup)).length;
 
-export const getBenchmarkBlueprintSummary = (setup: BenchmarkSetup): BenchmarkBlueprintSummary => {
-  const plan = getBenchmarkPlan(setup);
+export const getBenchmarkBlueprintSummary = (
+  setup: BenchmarkSetup,
+  format: BenchmarkFormat = 'quick',
+  targetWeaknesses: string[] = []
+): BenchmarkBlueprintSummary => {
+  const plan = getBenchmarkPlanForFormat(setup, format, 'full', targetWeaknesses);
 
   return {
     questionCount: plan.length,
@@ -763,8 +878,13 @@ const getLatestComparableReport = (setup: BenchmarkSetup, reports: BenchmarkRepo
 const getAdaptiveDifficulty = (
   setup: BenchmarkSetup,
   slotDefinition: BenchmarkPlanSlot,
-  recentReports: BenchmarkReport[] = []
+  recentReports: BenchmarkReport[] = [],
+  provisionalDifficulty?: BenchmarkQuestionDifficulty
 ) => {
+  if (provisionalDifficulty && slotDefinition.section !== 'baseline') {
+    return rebalanceDifficultyForBand(slotDefinition.difficulty, provisionalDifficulty);
+  }
+
   const latestComparableReport = getLatestComparableReport(setup, recentReports);
   if (!latestComparableReport || slotDefinition.anchor || slotDefinition.section === 'baseline') {
     return slotDefinition.difficulty;
@@ -793,10 +913,11 @@ const getCandidatePool = (
   language: LanguageSlug,
   slotDefinition: BenchmarkPlanSlot,
   setup: BenchmarkSetup,
-  recentReports: BenchmarkReport[]
+  recentReports: BenchmarkReport[],
+  provisionalDifficulty?: BenchmarkQuestionDifficulty
 ): BenchmarkQuestionTemplate[] => {
   const candidates = getBenchmarkQuestionCandidates(language);
-  const targetDifficulty = getAdaptiveDifficulty(setup, slotDefinition, recentReports);
+  const targetDifficulty = getAdaptiveDifficulty(setup, slotDefinition, recentReports, provisionalDifficulty);
   const exactMatches = candidates.filter(
     (candidate) =>
       candidate.competency === slotDefinition.competency &&
@@ -841,9 +962,10 @@ const selectQuestionTemplate = (
   slotIndex: number,
   usedTemplateIds: Set<string>,
   recentlyUsedTemplateIds: Set<string>,
-  recentReports: BenchmarkReport[]
+  recentReports: BenchmarkReport[],
+  provisionalDifficulty?: BenchmarkQuestionDifficulty
 ) => {
-  const candidates = getCandidatePool(language, slotDefinition, setup, recentReports);
+  const candidates = getCandidatePool(language, slotDefinition, setup, recentReports, provisionalDifficulty);
   if (candidates.length === 0) return null;
 
   const orderedCandidates = [...candidates].sort((left, right) => left.templateId.localeCompare(right.templateId));
@@ -859,8 +981,16 @@ const selectQuestionTemplate = (
   const unusedCandidates = orderedCandidates.filter((candidate) => !usedTemplateIds.has(candidate.templateId));
   const activePool =
     freshCandidates.length > 0 ? freshCandidates : unusedCandidates.length > 0 ? unusedCandidates : orderedCandidates;
+  const executionPreferredPool = activePool.sort((left, right) => {
+    const leftExecutionScore = left.evaluationStrategy === 'execution' ? 1 : 0;
+    const rightExecutionScore = right.evaluationStrategy === 'execution' ? 1 : 0;
+    if (leftExecutionScore !== rightExecutionScore) {
+      return rightExecutionScore - leftExecutionScore;
+    }
+    return (right.discrimination ?? 0.55) - (left.discrimination ?? 0.55);
+  });
 
-  return activePool[(seed + slotIndex) % activePool.length];
+  return executionPreferredPool[(seed + slotIndex) % executionPreferredPool.length];
 };
 
 export const buildBenchmarkQuestions = (
@@ -877,7 +1007,12 @@ export const buildBenchmarkQuestions = (
     recentRelevantReports.flatMap((report) => report.questions.map((question) => question.templateId))
   );
 
-  return getBenchmarkPlan(setup)
+  return getBenchmarkPlanForFormat(
+    setup,
+    options.format ?? 'quick',
+    options.stage ?? 'full',
+    options.targetWeaknesses ?? []
+  )
     .map((slotDefinition, slotIndex) => {
       const template = selectQuestionTemplate(
         setup.language,
@@ -887,7 +1022,8 @@ export const buildBenchmarkQuestions = (
         slotIndex,
         usedTemplateIds,
         recentlyUsedTemplateIds,
-        options.recentReports || []
+        options.recentReports || [],
+        options.provisionalDifficulty
       );
 
       if (!template) return null;
@@ -922,10 +1058,47 @@ export const buildBenchmarkQuestions = (
         competency: template.competency,
         difficulty: template.difficulty,
         weight: getQuestionWeight(setup, template, slotDefinition),
+        evaluationStrategy:
+          template.kind === 'multiple_choice'
+            ? 'choice'
+            : template.evaluationStrategy || (template.executionCases?.length ? 'execution' : 'typing'),
+        executionCases: template.executionCases,
+        publicTestCases: template.publicTestCases,
+        expectedDurationSeconds:
+          template.expectedDurationSeconds ??
+          (slotDefinition.section === 'baseline' ? 75 : slotDefinition.section === 'implementation' ? 180 : 120),
+        discrimination: template.discrimination ?? (template.difficulty === 'advanced' ? 0.82 : template.difficulty === 'intermediate' ? 0.68 : 0.54),
+        version: template.version ?? 1,
+        calibrationState: template.calibrationState ?? 'calibrating',
       };
     })
     .filter((question): question is BenchmarkQuestion => Boolean(question));
 };
+
+export const getRetakeTargetWeaknesses = (setup: BenchmarkSetup, reports: BenchmarkReport[] = []) => {
+  const latestComparableReport = getLatestComparableReport(setup, reports);
+  return latestComparableReport?.weaknesses || [];
+};
+
+export const getProvisionalDifficultyFromAnswers = (
+  questions: BenchmarkQuestion[],
+  answerRecords: BenchmarkAnswerRecord[]
+): BenchmarkQuestionDifficulty => {
+  const answerRecordMap = new Map(answerRecords.map((record) => [record.questionId, record]));
+  const baselineQuestions = questions.filter((question) => question.section === 'baseline');
+  if (baselineQuestions.length === 0) return 'intermediate';
+
+  const baselineScore =
+    baselineQuestions.reduce((total, question) => total + getAnswerScorePercent(question, answerRecordMap.get(question.id)), 0) /
+    baselineQuestions.length;
+
+  if (baselineScore >= 82) return 'advanced';
+  if (baselineScore <= 44) return 'beginner';
+  return 'intermediate';
+};
+
+export const getBenchmarkDurationSeconds = (format: BenchmarkFormat) =>
+  format === 'full' ? 35 * 60 : format === 'retake' ? 18 * 60 : 12 * 60;
 
 const getTrackRecommendations = (setup: BenchmarkSetup, weaknesses: string[]): string[] => {
   const directTrack = interviewTracks.find(
@@ -1203,6 +1376,69 @@ const getConfidenceBand = (
   };
 };
 
+const getConfidenceInterval = (
+  overallScore: number,
+  answeredCount: number,
+  questions: BenchmarkQuestion[],
+  dimensionScores: BenchmarkReportDimensionScore[]
+) => {
+  const averageDiscrimination =
+    questions.length > 0
+      ? questions.reduce((total, question) => total + (question.discrimination || 0.6), 0) / questions.length
+      : 0.6;
+  const dimensionSpread =
+    dimensionScores.length > 0
+      ? Math.max(...dimensionScores.map((entry) => entry.score)) - Math.min(...dimensionScores.map((entry) => entry.score))
+      : 18;
+  const standardError = clamp(
+    Math.round(14 - averageDiscrimination * 8 + Math.max(0, 6 - answeredCount) * 1.5 + dimensionSpread * 0.05),
+    4,
+    18
+  );
+
+  return {
+    low: clamp(overallScore - standardError, 0, 100),
+    high: clamp(overallScore + standardError, 0, 100),
+    standardError,
+  };
+};
+
+const getTrustSignal = (telemetrySummary: BenchmarkTelemetrySummary) => {
+  const suspiciousFlags = [...new Set(telemetrySummary.suspiciousFlags || [])];
+  let score = 92;
+
+  score -= telemetrySummary.blurCount * 6;
+  score -= telemetrySummary.copyPasteCount * 12;
+  score -= suspiciousFlags.length * 10;
+  score += Math.min(telemetrySummary.activeTypingSeconds, 180) * 0.04;
+  score = clamp(Math.round(score), 20, 98);
+
+  if (score >= 82) {
+    return {
+      score,
+      label: 'High-trust attempt',
+      description: 'The benchmark session showed consistent interaction and a clean signal.',
+      suspiciousFlags,
+    };
+  }
+
+  if (score >= 60) {
+    return {
+      score,
+      label: 'Moderate-trust attempt',
+      description: 'The score is usable, but there were a few interaction patterns worth reviewing.',
+      suspiciousFlags,
+    };
+  }
+
+  return {
+    score,
+    label: 'Review-required attempt',
+    description: 'The benchmark should be retaken or reviewed before it is used as a strong external signal.',
+    suspiciousFlags,
+  };
+};
+
 export const buildBenchmarkReport = (
   setup: BenchmarkSetup,
   questions: BenchmarkQuestion[],
@@ -1210,6 +1446,7 @@ export const buildBenchmarkReport = (
   options: BuildBenchmarkQuestionOptions = {}
 ): BenchmarkReport => {
   const attemptIndex = options.attemptIndex ?? 0;
+  const format = options.format ?? 'quick';
   const totalQuestions = Math.max(1, questions.length);
   const answerRecordMap = new Map(answerRecords.map((record) => [record.questionId, record]));
   const questionMap = new Map(questions.map((question) => [question.id, question]));
@@ -1339,6 +1576,15 @@ export const buildBenchmarkReport = (
 
   const recommendedTrackIds = getTrackRecommendations(setup, weaknesses);
   const confidenceBand = getConfidenceBand(overallScore, answeredCount / totalQuestions, sectionScores, consistencyScore);
+  const confidenceInterval = getConfidenceInterval(overallScore, answeredCount, questions, dimensionScores);
+  const telemetrySummary = options.telemetrySummary || {
+    blurCount: 0,
+    copyPasteCount: 0,
+    codeRunCount: answerRecords.reduce((total, record) => total + (record.runCount || 0), 0),
+    activeTypingSeconds: 0,
+    suspiciousFlags: [],
+  };
+  const trustSignal = getTrustSignal(telemetrySummary);
   const reportId =
     typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
       ? `benchmark-${crypto.randomUUID()}`
@@ -1348,6 +1594,7 @@ export const buildBenchmarkReport = (
     id: reportId,
     benchmarkVersion: BENCHMARK_VERSION,
     attemptIndex,
+    format,
     setup,
     overallScore,
     correctAnswers,
@@ -1357,12 +1604,15 @@ export const buildBenchmarkReport = (
     dimensionScores,
     sectionScores,
     confidenceBand,
+    confidenceInterval,
+    trustSignal,
+    telemetrySummary,
     recommendedTrackIds,
     suggestedLessonIds: getSuggestedLessons(questions, weaknesses, recommendedTrackIds),
     suggestedDuelProblemTitles: getSuggestedDuelProblems(overallScore),
     duelReadiness: getDuelReadiness(overallScore, answeredCount / totalQuestions),
     estimation,
-    summary: getSummary(setup, estimation),
+    summary: `${benchmarkFormatLabels[format]}: ${getSummary(setup, estimation)}`,
     createdAt: new Date().toISOString(),
     questions,
     answerRecords,
@@ -1413,15 +1663,35 @@ export const hydrateBenchmarkReport = (report: BenchmarkReport): BenchmarkReport
             (Array.isArray(question.options) && typeof question.correctAnswer === 'number'
               ? 'multiple_choice'
               : 'code'),
+          evaluationStrategy:
+            question.evaluationStrategy ||
+            (question.kind === 'multiple_choice'
+              ? 'choice'
+              : question.executionCases?.length
+              ? 'execution'
+              : 'typing'),
+          expectedDurationSeconds: Number.isFinite(question.expectedDurationSeconds)
+            ? question.expectedDurationSeconds
+            : question.section === 'implementation'
+            ? 180
+            : 120,
+          discrimination: Number.isFinite(question.discrimination) ? question.discrimination : 0.6,
+          version: Number.isFinite(question.version) ? question.version : 1,
+          calibrationState: question.calibrationState || 'calibrating',
         }))
-      : buildBenchmarkQuestions(report.setup, { attemptIndex });
+      : buildBenchmarkQuestions(report.setup, { attemptIndex, format: report.format || 'quick' });
   const answerRecords = Array.isArray(report.answerRecords) ? report.answerRecords : [];
-  const fallback = buildBenchmarkReport(report.setup, questions, answerRecords, { attemptIndex });
+  const fallback = buildBenchmarkReport(report.setup, questions, answerRecords, {
+    attemptIndex,
+    format: report.format || 'quick',
+    telemetrySummary: report.telemetrySummary,
+  });
 
   return {
     ...report,
     benchmarkVersion: report.benchmarkVersion || BENCHMARK_VERSION,
     attemptIndex,
+    format: report.format || fallback.format,
     correctAnswers: Number.isFinite(report.correctAnswers) ? report.correctAnswers : fallback.correctAnswers,
     totalQuestions: Number.isFinite(report.totalQuestions) ? report.totalQuestions : questions.length,
     strengths: Array.isArray(report.strengths) && report.strengths.length > 0 ? report.strengths : fallback.strengths,
@@ -1435,6 +1705,9 @@ export const hydrateBenchmarkReport = (report: BenchmarkReport): BenchmarkReport
         ? report.sectionScores
         : fallback.sectionScores,
     confidenceBand: report.confidenceBand || fallback.confidenceBand,
+    confidenceInterval: report.confidenceInterval || fallback.confidenceInterval,
+    trustSignal: report.trustSignal || fallback.trustSignal,
+    telemetrySummary: report.telemetrySummary || fallback.telemetrySummary,
     recommendedTrackIds:
       Array.isArray(report.recommendedTrackIds) && report.recommendedTrackIds.length > 0
         ? report.recommendedTrackIds

@@ -2,6 +2,7 @@ import express from 'express';
 import { randomBytes } from 'node:crypto';
 import { z } from 'zod';
 import { createAuthenticatedUserMiddleware } from '../auth-utils.js';
+import { getBenchmarkExecutionDefinition } from './execution-bank.js';
 
 const BenchmarkSetupSchema = z.object({
   goal: z.enum(['interview_prep', 'class_improvement', 'skill_growth']),
@@ -9,7 +10,8 @@ const BenchmarkSetupSchema = z.object({
   roleLevel: z.enum(['beginner', 'intern', 'junior', 'general_practice']),
 });
 
-const BenchmarkAnswerRecordSchema = z.object({
+const BenchmarkAnswerRecordSchema = z
+  .object({
   questionId: z.string().trim().min(1).max(160),
   selectedAnswer: z.number().int().min(-1).max(20).optional(),
   submittedCode: z.string().max(12000).optional(),
@@ -24,9 +26,11 @@ const BenchmarkAnswerRecordSchema = z.object({
     })
     .optional(),
   isCorrect: z.boolean(),
-});
+})
+  .passthrough();
 
-const BenchmarkQuestionSchema = z.object({
+const BenchmarkQuestionSchema = z
+  .object({
   id: z.string().trim().min(1).max(200),
   templateId: z.string().trim().min(1).max(200),
   slotId: z.string().trim().min(1).max(120),
@@ -75,9 +79,11 @@ const BenchmarkQuestionSchema = z.object({
   competency: z.string().trim().min(1).max(120),
   difficulty: z.enum(['beginner', 'intermediate', 'advanced']),
   weight: z.number().min(0.5).max(5),
-});
+})
+  .passthrough();
 
-const BenchmarkReportSchema = z.object({
+const BenchmarkReportSchema = z
+  .object({
   id: z.string().trim().min(1).max(160),
   benchmarkVersion: z.string().trim().min(1).max(60),
   attemptIndex: z.number().int().min(0).max(1000),
@@ -147,7 +153,8 @@ const BenchmarkReportSchema = z.object({
   createdAt: z.string().trim().min(1).max(80),
   questions: z.array(BenchmarkQuestionSchema).min(1).max(25),
   answerRecords: z.array(BenchmarkAnswerRecordSchema).max(25),
-});
+})
+  .passthrough();
 
 const ListReportsQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(20).optional(),
@@ -160,6 +167,47 @@ const ReportRouteParamsSchema = z.object({
 const SharedReportRouteParamsSchema = z.object({
   publicToken: z.string().trim().min(6).max(160),
 });
+
+const BenchmarkEvaluateRequestSchema = z.object({
+  templateId: z.string().trim().min(1).max(200),
+  language: z.enum(['python', 'javascript', 'java', 'cpp']),
+  submittedCode: z.string().trim().min(1).max(12000),
+});
+
+const mapJudgeResultToBenchmarkEvaluation = (judgeResult) => {
+  const publicTests = (judgeResult?.testResults || []).filter((entry) => !entry.hidden);
+  const hiddenTests = (judgeResult?.testResults || []).filter((entry) => entry.hidden);
+  const publicPassed = publicTests.filter((entry) => entry.passed).length;
+  const hiddenPassed = hiddenTests.filter((entry) => entry.passed).length;
+  const publicRatio = publicTests.length > 0 ? publicPassed / publicTests.length : (judgeResult?.score || 0) / 100;
+  const hiddenRatio = hiddenTests.length > 0 ? hiddenPassed / hiddenTests.length : publicRatio;
+  const overallRatio = (judgeResult?.score || 0) / 100;
+  const efficiencyScore = judgeResult?.result === 'Time Limit Exceeded' ? 20 : overallRatio >= 1 ? 86 : Math.round(38 + overallRatio * 42);
+  const codeQualityScore = overallRatio >= 1 ? 82 : Math.round(32 + overallRatio * 40);
+
+  return {
+    passed: judgeResult?.result === 'Accepted',
+    message:
+      judgeResult?.result === 'Accepted'
+        ? 'Public and hidden benchmark tests passed.'
+        : judgeResult?.result === 'Wrong Answer'
+        ? 'The code did not satisfy all benchmark tests yet.'
+        : judgeResult?.result === 'Runtime Error'
+        ? 'The code raised a runtime error during benchmark execution.'
+        : judgeResult?.result === 'Time Limit Exceeded'
+        ? 'The solution exceeded the benchmark time limit.'
+        : 'Benchmark execution could not be completed.',
+    scorePercent: Math.round(judgeResult?.score || 0),
+    rubricBreakdown: {
+      correctness: Math.round(publicRatio * 100),
+      edgeCaseHandling: Math.round(hiddenRatio * 100),
+      codeQuality: codeQualityScore,
+      efficiency: efficiencyScore,
+    },
+    testResults: judgeResult?.testResults || [],
+    runtimeMs: judgeResult?.runtimeMs || 0,
+  };
+};
 
 const buildPersistedReportRow = (userId, report) => ({
   user_id: userId,
@@ -184,6 +232,186 @@ const mergeReportRow = (row) => ({
 
 const buildPublicShareToken = () => randomBytes(12).toString('base64url');
 
+const roundAverage = (values = []) => {
+  if (!values.length) return 0;
+  return Math.round(values.reduce((total, value) => total + value, 0) / values.length);
+};
+
+const toValidDate = (value) => {
+  const timestamp = Date.parse(value || '');
+  return Number.isFinite(timestamp) ? timestamp : null;
+};
+
+const getLatestReportsByUser = (reports) => {
+  const reportsByUser = new Map();
+
+  reports.forEach((report) => {
+    if (!report?.userId || !report.createdAt) return;
+    const current = reportsByUser.get(report.userId);
+    if (!current || toValidDate(report.createdAt) > toValidDate(current.createdAt)) {
+      reportsByUser.set(report.userId, report);
+    }
+  });
+
+  return Array.from(reportsByUser.values());
+};
+
+const computeOutcomeValidation = (reports, lessonEvents, matchEvents) => {
+  const latestReports = getLatestReportsByUser(reports);
+  if (latestReports.length === 0) {
+    return {
+      lessonFollowThroughRate: null,
+      duelParticipationRate: null,
+      highVsLowScoreLessonLift: null,
+      highVsLowScoreDuelLift: null,
+    };
+  }
+
+  const reportsWithOutcomes = latestReports
+    .map((report) => {
+      const benchmarkAt = toValidDate(report.createdAt);
+      if (!benchmarkAt) return null;
+
+      const windowEnd = benchmarkAt + 1000 * 60 * 60 * 24 * 14;
+      const lessonHit = lessonEvents.some((event) => {
+        const occurredAt = toValidDate(event.created_at);
+        return (
+          event.user_id === report.userId &&
+          occurredAt !== null &&
+          occurredAt >= benchmarkAt &&
+          occurredAt <= windowEnd
+        );
+      });
+      const duelHit = matchEvents.some((event) => {
+        const occurredAt = toValidDate(event.created_at);
+        return (
+          (event.player_a_user_id === report.userId || event.player_b_user_id === report.userId) &&
+          occurredAt !== null &&
+          occurredAt >= benchmarkAt &&
+          occurredAt <= windowEnd
+        );
+      });
+
+      return {
+        score: Number(report.overallScore || 0),
+        lessonHit,
+        duelHit,
+      };
+    })
+    .filter(Boolean)
+    .sort((left, right) => left.score - right.score);
+
+  if (reportsWithOutcomes.length === 0) {
+    return {
+      lessonFollowThroughRate: null,
+      duelParticipationRate: null,
+      highVsLowScoreLessonLift: null,
+      highVsLowScoreDuelLift: null,
+    };
+  }
+
+  const overallLessonRate = Math.round(
+    (reportsWithOutcomes.filter((entry) => entry.lessonHit).length / reportsWithOutcomes.length) * 100
+  );
+  const overallDuelRate = Math.round(
+    (reportsWithOutcomes.filter((entry) => entry.duelHit).length / reportsWithOutcomes.length) * 100
+  );
+
+  const bandSize = Math.max(1, Math.floor(reportsWithOutcomes.length / 3));
+  const lowBand = reportsWithOutcomes.slice(0, bandSize);
+  const highBand = reportsWithOutcomes.slice(-bandSize);
+  const getBandRate = (entries, key) =>
+    entries.length > 0 ? Math.round((entries.filter((entry) => entry[key]).length / entries.length) * 100) : null;
+
+  const lowLessonRate = getBandRate(lowBand, 'lessonHit');
+  const highLessonRate = getBandRate(highBand, 'lessonHit');
+  const lowDuelRate = getBandRate(lowBand, 'duelHit');
+  const highDuelRate = getBandRate(highBand, 'duelHit');
+
+  return {
+    lessonFollowThroughRate: overallLessonRate,
+    duelParticipationRate: overallDuelRate,
+    highVsLowScoreLessonLift:
+      lowLessonRate === null || highLessonRate === null ? null : highLessonRate - lowLessonRate,
+    highVsLowScoreDuelLift: lowDuelRate === null || highDuelRate === null ? null : highDuelRate - lowDuelRate,
+  };
+};
+
+const buildQualitySummary = ({ reportRows = [], lessonEvents = [], matchEvents = [] }) => {
+  const hydratedReports = reportRows
+    .map((row) => {
+      const merged = mergeReportRow(row);
+      if (!merged?.questions || !merged?.answerRecords) return null;
+      return {
+        userId: row.user_id || null,
+        overallScore: Number(merged.overallScore || 0),
+        createdAt: merged.createdAt || row.created_at,
+        format: merged.format || 'quick',
+        trustScore: Number(merged?.trustSignal?.score || 0),
+        confidencePercent: Number(merged?.confidenceBand?.percent || 0),
+        questions: Array.isArray(merged.questions) ? merged.questions : [],
+        answerRecords: Array.isArray(merged.answerRecords) ? merged.answerRecords : [],
+      };
+    })
+    .filter(Boolean);
+
+  const itemSignalMap = new Map();
+  const formatMix = { quick: 0, full: 0, retake: 0 };
+  const calibrationMix = { draft: 0, calibrating: 0, validated: 0 };
+
+  hydratedReports.forEach((report) => {
+    formatMix[report.format] = (formatMix[report.format] || 0) + 1;
+    const answerMap = new Map(report.answerRecords.map((answer) => [answer.questionId, answer]));
+
+    report.questions.forEach((question) => {
+      const signal = itemSignalMap.get(question.templateId) || {
+        templateId: question.templateId,
+        exposureCount: 0,
+        correctCount: 0,
+        discriminationTotal: 0,
+        calibrationState: question.calibrationState || 'calibrating',
+      };
+
+      signal.exposureCount += 1;
+      signal.correctCount += answerMap.get(question.id)?.isCorrect ? 1 : 0;
+      signal.discriminationTotal += Number(question.discrimination || 0.6);
+      signal.calibrationState = question.calibrationState || signal.calibrationState;
+      itemSignalMap.set(question.templateId, signal);
+    });
+  });
+
+  itemSignalMap.forEach((signal) => {
+    calibrationMix[signal.calibrationState] = (calibrationMix[signal.calibrationState] || 0) + 1;
+  });
+
+  const validation = computeOutcomeValidation(hydratedReports, lessonEvents, matchEvents);
+
+  return {
+    available: true,
+    benchmarkCount: hydratedReports.length,
+    averageTrustScore: roundAverage(hydratedReports.map((report) => report.trustScore).filter(Boolean)),
+    averageConfidencePercent: roundAverage(
+      hydratedReports.map((report) => report.confidencePercent).filter(Boolean)
+    ),
+    formatMix,
+    calibrationMix,
+    validation,
+    itemSignals: Array.from(itemSignalMap.values())
+      .map((signal) => ({
+        templateId: signal.templateId,
+        exposureCount: signal.exposureCount,
+        passRate: signal.exposureCount > 0 ? Math.round((signal.correctCount / signal.exposureCount) * 100) : 0,
+        discrimination:
+          signal.exposureCount > 0
+            ? Math.round((signal.discriminationTotal / signal.exposureCount) * 100) / 100
+            : 0.6,
+        calibrationState: signal.calibrationState,
+      }))
+      .sort((left, right) => right.exposureCount - left.exposureCount)
+      .slice(0, 8),
+  };
+};
+
 const createUniquePublicShareToken = async (supabaseAdmin) => {
   for (let attempt = 0; attempt < 6; attempt += 1) {
     const candidate = buildPublicShareToken();
@@ -205,9 +433,75 @@ const createUniquePublicShareToken = async (supabaseAdmin) => {
   throw new Error('Could not create a unique public share token.');
 };
 
-export const createBenchmarkRouter = ({ supabaseAdmin }) => {
+export const createBenchmarkRouter = ({ supabaseAdmin, judgeService = null }) => {
   const router = express.Router();
   const requireAuth = createAuthenticatedUserMiddleware(supabaseAdmin, 'Benchmark API');
+
+  router.post('/evaluate', async (req, res) => {
+    try {
+      const { templateId, language, submittedCode } = BenchmarkEvaluateRequestSchema.parse(req.body || {});
+      if (!judgeService || typeof judgeService.executeCode !== 'function') {
+        return res.status(503).json({ error: 'Benchmark execution is not configured on this server.' });
+      }
+
+      const executionDefinition = getBenchmarkExecutionDefinition(templateId);
+      if (!executionDefinition) {
+        return res.status(400).json({ error: 'This benchmark task is not execution-backed.' });
+      }
+
+      if (executionDefinition.language !== language) {
+        return res.status(400).json({ error: 'Benchmark execution definition does not match the selected language.' });
+      }
+
+      const judgeResult = await judgeService.executeCode(submittedCode, executionDefinition.language, executionDefinition.testCases);
+      return res.json(mapJudgeResultToBenchmarkEvaluation(judgeResult));
+    } catch (error) {
+      return res.status(400).json({ error: error.message || 'Could not evaluate the benchmark task.' });
+    }
+  });
+
+  router.get('/quality/summary', async (_req, res) => {
+    try {
+      if (!supabaseAdmin) {
+        return res.status(503).json({ error: 'Benchmark API is not configured.' });
+      }
+
+      const [benchmarkRowsResult, lessonEventsResult, matchEventsResult] = await Promise.all([
+        supabaseAdmin
+          .from('benchmark_reports')
+          .select('user_id, created_at, report_payload, is_public, public_token, public_shared_at')
+          .order('created_at', { ascending: false })
+          .limit(2000),
+        supabaseAdmin
+          .from('lesson_completion_events')
+          .select('user_id, created_at')
+          .order('created_at', { ascending: false })
+          .limit(5000),
+        supabaseAdmin
+          .from('matches')
+          .select('player_a_user_id, player_b_user_id, created_at, status')
+          .eq('status', 'completed')
+          .order('created_at', { ascending: false })
+          .limit(5000),
+      ]);
+
+      const firstError =
+        benchmarkRowsResult.error || lessonEventsResult.error || matchEventsResult.error;
+      if (firstError) {
+        throw new Error(firstError.message || 'Could not load benchmark quality summary.');
+      }
+
+      return res.json({
+        summary: buildQualitySummary({
+          reportRows: benchmarkRowsResult.data || [],
+          lessonEvents: lessonEventsResult.data || [],
+          matchEvents: matchEventsResult.data || [],
+        }),
+      });
+    } catch (error) {
+      return res.status(400).json({ error: error.message || 'Could not load benchmark quality summary.' });
+    }
+  });
 
   router.get('/shared/:publicToken', async (req, res) => {
     try {

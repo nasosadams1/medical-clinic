@@ -198,7 +198,7 @@ app.use("/api/legal", createLegalRouter({ supabaseAdmin: supabase }));
 app.use("/api/duel/admin", createDuelAdminRouter({ supabaseAdmin: supabase }));
 app.use("/api/duel/problems", createDuelProblemAdminRouter({ supabaseAdmin: supabase }));
 app.use("/api/progression", createProgressionRouter({ supabaseAdmin: supabase }));
-app.use("/api/benchmark", createBenchmarkRouter({ supabaseAdmin: supabase }));
+app.use("/api/benchmark", createBenchmarkRouter({ supabaseAdmin: supabase, judgeService }));
 app.use("/api/teams", createTeamsRouter({ supabaseAdmin: supabase }));
 app.use("/api/analytics", createAnalyticsRouter({ supabaseAdmin: supabase }));
 app.use("/api/leads", createLeadsRouter({ supabaseAdmin: supabase }));

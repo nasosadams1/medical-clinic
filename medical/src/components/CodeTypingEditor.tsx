@@ -31,9 +31,16 @@ export default function CodeTypingEditor({
         options={{
           minimap: { enabled: false },
           fontSize: 14,
+          fontFamily: 'JetBrains Mono, Fira Code, monospace',
           lineNumbers: 'on',
           scrollBeyondLastLine: false,
           automaticLayout: true,
+          wordWrap: 'off',
+          bracketPairColorization: { enabled: true },
+          guides: { indentation: true },
+          smoothScrolling: true,
+          renderWhitespace: 'selection',
+          fixedOverflowWidgets: true,
           tabSize: language === 'python' ? 4 : 2,
           padding: { top: 14, bottom: 14 },
         }}

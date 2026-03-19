@@ -211,6 +211,7 @@ export class JudgeService {
       }
 
       testResults.push({
+        label: t.label || `Test ${idx + 1}`,
         passed: ok,
         reason,
         actual: t.hidden ? "" : actualRaw,

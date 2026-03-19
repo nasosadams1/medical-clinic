@@ -9,6 +9,7 @@ import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
 import helmet from 'helmet';
 import { createClient } from '@supabase/supabase-js';
+import { JudgeService } from './services/judge.js';
 import { createFeedbackRouter } from './services/feedback/routes.js';
 import { createLegalRouter } from './services/legal/routes.js';
 import { createDuelAdminRouter } from './services/duel-admin/routes.js';
@@ -122,6 +123,7 @@ const supabaseAdmin = SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY
       auth: { persistSession: false, autoRefreshToken: false },
     })
   : null;
+const benchmarkJudgeService = new JudgeService();
 
 if (!supabaseAdmin) {
   console.warn('Feedback API disabled: missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY.');
@@ -933,7 +935,7 @@ app.use('/api/legal', createLegalRouter({ supabaseAdmin }));
 app.use('/api/duel/admin', createDuelAdminRouter({ supabaseAdmin }));
 app.use('/api/duel/problems', createDuelProblemAdminRouter({ supabaseAdmin }));
 app.use('/api/progression', createProgressionRouter({ supabaseAdmin }));
-app.use('/api/benchmark', createBenchmarkRouter({ supabaseAdmin }));
+app.use('/api/benchmark', createBenchmarkRouter({ supabaseAdmin, judgeService: benchmarkJudgeService }));
 app.use('/api/teams', createTeamsRouter({ supabaseAdmin }));
 app.use('/api/analytics', createAnalyticsRouter({ supabaseAdmin }));
 app.use('/api/leads', createLeadsRouter({ supabaseAdmin }));

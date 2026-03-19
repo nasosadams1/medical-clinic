@@ -1,7 +1,13 @@
 import type { LanguageSlug } from './siteContent';
 import { benchmarkCodeChallengeBankByLanguage } from './benchmarkCodeChallengeBank';
+import { benchmarkExecutionBankByLanguage } from './benchmarkExecutionBank';
 import type {
+  BenchmarkCalibrationState,
   BenchmarkCodeRubric,
+  BenchmarkEvaluationStrategy,
+  BenchmarkExecutionCase,
+  BenchmarkItemMetadata,
+  BenchmarkPublicTestCase,
   BenchmarkQuestionAssessmentType,
   BenchmarkQuestionDifficulty,
 } from './benchmarkModel';
@@ -27,6 +33,13 @@ export interface BenchmarkQuestionTemplate {
   forbiddenPatterns?: string[];
   weights?: BenchmarkCodeRubric['weights'];
   explanation: string;
+  evaluationStrategy?: BenchmarkEvaluationStrategy;
+  executionCases?: BenchmarkExecutionCase[];
+  publicTestCases?: BenchmarkPublicTestCase[];
+  expectedDurationSeconds?: BenchmarkItemMetadata['expectedDurationSeconds'];
+  discrimination?: BenchmarkItemMetadata['discrimination'];
+  version?: BenchmarkItemMetadata['version'];
+  calibrationState?: BenchmarkCalibrationState;
 }
 
 const defineQuestions = (
@@ -631,10 +644,10 @@ const javaTemplates: BenchmarkQuestionTemplate[] = [
 ];
 
 export const benchmarkQuestionBankByLanguage: Record<LanguageSlug, BenchmarkQuestionTemplate[]> = {
-  python: [...pythonTemplates, ...benchmarkCodeChallengeBankByLanguage.python],
-  javascript: [...javascriptTemplates, ...benchmarkCodeChallengeBankByLanguage.javascript],
-  cpp: [...cppTemplates, ...benchmarkCodeChallengeBankByLanguage.cpp],
-  java: [...javaTemplates, ...benchmarkCodeChallengeBankByLanguage.java],
+  python: [...pythonTemplates, ...benchmarkCodeChallengeBankByLanguage.python, ...benchmarkExecutionBankByLanguage.python],
+  javascript: [...javascriptTemplates, ...benchmarkCodeChallengeBankByLanguage.javascript, ...benchmarkExecutionBankByLanguage.javascript],
+  cpp: [...cppTemplates, ...benchmarkCodeChallengeBankByLanguage.cpp, ...benchmarkExecutionBankByLanguage.cpp],
+  java: [...javaTemplates, ...benchmarkCodeChallengeBankByLanguage.java, ...benchmarkExecutionBankByLanguage.java],
 };
 
 export const getBenchmarkQuestionCandidates = (language: LanguageSlug) => benchmarkQuestionBankByLanguage[language] || [];

@@ -1,14 +1,17 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
+  Activity,
   ArrowRight,
   BarChart3,
   CheckCircle2,
   Clock3,
   Copy,
+  Gauge,
   Loader2,
   LockKeyhole,
   Play,
   RefreshCcw,
+  ShieldCheck,
   Sparkles,
   Target,
   Trophy,
@@ -18,24 +21,40 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { usePlanEntitlements } from '../../hooks/usePlanEntitlements';
 import {
+  getBenchmarkDurationSeconds,
   buildBenchmarkQuestions,
   buildBenchmarkReport,
   buildSampleBenchmarkReport,
   clearBenchmarkSetupPreset,
   getBenchmarkAttemptIndex,
   getBenchmarkBlueprintSummary,
+  getProvisionalDifficultyFromAnswers,
+  getRetakeTargetWeaknesses,
   readBenchmarkSetupPreset,
   readSavedBenchmarkHistory,
   saveBenchmarkReport,
   saveBenchmarkReportHistory,
+  type BenchmarkAnswerRecord,
+  type BenchmarkFormat,
   type BenchmarkGoal,
   type BenchmarkQuestion,
   type BenchmarkReport,
   type BenchmarkRoleLevel,
   type BenchmarkSetup,
+  type BenchmarkTelemetrySummary,
 } from '../../data/benchmarkCatalog';
 import { interviewTracks, type LanguageSlug } from '../../data/siteContent';
-import { listBenchmarkReports, persistBenchmarkReport, shareBenchmarkReport, unshareBenchmarkReport } from '../../lib/benchmarkApi';
+import {
+  BenchmarkApiUnavailableError,
+  evaluateBenchmarkSubmission,
+  fetchBenchmarkQualitySummary,
+  listBenchmarkReports,
+  persistBenchmarkReport,
+  shareBenchmarkReport,
+  unshareBenchmarkReport,
+  type BenchmarkExecutionEvaluationResult,
+  type BenchmarkQualitySummary,
+} from '../../lib/benchmarkApi';
 import { formatPlanRenewalDate } from '../../lib/billing';
 import { trackEvent } from '../../lib/analytics';
 import BenchmarkReportCard from './BenchmarkReportCard';
@@ -47,14 +66,32 @@ import {
 
 type AuthModalView = 'login' | 'signup';
 type BenchmarkView = 'setup' | 'assessment' | 'report';
+type BenchmarkStage = 'baseline' | 'full';
+type BenchmarkCodeEvaluation = CodeAssessmentResult & {
+  evaluationStrategy: 'typing' | 'execution';
+  testResults?: Array<{
+    label?: string;
+    passed: boolean;
+    reason: string;
+    hidden?: boolean;
+    actual?: string;
+    stderr?: string;
+  }>;
+  runtimeMs?: number;
+};
 type BenchmarkSessionSnapshot = {
   setup: BenchmarkSetup;
+  format: BenchmarkFormat;
+  stage: BenchmarkStage;
   attemptIndex: number;
   questions: BenchmarkQuestion[];
   questionIndex: number;
   selectedAnswers: Record<string, number>;
   codeAnswers: Record<string, string>;
-  codeEvaluations: Record<string, CodeAssessmentResult | null>;
+  codeEvaluations: Record<string, BenchmarkCodeEvaluation | null>;
+  questionRunCounts: Record<string, number>;
+  questionLatencies: Record<string, number>;
+  telemetrySummary: BenchmarkTelemetrySummary;
   secondsLeft: number;
   updatedAt: string;
 };
@@ -71,8 +108,14 @@ interface BenchmarkExperienceProps {
   openAuthModal?: (view?: AuthModalView) => void;
 }
 
-const DURATION_SECONDS = 10 * 60;
 const BENCHMARK_SESSION_TTL_MS = 1000 * 60 * 60 * 12;
+const createEmptyTelemetrySummary = (): BenchmarkTelemetrySummary => ({
+  blurCount: 0,
+  copyPasteCount: 0,
+  codeRunCount: 0,
+  activeTypingSeconds: 0,
+  suspiciousFlags: [],
+});
 
 const goalOptions: Array<{ value: BenchmarkGoal; title: string; description: string }> = [
   { value: 'interview_prep', title: 'Interview prep', description: 'Score readiness for technical screens.' },
@@ -92,6 +135,12 @@ const roleOptions: Array<{ value: BenchmarkRoleLevel; title: string; description
   { value: 'intern', title: 'Intern', description: 'Internship readiness and classroom checkpoints.' },
   { value: 'junior', title: 'Junior', description: 'Job-seeking practice and screening prep.' },
   { value: 'general_practice', title: 'General practice', description: 'A neutral benchmark without a role target.' },
+];
+
+const formatOptions: Array<{ value: BenchmarkFormat; title: string; description: string }> = [
+  { value: 'quick', title: 'Quick', description: '12 min signal.' },
+  { value: 'full', title: 'Full', description: '35 min deep read.' },
+  { value: 'retake', title: 'Retake', description: 'Focused progress check.' },
 ];
 
 const formatDuration = (seconds: number) => {
@@ -242,6 +291,50 @@ const copyTextToClipboard = async (value: string) => {
   }
 };
 
+const toTypingEvaluation = (
+  submittedCode: string,
+  setupLanguage: LanguageSlug,
+  question: BenchmarkQuestion
+): BenchmarkCodeEvaluation => {
+  const evaluation = validateCodeAssessment(submittedCode, {
+    language: setupLanguage,
+    starterCode: question.starterCode || '',
+    referenceCode: question.referenceCode || '',
+    validationMode: question.validationMode || 'exact',
+    requiredSnippets: question.requiredSnippets,
+    edgeCaseSnippets: question.edgeCaseSnippets,
+    qualitySignals: question.qualitySignals,
+    efficiencySignals: question.efficiencySignals,
+    forbiddenPatterns: question.forbiddenPatterns,
+    weights: question.weights,
+  });
+
+  return {
+    ...evaluation,
+    evaluationStrategy: 'typing',
+  };
+};
+
+const toExecutionEvaluation = (
+  payload: BenchmarkExecutionEvaluationResult
+): BenchmarkCodeEvaluation => ({
+  passed: payload.passed,
+  message: payload.message,
+  missingSnippets: [],
+  scorePercent: payload.scorePercent,
+  rubricScores: {
+    correctness: payload.rubricBreakdown.correctness,
+    edgeCaseHandling: payload.rubricBreakdown.edgeCaseHandling,
+    codeQuality: payload.rubricBreakdown.codeQuality,
+    efficiency: payload.rubricBreakdown.efficiency,
+  },
+  matchedSignals: [],
+  flaggedPatterns: [],
+  evaluationStrategy: 'execution',
+  testResults: payload.testResults || [],
+  runtimeMs: payload.runtimeMs,
+});
+
 export default function BenchmarkExperience({
   mode = 'public',
   presetLanguage,
@@ -257,29 +350,53 @@ export default function BenchmarkExperience({
     language: presetLanguage ?? 'python',
     roleLevel: 'junior',
   });
+  const [benchmarkFormat, setBenchmarkFormat] = useState<BenchmarkFormat>('quick');
+  const [assessmentStage, setAssessmentStage] = useState<BenchmarkStage>('baseline');
   const [assessmentQuestions, setAssessmentQuestions] = useState<BenchmarkQuestion[]>([]);
   const [assessmentAttemptIndex, setAssessmentAttemptIndex] = useState(0);
   const [questionIndex, setQuestionIndex] = useState(0);
   const [selectedAnswers, setSelectedAnswers] = useState<Record<string, number>>({});
   const [codeAnswers, setCodeAnswers] = useState<Record<string, string>>({});
-  const [codeEvaluations, setCodeEvaluations] = useState<Record<string, CodeAssessmentResult | null>>({});
-  const [secondsLeft, setSecondsLeft] = useState(DURATION_SECONDS);
+  const [codeEvaluations, setCodeEvaluations] = useState<Record<string, BenchmarkCodeEvaluation | null>>({});
+  const [questionRunCounts, setQuestionRunCounts] = useState<Record<string, number>>({});
+  const [questionLatencies, setQuestionLatencies] = useState<Record<string, number>>({});
+  const [telemetrySummary, setTelemetrySummary] = useState<BenchmarkTelemetrySummary>(createEmptyTelemetrySummary);
+  const [secondsLeft, setSecondsLeft] = useState(getBenchmarkDurationSeconds('quick'));
   const [report, setReport] = useState<BenchmarkReport | null>(null);
   const [isFinishing, setIsFinishing] = useState(false);
+  const [isCheckingCode, setIsCheckingCode] = useState(false);
   const [savedReport, setSavedReport] = useState<BenchmarkReport | null>(null);
   const [reportHistory, setReportHistory] = useState<BenchmarkReport[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyMessage, setHistoryMessage] = useState<string | null>(null);
+  const [qualitySummary, setQualitySummary] = useState<BenchmarkQualitySummary | null>(null);
+  const [qualityMessage, setQualityMessage] = useState<string | null>(null);
   const [sharingReportId, setSharingReportId] = useState<string | null>(null);
   const [unsharingReportId, setUnsharingReportId] = useState<string | null>(null);
   const trackedPageRef = useRef(false);
   const trackedReportRef = useRef<string | null>(null);
   const hasRestoredSessionRef = useRef(false);
+  const questionStartedAtRef = useRef<number | null>(null);
+  const lastTypingAtRef = useRef<number | null>(null);
   const nextAttemptIndex = useMemo(() => getBenchmarkAttemptIndex(setup, reportHistory), [reportHistory, setup]);
-  const blueprintSummary = useMemo(() => getBenchmarkBlueprintSummary(setup), [setup]);
+  const retakeTargetWeaknesses = useMemo(
+    () => (benchmarkFormat === 'retake' ? getRetakeTargetWeaknesses(setup, reportHistory) : []),
+    [benchmarkFormat, reportHistory, setup]
+  );
+  const blueprintSummary = useMemo(
+    () => getBenchmarkBlueprintSummary(setup, benchmarkFormat, retakeTargetWeaknesses),
+    [benchmarkFormat, retakeTargetWeaknesses, setup]
+  );
   const configuredQuestions = useMemo(
-    () => buildBenchmarkQuestions(setup, { attemptIndex: nextAttemptIndex, recentReports: reportHistory }),
-    [nextAttemptIndex, reportHistory, setup]
+    () =>
+      buildBenchmarkQuestions(setup, {
+        attemptIndex: nextAttemptIndex,
+        recentReports: reportHistory,
+        format: benchmarkFormat,
+        stage: 'baseline',
+        targetWeaknesses: retakeTargetWeaknesses,
+      }),
+    [benchmarkFormat, nextAttemptIndex, reportHistory, retakeTargetWeaknesses, setup]
   );
   const activeQuestion = assessmentQuestions[questionIndex];
   const assessmentSections = useMemo(
@@ -310,7 +427,10 @@ export default function BenchmarkExperience({
       report?.questions?.length
         ? report.questions
         : report
-        ? buildBenchmarkQuestions(report.setup, { attemptIndex: report.attemptIndex ?? 0 })
+        ? buildBenchmarkQuestions(report.setup, {
+            attemptIndex: report.attemptIndex ?? 0,
+            format: report.format || 'quick',
+          })
         : [],
     [report]
   );
@@ -356,6 +476,12 @@ export default function BenchmarkExperience({
       setSetup((current) => ({ ...current, language: presetLanguage }));
     }
   }, [presetLanguage, setup.language]);
+
+  useEffect(() => {
+    if (view === 'setup') {
+      setSecondsLeft(getBenchmarkDurationSeconds(benchmarkFormat));
+    }
+  }, [benchmarkFormat, view]);
 
   useEffect(() => {
     hasRestoredSessionRef.current = false;
@@ -409,13 +535,23 @@ export default function BenchmarkExperience({
 
     hasRestoredSessionRef.current = true;
     setSetup(storedSession.setup);
+    setBenchmarkFormat(storedSession.format || 'quick');
+    setAssessmentStage(storedSession.stage || 'full');
     setAssessmentAttemptIndex(storedSession.attemptIndex ?? 0);
     setAssessmentQuestions(restoredQuestions);
     setQuestionIndex(storedSession.questionIndex);
     setSelectedAnswers(storedSession.selectedAnswers);
     setCodeAnswers(storedSession.codeAnswers ?? {});
     setCodeEvaluations(storedSession.codeEvaluations ?? {});
-    setSecondsLeft(Math.max(1, Math.min(DURATION_SECONDS, storedSession.secondsLeft)));
+    setQuestionRunCounts(storedSession.questionRunCounts ?? {});
+    setQuestionLatencies(storedSession.questionLatencies ?? {});
+    setTelemetrySummary(storedSession.telemetrySummary ?? createEmptyTelemetrySummary());
+    setSecondsLeft(
+      Math.max(
+        1,
+        Math.min(getBenchmarkDurationSeconds(storedSession.format || 'quick'), storedSession.secondsLeft)
+      )
+    );
     setView('assessment');
     setHistoryMessage('Restored your benchmark.');
     trackEvent('benchmark_session_restored', {
@@ -425,6 +561,32 @@ export default function BenchmarkExperience({
       roleLevel: storedSession.setup.roleLevel,
     });
   }, [benchmarkSessionKey, mode, searchParams]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadQualitySummary = async () => {
+      try {
+        const summary = await fetchBenchmarkQualitySummary();
+        if (!cancelled) {
+          setQualitySummary(summary);
+          setQualityMessage(null);
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setQualitySummary(null);
+          setQualityMessage(
+            error instanceof Error ? error.message : 'Benchmark calibration details are temporarily unavailable.'
+          );
+        }
+      }
+    };
+
+    void loadQualitySummary();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     if (trackedPageRef.current) return;
@@ -547,23 +709,33 @@ export default function BenchmarkExperience({
       setup,
       attemptIndex: assessmentAttemptIndex,
       questions: assessmentQuestions,
+      format: benchmarkFormat,
+      stage: assessmentStage,
       questionIndex,
       selectedAnswers,
       codeAnswers,
       codeEvaluations,
+      questionRunCounts,
+      questionLatencies,
+      telemetrySummary,
       secondsLeft,
       updatedAt: new Date().toISOString(),
     });
   }, [
     assessmentAttemptIndex,
     assessmentQuestions,
+    assessmentStage,
     benchmarkSessionKey,
+    benchmarkFormat,
     codeAnswers,
     codeEvaluations,
     questionIndex,
+    questionLatencies,
+    questionRunCounts,
     secondsLeft,
     selectedAnswers,
     setup,
+    telemetrySummary,
     view,
   ]);
 
@@ -580,6 +752,58 @@ export default function BenchmarkExperience({
   }, [view]);
 
   useEffect(() => {
+    if (view !== 'assessment') return;
+    questionStartedAtRef.current = Date.now();
+  }, [questionIndex, view]);
+
+  useEffect(() => {
+    if (view !== 'assessment') return;
+
+    const registerFlag = (flag: string) => {
+      setTelemetrySummary((current) => ({
+        ...current,
+        suspiciousFlags: current.suspiciousFlags.includes(flag)
+          ? current.suspiciousFlags
+          : [...current.suspiciousFlags, flag],
+      }));
+    };
+
+    const handleBlur = () => {
+      setTelemetrySummary((current) => ({
+        ...current,
+        blurCount: current.blurCount + 1,
+      }));
+      registerFlag('tab_switch_detected');
+    };
+
+    const handlePaste = () => {
+      setTelemetrySummary((current) => ({
+        ...current,
+        copyPasteCount: current.copyPasteCount + 1,
+      }));
+      registerFlag('copy_paste_detected');
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') {
+        handleBlur();
+      }
+    };
+
+    window.addEventListener('blur', handleBlur);
+    document.addEventListener('paste', handlePaste);
+    document.addEventListener('copy', handlePaste);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      window.removeEventListener('blur', handleBlur);
+      document.removeEventListener('paste', handlePaste);
+      document.removeEventListener('copy', handlePaste);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [view]);
+
+  useEffect(() => {
     if (!report || trackedReportRef.current === report.id) return;
     trackedReportRef.current = report.id;
     trackEvent('benchmark_report_viewed', {
@@ -589,6 +813,12 @@ export default function BenchmarkExperience({
       score: report.overallScore,
     });
   }, [report]);
+
+  useEffect(() => {
+    if (report?.format) {
+      setBenchmarkFormat(report.format);
+    }
+  }, [report?.format]);
 
   useEffect(() => {
     if (!report || !upgradeRecommendation) return;
@@ -621,30 +851,161 @@ export default function BenchmarkExperience({
   }, [mode, navigate, savedReport, setNavigationCallback, view]);
 
   const openReport = (targetReport: BenchmarkReport) => {
+    setBenchmarkFormat(targetReport.format || 'quick');
     setReport(targetReport);
     setView('report');
     updateReportSearchParam(targetReport.id);
   };
 
   const applyUpdatedReport = (nextReport: BenchmarkReport) => {
+    setBenchmarkFormat(nextReport.format || 'quick');
     setReport(nextReport);
     setSavedReport((current) => (current?.id === nextReport.id ? nextReport : current));
     setReportHistory((current) => mergeReports([nextReport], current));
     updateReportSearchParam(nextReport.id);
   };
 
-  const resetBenchmark = () => {
+  const recordQuestionLatency = (questionId: string) => {
+    const startedAt = questionStartedAtRef.current;
+    if (!startedAt) return;
+    const elapsedMs = Math.max(0, Date.now() - startedAt);
+    setQuestionLatencies((current) => ({
+      ...current,
+      [questionId]: Math.max(current[questionId] || 0, elapsedMs),
+    }));
+  };
+
+  const registerSuspiciousFlag = (flag: string) => {
+    setTelemetrySummary((current) => ({
+      ...current,
+      suspiciousFlags: current.suspiciousFlags.includes(flag)
+        ? current.suspiciousFlags
+        : [...current.suspiciousFlags, flag],
+    }));
+  };
+
+  const buildAnswerRecordsForQuestions = (
+    questions: BenchmarkQuestion[],
+    evaluationMap: Record<string, BenchmarkCodeEvaluation | null> = codeEvaluations,
+    runCountMap: Record<string, number> = questionRunCounts,
+    latencyMap: Record<string, number> = questionLatencies
+  ): BenchmarkAnswerRecord[] =>
+    questions.map((question) => {
+      const selectedAnswer =
+        question.kind === 'multiple_choice' ? selectedAnswers[question.id] ?? -1 : undefined;
+      const submittedCode = question.kind === 'code' ? codeAnswers[question.id] ?? '' : undefined;
+      const evaluation =
+        question.kind === 'code'
+          ? evaluationMap[question.id] ??
+            toTypingEvaluation(submittedCode || '', setup.language, question)
+          : null;
+      const mcqCorrect = question.kind === 'multiple_choice' ? selectedAnswer === question.correctAnswer : false;
+
+      return {
+        questionId: question.id,
+        selectedAnswer,
+        submittedCode,
+        evaluationMessage: evaluation?.message,
+        evaluationStrategy: question.kind === 'code' ? evaluation?.evaluationStrategy || 'typing' : 'choice',
+        scorePercent: question.kind === 'multiple_choice' ? (mcqCorrect ? 100 : 0) : evaluation?.scorePercent,
+        rubricBreakdown: question.kind === 'code' ? evaluation?.rubricScores : undefined,
+        testResults: question.kind === 'code' ? evaluation?.testResults : undefined,
+        latencyMs: latencyMap[question.id] || undefined,
+        runCount: question.kind === 'code' ? runCountMap[question.id] || 0 : undefined,
+        isCorrect:
+          question.kind === 'multiple_choice' ? mcqCorrect : Boolean(evaluation?.passed),
+      };
+    });
+
+  const evaluateCodeQuestion = async (
+    question: BenchmarkQuestion,
+    submittedCode: string,
+    options: { silent?: boolean } = {}
+  ) => {
+    if (question.evaluationStrategy === 'execution') {
+      try {
+        const result = await evaluateBenchmarkSubmission({
+          templateId: question.templateId,
+          language: setup.language as 'python' | 'javascript' | 'java' | 'cpp',
+          submittedCode,
+        });
+        return toExecutionEvaluation(result);
+      } catch (error) {
+        const fallback = toTypingEvaluation(submittedCode, setup.language, question);
+        const degradedMessage =
+          error instanceof BenchmarkApiUnavailableError
+            ? 'Execution runner unavailable. Used a local structural check instead.'
+            : error instanceof Error
+            ? `${error.message} Used a local structural check instead.`
+            : 'Execution runner unavailable. Used a local structural check instead.';
+
+        if (!options.silent) {
+          toast.error(degradedMessage);
+        }
+
+        registerSuspiciousFlag('execution_runner_unavailable');
+        return {
+          ...fallback,
+          message: degradedMessage,
+          evaluationStrategy: 'typing',
+        } satisfies BenchmarkCodeEvaluation;
+      }
+    }
+
+    return toTypingEvaluation(submittedCode, setup.language, question);
+  };
+
+  const appendAdaptiveFollowupIfNeeded = () => {
+    if (assessmentStage !== 'baseline') {
+      return false;
+    }
+
+    const baselineAnswers = buildAnswerRecordsForQuestions(assessmentQuestions);
+    const provisionalDifficulty = getProvisionalDifficultyFromAnswers(assessmentQuestions, baselineAnswers);
+    const followupQuestions = buildBenchmarkQuestions(setup, {
+      attemptIndex: assessmentAttemptIndex,
+      recentReports: reportHistory,
+      format: benchmarkFormat,
+      stage: 'followup',
+      provisionalDifficulty,
+      targetWeaknesses: retakeTargetWeaknesses,
+    });
+
+    if (followupQuestions.length === 0) {
+      setAssessmentStage('full');
+      return false;
+    }
+
+    setAssessmentQuestions((current) => [...current, ...followupQuestions]);
+    setAssessmentStage('full');
+    trackEvent('benchmark_branch_established', {
+      format: benchmarkFormat,
+      language: setup.language,
+      provisionalDifficulty,
+      followupCount: followupQuestions.length,
+    });
+    return true;
+  };
+
+  const resetBenchmark = (nextFormat: BenchmarkFormat = benchmarkFormat) => {
     clearBenchmarkSession(benchmarkSessionKey);
     setView('setup');
     setAssessmentQuestions([]);
+    setAssessmentStage('baseline');
     setAssessmentAttemptIndex(0);
     setQuestionIndex(0);
     setSelectedAnswers({});
     setCodeAnswers({});
     setCodeEvaluations({});
-    setSecondsLeft(DURATION_SECONDS);
+    setQuestionRunCounts({});
+    setQuestionLatencies({});
+    setTelemetrySummary(createEmptyTelemetrySummary());
+    questionStartedAtRef.current = null;
+    lastTypingAtRef.current = null;
+    setSecondsLeft(getBenchmarkDurationSeconds(nextFormat));
     setReport(null);
     setIsFinishing(false);
+    setIsCheckingCode(false);
     updateReportSearchParam(null);
   };
 
@@ -654,6 +1015,7 @@ export default function BenchmarkExperience({
       return;
     }
     setAssessmentQuestions(configuredQuestions);
+    setAssessmentStage('baseline');
     setAssessmentAttemptIndex(nextAttemptIndex);
     setQuestionIndex(0);
     setSelectedAnswers({});
@@ -666,17 +1028,23 @@ export default function BenchmarkExperience({
       }, {})
     );
     setCodeEvaluations({});
-    setSecondsLeft(DURATION_SECONDS);
+    setQuestionRunCounts({});
+    setQuestionLatencies({});
+    setTelemetrySummary(createEmptyTelemetrySummary());
+    questionStartedAtRef.current = Date.now();
+    lastTypingAtRef.current = null;
+    setSecondsLeft(getBenchmarkDurationSeconds(benchmarkFormat));
     setReport(null);
     setIsFinishing(false);
     setView('assessment');
     updateReportSearchParam(null);
     trackEvent('benchmark_start', {
       mode,
+      format: benchmarkFormat,
       language: setup.language,
       goal: setup.goal,
       roleLevel: setup.roleLevel,
-      questionCount: configuredQuestions.length,
+      questionCount: blueprintSummary.questionCount,
       attemptIndex: nextAttemptIndex,
     });
   };
@@ -690,43 +1058,53 @@ export default function BenchmarkExperience({
     }
 
     setIsFinishing(true);
+    const nextLatencyMap = { ...questionLatencies };
+    if (activeQuestion) {
+      recordQuestionLatency(activeQuestion.id);
+      const startedAt = questionStartedAtRef.current;
+      if (startedAt) {
+        nextLatencyMap[activeQuestion.id] = Math.max(
+          nextLatencyMap[activeQuestion.id] || 0,
+          Date.now() - startedAt
+        );
+      }
+    }
 
-    const answerRecords = assessmentQuestions.map((question) => {
-      const selectedAnswer =
-        question.kind === 'multiple_choice' ? selectedAnswers[question.id] ?? -1 : undefined;
-      const submittedCode = question.kind === 'code' ? codeAnswers[question.id] ?? '' : undefined;
-      const evaluation =
-        question.kind === 'code'
-          ? codeEvaluations[question.id] ??
-            validateCodeAssessment(submittedCode || '', {
-              language: setup.language,
-              starterCode: question.starterCode || '',
-              referenceCode: question.referenceCode || '',
-              validationMode: question.validationMode || 'exact',
-              requiredSnippets: question.requiredSnippets,
-              edgeCaseSnippets: question.edgeCaseSnippets,
-              qualitySignals: question.qualitySignals,
-              efficiencySignals: question.efficiencySignals,
-              forbiddenPatterns: question.forbiddenPatterns,
-              weights: question.weights,
-            })
-          : null;
-      const mcqCorrect = question.kind === 'multiple_choice' ? selectedAnswer === question.correctAnswer : false;
-      return {
-        questionId: question.id,
-        selectedAnswer,
-        submittedCode,
-        evaluationMessage: evaluation?.message,
-        scorePercent: question.kind === 'multiple_choice' ? (mcqCorrect ? 100 : 0) : evaluation?.scorePercent,
-        rubricBreakdown: question.kind === 'code' ? evaluation?.rubricScores : undefined,
-        isCorrect:
-          question.kind === 'multiple_choice' ? mcqCorrect : Boolean(evaluation?.passed),
-      };
-    });
+    const nextEvaluationMap: Record<string, BenchmarkCodeEvaluation | null> = { ...codeEvaluations };
+    const nextRunCountMap = { ...questionRunCounts };
+    for (const question of assessmentQuestions) {
+      if (question.kind !== 'code' || nextEvaluationMap[question.id]) continue;
+      const submittedCode = codeAnswers[question.id] ?? '';
+      nextEvaluationMap[question.id] = await evaluateCodeQuestion(question, submittedCode, { silent: true });
+      nextRunCountMap[question.id] = Math.max(1, nextRunCountMap[question.id] || 0);
+    }
+
+    setCodeEvaluations(nextEvaluationMap);
+    setQuestionRunCounts(nextRunCountMap);
+    setQuestionLatencies(nextLatencyMap);
+    const answerRecords = buildAnswerRecordsForQuestions(
+      assessmentQuestions,
+      nextEvaluationMap,
+      nextRunCountMap,
+      nextLatencyMap
+    );
+    const totalTypingSeconds = Math.round(
+      Math.max(
+        telemetrySummary.activeTypingSeconds,
+        Object.values(nextLatencyMap).reduce((total, value) => total + value, 0) / 1000 * 0.42
+      )
+    );
+    const nextTelemetrySummary: BenchmarkTelemetrySummary = {
+      ...telemetrySummary,
+      codeRunCount: Object.values(nextRunCountMap).reduce((total, value) => total + value, 0),
+      activeTypingSeconds: totalTypingSeconds,
+    };
 
     const nextReport = buildBenchmarkReport(setup, assessmentQuestions, answerRecords, {
       attemptIndex: assessmentAttemptIndex,
+      format: benchmarkFormat,
       recentReports: reportHistory,
+      telemetrySummary: nextTelemetrySummary,
     });
     setHistoryMessage(null);
     saveBenchmarkReport(nextReport);
@@ -741,6 +1119,7 @@ export default function BenchmarkExperience({
     updateReportSearchParam(nextReport.id);
     trackEvent('benchmark_complete', {
       mode,
+      format: benchmarkFormat,
       language: setup.language,
       goal: setup.goal,
       roleLevel: setup.roleLevel,
@@ -773,12 +1152,17 @@ export default function BenchmarkExperience({
   const goToNextQuestion = () => {
     if (!activeQuestion) return;
     if (isFinishing) return;
+    recordQuestionLatency(activeQuestion.id);
     if (activeQuestion.kind === 'code') {
       if (!codeEvaluations[activeQuestion.id]) {
         toast.error('Check your code before continuing.');
         return;
       }
       if (questionIndex === assessmentQuestions.length - 1) {
+        if (appendAdaptiveFollowupIfNeeded()) {
+          setQuestionIndex((current) => current + 1);
+          return;
+        }
         void finishBenchmark();
         return;
       }
@@ -790,38 +1174,66 @@ export default function BenchmarkExperience({
       return;
     }
     if (questionIndex === assessmentQuestions.length - 1) {
+      if (appendAdaptiveFollowupIfNeeded()) {
+        setQuestionIndex((current) => current + 1);
+        return;
+      }
       void finishBenchmark();
       return;
     }
     setQuestionIndex((current) => current + 1);
   };
 
-  const handleCodeCheck = () => {
-    if (!activeQuestion || activeQuestion.kind !== 'code') return;
+  const handleCodeChange = (question: BenchmarkQuestion, value: string) => {
+    const previousValue = codeAnswers[question.id] ?? question.starterCode ?? '';
+    const now = Date.now();
+    const deltaMs = lastTypingAtRef.current ? Math.min(now - lastTypingAtRef.current, 4000) : 1600;
+    lastTypingAtRef.current = now;
 
-    const currentCode = codeAnswers[activeQuestion.id] ?? '';
-    const evaluation = validateCodeAssessment(currentCode, {
-      language: setup.language,
-      starterCode: activeQuestion.starterCode || '',
-      referenceCode: activeQuestion.referenceCode || '',
-      validationMode: activeQuestion.validationMode || 'exact',
-      requiredSnippets: activeQuestion.requiredSnippets,
-      edgeCaseSnippets: activeQuestion.edgeCaseSnippets,
-      qualitySignals: activeQuestion.qualitySignals,
-      efficiencySignals: activeQuestion.efficiencySignals,
-      forbiddenPatterns: activeQuestion.forbiddenPatterns,
-      weights: activeQuestion.weights,
-    });
+    if (value.length - previousValue.length > 180) {
+      registerSuspiciousFlag('large_code_insertion');
+    }
 
-    setCodeEvaluations((current) => ({
+    setCodeAnswers((current) => ({ ...current, [question.id]: value }));
+    setCodeEvaluations((current) => ({ ...current, [question.id]: null }));
+    setTelemetrySummary((current) => ({
       ...current,
-      [activeQuestion.id]: evaluation,
+      activeTypingSeconds:
+        Math.round((current.activeTypingSeconds + Math.max(0.2, Math.min(deltaMs / 1000, 2.5))) * 10) / 10,
     }));
+  };
 
-    if (evaluation.passed) {
-      toast.success('Code check passed.');
-    } else {
-      toast.error(evaluation.message);
+  const handleCodeCheck = async () => {
+    if (!activeQuestion || activeQuestion.kind !== 'code' || isCheckingCode) return;
+
+    try {
+      const currentCode = codeAnswers[activeQuestion.id] ?? '';
+      setIsCheckingCode(true);
+      const evaluation = await evaluateCodeQuestion(activeQuestion, currentCode);
+
+      setCodeEvaluations((current) => ({
+        ...current,
+        [activeQuestion.id]: evaluation,
+      }));
+      setQuestionRunCounts((current) => {
+        const nextRunCount = (current[activeQuestion.id] || 0) + 1;
+        return {
+          ...current,
+          [activeQuestion.id]: nextRunCount,
+        };
+      });
+      setTelemetrySummary((current) => ({
+        ...current,
+        codeRunCount: current.codeRunCount + 1,
+      }));
+
+      if (evaluation.passed) {
+        toast.success('Code check passed.');
+      } else {
+        toast.error(evaluation.message);
+      }
+    } finally {
+      setIsCheckingCode(false);
     }
   };
 
@@ -987,32 +1399,28 @@ export default function BenchmarkExperience({
         <div className={`${mutedPanelClassName} px-4 py-4`}>
           <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
             <Clock3 className="h-4 w-4 text-primary" />
-            {blueprintSummary.questionCount} calibrated questions
+            {benchmarkFormat === 'full' ? 'Full benchmark' : benchmarkFormat === 'retake' ? 'Retake benchmark' : 'Quick benchmark'}
           </div>
           <div className="mt-2 text-sm leading-6 text-muted-foreground">
-            Layered sections. Stable difficulty.
+            {Math.round(getBenchmarkDurationSeconds(benchmarkFormat) / 60)} min / {blueprintSummary.questionCount} items.
           </div>
         </div>
         <div className={`${mutedPanelClassName} px-4 py-4`}>
           <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-            <BarChart3 className="h-4 w-4 text-xp" />
-            Difficulty mix
+            <Gauge className="h-4 w-4 text-xp" />
+            Adaptive path
           </div>
           <div className="mt-2 text-sm leading-6 text-muted-foreground">
-            {blueprintSummary.difficultyMix.beginner} basic, {blueprintSummary.difficultyMix.intermediate} applied, {blueprintSummary.difficultyMix.advanced} stretch.
+            Anchor baseline first. Follow-up difficulty adjusts to the attempt.
           </div>
         </div>
         <div className={`${mutedPanelClassName} px-4 py-4`}>
           <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-            <Target className="h-4 w-4 text-accent" />
-            Section mix
+            <ShieldCheck className="h-4 w-4 text-accent" />
+            Signal integrity
           </div>
           <div className="mt-2 text-sm leading-6 text-muted-foreground">
-            {Object.entries(blueprintSummary.sectionMix)
-              .filter(([, count]) => count > 0)
-              .map(([section, count]) => `${count} ${section}`)
-              .join(', ')}
-            .
+            Execution checks, trust flags, and stable retake comparisons.
           </div>
         </div>
       </div>
@@ -1080,6 +1488,71 @@ export default function BenchmarkExperience({
             </div>
           </div>
 
+          <div className={surfaceCardClassName}>
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <div className="text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground">Calibration signal</div>
+                <h3 className="mt-2 text-2xl font-semibold text-foreground">Benchmark quality</h3>
+              </div>
+              {qualitySummary?.available ? <ShieldCheck className="h-5 w-5 text-primary" /> : <Activity className="h-5 w-5 text-muted-foreground" />}
+            </div>
+            {qualitySummary ? (
+              <>
+                <div className="mt-6 grid gap-3 sm:grid-cols-2">
+                  <div className={`${mutedPanelClassName} px-4 py-4`}>
+                    <div className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">Reports observed</div>
+                    <div className="mt-2 text-2xl font-semibold text-foreground">{qualitySummary.benchmarkCount}</div>
+                  </div>
+                  <div className={`${mutedPanelClassName} px-4 py-4`}>
+                    <div className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">Average trust</div>
+                    <div className="mt-2 text-2xl font-semibold text-foreground">{qualitySummary.averageTrustScore}/100</div>
+                  </div>
+                  <div className={`${mutedPanelClassName} px-4 py-4`}>
+                    <div className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">Lesson follow-through</div>
+                    <div className="mt-2 text-lg font-semibold text-foreground">
+                      {qualitySummary.validation.lessonFollowThroughRate !== null
+                        ? `${qualitySummary.validation.lessonFollowThroughRate}%`
+                        : 'Pending'}
+                    </div>
+                  </div>
+                  <div className={`${mutedPanelClassName} px-4 py-4`}>
+                    <div className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">Duel follow-through</div>
+                    <div className="mt-2 text-lg font-semibold text-foreground">
+                      {qualitySummary.validation.duelParticipationRate !== null
+                        ? `${qualitySummary.validation.duelParticipationRate}%`
+                        : 'Pending'}
+                    </div>
+                  </div>
+                </div>
+                {qualitySummary.itemSignals.length > 0 ? (
+                  <div className="mt-4 rounded-[1.35rem] border border-border bg-background/70 p-4">
+                    <div className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">Top calibrated items</div>
+                    <div className="mt-3 grid gap-2">
+                      {qualitySummary.itemSignals.slice(0, 3).map((item) => (
+                        <div key={item.templateId} className="flex items-center justify-between gap-4 rounded-2xl border border-border bg-card px-4 py-3 text-sm">
+                          <div className="min-w-0">
+                            <div className="truncate font-medium text-foreground">{item.templateId}</div>
+                            <div className="mt-1 text-xs uppercase tracking-[0.16em] text-muted-foreground">
+                              {item.calibrationState}
+                            </div>
+                          </div>
+                          <div className="text-right">
+                            <div className="font-semibold text-foreground">{item.passRate}% pass</div>
+                            <div className="mt-1 text-xs text-muted-foreground">{item.exposureCount} exposures</div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
+              </>
+            ) : (
+              <div className="mt-6 rounded-2xl border border-border bg-background/70 px-4 py-4 text-sm text-muted-foreground">
+                {qualityMessage || 'Calibration details are loading.'}
+              </div>
+            )}
+          </div>
+
           {historyPreview.length > 0 || historyLoading ? (
             <div className={surfaceCardClassName}>
               <div className="flex items-center justify-between gap-3">
@@ -1123,17 +1596,19 @@ export default function BenchmarkExperience({
                   <h2 className="mt-2 text-2xl font-semibold text-foreground">Start with the outcome you need.</h2>
                 </div>
                 <div className="rounded-full border border-border bg-background px-3 py-1 text-xs font-medium text-muted-foreground">
-                  {configuredQuestions.length} questions ready
+                  {blueprintSummary.questionCount} questions planned
                 </div>
               </div>
               <div className="mt-4 rounded-[1.35rem] border border-border bg-background/70 px-4 py-4">
                 <div className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">Current benchmark blueprint</div>
                 <div className="mt-2 text-sm leading-6 text-muted-foreground">
-                    {setup.goal === 'interview_prep'
-                      ? 'Baseline, code, debugging, and reading under pressure.'
-                      : setup.goal === 'class_improvement'
-                      ? 'Baseline first, then applied gaps and debugging.'
-                      : 'Baseline first, then implementation and retake-ready signal.'}
+                  {benchmarkFormat === 'retake'
+                    ? 'Re-check the same competencies with rotated variants.'
+                    : setup.goal === 'interview_prep'
+                    ? 'Baseline, code, debugging, and reading under pressure.'
+                    : setup.goal === 'class_improvement'
+                    ? 'Baseline first, then applied gaps and debugging.'
+                    : 'Baseline first, then implementation and code reading.'}
                 </div>
                 <div className="mt-3 flex flex-wrap gap-2">
                   {blueprintSummary.competencies.map((competency) => (
@@ -1145,10 +1620,34 @@ export default function BenchmarkExperience({
                     </span>
                   ))}
                 </div>
+                {benchmarkFormat === 'retake' && retakeTargetWeaknesses.length > 0 ? (
+                  <div className="mt-4 rounded-2xl border border-primary/15 bg-primary/10 px-4 py-3 text-sm text-foreground">
+                    Retake focus: {retakeTargetWeaknesses.join(', ')}.
+                  </div>
+                ) : null}
               </div>
               <div className="mt-8 space-y-8">
                 <section>
-                  <div className="text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground">1. Goal</div>
+                  <div className="text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground">1. Format</div>
+                  <div className="mt-4 grid gap-3 sm:grid-cols-3">
+                    {formatOptions.map((option) => (
+                      <button
+                        key={option.value}
+                        type="button"
+                        onClick={() => setBenchmarkFormat(option.value)}
+                        className={setupCardClassName(
+                          benchmarkFormat === option.value,
+                          'border-primary/40 bg-primary/10 text-foreground'
+                        )}
+                      >
+                        <div className="text-base font-semibold">{option.title}</div>
+                        <div className="mt-1 text-sm leading-6 text-muted-foreground">{option.description}</div>
+                      </button>
+                    ))}
+                  </div>
+                </section>
+                <section>
+                  <div className="text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground">2. Goal</div>
                   <div className="mt-4 grid gap-3">
                     {goalOptions.map((option) => (
                       <button
@@ -1164,7 +1663,7 @@ export default function BenchmarkExperience({
                   </div>
                 </section>
                 <section>
-                  <div className="text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground">2. Language</div>
+                  <div className="text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground">3. Language</div>
                   <div className="mt-4 grid gap-3 sm:grid-cols-2">
                     {languageOptions.map((option) => (
                       <button
@@ -1180,7 +1679,7 @@ export default function BenchmarkExperience({
                   </div>
                 </section>
                 <section>
-                  <div className="text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground">3. Role level</div>
+                  <div className="text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground">4. Role level</div>
                   <div className="mt-4 grid gap-3 sm:grid-cols-2">
                     {roleOptions.map((option) => (
                       <button
@@ -1199,7 +1698,9 @@ export default function BenchmarkExperience({
               <div className="mt-8 flex flex-col gap-4 rounded-[1.5rem] border border-border bg-background/70 p-5 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                   <div className="text-sm font-semibold text-foreground">Get a layered skill report.</div>
-                  <p className="mt-1 text-sm leading-6 text-muted-foreground">Baseline, build, debug, review.</p>
+                  <p className="mt-1 text-sm leading-6 text-muted-foreground">
+                    {Math.round(getBenchmarkDurationSeconds(benchmarkFormat) / 60)} min. Mostly typed code.
+                  </p>
                 </div>
                 <button type="button" onClick={startBenchmark} className={primaryButtonClassName}>
                   <span>Start free benchmark</span>
@@ -1222,6 +1723,13 @@ export default function BenchmarkExperience({
                     <span>
                       {activeSectionQuestionIndex}/{Math.max(1, activeSectionQuestions.length)}
                     </span>
+                  </div>
+                  <div className="mt-2 flex flex-wrap items-center gap-2 text-xs uppercase tracking-[0.18em] text-muted-foreground">
+                    <span>{benchmarkFormat}</span>
+                    <span className="text-foreground/60">/</span>
+                    <span>{assessmentStage === 'baseline' ? 'baseline path' : 'adaptive follow-up'}</span>
+                    <span className="text-foreground/60">/</span>
+                    <span>{activeQuestion.evaluationStrategy === 'execution' ? 'execution-graded' : activeQuestion.kind === 'code' ? 'typed code' : 'concept check'}</span>
                   </div>
                   <div className="mt-2 text-xl font-semibold text-foreground">{activeQuestion.lessonTitle}</div>
                 </div>
@@ -1271,15 +1779,27 @@ export default function BenchmarkExperience({
                 ) : (
                   <div className="mt-6 space-y-4">
                     <div className="rounded-2xl border border-border bg-card px-4 py-3 text-sm leading-6 text-muted-foreground">
-                      Type your answer. Theory may still use multiple choice.
+                      {activeQuestion.evaluationStrategy === 'execution'
+                        ? 'Write code and run the benchmark tests.'
+                        : 'Type your answer. Theory may still use multiple choice.'}
                     </div>
+                    {activeQuestion.publicTestCases?.length ? (
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        {activeQuestion.publicTestCases.map((testCase) => (
+                          <div key={`${activeQuestion.id}-${testCase.label}`} className="rounded-2xl border border-border bg-card px-4 py-3">
+                            <div className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                              {testCase.label}
+                            </div>
+                            <div className="mt-2 text-sm text-foreground">Input: {testCase.inputPreview}</div>
+                            <div className="mt-1 text-sm text-muted-foreground">Expected: {testCase.expectedPreview}</div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : null}
                     <CodeTypingEditor
                       language={setup.language}
                       value={codeAnswers[activeQuestion.id] ?? activeQuestion.starterCode ?? ''}
-                      onChange={(value) => {
-                        setCodeAnswers((current) => ({ ...current, [activeQuestion.id]: value }));
-                        setCodeEvaluations((current) => ({ ...current, [activeQuestion.id]: null }));
-                      }}
+                      onChange={(value) => handleCodeChange(activeQuestion, value)}
                       height="320px"
                     />
                     {codeEvaluations[activeQuestion.id] ? (
@@ -1291,9 +1811,18 @@ export default function BenchmarkExperience({
                         }`}
                       >
                         <div className="font-semibold">
-                          {codeEvaluations[activeQuestion.id]?.passed ? 'Code accepted' : 'Keep refining this answer'}
+                          {codeEvaluations[activeQuestion.id]?.passed
+                            ? activeQuestion.evaluationStrategy === 'execution'
+                              ? 'Execution tests passed'
+                              : 'Code accepted'
+                            : 'Keep refining this answer'}
                         </div>
                         <div className="mt-1">{codeEvaluations[activeQuestion.id]?.message}</div>
+                        {codeEvaluations[activeQuestion.id]?.runtimeMs ? (
+                          <div className="mt-2 text-xs uppercase tracking-[0.16em] text-white/70">
+                            Runtime {codeEvaluations[activeQuestion.id]?.runtimeMs}ms
+                          </div>
+                        ) : null}
                         <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
                           {Object.entries(codeEvaluations[activeQuestion.id]?.rubricScores || {}).map(([label, value]) => (
                             <div key={label} className="rounded-xl border border-white/10 bg-black/10 px-3 py-2">
@@ -1304,6 +1833,20 @@ export default function BenchmarkExperience({
                             </div>
                           ))}
                         </div>
+                        {codeEvaluations[activeQuestion.id]?.testResults?.length ? (
+                          <div className="mt-3 grid gap-2">
+                            {codeEvaluations[activeQuestion.id]?.testResults
+                              ?.filter((entry) => !entry.hidden)
+                              .map((entry, index) => (
+                                <div key={`${entry.label || 'test'}-${index}`} className="rounded-xl border border-white/10 bg-black/10 px-3 py-2 text-xs">
+                                  <div className="font-semibold">{entry.label || `Test ${index + 1}`}</div>
+                                  <div className="mt-1 text-white/80">
+                                    {entry.passed ? 'Passed' : entry.reason}
+                                  </div>
+                                </div>
+                              ))}
+                          </div>
+                        ) : null}
                       </div>
                     ) : null}
                   </div>
@@ -1316,12 +1859,12 @@ export default function BenchmarkExperience({
                 </button>
                 <div className="flex flex-col gap-3 sm:flex-row">
                   {activeQuestion.kind === 'code' ? (
-                    <button type="button" onClick={handleCodeCheck} disabled={isFinishing} className={secondaryButtonClassName}>
-                      <span>Check code</span>
-                      <Play className="h-4 w-4" />
+                    <button type="button" onClick={handleCodeCheck} disabled={isFinishing || isCheckingCode} className={secondaryButtonClassName}>
+                      <span>{activeQuestion.evaluationStrategy === 'execution' ? 'Run tests' : 'Check code'}</span>
+                      {isCheckingCode ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
                     </button>
                   ) : null}
-                  <button type="button" onClick={goToNextQuestion} disabled={isFinishing} className={primaryButtonClassName}>
+                  <button type="button" onClick={goToNextQuestion} disabled={isFinishing || isCheckingCode} className={primaryButtonClassName}>
                     <span>
                       {isFinishing
                         ? 'Generating report...'
@@ -1477,7 +2020,14 @@ export default function BenchmarkExperience({
                     </div>
                   )}
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                    <button type="button" onClick={resetBenchmark} className={secondaryButtonClassName}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setBenchmarkFormat('retake');
+                        resetBenchmark('retake');
+                      }}
+                      className={secondaryButtonClassName}
+                    >
                       <RefreshCcw className="h-4 w-4" />
                       Retake benchmark
                     </button>
@@ -1508,6 +2058,8 @@ export default function BenchmarkExperience({
                                   <span>{question.sectionLabel}</span>
                                   <span className="text-foreground/60">/</span>
                                   <span>{question.competency}</span>
+                                  <span className="text-foreground/60">/</span>
+                                  <span>{question.evaluationStrategy}</span>
                                 </div>
                               </div>
                               <span className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] ${answerRecord?.isCorrect ? 'bg-xp/15 text-xp' : 'bg-coins/15 text-coins'}`}>
@@ -1557,6 +2109,22 @@ export default function BenchmarkExperience({
                                     <div className="mt-1 text-sm font-semibold text-foreground">{value}%</div>
                                   </div>
                                 ))}
+                              </div>
+                            ) : null}
+                            {answerRecord?.testResults?.length ? (
+                              <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                                {answerRecord.testResults
+                                  .filter((entry) => !entry.hidden)
+                                  .map((entry, index) => (
+                                    <div key={`${question.id}-review-test-${index}`} className="rounded-xl border border-border bg-background px-3 py-2">
+                                      <div className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
+                                        {entry.label || `Test ${index + 1}`}
+                                      </div>
+                                      <div className="mt-1 text-sm font-medium text-foreground">
+                                        {entry.passed ? 'Passed' : entry.reason}
+                                      </div>
+                                    </div>
+                                  ))}
                               </div>
                             ) : null}
                             <div className="mt-3 rounded-2xl border border-border bg-background px-4 py-3">
