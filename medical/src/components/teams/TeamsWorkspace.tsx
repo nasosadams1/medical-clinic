@@ -634,9 +634,9 @@ export default function TeamsWorkspace({ mode = 'public' }: TeamsWorkspaceProps)
   };
 
   return (
-    <div className={mode === 'app' ? 'px-2 py-2 sm:px-3 lg:px-4 xl:px-5 lg:py-3 xl:py-4' : ''}>
-      <div className="grid gap-4 xl:grid-cols-[0.95fr_1.05fr]">
-      <section className={workspaceShellClass}>
+    <div className={mode === 'app' ? 'flex min-h-full flex-col px-2 py-2 sm:px-3 lg:px-4 xl:px-5 lg:py-3 xl:py-4' : ''}>
+      <div className="grid flex-1 gap-4 xl:grid-cols-[0.95fr_1.05fr] xl:grid-rows-1">
+      <section className={`${workspaceShellClass} ${mode === 'app' ? 'h-full' : ''}`}>
         <div className="flex flex-col gap-4 border-b border-border pb-6">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
             <div>

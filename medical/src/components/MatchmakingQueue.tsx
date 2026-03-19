@@ -255,7 +255,7 @@ export default function MatchmakingQueue({
 
   if (isMatchStarting) {
     return (
-      <div className="flex min-h-screen items-center justify-center px-4 py-8">
+      <div className="flex min-h-full items-center justify-center px-4 py-8">
         <div className="w-full max-w-md rounded-2xl border border-border bg-card p-8 text-center shadow-elevated">
           <div className="mx-auto mb-6 h-20 w-20 animate-float">
             <MascotIcon mascot="duel" className="h-full w-full" imageClassName="drop-shadow-md" />
@@ -271,9 +271,9 @@ export default function MatchmakingQueue({
   }
 
   return (
-    <div className="space-y-8 p-4 lg:p-8">
-      <div className="grid gap-6 xl:grid-cols-[0.95fr_1.05fr]">
-        <section className="rounded-2xl border border-border bg-card p-6 shadow-card sm:p-8">
+    <div className="flex min-h-full flex-col p-4 lg:p-6 xl:p-8">
+      <div className="grid flex-1 gap-6 xl:grid-cols-[0.95fr_1.05fr] xl:grid-rows-1">
+        <section className="flex h-full flex-col rounded-2xl border border-border bg-card p-6 shadow-card sm:p-8">
           <div className="inline-flex items-center gap-2 rounded-full border border-primary/30 bg-primary/10 px-4 py-1.5">
             <Swords className="h-3.5 w-3.5 text-primary" />
             <span className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">Duels as skill proof</span>
@@ -335,7 +335,7 @@ export default function MatchmakingQueue({
             </div>
           ) : null}
 
-          <div className="mt-8 flex flex-col gap-3 sm:flex-row">
+          <div className="mt-8 flex flex-col gap-3 sm:flex-row xl:mt-auto xl:pt-8">
             {inQueue ? (
               <>
                 <button
@@ -373,7 +373,7 @@ export default function MatchmakingQueue({
           </div>
         </section>
 
-        <aside className="grid gap-4">
+        <aside className="grid h-full gap-4 xl:grid-rows-[auto,1fr]">
           <div className="rounded-2xl border border-border bg-card p-6 shadow-card">
             <div className="flex items-center gap-3">
               <div className={`flex h-12 w-12 items-center justify-center rounded-xl ${isRankedMode ? 'bg-primary/10 text-primary' : 'bg-secondary text-foreground'}`}>
@@ -391,9 +391,9 @@ export default function MatchmakingQueue({
             </p>
           </div>
 
-          <div className="rounded-2xl border border-border bg-card p-6 shadow-card">
+          <div className="flex h-full flex-col rounded-2xl border border-border bg-card p-6 shadow-card">
             <div className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">Signal snapshot</div>
-            <div className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-1">
+            <div className="mt-6 grid flex-1 auto-rows-fr gap-4 sm:grid-cols-2 xl:grid-cols-1">
               <div className="rounded-xl border border-border bg-secondary/35 p-5">
                 <div className="flex items-center gap-2 text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground">
                   <ShieldCheck className="h-4 w-4 text-primary" />

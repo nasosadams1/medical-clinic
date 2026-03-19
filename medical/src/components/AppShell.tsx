@@ -309,8 +309,10 @@ export default function AppShell({ openAuthModal }: AppShellProps) {
           </div>
         </header>
 
-        <main className="min-w-0 flex-1 overflow-y-auto bg-background">
-          {renderSection()}
+        <main className="flex min-w-0 flex-1 flex-col overflow-y-auto bg-background">
+          <div className="flex min-h-full min-w-0 flex-1 flex-col">
+            {renderSection()}
+          </div>
         </main>
 
         <nav className="flex shrink-0 border-t border-border bg-card lg:hidden">

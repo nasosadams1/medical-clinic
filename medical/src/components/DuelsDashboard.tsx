@@ -326,7 +326,7 @@ export default function DuelsDashboard() {
 
   if (!user) {
     return (
-      <div className="space-y-8 p-4 lg:p-8">
+      <div className="flex min-h-full flex-col p-4 lg:p-8">
         <div className="mx-auto max-w-4xl rounded-2xl border border-border bg-card p-8 shadow-card">
           <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-primary/30 bg-primary/10 px-4 py-1.5 text-xs font-semibold uppercase tracking-[0.18em] text-primary">
             <div className="h-7 w-7">
@@ -362,7 +362,7 @@ export default function DuelsDashboard() {
 
   if (!duelUser) {
     return (
-      <div className="flex min-h-screen items-center justify-center px-6">
+      <div className="flex min-h-full items-center justify-center px-6">
         <div className="w-full max-w-md rounded-2xl border border-border bg-card p-8 text-center shadow-card">
           <div className="mx-auto mb-4 h-20 w-20">
             <MascotIcon mascot="duel" className="h-full w-full" imageClassName="drop-shadow-md" />
