@@ -3,7 +3,7 @@ import { ArrowRight, CheckCircle2, Coins, Crown, Gift, Heart, Star, Trophy, User
 import { Link } from 'react-router-dom';
 import { useUser } from '../context/UserContext';
 import { useAuth } from '../context/AuthContext';
-import { usePlanEntitlements } from '../hooks/usePlanEntitlements';
+import { usePlanAccess } from '../hooks/usePlanAccess';
 import {
   createCustomerPortalSession,
   createPlanCheckoutSession,
@@ -329,7 +329,12 @@ function PlanCard({
     : plan.name === 'Interview Sprint'
     ? '/pricing?intent=interview_sprint'
     : '/pricing';
-  const activeWorkspaceHref = plan.name === 'Interview Sprint' ? '/app?section=benchmark' : '/app?section=practice';
+  const activeWorkspaceHref =
+    plan.name === 'Interview Sprint'
+      ? '/app?section=benchmark'
+      : plan.name === 'Teams' || plan.name === 'Teams Growth' || plan.name === 'Custom'
+      ? '/app?section=teams'
+      : '/app?section=practice';
 
   return (
     <div
@@ -372,10 +377,10 @@ function PlanCard({
         <div className="mb-4 rounded-xl border border-border bg-background/70 px-3 py-2 text-xs leading-6 text-muted-foreground">
           {isActive
             ? `Active now${activeUntilLabel ? ` until ${activeUntilLabel}` : ''}.`
-            : isTeamPlan
-            ? 'Use the teams flow.'
             : selfServeProduct
             ? 'Activate here.'
+            : isTeamPlan
+            ? 'Talk with sales for a custom rollout.'
             : 'Use the pricing page.'}
         </div>
       ) : null}
@@ -430,7 +435,7 @@ function PlanCard({
 const Store: React.FC = () => {
   const { user, addNotification, forceRefreshFromDatabase, isUnlimitedHeartsActive, isXPBoostActive } = useUser();
   const { user: authUser } = useAuth();
-  const { getPlanEntitlement, primaryPlan, refresh: refreshPlanEntitlements } = usePlanEntitlements();
+  const { getPlanEntitlement, getEntitlementByPlanName, primaryPlan, refresh: refreshPlanEntitlements } = usePlanAccess();
   const [selectedCheckout, setSelectedCheckout] = useState<CheckoutSelection | null>(null);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [processingItemId, setProcessingItemId] = useState<string | null>(null);
@@ -719,7 +724,7 @@ const Store: React.FC = () => {
         <div className="grid gap-3 xl:grid-cols-3">
           {pricingPlans.map((plan) => {
             const product = getSelfServePlanProductByPlanName(plan.name);
-            const entitlement = product ? getPlanEntitlement(product.id) : null;
+            const entitlement = product ? getPlanEntitlement(product.id) : getEntitlementByPlanName(plan.name);
 
             return (
               <PlanCard

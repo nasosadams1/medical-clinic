@@ -35,8 +35,22 @@ export function usePlanEntitlements() {
     [entitlements]
   );
 
+  const activePlanNames = useMemo(
+    () =>
+      activeEntitlements.map((entitlement) => entitlement.planName).filter((planName) => planName.trim().length > 0),
+    [activeEntitlements]
+  );
+
   const hasActivePlan = useCallback(
     (planId: SelfServePlanId) => activeEntitlements.some((entitlement) => entitlement.itemId === planId),
+    [activeEntitlements]
+  );
+
+  const hasActivePlanName = useCallback(
+    (planName: string) =>
+      activeEntitlements.some(
+        (entitlement) => entitlement.planName.trim().toLowerCase() === planName.trim().toLowerCase()
+      ),
     [activeEntitlements]
   );
 
@@ -46,15 +60,26 @@ export function usePlanEntitlements() {
     [activeEntitlements]
   );
 
+  const getEntitlementByPlanName = useCallback(
+    (planName: string) =>
+      activeEntitlements.find(
+        (entitlement) => entitlement.planName.trim().toLowerCase() === planName.trim().toLowerCase()
+      ) || null,
+    [activeEntitlements]
+  );
+
   const primaryPlan = activeEntitlements[0] || null;
 
   return {
     entitlements,
     activeEntitlements,
+    activePlanNames,
     primaryPlan,
     loading,
     refresh,
     hasActivePlan,
+    hasActivePlanName,
     getPlanEntitlement,
+    getEntitlementByPlanName,
   };
 }

@@ -19,6 +19,7 @@ import {
 import toast from 'react-hot-toast';
 import { useNavigate } from 'react-router-dom';
 import { useUser } from '../context/UserContext';
+import { usePlanAccess } from '../hooks/usePlanAccess';
 import LessonModal from './LessonModal';
 import {
   readSavedBenchmarkHistory,
@@ -29,12 +30,14 @@ import {
 import {
   countCompletedLessonsByLanguage,
   formatLessonIdAsDisplayName,
+  getLessonCatalogEntry,
   getLessonCountByLanguage,
   LessonLanguage,
 } from '../data/lessonCatalog';
 import { loadLessonsModule } from '../data/lessonsLoader';
 import { listBenchmarkReports } from '../lib/benchmarkApi';
 import { trackEvent } from '../lib/analytics';
+import { STARTER_PATH_LANGUAGE, STARTER_PATH_LESSON_LIMIT } from '../lib/planAccess';
 
 type Language = LessonLanguage;
 type DifficultyTier = 'Beginner' | 'Intermediate' | 'Advanced';
@@ -65,6 +68,7 @@ interface LessonPreview {
 type VisibleLesson = LessonPreview & {
   tier: DifficultyTier;
   sortIndex: number;
+  languageIndex: number;
 };
 
 type BenchmarkActionState = {
@@ -262,6 +266,7 @@ function LessonSkeleton() {
 const Learn: React.FC<LearnProps> = ({ setCurrentSection, openAuthModal, isAuthenticated = false }) => {
   const navigate = useNavigate();
   const { user, isUnlimitedHeartsActive } = useUser();
+  const { canAccessPracticeLanguage, canAccessPracticeLesson, hasPaidLearnerAccess } = usePlanAccess();
   const [selectedLanguage, setSelectedLanguage] = useState<Language>('python');
   const [filter, setFilter] = useState('Recommended');
   const [selectedLesson, setSelectedLesson] = useState<LessonPreview | null>(null);
@@ -337,8 +342,15 @@ const Learn: React.FC<LearnProps> = ({ setCurrentSection, openAuthModal, isAuthe
       ...lesson,
       tier: normalizeDifficultyTier(lesson.difficulty),
       sortIndex: index,
+      languageIndex: getLessonCatalogEntry(lesson.id)?.languageIndex ?? index,
     }));
   }, [lessonsModule, selectedLanguage]);
+
+  useEffect(() => {
+    if (!canAccessPracticeLanguage(selectedLanguage)) {
+      setSelectedLanguage(STARTER_PATH_LANGUAGE);
+    }
+  }, [canAccessPracticeLanguage, selectedLanguage]);
 
   const difficultyUnlocks = useMemo(() => {
     const lessonGroups: Record<DifficultyTier, VisibleLesson[]> = {
@@ -415,6 +427,12 @@ const Learn: React.FC<LearnProps> = ({ setCurrentSection, openAuthModal, isAuthe
       return;
     }
 
+    if (!canAccessPracticeLesson(lesson.language, lesson.languageIndex)) {
+      toast.error('Upgrade to unlock the full practice library.');
+      navigate('/pricing?intent=pro');
+      return;
+    }
+
     const lessonTier = lesson.tier;
     if (!difficultyUnlocks[lessonTier]) {
       const requiredTier: 'Beginner' | 'Intermediate' = lessonTier === 'Intermediate' ? 'Beginner' : 'Intermediate';
@@ -456,10 +474,16 @@ const Learn: React.FC<LearnProps> = ({ setCurrentSection, openAuthModal, isAuthe
   const benchmarkAgeDays = getReportAgeInDays(latestLanguageBenchmark);
 
   const goToBenchmarkWorkspace = (options?: { openLatestReport?: boolean }) => {
+    if (!hasPaidLearnerAccess && !options?.openLatestReport && benchmarkHistory.length >= 1) {
+      toast.error('Free includes one skill check. Upgrade to unlock more attempts.');
+      navigate('/pricing?intent=pro');
+      return;
+    }
+
     const nextSetup: BenchmarkSetup = {
-      goal: latestLanguageBenchmark?.setup.goal || 'interview_prep',
+      goal: hasPaidLearnerAccess ? latestLanguageBenchmark?.setup.goal || 'interview_prep' : 'skill_growth',
       language: selectedLanguage,
-      roleLevel: latestLanguageBenchmark?.setup.roleLevel || 'junior',
+      roleLevel: hasPaidLearnerAccess ? latestLanguageBenchmark?.setup.roleLevel || 'junior' : 'beginner',
     };
 
     saveBenchmarkSetupPreset(nextSetup);
@@ -500,6 +524,15 @@ const Learn: React.FC<LearnProps> = ({ setCurrentSection, openAuthModal, isAuthe
           </button>
         </div>
       </div>
+
+      {!hasPaidLearnerAccess ? (
+        <div className="rounded-2xl border border-primary/20 bg-primary/10 px-4 py-4 text-sm leading-6 text-foreground">
+          <div className="font-semibold text-primary">Free plan access</div>
+          <div className="mt-1">
+            Free includes the first {STARTER_PATH_LESSON_LIMIT} {STARTER_PATH_LANGUAGE.toUpperCase()} lessons and one skill check. Upgrade to unlock all languages, deeper practice, and retakes.
+          </div>
+        </div>
+      ) : null}
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <MetricCard
@@ -688,13 +721,21 @@ const Learn: React.FC<LearnProps> = ({ setCurrentSection, openAuthModal, isAuthe
         {languageStats.map((language) => {
           const Icon = language.icon;
           const isActive = selectedLanguage === language.id;
+          const isLocked = !canAccessPracticeLanguage(language.id);
           const progressPercent = Math.round((language.completedCount / Math.max(1, language.totalLessons)) * 100);
 
           return (
             <button
               key={language.id}
               type="button"
-              onClick={() => setSelectedLanguage(language.id)}
+              onClick={() => {
+                if (isLocked) {
+                  toast.error('Unlock Pro or Interview Sprint to open this language path.');
+                  navigate('/pricing?intent=pro');
+                  return;
+                }
+                setSelectedLanguage(language.id);
+              }}
               className={cx(
                 'rounded-2xl border p-5 text-left transition-all duration-300',
                 isActive
@@ -707,7 +748,14 @@ const Learn: React.FC<LearnProps> = ({ setCurrentSection, openAuthModal, isAuthe
                   <Icon className="h-6 w-6" />
                 </div>
                 <div className="min-w-0 flex-1">
-                  <div className={cx('text-lg font-bold font-display', isActive ? 'text-white' : 'text-foreground')}>{language.name}</div>
+                  <div className="flex items-center gap-2">
+                    <div className={cx('text-lg font-bold font-display', isActive ? 'text-white' : 'text-foreground')}>{language.name}</div>
+                    {isLocked ? (
+                      <span className={cx('rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em]', isActive ? 'bg-white/15 text-white' : 'bg-primary/10 text-primary')}>
+                        Pro
+                      </span>
+                    ) : null}
+                  </div>
                   <p className={cx('mt-1 text-sm leading-6', isActive ? 'text-white/80' : 'text-muted-foreground')}>{language.description}</p>
                 </div>
               </div>
@@ -770,9 +818,12 @@ const Learn: React.FC<LearnProps> = ({ setCurrentSection, openAuthModal, isAuthe
             : filteredLessons.map((lesson) => {
               const isCompleted = user.completedLessons.includes(lesson.id);
               const isDifficultyLocked = !difficultyUnlocks[lesson.tier];
-              const canStartLesson = isAuthenticated && !isDifficultyLocked && (user.hearts > 0 || isUnlimitedHeartsActive());
+              const isPlanLocked = !canAccessPracticeLesson(lesson.language, lesson.languageIndex);
+              const canStartLesson = isAuthenticated && !isDifficultyLocked && !isPlanLocked && (user.hearts > 0 || isUnlimitedHeartsActive());
               const disabledReason = !isAuthenticated
                 ? null
+                : isPlanLocked
+                ? 'Upgrade required'
                 : isDifficultyLocked
                 ? 'Tier locked'
                 : !canStartLesson
@@ -784,13 +835,13 @@ const Learn: React.FC<LearnProps> = ({ setCurrentSection, openAuthModal, isAuthe
                   key={`${lesson.id}-${selectedLanguage}`}
                   className={cx(
                     'relative overflow-hidden rounded-2xl border bg-card p-5 shadow-card transition-all duration-300',
-                    isDifficultyLocked
+                    isDifficultyLocked || isPlanLocked
                       ? 'border-border/70 opacity-85'
                       : 'border-border hover:-translate-y-1 hover:border-primary/30 hover:shadow-elevated'
                   )}
                 >
                   <div className="absolute inset-0 opacity-0 transition-opacity duration-300 hover:opacity-100" style={{ background: 'var(--gradient-card-glow)' }} />
-                  {isDifficultyLocked ? <div className="pointer-events-none absolute inset-0 rounded-2xl border-2 border-dashed border-border" /> : null}
+                  {isDifficultyLocked || isPlanLocked ? <div className="pointer-events-none absolute inset-0 rounded-2xl border-2 border-dashed border-border" /> : null}
 
                   <div className="relative">
                     <div className="mb-4 flex items-start justify-between gap-3">
@@ -816,6 +867,12 @@ const Learn: React.FC<LearnProps> = ({ setCurrentSection, openAuthModal, isAuthe
                     <div className="mt-4 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                       <span className="rounded-full bg-secondary px-3 py-1">{lesson.category}</span>
                       <span className="rounded-full bg-secondary px-3 py-1">Est. {lesson.baselineTime} min</span>
+                      {isPlanLocked ? (
+                        <span className="inline-flex items-center gap-1 rounded-full bg-secondary px-3 py-1">
+                          <Lock className="h-3.5 w-3.5" />
+                          Pro
+                        </span>
+                      ) : null}
                       {isDifficultyLocked ? (
                         <span className="inline-flex items-center gap-1 rounded-full bg-secondary px-3 py-1">
                           <Link2 className="h-3.5 w-3.5" />
@@ -838,14 +895,19 @@ const Learn: React.FC<LearnProps> = ({ setCurrentSection, openAuthModal, isAuthe
                           <CheckCircle2 className="h-4 w-4" />
                           Completed
                         </div>
-                      ) : lesson.isLocked || isDifficultyLocked ? (
+                      ) : lesson.isLocked || isDifficultyLocked || isPlanLocked ? (
                         <button
                           type="button"
-                          disabled
-                          className="inline-flex cursor-not-allowed items-center justify-center gap-2 rounded-xl border border-border bg-secondary px-4 py-2.5 text-sm font-semibold text-muted-foreground"
+                          onClick={() => {
+                            if (isPlanLocked) {
+                              navigate('/pricing?intent=pro');
+                            }
+                          }}
+                          disabled={lesson.isLocked || isDifficultyLocked}
+                          className="inline-flex items-center justify-center gap-2 rounded-xl border border-border bg-secondary px-4 py-2.5 text-sm font-semibold text-muted-foreground disabled:cursor-not-allowed"
                         >
-                          {isDifficultyLocked ? <Link2 className="h-4 w-4" /> : <Lock className="h-4 w-4" />}
-                          {isDifficultyLocked ? 'Locked tier' : 'Locked'}
+                          {isPlanLocked ? <Lock className="h-4 w-4" /> : isDifficultyLocked ? <Link2 className="h-4 w-4" /> : <Lock className="h-4 w-4" />}
+                          {isPlanLocked ? 'Unlock full path' : isDifficultyLocked ? 'Locked tier' : 'Locked'}
                         </button>
                       ) : !isAuthenticated ? (
                         <button

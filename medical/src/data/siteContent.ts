@@ -198,7 +198,7 @@ export const pricingPlans: PricingPlan[] = [
       'Instructor views',
       'Export-ready report placeholders',
     ],
-    ctaLabel: 'See team plans',
+    ctaLabel: 'Start Teams',
     ctaKind: 'secondary',
   },
   {
@@ -213,7 +213,7 @@ export const pricingPlans: PricingPlan[] = [
       'Progress-over-time reporting',
       'Priority onboarding',
     ],
-    ctaLabel: 'Talk about Growth',
+    ctaLabel: 'Start Growth',
     ctaKind: 'secondary',
   },
   {

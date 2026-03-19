@@ -4,6 +4,7 @@ import MatchmakingQueue from "./MatchmakingQueue";
 import DuelArena from "./DuelArena";
 import MatchResults from "./MatchResults";
 import { useAuth } from "../context/AuthContext";
+import { usePlanAccess } from "../hooks/usePlanAccess";
 import { supabase } from "../lib/supabase";
 import { cacheDuelRating } from "../lib/duelRatingCache";
 import toast from "react-hot-toast";
@@ -60,6 +61,7 @@ const buildClientMeta = () => {
 
 export default function DuelsDashboard() {
   const { user, loading } = useAuth();
+  const { hasPaidLearnerAccess, freeDuelLimit, freeDuelRemaining, recordFreeDuelUse } = usePlanAccess();
   const [duelUser, setDuelUser] = useState<any>(null);
   const [currentView, setCurrentView] = useState<View>("queue");
   const [matchData, setMatchData] = useState<any>(null);
@@ -316,6 +318,12 @@ export default function DuelsDashboard() {
     setMatchResults(null);
   };
 
+  const handleTrackedDuelStart = useCallback(() => {
+    if (!hasPaidLearnerAccess) {
+      recordFreeDuelUse();
+    }
+  }, [hasPaidLearnerAccess, recordFreeDuelUse]);
+
   if (!user) {
     return (
       <div className="space-y-8 p-4 lg:p-8">
@@ -375,6 +383,11 @@ export default function DuelsDashboard() {
           ensureSocketRegistered={ensureSocketRegistered}
           onMatchFound={handleDuelStarted}
           onMatchEnd={handleMatchEnd}
+          allowedMatchTypes={hasPaidLearnerAccess ? ['casual', 'ranked'] : ['casual']}
+          remainingFreeDuels={hasPaidLearnerAccess ? null : freeDuelRemaining}
+          freeDuelLimit={hasPaidLearnerAccess ? null : freeDuelLimit}
+          advancedAnalyticsUnlocked={hasPaidLearnerAccess}
+          onDuelStarted={handleTrackedDuelStart}
         />
       )}
 

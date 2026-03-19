@@ -322,16 +322,6 @@ function PricingGrid({
   const handlePlanClick = (planName: string) => {
     trackEvent('subscription_cta_clicked', { plan: planName, source });
 
-    if (planName === 'Teams') {
-      navigate('/teams');
-      return;
-    }
-
-    if (planName === 'Teams Growth') {
-      navigate('/pricing?intent=teams_growth');
-      return;
-    }
-
     if (planName === 'Custom') {
       navigate('/pricing?intent=custom_plan');
       return;
@@ -457,7 +447,13 @@ function PricingGrid({
                 type="button"
                 onClick={() => {
                   if (activeEntitlement) {
-                    navigate(plan.name === 'Interview Sprint' ? '/app?section=benchmark' : '/app?section=practice');
+                    navigate(
+                      plan.name === 'Interview Sprint'
+                        ? '/app?section=benchmark'
+                        : plan.name === 'Teams' || plan.name === 'Teams Growth' || plan.name === 'Custom'
+                        ? '/app?section=teams'
+                        : '/app?section=practice'
+                    );
                     return;
                   }
                   handlePlanClick(plan.name);
@@ -1403,18 +1399,11 @@ export function PricingPage({ openAuthModal }: PublicPageProps) {
   const learnerPlans = pricingPlans.filter((plan) => learnerPricingPlanNames.has(plan.name));
   const teamPlans = pricingPlans.filter((plan) => teamPricingPlanNames.has(plan.name));
   const pricingLeadIntent =
-    leadIntent === 'teams_growth' || leadIntent === 'custom_plan' || leadIntent === 'interview_sprint'
+    leadIntent === 'custom_plan' || leadIntent === 'interview_sprint'
       ? leadIntent
       : 'custom_plan';
   const pricingLeadCopy =
-    pricingLeadIntent === 'teams_growth'
-      ? {
-          title: 'Talk about Teams Growth',
-          description: 'Capture high-value multi-cohort demand while the product stays lean and pilot-friendly.',
-          useCase: 'Multi-cohort bootcamp program',
-          label: 'Submit growth inquiry',
-        }
-      : pricingLeadIntent === 'interview_sprint'
+    pricingLeadIntent === 'interview_sprint'
       ? {
           title: 'Need a guided Interview Sprint rollout?',
           description: 'Self-serve checkout now handles the standard sprint, and this form stays available for people who want a more hands-on version.',
@@ -1482,7 +1471,7 @@ export function PricingPage({ openAuthModal }: PublicPageProps) {
             <SectionHeader
               eyebrow="Teams"
               title="Need training for a group?"
-              description="Teams are a secondary path: same learner product, plus dashboards, assignments, and cohort visibility."
+              description="Teams stay secondary: same learner product, plus dashboards, assignments, and cohort visibility."
             />
             <div className="grid gap-4 md:grid-cols-3">
               {teamPlans.map((plan) => (
@@ -1493,6 +1482,44 @@ export function PricingPage({ openAuthModal }: PublicPageProps) {
                     <span className="ml-1 text-sm font-normal text-muted-foreground">{plan.cadence}</span>
                   </div>
                   <p className="mt-3 text-sm leading-7 text-muted-foreground">{plan.description}</p>
+                  <ul className="mt-4 space-y-2">
+                    {plan.features.slice(0, 3).map((feature) => (
+                      <li key={feature} className="flex items-start gap-2 text-sm text-foreground">
+                        <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+                        <span>{feature}</span>
+                      </li>
+                    ))}
+                  </ul>
+                  <div className="mt-5">
+                    {plan.name === 'Custom' ? (
+                      <Link
+                        to="/teams#team-demo"
+                        className="inline-flex items-center gap-2 rounded-xl border border-border bg-card px-4 py-2.5 text-sm font-semibold text-foreground transition hover:bg-secondary"
+                      >
+                        <span>{plan.ctaLabel}</span>
+                        <ArrowRight className="h-4 w-4" />
+                      </Link>
+                    ) : (
+                      <Link
+                        to={user ? '/app?section=store' : '/signup'}
+                        onClick={(event) => {
+                          if (!user) {
+                            event.preventDefault();
+                            openAuthModal('signup');
+                            return;
+                          }
+                          trackEvent('subscription_cta_clicked', {
+                            plan: plan.name,
+                            source: 'pricing_page_team_section',
+                          });
+                        }}
+                        className="inline-flex items-center gap-2 rounded-xl border border-border bg-card px-4 py-2.5 text-sm font-semibold text-foreground transition hover:bg-secondary"
+                      >
+                        <span>{plan.ctaLabel}</span>
+                        <ArrowRight className="h-4 w-4" />
+                      </Link>
+                    )}
+                  </div>
                 </div>
               ))}
             </div>

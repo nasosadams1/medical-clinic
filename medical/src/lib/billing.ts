@@ -2,7 +2,11 @@ import { getStoreItem, isPlanStoreItem } from '../../shared/store-catalog.js';
 import { isApiNetworkError, resolveApiBaseUrl } from './apiBase';
 import { supabase } from './supabase';
 
-export type SelfServePlanId = 'pro_monthly' | 'interview_sprint';
+export type SelfServePlanId =
+  | 'pro_monthly'
+  | 'interview_sprint'
+  | 'teams_monthly'
+  | 'teams_growth_monthly';
 const resolveStripeServerUrl = () =>
   (import.meta.env.VITE_STRIPE_SERVER_URL as string | undefined)?.trim() || resolveApiBaseUrl();
 
@@ -40,6 +44,8 @@ export interface PlanStoreProduct {
 const PRICING_PLAN_TO_PRODUCT_ID: Record<string, SelfServePlanId> = {
   Pro: 'pro_monthly',
   'Interview Sprint': 'interview_sprint',
+  Teams: 'teams_monthly',
+  'Teams Growth': 'teams_growth_monthly',
 };
 
 const mapEntitlement = (row: Record<string, any>): PlanEntitlement => {

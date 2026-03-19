@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { ArrowRight, Loader2, ShieldCheck, Swords, Target, Trophy, Users } from 'lucide-react';
+import { ArrowRight, Loader2, LockKeyhole, ShieldCheck, Swords, Target, Trophy, Users } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { Link } from 'react-router-dom';
 import MascotIcon from './branding/MascotIcon';
 import { trackEvent } from '../lib/analytics';
 
@@ -10,6 +11,11 @@ interface MatchmakingQueueProps {
   ensureSocketRegistered: (options?: { silent?: boolean }) => Promise<boolean>;
   onMatchFound: (matchData: any) => void;
   onMatchEnd: (result: any) => void;
+  allowedMatchTypes?: MatchType[];
+  remainingFreeDuels?: number | null;
+  freeDuelLimit?: number | null;
+  advancedAnalyticsUnlocked?: boolean;
+  onDuelStarted?: (matchType: MatchType) => void;
 }
 
 type MatchType = 'ranked' | 'casual';
@@ -52,9 +58,15 @@ export default function MatchmakingQueue({
   ensureSocketRegistered,
   onMatchFound,
   onMatchEnd,
+  allowedMatchTypes = ['casual', 'ranked'],
+  remainingFreeDuels = null,
+  freeDuelLimit = null,
+  advancedAnalyticsUnlocked = true,
+  onDuelStarted,
 }: MatchmakingQueueProps) {
-  const [selectedMatchType, setSelectedMatchType] = useState<MatchType>('casual');
-  const [activeMatchType, setActiveMatchType] = useState<MatchType>('casual');
+  const initialMatchType: MatchType = allowedMatchTypes.includes('casual') ? 'casual' : allowedMatchTypes[0] || 'casual';
+  const [selectedMatchType, setSelectedMatchType] = useState<MatchType>(initialMatchType);
+  const [activeMatchType, setActiveMatchType] = useState<MatchType>(initialMatchType);
   const [inQueue, setInQueue] = useState(false);
   const [isMatchStarting, setIsMatchStarting] = useState(false);
   const [playersOnline, setPlayersOnline] = useState(0);
@@ -62,7 +74,24 @@ export default function MatchmakingQueue({
   const [isJoining, setIsJoining] = useState(false);
 
   const pendingMatchRef = useRef<any>(null);
-  const selectedMatchTypeRef = useRef<MatchType>('casual');
+  const selectedMatchTypeRef = useRef<MatchType>(initialMatchType);
+
+  useEffect(() => {
+    if (allowedMatchTypes.length === 0) return;
+
+    const nextDefaultMatchType: MatchType = allowedMatchTypes.includes('casual')
+      ? 'casual'
+      : allowedMatchTypes[0] || 'casual';
+
+    if (!allowedMatchTypes.includes(selectedMatchType)) {
+      setSelectedMatchType(nextDefaultMatchType);
+      selectedMatchTypeRef.current = nextDefaultMatchType;
+    }
+
+    if (!inQueue && !isJoining && !isMatchStarting && !allowedMatchTypes.includes(activeMatchType)) {
+      setActiveMatchType(nextDefaultMatchType);
+    }
+  }, [activeMatchType, allowedMatchTypes, inQueue, isJoining, isMatchStarting, selectedMatchType]);
 
   useEffect(() => {
     selectedMatchTypeRef.current = selectedMatchType;
@@ -131,6 +160,7 @@ export default function MatchmakingQueue({
       trackEvent('duel_started', {
         matchType: normalizeMatchType(data?.matchType ?? pendingMatchRef.current?.matchType ?? selectedMatchTypeRef.current),
       });
+      onDuelStarted?.(normalizeMatchType(data?.matchType ?? pendingMatchRef.current?.matchType ?? selectedMatchTypeRef.current));
 
       resetPendingState();
       onMatchFound(merged);
@@ -176,13 +206,23 @@ export default function MatchmakingQueue({
       socket.off('match_end', onMatchEndEvent);
       socket.off('server_error', onServerError);
     };
-  }, [onMatchEnd, onMatchFound, socket]);
+  }, [onDuelStarted, onMatchEnd, onMatchFound, socket]);
 
   const handleJoinQueue = async () => {
     if (!socket) return toast.error('Socket not ready');
     if (!socket.connected) return toast.error('Not connected to duel server');
     if (inQueue || isJoining) return;
     const matchType = selectedMatchTypeRef.current;
+
+    if (!allowedMatchTypes.includes(matchType)) {
+      toast.error('Upgrade to unlock this duel mode.');
+      return;
+    }
+
+    if (remainingFreeDuels !== null && remainingFreeDuels <= 0) {
+      toast.error('Free duel access is used up for today. Upgrade to keep playing.');
+      return;
+    }
 
     setIsJoining(true);
     setActiveMatchType(matchType);
@@ -211,6 +251,7 @@ export default function MatchmakingQueue({
 
   const displayedMatchType = inQueue ? activeMatchType : selectedMatchType;
   const isRankedMode = displayedMatchType === 'ranked';
+  const duelLimitReached = remainingFreeDuels !== null && remainingFreeDuels <= 0;
 
   if (isMatchStarting) {
     return (
@@ -248,11 +289,18 @@ export default function MatchmakingQueue({
           <div className="mt-8 grid gap-4 sm:grid-cols-2">
             {queueModeCards.map((mode) => {
               const isActive = selectedMatchType === mode.id;
+              const isLocked = !allowedMatchTypes.includes(mode.id);
               return (
                 <button
                   key={mode.id}
                   type="button"
-                  onClick={() => setSelectedMatchType(mode.id)}
+                  onClick={() => {
+                    if (isLocked) {
+                      toast.error('Upgrade to unlock ranked duels.');
+                      return;
+                    }
+                    setSelectedMatchType(mode.id);
+                  }}
                   disabled={inQueue || isJoining}
                   className={`rounded-2xl border p-5 text-left transition-all duration-300 ${
                     isActive
@@ -260,13 +308,32 @@ export default function MatchmakingQueue({
                       : 'border-border bg-secondary/30 hover:border-primary/20 hover:bg-secondary/45'
                   } disabled:cursor-not-allowed disabled:opacity-70`}
                 >
-                  <div className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">{mode.eyebrow}</div>
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">{mode.eyebrow}</div>
+                    {isLocked ? (
+                      <span className="inline-flex items-center gap-1 rounded-full border border-primary/20 bg-primary/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-primary">
+                        <LockKeyhole className="h-3 w-3" />
+                        Pro / Sprint
+                      </span>
+                    ) : null}
+                  </div>
                   <div className="mt-2 text-xl font-bold font-display text-foreground">{mode.title}</div>
                   <p className="mt-3 text-sm leading-7 text-muted-foreground">{mode.description}</p>
                 </button>
               );
             })}
           </div>
+
+          {remainingFreeDuels !== null ? (
+            <div className="mt-6 rounded-2xl border border-primary/20 bg-primary/10 px-4 py-4 text-sm leading-6 text-foreground">
+              <div className="font-semibold text-primary">Free duel access</div>
+              <div className="mt-1">
+                {duelLimitReached
+                  ? `You used ${freeDuelLimit ?? 0}/${freeDuelLimit ?? 0} duels today.`
+                  : `${remainingFreeDuels} of ${freeDuelLimit ?? 0} casual duels left today.`}
+              </div>
+            </div>
+          ) : null}
 
           <div className="mt-8 flex flex-col gap-3 sm:flex-row">
             {inQueue ? (
@@ -287,13 +354,22 @@ export default function MatchmakingQueue({
               <button
                 type="button"
                 onClick={handleJoinQueue}
-                disabled={isJoining}
+                disabled={isJoining || duelLimitReached}
                 className="inline-flex items-center justify-center gap-2 rounded-xl bg-primary px-5 py-3.5 text-sm font-semibold text-primary-foreground shadow-glow transition hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-70"
               >
                 {isJoining ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowRight className="h-4 w-4" />}
-                {isJoining ? 'Starting queue...' : 'Start queue'}
+                {isJoining ? 'Starting queue...' : duelLimitReached ? 'Upgrade to continue' : 'Start queue'}
               </button>
             )}
+            {duelLimitReached || !advancedAnalyticsUnlocked ? (
+              <Link
+                to="/pricing?intent=pro"
+                className="inline-flex items-center justify-center gap-2 rounded-xl border border-border bg-card px-5 py-3.5 text-sm font-semibold text-foreground transition hover:bg-secondary"
+              >
+                Unlock Pro
+                <ArrowRight className="h-4 w-4" />
+              </Link>
+            ) : null}
           </div>
         </section>
 
@@ -324,10 +400,14 @@ export default function MatchmakingQueue({
                   {isRankedMode ? 'Your skill signal' : 'Queue type'}
                 </div>
                 <div className="mt-3 text-3xl font-bold font-display text-foreground">
-                  {isRankedMode ? rating : 'Casual 1v1'}
+                  {isRankedMode ? (advancedAnalyticsUnlocked ? rating : 'Locked') : 'Casual 1v1'}
                 </div>
                 <div className="mt-1 text-sm text-muted-foreground">
-                  {isRankedMode ? 'Current ranked rating' : 'Practice under real duel conditions'}
+                  {isRankedMode
+                    ? advancedAnalyticsUnlocked
+                      ? 'Current ranked rating'
+                      : 'Ranked rating unlocks with Pro or Interview Sprint'
+                    : 'Practice under real duel conditions'}
                 </div>
               </div>
 

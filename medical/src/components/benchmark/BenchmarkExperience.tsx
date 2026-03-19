@@ -19,7 +19,7 @@ import {
 import toast from 'react-hot-toast';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
-import { usePlanEntitlements } from '../../hooks/usePlanEntitlements';
+import { usePlanAccess } from '../../hooks/usePlanAccess';
 import {
   getBenchmarkDurationSeconds,
   buildBenchmarkQuestions,
@@ -64,6 +64,7 @@ import {
   validateCodeAssessment,
 } from '../../lib/codeAssessment';
 import { benchmarkFormatLabels } from '../../data/benchmarkModel';
+import { FREE_SKILL_CHECK_LIMIT } from '../../lib/planAccess';
 
 type AuthModalView = 'login' | 'signup';
 type BenchmarkView = 'setup' | 'assessment' | 'report';
@@ -346,7 +347,7 @@ export default function BenchmarkExperience({
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const { user, setNavigationCallback } = useAuth();
-  const { getPlanEntitlement } = usePlanEntitlements();
+  const { getPlanEntitlement, hasAnyTeamPlan, hasPaidLearnerAccess } = usePlanAccess();
   const [view, setView] = useState<BenchmarkView>('setup');
   const [setup, setSetup] = useState<BenchmarkSetup>({
     goal: 'interview_prep',
@@ -453,6 +454,30 @@ export default function BenchmarkExperience({
     if (upgradeRecommendation.plan === 'Interview Sprint') return getPlanEntitlement('interview_sprint');
     return null;
   }, [getPlanEntitlement, upgradeRecommendation]);
+  const hasFreeSkillCheckRemaining = hasPaidLearnerAccess || reportHistory.length < FREE_SKILL_CHECK_LIMIT;
+  const canAccessSelectedFormat = hasPaidLearnerAccess || benchmarkFormat === 'quick';
+  const canAccessSelectedGoal =
+    setup.goal === 'skill_growth' ||
+    (setup.goal === 'interview_prep' ? hasPaidLearnerAccess : hasAnyTeamPlan);
+  const canViewFullReport = hasPaidLearnerAccess;
+  const canViewReportHistory = hasPaidLearnerAccess;
+  const canRetakeBenchmark = hasPaidLearnerAccess;
+  const canShareBenchmarkReport = hasPaidLearnerAccess;
+  const setupRestrictionMessage = useMemo(() => {
+    if (!hasFreeSkillCheckRemaining) {
+      return 'Free includes one skill check. Upgrade to unlock more attempts, full history, and retakes.';
+    }
+    if (!canAccessSelectedFormat) {
+      return 'Full benchmarks and retakes unlock with Pro or Interview Sprint.';
+    }
+    if (!canAccessSelectedGoal && setup.goal === 'interview_prep') {
+      return 'Interview-focused skill checks unlock with Pro or Interview Sprint.';
+    }
+    if (!canAccessSelectedGoal && setup.goal === 'class_improvement') {
+      return 'Class improvement skill checks unlock with a Teams plan.';
+    }
+    return null;
+  }, [canAccessSelectedFormat, canAccessSelectedGoal, hasFreeSkillCheckRemaining, setup.goal]);
   const benchmarkSessionKey = useMemo(
     () => getBenchmarkSessionStorageKey(mode, user?.id),
     [mode, user?.id]
@@ -479,6 +504,23 @@ export default function BenchmarkExperience({
       setSetup((current) => ({ ...current, language: presetLanguage }));
     }
   }, [presetLanguage, setup.language]);
+
+  useEffect(() => {
+    if (!hasPaidLearnerAccess && benchmarkFormat !== 'quick') {
+      setBenchmarkFormat('quick');
+    }
+  }, [benchmarkFormat, hasPaidLearnerAccess]);
+
+  useEffect(() => {
+    if (setup.goal === 'interview_prep' && !hasPaidLearnerAccess) {
+      setSetup((current) => ({ ...current, goal: 'skill_growth', roleLevel: 'beginner' }));
+      return;
+    }
+
+    if (setup.goal === 'class_improvement' && !hasAnyTeamPlan) {
+      setSetup((current) => ({ ...current, goal: hasPaidLearnerAccess ? 'interview_prep' : 'skill_growth' }));
+    }
+  }, [hasAnyTeamPlan, hasPaidLearnerAccess, setup.goal]);
 
   useEffect(() => {
     if (view === 'setup') {
@@ -604,9 +646,10 @@ export default function BenchmarkExperience({
       const anonymousHistory = readSavedBenchmarkHistory();
       const localUserHistory = readSavedBenchmarkHistory(user?.id);
       const localHistory = mergeReports(localUserHistory, anonymousHistory);
+      const visibleLocalHistory = hasPaidLearnerAccess ? localHistory : localHistory.slice(0, 1);
       const requestedReportId = searchParams.get('report');
 
-      setSavedReport(localHistory[0] ?? null);
+      setSavedReport(visibleLocalHistory[0] ?? null);
 
       if (!user?.id) {
         setReportHistory(localHistory);
@@ -614,8 +657,8 @@ export default function BenchmarkExperience({
         if (requestedReportId) {
           const targetReport =
             requestedReportId === 'latest'
-              ? localHistory[0]
-              : localHistory.find((entry) => entry.id === requestedReportId);
+              ? visibleLocalHistory[0]
+              : visibleLocalHistory.find((entry) => entry.id === requestedReportId);
 
           if (targetReport) {
             setReport(targetReport);
@@ -646,13 +689,14 @@ export default function BenchmarkExperience({
 
         if (cancelled) return;
         const merged = mergeReports(remoteHistory, localHistory);
+        const visibleMerged = hasPaidLearnerAccess ? merged : merged.slice(0, 1);
         setReportHistory(merged);
-        setSavedReport(merged[0] ?? null);
+        setSavedReport(visibleMerged[0] ?? null);
         if (requestedReportId) {
           const targetReport =
             requestedReportId === 'latest'
-              ? merged[0]
-              : merged.find((entry) => entry.id === requestedReportId);
+              ? visibleMerged[0]
+              : visibleMerged.find((entry) => entry.id === requestedReportId);
 
           if (targetReport) {
             setReport(targetReport);
@@ -663,12 +707,12 @@ export default function BenchmarkExperience({
       } catch (error) {
         if (cancelled) return;
         setReportHistory(localHistory);
-        setSavedReport(localHistory[0] ?? null);
+        setSavedReport(visibleLocalHistory[0] ?? null);
         if (requestedReportId) {
           const targetReport =
             requestedReportId === 'latest'
-              ? localHistory[0]
-              : localHistory.find((entry) => entry.id === requestedReportId);
+              ? visibleLocalHistory[0]
+              : visibleLocalHistory.find((entry) => entry.id === requestedReportId);
 
           if (targetReport) {
             setReport(targetReport);
@@ -689,7 +733,7 @@ export default function BenchmarkExperience({
     return () => {
       cancelled = true;
     };
-  }, [searchParams, setSearchParams, user?.id]);
+  }, [hasPaidLearnerAccess, searchParams, setSearchParams, user?.id]);
 
   useEffect(() => {
     if (view !== 'assessment') return;
@@ -1019,6 +1063,25 @@ export default function BenchmarkExperience({
       toast.error('Benchmark questions are unavailable right now.');
       return;
     }
+    if (!hasFreeSkillCheckRemaining) {
+      toast.error('Free includes one skill check. Upgrade to unlock more attempts.');
+      navigate('/pricing?intent=pro');
+      return;
+    }
+    if (!canAccessSelectedFormat) {
+      toast.error('Full benchmarks and retakes unlock with Pro or Interview Sprint.');
+      navigate('/pricing?intent=pro');
+      return;
+    }
+    if (!canAccessSelectedGoal) {
+      toast.error(
+        setup.goal === 'class_improvement'
+          ? 'Class improvement skill checks unlock with a Teams plan.'
+          : 'Interview-focused skill checks unlock with Pro or Interview Sprint.'
+      );
+      navigate(setup.goal === 'class_improvement' ? '/teams' : '/pricing?intent=interview_sprint');
+      return;
+    }
     setAssessmentQuestions(configuredQuestions);
     setAssessmentStage('baseline');
     setAssessmentAttemptIndex(nextAttemptIndex);
@@ -1142,7 +1205,9 @@ export default function BenchmarkExperience({
       const persistedReport = await persistBenchmarkReport(nextReport);
       setSavedReport(persistedReport);
       setReportHistory((current) => mergeReports([persistedReport], current));
-      setHistoryMessage('Saved to your history.');
+      setHistoryMessage(
+        hasPaidLearnerAccess ? 'Saved to your history.' : 'Starter report saved. Upgrade for full history and retakes.'
+      );
     } catch (error) {
       setHistoryMessage(
         error instanceof Error
@@ -1335,6 +1400,11 @@ export default function BenchmarkExperience({
       unlockRoadmap();
       return;
     }
+    if (!canShareBenchmarkReport) {
+      toast.error('Public report sharing unlocks with Pro or Interview Sprint.');
+      navigate('/pricing?intent=interview_sprint');
+      return;
+    }
 
     setSharingReportId(report.id);
     try {
@@ -1370,6 +1440,7 @@ export default function BenchmarkExperience({
 
   const handleUnshareReport = async () => {
     if (!report?.id) return;
+    if (!canShareBenchmarkReport) return;
 
     setUnsharingReportId(report.id);
     try {
@@ -1389,7 +1460,7 @@ export default function BenchmarkExperience({
     }
   };
 
-  const historyPreview = reportHistory.slice(0, 3);
+  const historyPreview = (canViewReportHistory ? reportHistory : reportHistory.slice(0, 1)).slice(0, 3);
   const headerCard = (
     <div className={surfaceCardClassName}>
       <div className="inline-flex items-center gap-2 rounded-full border border-primary/25 bg-primary/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-primary">
@@ -1644,8 +1715,12 @@ export default function BenchmarkExperience({
             <div className={surfaceCardClassName}>
               <div className="flex items-center justify-between gap-3">
                 <div>
-                  <div className="text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground">Benchmark history</div>
-                  <h3 className="mt-2 text-2xl font-semibold text-foreground">See score progression.</h3>
+                  <div className="text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                    {canViewReportHistory ? 'Benchmark history' : 'Starter report'}
+                  </div>
+                  <h3 className="mt-2 text-2xl font-semibold text-foreground">
+                    {canViewReportHistory ? 'See score progression.' : 'One report is unlocked on Free.'}
+                  </h3>
                 </div>
                 {historyLoading ? <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /> : null}
               </div>
@@ -1670,6 +1745,11 @@ export default function BenchmarkExperience({
                   </button>
                 ))}
               </div>
+              {!canViewReportHistory ? (
+                <div className="mt-4 rounded-2xl border border-primary/20 bg-primary/10 px-4 py-4 text-sm leading-6 text-foreground">
+                  Upgrade to unlock benchmark history, retakes, and score progression over time.
+                </div>
+              ) : null}
             </div>
           ) : null}
         </div>
@@ -1717,36 +1797,81 @@ export default function BenchmarkExperience({
                 <section>
                   <div className="text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground">1. Format</div>
                   <div className="mt-4 grid gap-3 sm:grid-cols-3">
-                    {formatOptions.map((option) => (
-                      <button
-                        key={option.value}
-                        type="button"
-                        onClick={() => setBenchmarkFormat(option.value)}
-                        className={setupCardClassName(
-                          benchmarkFormat === option.value,
-                          'border-primary/40 bg-primary/10 text-foreground'
-                        )}
-                      >
-                        <div className="text-base font-semibold">{option.title}</div>
-                        <div className="mt-1 text-sm leading-6 text-muted-foreground">{option.description}</div>
-                      </button>
-                    ))}
+                    {formatOptions.map((option) => {
+                      const isLocked = !hasPaidLearnerAccess && option.value !== 'quick';
+
+                      return (
+                        <button
+                          key={option.value}
+                          type="button"
+                          onClick={() => {
+                            if (isLocked) {
+                              toast.error('Full benchmarks and retakes unlock with Pro or Interview Sprint.');
+                              navigate('/pricing?intent=pro');
+                              return;
+                            }
+                            setBenchmarkFormat(option.value);
+                          }}
+                          className={setupCardClassName(
+                            benchmarkFormat === option.value,
+                            'border-primary/40 bg-primary/10 text-foreground'
+                          )}
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="text-base font-semibold">{option.title}</div>
+                            {isLocked ? (
+                              <span className="rounded-full border border-primary/20 bg-primary/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-primary">
+                                Pro
+                              </span>
+                            ) : null}
+                          </div>
+                          <div className="mt-1 text-sm leading-6 text-muted-foreground">{option.description}</div>
+                        </button>
+                      );
+                    })}
                   </div>
                 </section>
                 <section>
                   <div className="text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground">2. Goal</div>
                   <div className="mt-4 grid gap-3">
-                    {goalOptions.map((option) => (
-                      <button
-                        key={option.value}
-                        type="button"
-                        onClick={() => setSetup((current) => ({ ...current, goal: option.value }))}
-                        className={setupCardClassName(setup.goal === option.value, 'border-primary/40 bg-primary/10 text-foreground')}
-                      >
-                        <div className="text-base font-semibold">{option.title}</div>
-                        <div className={`mt-1 text-sm leading-6 ${setup.goal === option.value ? 'text-foreground/80' : 'text-muted-foreground'}`}>{option.description}</div>
-                      </button>
-                    ))}
+                    {goalOptions.map((option) => {
+                      const isLocked =
+                        option.value === 'class_improvement'
+                          ? !hasAnyTeamPlan
+                          : option.value === 'interview_prep'
+                          ? !hasPaidLearnerAccess
+                          : false;
+
+                      return (
+                        <button
+                          key={option.value}
+                          type="button"
+                          onClick={() => {
+                            if (isLocked) {
+                              toast.error(
+                                option.value === 'class_improvement'
+                                  ? 'Class improvement skill checks unlock with a Teams plan.'
+                                  : 'Interview-focused skill checks unlock with Pro or Interview Sprint.'
+                              );
+                              navigate(option.value === 'class_improvement' ? '/teams' : '/pricing?intent=interview_sprint');
+                              return;
+                            }
+                            setSetup((current) => ({ ...current, goal: option.value }));
+                          }}
+                          className={setupCardClassName(setup.goal === option.value, 'border-primary/40 bg-primary/10 text-foreground')}
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="text-base font-semibold">{option.title}</div>
+                            {isLocked ? (
+                              <span className="rounded-full border border-primary/20 bg-primary/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-primary">
+                                {option.value === 'class_improvement' ? 'Teams' : 'Paid'}
+                              </span>
+                            ) : null}
+                          </div>
+                          <div className={`mt-1 text-sm leading-6 ${setup.goal === option.value ? 'text-foreground/80' : 'text-muted-foreground'}`}>{option.description}</div>
+                        </button>
+                      );
+                    })}
                   </div>
                 </section>
                 <section>
@@ -1782,6 +1907,12 @@ export default function BenchmarkExperience({
                   </div>
                 </section>
               </div>
+              {setupRestrictionMessage ? (
+                <div className="mt-6 rounded-2xl border border-primary/20 bg-primary/10 px-4 py-4 text-sm leading-6 text-foreground">
+                  <div className="font-semibold text-primary">Upgrade boundary</div>
+                  <div className="mt-1">{setupRestrictionMessage}</div>
+                </div>
+              ) : null}
               <div className="mt-8 flex flex-col gap-4 rounded-[1.5rem] border border-border bg-background/70 p-5 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                   <div className="text-sm font-semibold text-foreground">Get a layered skill report.</div>
@@ -1790,7 +1921,7 @@ export default function BenchmarkExperience({
                   </p>
                 </div>
                 <button type="button" onClick={startBenchmark} className={primaryButtonClassName}>
-                  <span>Start free benchmark</span>
+                  <span>{setupRestrictionMessage ? 'Unlock to continue' : 'Start free benchmark'}</span>
                   <Play className="h-4 w-4" />
                 </button>
               </div>
@@ -1969,11 +2100,12 @@ export default function BenchmarkExperience({
           {view === 'report' && report ? (
             <BenchmarkReportCard
               report={report}
+              accessLevel={canViewFullReport ? 'full' : 'starter'}
               actions={
                 <div className="flex flex-col gap-4">
                   <div className="rounded-[1.5rem] border border-border bg-background/70 p-5">
                     <div className="text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground">Next step</div>
-                    <div className={`mt-4 grid gap-3 ${user ? 'lg:grid-cols-4' : 'lg:grid-cols-3'}`}>
+                    <div className={`mt-4 grid gap-3 ${user && canShareBenchmarkReport ? 'lg:grid-cols-4' : 'lg:grid-cols-3'}`}>
                       <button type="button" onClick={openRecommendedTrack} className={primaryButtonClassName}>
                         <span>{primaryTrack ? 'Open recommended track' : 'Open practice path'}</span>
                         <ArrowRight className="h-4 w-4" />
@@ -1986,7 +2118,7 @@ export default function BenchmarkExperience({
                         <Copy className="h-4 w-4" />
                         <span>Copy progress summary</span>
                       </button>
-                      {user ? (
+                      {user && canShareBenchmarkReport ? (
                         <button
                           type="button"
                           onClick={sharedReportUrl ? copySharedReportLink : handlePublishReport}
@@ -2014,7 +2146,7 @@ export default function BenchmarkExperience({
                     <div className="rounded-[1.5rem] border border-border bg-background/70 p-5">
                       <div className="text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground">Retention loop</div>
                       <p className="mt-3 text-sm leading-6 text-muted-foreground">
-                        Retake after practice to measure progress.
+                        {canRetakeBenchmark ? 'Retake after practice to measure progress.' : 'Upgrade to unlock retakes and a full progress loop.'}
                       </p>
                     </div>
                   )}
@@ -2059,7 +2191,7 @@ export default function BenchmarkExperience({
                         </button>
                       </div>
                     </div>
-                  ) : (
+                  ) : canViewFullReport ? (
                     <div className="rounded-[1.5rem] border border-xp/20 bg-xp/10 p-5">
                       <div className="flex items-center gap-2 text-sm font-semibold uppercase tracking-[0.18em] text-xp">
                         <CheckCircle2 className="h-4 w-4" />
@@ -2105,127 +2237,157 @@ export default function BenchmarkExperience({
                         ) : null}
                       </div>
                     </div>
+                  ) : (
+                    <div className="rounded-[1.5rem] border border-primary/20 bg-primary/10 p-5">
+                      <div className="flex items-center gap-2 text-sm font-semibold uppercase tracking-[0.18em] text-primary">
+                        <LockKeyhole className="h-4 w-4" />
+                        Starter report saved
+                      </div>
+                      <p className="mt-2 text-sm leading-6 text-foreground/80">
+                        Free saves one starter report. Upgrade to unlock the full roadmap, benchmark history, retakes, and public sharing.
+                      </p>
+                      <button type="button" onClick={() => navigate('/pricing?intent=pro')} className={`${primaryButtonClassName} mt-4`}>
+                        <span>Unlock Pro</span>
+                        <ArrowRight className="h-4 w-4" />
+                      </button>
+                    </div>
                   )}
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setBenchmarkFormat('retake');
-                        resetBenchmark('retake');
-                      }}
-                      className={secondaryButtonClassName}
-                    >
-                      <RefreshCcw className="h-4 w-4" />
-                      Retake benchmark
-                    </button>
+                    {canRetakeBenchmark ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setBenchmarkFormat('retake');
+                          resetBenchmark('retake');
+                        }}
+                        className={secondaryButtonClassName}
+                      >
+                        <RefreshCcw className="h-4 w-4" />
+                        Retake benchmark
+                      </button>
+                    ) : (
+                      <button type="button" onClick={() => navigate('/pricing?intent=pro')} className={secondaryButtonClassName}>
+                        <LockKeyhole className="h-4 w-4" />
+                        Unlock retakes
+                      </button>
+                    )}
                     <Link to="/report-sample" className={secondaryButtonClassName}>
                       <span>View sample report</span>
                       <ArrowRight className="h-4 w-4" />
                     </Link>
                   </div>
-                  <div className="rounded-[1.5rem] border border-border bg-background/70 p-5">
-                    <div className="text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground">Question review</div>
-                    <div className="mt-4 space-y-3">
-                      {reportQuestions.map((question) => {
-                        const answerRecord = report.answerRecords.find((entry) => entry.questionId === question.id);
-                        const selectedAnswer =
-                          answerRecord &&
-                          typeof answerRecord.selectedAnswer === 'number' &&
-                          answerRecord.selectedAnswer >= 0 &&
-                          Array.isArray(question.options)
-                            ? question.options[answerRecord.selectedAnswer]
-                            : 'No answer selected';
+                  {canViewFullReport ? (
+                    <div className="rounded-[1.5rem] border border-border bg-background/70 p-5">
+                      <div className="text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground">Question review</div>
+                      <div className="mt-4 space-y-3">
+                        {reportQuestions.map((question) => {
+                          const answerRecord = report.answerRecords.find((entry) => entry.questionId === question.id);
+                          const selectedAnswer =
+                            answerRecord &&
+                            typeof answerRecord.selectedAnswer === 'number' &&
+                            answerRecord.selectedAnswer >= 0 &&
+                            Array.isArray(question.options)
+                              ? question.options[answerRecord.selectedAnswer]
+                              : 'No answer selected';
 
-                        return (
-                          <div key={question.id} className="rounded-2xl border border-border bg-card p-4">
-                            <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                              <div className="min-w-0">
-                                <div className="text-sm font-semibold text-foreground">{question.prompt}</div>
-                                <div className="mt-1 flex flex-wrap items-center gap-2 text-xs uppercase tracking-[0.18em] text-muted-foreground">
-                                  <span>{question.sectionLabel}</span>
-                                  <span className="text-foreground/60">/</span>
-                                  <span>{question.competency}</span>
-                                  <span className="text-foreground/60">/</span>
-                                  <span>{question.evaluationStrategy}</span>
+                          return (
+                            <div key={question.id} className="rounded-2xl border border-border bg-card p-4">
+                              <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                                <div className="min-w-0">
+                                  <div className="text-sm font-semibold text-foreground">{question.prompt}</div>
+                                  <div className="mt-1 flex flex-wrap items-center gap-2 text-xs uppercase tracking-[0.18em] text-muted-foreground">
+                                    <span>{question.sectionLabel}</span>
+                                    <span className="text-foreground/60">/</span>
+                                    <span>{question.competency}</span>
+                                    <span className="text-foreground/60">/</span>
+                                    <span>{question.evaluationStrategy}</span>
+                                  </div>
                                 </div>
+                                <span className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] ${answerRecord?.isCorrect ? 'bg-xp/15 text-xp' : 'bg-coins/15 text-coins'}`}>
+                                  {answerRecord?.isCorrect ? 'Correct' : 'Review'}
+                                </span>
                               </div>
-                              <span className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] ${answerRecord?.isCorrect ? 'bg-xp/15 text-xp' : 'bg-coins/15 text-coins'}`}>
-                                {answerRecord?.isCorrect ? 'Correct' : 'Review'}
-                              </span>
-                            </div>
-                            <div className="mt-4 grid gap-3 lg:grid-cols-2">
-                              {question.kind === 'multiple_choice' ? (
-                                <>
-                                  <div className="rounded-2xl bg-background px-4 py-3">
-                                    <div className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">Your answer</div>
-                                    <div className="mt-1 text-sm text-foreground">{selectedAnswer}</div>
-                                  </div>
-                                  <div className="rounded-2xl bg-background px-4 py-3">
-                                    <div className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">Correct answer</div>
-                                    <div className="mt-1 text-sm text-foreground">
-                                      {Array.isArray(question.options) && typeof question.correctAnswer === 'number'
-                                        ? question.options[question.correctAnswer]
-                                        : 'Reference answer unavailable'}
+                              <div className="mt-4 grid gap-3 lg:grid-cols-2">
+                                {question.kind === 'multiple_choice' ? (
+                                  <>
+                                    <div className="rounded-2xl bg-background px-4 py-3">
+                                      <div className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">Your answer</div>
+                                      <div className="mt-1 text-sm text-foreground">{selectedAnswer}</div>
                                     </div>
-                                  </div>
-                                </>
-                              ) : (
-                                <>
-                                  <div className="rounded-2xl bg-background px-4 py-3">
-                                    <div className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">Your code</div>
-                                    <pre className="mt-2 overflow-x-auto whitespace-pre-wrap rounded-xl bg-slate-950/90 p-3 text-xs leading-6 text-slate-100">
-                                      {answerRecord?.submittedCode?.trim() || 'No code submitted'}
-                                    </pre>
-                                  </div>
-                                  <div className="rounded-2xl bg-background px-4 py-3">
-                                    <div className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">Reference code</div>
-                                    <pre className="mt-2 overflow-x-auto whitespace-pre-wrap rounded-xl bg-slate-950/90 p-3 text-xs leading-6 text-emerald-200">
-                                      {question.referenceCode?.trim() || 'Reference answer unavailable'}
-                                    </pre>
-                                  </div>
-                                </>
-                              )}
-                            </div>
-                            {answerRecord?.rubricBreakdown ? (
-                              <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
-                                {Object.entries(answerRecord.rubricBreakdown).map(([label, value]) => (
-                                  <div key={label} className="rounded-xl border border-border bg-background px-3 py-2">
-                                    <div className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
-                                      {label.replace(/([A-Z])/g, ' $1').trim()}
+                                    <div className="rounded-2xl bg-background px-4 py-3">
+                                      <div className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">Correct answer</div>
+                                      <div className="mt-1 text-sm text-foreground">
+                                        {Array.isArray(question.options) && typeof question.correctAnswer === 'number'
+                                          ? question.options[question.correctAnswer]
+                                          : 'Reference answer unavailable'}
+                                      </div>
                                     </div>
-                                    <div className="mt-1 text-sm font-semibold text-foreground">{value}%</div>
-                                  </div>
-                                ))}
+                                  </>
+                                ) : (
+                                  <>
+                                    <div className="rounded-2xl bg-background px-4 py-3">
+                                      <div className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">Your code</div>
+                                      <pre className="mt-2 overflow-x-auto whitespace-pre-wrap rounded-xl bg-slate-950/90 p-3 text-xs leading-6 text-slate-100">
+                                        {answerRecord?.submittedCode?.trim() || 'No code submitted'}
+                                      </pre>
+                                    </div>
+                                    <div className="rounded-2xl bg-background px-4 py-3">
+                                      <div className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">Reference code</div>
+                                      <pre className="mt-2 overflow-x-auto whitespace-pre-wrap rounded-xl bg-slate-950/90 p-3 text-xs leading-6 text-emerald-200">
+                                        {question.referenceCode?.trim() || 'Reference answer unavailable'}
+                                      </pre>
+                                    </div>
+                                  </>
+                                )}
                               </div>
-                            ) : null}
-                            {answerRecord?.testResults?.length ? (
-                              <div className="mt-3 grid gap-2 sm:grid-cols-2">
-                                {answerRecord.testResults
-                                  .filter((entry) => !entry.hidden)
-                                  .map((entry, index) => (
-                                    <div key={`${question.id}-review-test-${index}`} className="rounded-xl border border-border bg-background px-3 py-2">
+                              {answerRecord?.rubricBreakdown ? (
+                                <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+                                  {Object.entries(answerRecord.rubricBreakdown).map(([label, value]) => (
+                                    <div key={label} className="rounded-xl border border-border bg-background px-3 py-2">
                                       <div className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
-                                        {entry.label || `Test ${index + 1}`}
+                                        {label.replace(/([A-Z])/g, ' $1').trim()}
                                       </div>
-                                      <div className="mt-1 text-sm font-medium text-foreground">
-                                        {entry.passed ? 'Passed' : entry.reason}
-                                      </div>
+                                      <div className="mt-1 text-sm font-semibold text-foreground">{value}%</div>
                                     </div>
                                   ))}
-                              </div>
-                            ) : null}
-                            <div className="mt-3 rounded-2xl border border-border bg-background px-4 py-3">
-                              <div className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">Why it matters</div>
-                              <div className="mt-1 text-sm leading-6 text-muted-foreground">{question.explanation}</div>
-                              {answerRecord?.evaluationMessage ? (
-                                <div className="mt-2 text-sm text-foreground/80">{answerRecord.evaluationMessage}</div>
+                                </div>
                               ) : null}
+                              {answerRecord?.testResults?.length ? (
+                                <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                                  {answerRecord.testResults
+                                    .filter((entry) => !entry.hidden)
+                                    .map((entry, index) => (
+                                      <div key={`${question.id}-review-test-${index}`} className="rounded-xl border border-border bg-background px-3 py-2">
+                                        <div className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
+                                          {entry.label || `Test ${index + 1}`}
+                                        </div>
+                                        <div className="mt-1 text-sm font-medium text-foreground">
+                                          {entry.passed ? 'Passed' : entry.reason}
+                                        </div>
+                                      </div>
+                                    ))}
+                                </div>
+                              ) : null}
+                              <div className="mt-3 rounded-2xl border border-border bg-background px-4 py-3">
+                                <div className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">Why it matters</div>
+                                <div className="mt-1 text-sm leading-6 text-muted-foreground">{question.explanation}</div>
+                                {answerRecord?.evaluationMessage ? (
+                                  <div className="mt-2 text-sm text-foreground/80">{answerRecord.evaluationMessage}</div>
+                                ) : null}
+                              </div>
                             </div>
-                          </div>
-                        );
-                      })}
+                          );
+                        })}
+                      </div>
                     </div>
-                  </div>
+                  ) : (
+                    <div className="rounded-[1.5rem] border border-primary/20 bg-primary/10 p-5">
+                      <div className="text-sm font-semibold uppercase tracking-[0.18em] text-primary">Full report locked</div>
+                      <p className="mt-3 text-sm leading-6 text-foreground/80">
+                        Upgrade to unlock question review, detailed dimensions, confidence bands, and your full roadmap.
+                      </p>
+                    </div>
+                  )}
                 </div>
               }
             />

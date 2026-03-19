@@ -3,6 +3,7 @@ import { BarChart3, CalendarDays, Copy, Loader2, Mail, Plus, Users } from 'lucid
 import toast from 'react-hot-toast';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
+import { usePlanAccess } from '../../hooks/usePlanAccess';
 import { interviewTracks, publicProductMetrics, teamUseCases } from '../../data/siteContent';
 import { trackEvent } from '../../lib/analytics';
 import {
@@ -260,6 +261,7 @@ const PublicTeamsWorkspace = ({ mode, inviteCode }: { mode: 'public' | 'app'; in
 
 export default function TeamsWorkspace({ mode = 'public' }: TeamsWorkspaceProps) {
   const { user } = useAuth();
+  const { activeTeamEntitlement, hasAnyTeamPlan } = usePlanAccess();
   const [searchParams, setSearchParams] = useSearchParams();
   const inviteCodeFromQuery = searchParams.get('invite');
   const [teams, setTeams] = useState<TeamSummary[]>([]);
@@ -293,6 +295,7 @@ export default function TeamsWorkspace({ mode = 'public' }: TeamsWorkspaceProps)
   });
 
   const canManageTeam = useMemo(() => ['owner', 'admin', 'coach'].includes(teamDetail?.team.currentUserRole || ''), [teamDetail?.team.currentUserRole]);
+  const canCreateTeams = hasAnyTeamPlan;
   const improvementLeaders = useMemo(
     () =>
       [...(teamDetail?.members || [])]
@@ -421,6 +424,11 @@ export default function TeamsWorkspace({ mode = 'public' }: TeamsWorkspaceProps)
   };
 
   const handleCreateTeam = async () => {
+    if (!canCreateTeams) {
+      toast.error('A Teams plan is required to create a workspace.');
+      return;
+    }
+
     if (!createForm.name.trim()) {
       toast.error('Team name is required.');
       return;
@@ -655,20 +663,30 @@ export default function TeamsWorkspace({ mode = 'public' }: TeamsWorkspaceProps)
           <div className="mt-6 grid gap-4 lg:grid-cols-2">
             <div className={workspacePanelClass}>
               <div className="text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground">Create a team</div>
-              <div className="mt-4 space-y-3">
-                <input value={createForm.name} onChange={(event) => setCreateForm((current) => ({ ...current, name: event.target.value }))} placeholder="Athens bootcamp cohort" className={workspaceInputClass} />
-                <textarea value={createForm.description} onChange={(event) => setCreateForm((current) => ({ ...current, description: event.target.value }))} placeholder="Short description for this pilot." rows={3} className={workspaceInputClass} />
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <select value={createForm.useCase} onChange={(event) => setCreateForm((current) => ({ ...current, useCase: event.target.value as TeamUseCase }))} className={workspaceInputClass}>
-                    {teamUseCaseOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-                  </select>
-                  <input type="number" min={1} max={1000} value={createForm.seatLimit} onChange={(event) => setCreateForm((current) => ({ ...current, seatLimit: Number(event.target.value) || 25 }))} className={workspaceInputClass} />
+              {canCreateTeams ? (
+                <div className="mt-4 space-y-3">
+                  <input value={createForm.name} onChange={(event) => setCreateForm((current) => ({ ...current, name: event.target.value }))} placeholder="Athens bootcamp cohort" className={workspaceInputClass} />
+                  <textarea value={createForm.description} onChange={(event) => setCreateForm((current) => ({ ...current, description: event.target.value }))} placeholder="Short description for this pilot." rows={3} className={workspaceInputClass} />
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <select value={createForm.useCase} onChange={(event) => setCreateForm((current) => ({ ...current, useCase: event.target.value as TeamUseCase }))} className={workspaceInputClass}>
+                      {teamUseCaseOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                    </select>
+                    <input type="number" min={1} max={1000} value={createForm.seatLimit} onChange={(event) => setCreateForm((current) => ({ ...current, seatLimit: Number(event.target.value) || 25 }))} className={workspaceInputClass} />
+                  </div>
+                  <button type="button" onClick={handleCreateTeam} disabled={creatingTeam} className={workspacePrimaryButtonClass}>
+                    {creatingTeam ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+                    {creatingTeam ? 'Creating team...' : 'Create team workspace'}
+                  </button>
                 </div>
-                <button type="button" onClick={handleCreateTeam} disabled={creatingTeam} className={workspacePrimaryButtonClass}>
-                  {creatingTeam ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
-                  {creatingTeam ? 'Creating team...' : 'Create team workspace'}
-                </button>
-              </div>
+              ) : (
+                <div className="mt-4 rounded-2xl border border-primary/20 bg-primary/10 px-4 py-4 text-sm leading-6 text-foreground">
+                  <div className="font-semibold text-primary">Teams plan required</div>
+                  <div className="mt-1">
+                    Create workspaces with Teams, Teams Growth, or Custom.
+                    {activeTeamEntitlement?.currentPeriodEnd ? ` Active until ${formatDueLabel(activeTeamEntitlement.currentPeriodEnd)}.` : ''}
+                  </div>
+                </div>
+              )}
             </div>
 
             <div className={workspacePanelClass}>
