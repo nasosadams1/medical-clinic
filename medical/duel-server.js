@@ -18,6 +18,10 @@ import { createLegalRouter } from "./services/legal/routes.js";
 import { createDuelAdminRouter } from "./services/duel-admin/routes.js";
 import { createDuelProblemAdminRouter } from "./services/duel-problems/routes.js";
 import { createProgressionRouter } from "./services/progression/routes.js";
+import { createBenchmarkRouter } from "./services/benchmark/routes.js";
+import { createTeamsRouter } from "./services/teams/routes.js";
+import { createAnalyticsRouter } from "./services/analytics/routes.js";
+import { createLeadsRouter } from "./services/leads/routes.js";
 import {
   formatAllowedOriginsError,
   getDevAllowedOrigins,
@@ -194,6 +198,10 @@ app.use("/api/legal", createLegalRouter({ supabaseAdmin: supabase }));
 app.use("/api/duel/admin", createDuelAdminRouter({ supabaseAdmin: supabase }));
 app.use("/api/duel/problems", createDuelProblemAdminRouter({ supabaseAdmin: supabase }));
 app.use("/api/progression", createProgressionRouter({ supabaseAdmin: supabase }));
+app.use("/api/benchmark", createBenchmarkRouter({ supabaseAdmin: supabase }));
+app.use("/api/teams", createTeamsRouter({ supabaseAdmin: supabase }));
+app.use("/api/analytics", createAnalyticsRouter({ supabaseAdmin: supabase }));
+app.use("/api/leads", createLeadsRouter({ supabaseAdmin: supabase }));
 
 function emitServerError(socket, message, details) {
   console.error("server_error:", message, details || "");
