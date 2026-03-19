@@ -266,7 +266,7 @@ export default function AppShell({ openAuthModal }: AppShellProps) {
   };
 
   return (
-    <div className="flex h-screen overflow-hidden bg-background text-foreground">
+    <div className="flex min-h-[100dvh] min-w-0 overflow-hidden bg-background text-foreground">
       <Sidebar
         currentSection={currentSection}
         setCurrentSection={(section) => handleSectionChange(section as SectionId)}
@@ -280,8 +280,8 @@ export default function AppShell({ openAuthModal }: AppShellProps) {
         <div className="fixed inset-0 z-40 bg-background/80 backdrop-blur-sm lg:hidden" onClick={() => setSidebarOpen(false)} />
       ) : null}
 
-      <div className={`flex flex-1 flex-col overflow-hidden transition-[padding] duration-300 ${sidebarOpen ? 'lg:pl-64' : 'lg:pl-0'}`}>
-        <header className="flex h-14 items-center justify-between border-b border-border bg-background/80 px-4 backdrop-blur sm:px-5 lg:px-6 xl:px-8">
+      <div className={`flex min-w-0 flex-1 flex-col overflow-hidden transition-[padding] duration-300 ${sidebarOpen ? 'lg:pl-64' : 'lg:pl-0'}`}>
+        <header className="flex h-14 shrink-0 items-center justify-between border-b border-border bg-background/80 px-4 backdrop-blur sm:px-5 lg:px-6 xl:px-8">
           <div className="flex items-center gap-3">
             <button
               type="button"
@@ -309,11 +309,11 @@ export default function AppShell({ openAuthModal }: AppShellProps) {
           </div>
         </header>
 
-        <main className="flex-1 overflow-y-auto bg-background">
+        <main className="min-w-0 flex-1 overflow-y-auto bg-background">
           {renderSection()}
         </main>
 
-        <nav className="flex border-t border-border bg-card lg:hidden">
+        <nav className="flex shrink-0 border-t border-border bg-card lg:hidden">
           {navItems.map((item) => {
             const Icon = item.icon;
             const isActive = item.id === 'signup' ? false : currentSection === item.id;

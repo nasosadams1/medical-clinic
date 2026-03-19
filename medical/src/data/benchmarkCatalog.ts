@@ -1,11 +1,19 @@
 import {
   getBenchmarkQuestionCandidates,
-  type BenchmarkQuestionDifficulty,
   type BenchmarkQuestionTemplate,
 } from './benchmarkQuestionBank';
 import { interviewTracks, type LanguageSlug } from './siteContent';
 import { normalizeCodeForComparison } from '../lib/codeAssessment';
 import { duelProblemCatalog } from '../../data/duel-problem-catalog.js';
+import {
+  benchmarkDimensionLabels,
+  benchmarkSectionLabels,
+  type BenchmarkCodeRubric,
+  type BenchmarkDimensionKey,
+  type BenchmarkQuestionAssessmentType,
+  type BenchmarkQuestionDifficulty,
+  type BenchmarkQuestionSection,
+} from './benchmarkModel';
 
 export type BenchmarkGoal = 'interview_prep' | 'class_improvement' | 'skill_growth';
 export type BenchmarkRoleLevel = 'beginner' | 'intern' | 'junior' | 'general_practice';
@@ -20,6 +28,11 @@ export interface BenchmarkQuestion {
   id: string;
   templateId: string;
   slotId: string;
+  section: BenchmarkQuestionSection;
+  sectionLabel: string;
+  assessmentType: BenchmarkQuestionAssessmentType;
+  dimensions: BenchmarkDimensionKey[];
+  anchor: boolean;
   lessonId: string;
   lessonTitle: string;
   kind: 'multiple_choice' | 'code';
@@ -30,6 +43,11 @@ export interface BenchmarkQuestion {
   referenceCode?: string;
   validationMode?: 'exact' | 'includes_all';
   requiredSnippets?: string[];
+  edgeCaseSnippets?: string[];
+  qualitySignals?: string[];
+  efficiencySignals?: string[];
+  forbiddenPatterns?: string[];
+  weights?: BenchmarkCodeRubric['weights'];
   explanation: string;
   competency: string;
   difficulty: BenchmarkQuestionDifficulty;
@@ -41,6 +59,13 @@ export interface BenchmarkAnswerRecord {
   selectedAnswer?: number;
   submittedCode?: string;
   evaluationMessage?: string;
+  scorePercent?: number;
+  rubricBreakdown?: {
+    correctness: number;
+    edgeCaseHandling: number;
+    codeQuality: number;
+    efficiency: number;
+  };
   isCorrect: boolean;
 }
 
@@ -50,6 +75,26 @@ export interface BenchmarkEstimation {
   targetRoleLabel: string;
   baselineScore: number;
   competencyCoveragePercent: number;
+}
+
+export interface BenchmarkReportDimensionScore {
+  key: BenchmarkDimensionKey;
+  label: string;
+  score: number;
+  description: string;
+}
+
+export interface BenchmarkReportSectionScore {
+  section: BenchmarkQuestionSection;
+  label: string;
+  score: number;
+  questionCount: number;
+}
+
+export interface BenchmarkConfidenceBand {
+  label: string;
+  percent: number;
+  description: string;
 }
 
 export interface BenchmarkReport {
@@ -66,6 +111,9 @@ export interface BenchmarkReport {
   totalQuestions: number;
   strengths: string[];
   weaknesses: string[];
+  dimensionScores: BenchmarkReportDimensionScore[];
+  sectionScores: BenchmarkReportSectionScore[];
+  confidenceBand: BenchmarkConfidenceBand;
   recommendedTrackIds: string[];
   suggestedLessonIds: string[];
   suggestedDuelProblemTitles: string[];
@@ -83,12 +131,15 @@ export interface BenchmarkReport {
 
 const BENCHMARK_SETUP_PRESET_STORAGE_KEY = 'codhak-benchmark-setup-preset';
 const BENCHMARK_HISTORY_STORAGE_KEY = 'codhak-benchmark-history';
-const BENCHMARK_VERSION = 'v2-calibrated';
+const BENCHMARK_VERSION = 'v3-layered';
 
 type BenchmarkPlanSlot = {
   slotId: string;
+  section: BenchmarkQuestionSection;
+  assessmentType: BenchmarkQuestionAssessmentType;
   competency: string;
   difficulty: BenchmarkQuestionDifficulty;
+  anchor?: boolean;
   preferredKind?: 'multiple_choice' | 'code';
 };
 
@@ -101,14 +152,28 @@ export interface BenchmarkBlueprintSummary {
   questionCount: number;
   difficultyMix: Record<BenchmarkQuestionDifficulty, number>;
   competencies: string[];
+  sectionMix: Record<BenchmarkQuestionSection, number>;
 }
 
 const slot = (
   slotId: string,
+  section: BenchmarkQuestionSection,
   competency: string,
   difficulty: BenchmarkQuestionDifficulty,
-  preferredKind?: 'multiple_choice' | 'code'
-): BenchmarkPlanSlot => ({ slotId, competency, difficulty, preferredKind });
+  options: {
+    assessmentType: BenchmarkQuestionAssessmentType;
+    preferredKind?: 'multiple_choice' | 'code';
+    anchor?: boolean;
+  }
+): BenchmarkPlanSlot => ({
+  slotId,
+  section,
+  competency,
+  difficulty,
+  preferredKind: options.preferredKind,
+  assessmentType: options.assessmentType,
+  anchor: Boolean(options.anchor),
+});
 
 const difficultyWeights: Record<BenchmarkQuestionDifficulty, number> = {
   beginner: 1,
@@ -119,117 +184,432 @@ const difficultyWeights: Record<BenchmarkQuestionDifficulty, number> = {
 const benchmarkPlans: Record<BenchmarkGoal, Record<BenchmarkRoleLevel, BenchmarkPlanSlot[]>> = {
   interview_prep: {
     beginner: [
-      slot('vars-1', 'Syntax and variables', 'beginner', 'code'),
-      slot('types-1', 'Data types and operators', 'beginner'),
-      slot('flow-1', 'Control flow', 'beginner', 'code'),
-      slot('functions-1', 'Functions', 'intermediate', 'code'),
-      slot('problem-solving-1', 'Problem solving', 'intermediate', 'code'),
-      slot('collections-1', 'Collections', 'intermediate', 'code'),
+      slot('baseline-language', 'baseline', 'Data types and operators', 'beginner', {
+        assessmentType: 'theory',
+        preferredKind: 'multiple_choice',
+        anchor: true,
+      }),
+      slot('baseline-flow', 'baseline', 'Control flow', 'beginner', {
+        assessmentType: 'implementation',
+        preferredKind: 'code',
+        anchor: true,
+      }),
+      slot('implementation-functions', 'implementation', 'Functions', 'intermediate', {
+        assessmentType: 'implementation',
+        preferredKind: 'code',
+      }),
+      slot('implementation-collections', 'implementation', 'Collections', 'intermediate', {
+        assessmentType: 'implementation',
+        preferredKind: 'code',
+      }),
+      slot('debugging-problem-solving', 'debugging', 'Problem solving', 'advanced', {
+        assessmentType: 'debugging',
+        preferredKind: 'code',
+      }),
+      slot('comprehension-functions', 'comprehension', 'Functions', 'intermediate', {
+        assessmentType: 'comprehension',
+        preferredKind: 'multiple_choice',
+      }),
+      slot('theory-oop', 'theory', 'Objects and classes', 'advanced', {
+        assessmentType: 'theory',
+        preferredKind: 'multiple_choice',
+      }),
     ],
     intern: [
-      slot('types-1', 'Data types and operators', 'beginner'),
-      slot('flow-1', 'Control flow', 'beginner', 'code'),
-      slot('collections-1', 'Collections', 'intermediate', 'code'),
-      slot('functions-1', 'Functions', 'intermediate', 'code'),
-      slot('problem-solving-1', 'Problem solving', 'intermediate', 'code'),
-      slot('problem-solving-2', 'Problem solving', 'intermediate', 'code'),
-      slot('oop-1', 'Objects and classes', 'advanced'),
+      slot('baseline-language', 'baseline', 'Data types and operators', 'beginner', {
+        assessmentType: 'theory',
+        preferredKind: 'multiple_choice',
+        anchor: true,
+      }),
+      slot('baseline-flow', 'baseline', 'Control flow', 'beginner', {
+        assessmentType: 'implementation',
+        preferredKind: 'code',
+        anchor: true,
+      }),
+      slot('implementation-functions', 'implementation', 'Functions', 'intermediate', {
+        assessmentType: 'implementation',
+        preferredKind: 'code',
+      }),
+      slot('implementation-collections', 'implementation', 'Collections', 'intermediate', {
+        assessmentType: 'implementation',
+        preferredKind: 'code',
+      }),
+      slot('implementation-problem-solving', 'implementation', 'Problem solving', 'intermediate', {
+        assessmentType: 'implementation',
+        preferredKind: 'code',
+      }),
+      slot('debugging-problem-solving', 'debugging', 'Problem solving', 'advanced', {
+        assessmentType: 'debugging',
+        preferredKind: 'code',
+      }),
+      slot('comprehension-problem-solving', 'comprehension', 'Problem solving', 'intermediate', {
+        assessmentType: 'comprehension',
+        preferredKind: 'multiple_choice',
+      }),
+      slot('theory-oop', 'theory', 'Objects and classes', 'advanced', {
+        assessmentType: 'theory',
+        preferredKind: 'multiple_choice',
+      }),
     ],
     junior: [
-      slot('flow-1', 'Control flow', 'beginner', 'code'),
-      slot('functions-1', 'Functions', 'intermediate', 'code'),
-      slot('collections-1', 'Collections', 'intermediate', 'code'),
-      slot('problem-solving-1', 'Problem solving', 'intermediate', 'code'),
-      slot('problem-solving-2', 'Problem solving', 'intermediate', 'code'),
-      slot('oop-1', 'Objects and classes', 'advanced'),
-      slot('oop-2', 'Objects and classes', 'advanced'),
-      slot('functions-2', 'Functions', 'intermediate', 'code'),
+      slot('baseline-language', 'baseline', 'Data types and operators', 'beginner', {
+        assessmentType: 'theory',
+        preferredKind: 'multiple_choice',
+        anchor: true,
+      }),
+      slot('baseline-flow', 'baseline', 'Control flow', 'beginner', {
+        assessmentType: 'implementation',
+        preferredKind: 'code',
+        anchor: true,
+      }),
+      slot('implementation-functions', 'implementation', 'Functions', 'intermediate', {
+        assessmentType: 'implementation',
+        preferredKind: 'code',
+      }),
+      slot('implementation-collections', 'implementation', 'Collections', 'intermediate', {
+        assessmentType: 'implementation',
+        preferredKind: 'code',
+      }),
+      slot('implementation-problem-solving', 'implementation', 'Problem solving', 'intermediate', {
+        assessmentType: 'implementation',
+        preferredKind: 'code',
+      }),
+      slot('debugging-problem-solving', 'debugging', 'Problem solving', 'advanced', {
+        assessmentType: 'debugging',
+        preferredKind: 'code',
+      }),
+      slot('comprehension-functions', 'comprehension', 'Functions', 'intermediate', {
+        assessmentType: 'comprehension',
+        preferredKind: 'multiple_choice',
+      }),
+      slot('comprehension-problem-solving', 'comprehension', 'Problem solving', 'intermediate', {
+        assessmentType: 'comprehension',
+        preferredKind: 'multiple_choice',
+      }),
+      slot('theory-oop', 'theory', 'Objects and classes', 'advanced', {
+        assessmentType: 'theory',
+        preferredKind: 'multiple_choice',
+      }),
     ],
     general_practice: [
-      slot('vars-1', 'Syntax and variables', 'beginner', 'code'),
-      slot('types-1', 'Data types and operators', 'beginner'),
-      slot('flow-1', 'Control flow', 'beginner', 'code'),
-      slot('functions-1', 'Functions', 'intermediate', 'code'),
-      slot('collections-1', 'Collections', 'intermediate', 'code'),
-      slot('problem-solving-1', 'Problem solving', 'intermediate', 'code'),
-      slot('oop-1', 'Objects and classes', 'advanced'),
+      slot('baseline-language', 'baseline', 'Syntax and variables', 'beginner', {
+        assessmentType: 'implementation',
+        preferredKind: 'code',
+        anchor: true,
+      }),
+      slot('baseline-theory', 'baseline', 'Data types and operators', 'beginner', {
+        assessmentType: 'theory',
+        preferredKind: 'multiple_choice',
+        anchor: true,
+      }),
+      slot('implementation-flow', 'implementation', 'Control flow', 'beginner', {
+        assessmentType: 'implementation',
+        preferredKind: 'code',
+      }),
+      slot('implementation-functions', 'implementation', 'Functions', 'intermediate', {
+        assessmentType: 'implementation',
+        preferredKind: 'code',
+      }),
+      slot('implementation-collections', 'implementation', 'Collections', 'intermediate', {
+        assessmentType: 'implementation',
+        preferredKind: 'code',
+      }),
+      slot('debugging-problem-solving', 'debugging', 'Problem solving', 'advanced', {
+        assessmentType: 'debugging',
+        preferredKind: 'code',
+      }),
+      slot('comprehension-functions', 'comprehension', 'Functions', 'intermediate', {
+        assessmentType: 'comprehension',
+        preferredKind: 'multiple_choice',
+      }),
+      slot('theory-oop', 'theory', 'Objects and classes', 'advanced', {
+        assessmentType: 'theory',
+        preferredKind: 'multiple_choice',
+      }),
     ],
   },
   class_improvement: {
     beginner: [
-      slot('vars-1', 'Syntax and variables', 'beginner', 'code'),
-      slot('types-1', 'Data types and operators', 'beginner'),
-      slot('flow-1', 'Control flow', 'beginner', 'code'),
-      slot('flow-2', 'Control flow', 'beginner', 'code'),
-      slot('collections-1', 'Collections', 'intermediate', 'code'),
-      slot('functions-1', 'Functions', 'intermediate', 'code'),
+      slot('baseline-language', 'baseline', 'Syntax and variables', 'beginner', {
+        assessmentType: 'implementation',
+        preferredKind: 'code',
+        anchor: true,
+      }),
+      slot('baseline-theory', 'baseline', 'Data types and operators', 'beginner', {
+        assessmentType: 'theory',
+        preferredKind: 'multiple_choice',
+        anchor: true,
+      }),
+      slot('implementation-flow', 'implementation', 'Control flow', 'beginner', {
+        assessmentType: 'implementation',
+        preferredKind: 'code',
+      }),
+      slot('implementation-functions', 'implementation', 'Functions', 'intermediate', {
+        assessmentType: 'implementation',
+        preferredKind: 'code',
+      }),
+      slot('debugging-flow', 'debugging', 'Problem solving', 'advanced', {
+        assessmentType: 'debugging',
+        preferredKind: 'code',
+      }),
+      slot('comprehension-collections', 'comprehension', 'Collections', 'intermediate', {
+        assessmentType: 'comprehension',
+        preferredKind: 'multiple_choice',
+      }),
+      slot('theory-control-flow', 'theory', 'Control flow', 'beginner', {
+        assessmentType: 'theory',
+        preferredKind: 'multiple_choice',
+      }),
     ],
     intern: [
-      slot('vars-1', 'Syntax and variables', 'beginner', 'code'),
-      slot('types-1', 'Data types and operators', 'beginner'),
-      slot('flow-1', 'Control flow', 'beginner', 'code'),
-      slot('collections-1', 'Collections', 'intermediate', 'code'),
-      slot('functions-1', 'Functions', 'intermediate', 'code'),
-      slot('functions-2', 'Functions', 'intermediate', 'code'),
-      slot('problem-solving-1', 'Problem solving', 'intermediate', 'code'),
+      slot('baseline-language', 'baseline', 'Syntax and variables', 'beginner', {
+        assessmentType: 'implementation',
+        preferredKind: 'code',
+        anchor: true,
+      }),
+      slot('baseline-theory', 'baseline', 'Data types and operators', 'beginner', {
+        assessmentType: 'theory',
+        preferredKind: 'multiple_choice',
+        anchor: true,
+      }),
+      slot('implementation-flow', 'implementation', 'Control flow', 'beginner', {
+        assessmentType: 'implementation',
+        preferredKind: 'code',
+      }),
+      slot('implementation-functions', 'implementation', 'Functions', 'intermediate', {
+        assessmentType: 'implementation',
+        preferredKind: 'code',
+      }),
+      slot('implementation-problem-solving', 'implementation', 'Problem solving', 'intermediate', {
+        assessmentType: 'implementation',
+        preferredKind: 'code',
+      }),
+      slot('debugging-problem-solving', 'debugging', 'Problem solving', 'advanced', {
+        assessmentType: 'debugging',
+        preferredKind: 'code',
+      }),
+      slot('comprehension-collections', 'comprehension', 'Collections', 'intermediate', {
+        assessmentType: 'comprehension',
+        preferredKind: 'multiple_choice',
+      }),
+      slot('theory-oop', 'theory', 'Objects and classes', 'advanced', {
+        assessmentType: 'theory',
+        preferredKind: 'multiple_choice',
+      }),
     ],
     junior: [
-      slot('vars-1', 'Syntax and variables', 'beginner', 'code'),
-      slot('flow-1', 'Control flow', 'beginner', 'code'),
-      slot('types-1', 'Data types and operators', 'beginner'),
-      slot('functions-1', 'Functions', 'intermediate', 'code'),
-      slot('functions-2', 'Functions', 'intermediate', 'code'),
-      slot('collections-1', 'Collections', 'intermediate', 'code'),
-      slot('problem-solving-1', 'Problem solving', 'intermediate', 'code'),
-      slot('oop-1', 'Objects and classes', 'advanced'),
-      slot('flow-2', 'Control flow', 'beginner', 'code'),
+      slot('baseline-language', 'baseline', 'Syntax and variables', 'beginner', {
+        assessmentType: 'implementation',
+        preferredKind: 'code',
+        anchor: true,
+      }),
+      slot('baseline-theory', 'baseline', 'Data types and operators', 'beginner', {
+        assessmentType: 'theory',
+        preferredKind: 'multiple_choice',
+        anchor: true,
+      }),
+      slot('implementation-flow', 'implementation', 'Control flow', 'beginner', {
+        assessmentType: 'implementation',
+        preferredKind: 'code',
+      }),
+      slot('implementation-functions', 'implementation', 'Functions', 'intermediate', {
+        assessmentType: 'implementation',
+        preferredKind: 'code',
+      }),
+      slot('implementation-collections', 'implementation', 'Collections', 'intermediate', {
+        assessmentType: 'implementation',
+        preferredKind: 'code',
+      }),
+      slot('implementation-problem-solving', 'implementation', 'Problem solving', 'intermediate', {
+        assessmentType: 'implementation',
+        preferredKind: 'code',
+      }),
+      slot('debugging-problem-solving', 'debugging', 'Problem solving', 'advanced', {
+        assessmentType: 'debugging',
+        preferredKind: 'code',
+      }),
+      slot('comprehension-functions', 'comprehension', 'Functions', 'intermediate', {
+        assessmentType: 'comprehension',
+        preferredKind: 'multiple_choice',
+      }),
+      slot('theory-oop', 'theory', 'Objects and classes', 'advanced', {
+        assessmentType: 'theory',
+        preferredKind: 'multiple_choice',
+      }),
     ],
     general_practice: [
-      slot('vars-1', 'Syntax and variables', 'beginner', 'code'),
-      slot('types-1', 'Data types and operators', 'beginner'),
-      slot('flow-1', 'Control flow', 'beginner', 'code'),
-      slot('collections-1', 'Collections', 'intermediate', 'code'),
-      slot('functions-1', 'Functions', 'intermediate', 'code'),
-      slot('problem-solving-1', 'Problem solving', 'intermediate', 'code'),
+      slot('baseline-language', 'baseline', 'Syntax and variables', 'beginner', {
+        assessmentType: 'implementation',
+        preferredKind: 'code',
+        anchor: true,
+      }),
+      slot('baseline-theory', 'baseline', 'Data types and operators', 'beginner', {
+        assessmentType: 'theory',
+        preferredKind: 'multiple_choice',
+        anchor: true,
+      }),
+      slot('implementation-flow', 'implementation', 'Control flow', 'beginner', {
+        assessmentType: 'implementation',
+        preferredKind: 'code',
+      }),
+      slot('implementation-functions', 'implementation', 'Functions', 'intermediate', {
+        assessmentType: 'implementation',
+        preferredKind: 'code',
+      }),
+      slot('debugging-problem-solving', 'debugging', 'Problem solving', 'advanced', {
+        assessmentType: 'debugging',
+        preferredKind: 'code',
+      }),
+      slot('comprehension-collections', 'comprehension', 'Collections', 'intermediate', {
+        assessmentType: 'comprehension',
+        preferredKind: 'multiple_choice',
+      }),
+      slot('theory-control-flow', 'theory', 'Control flow', 'beginner', {
+        assessmentType: 'theory',
+        preferredKind: 'multiple_choice',
+      }),
     ],
   },
   skill_growth: {
     beginner: [
-      slot('vars-1', 'Syntax and variables', 'beginner', 'code'),
-      slot('types-1', 'Data types and operators', 'beginner'),
-      slot('flow-1', 'Control flow', 'beginner', 'code'),
-      slot('collections-1', 'Collections', 'intermediate', 'code'),
-      slot('functions-1', 'Functions', 'intermediate', 'code'),
-      slot('functions-2', 'Functions', 'intermediate', 'code'),
+      slot('baseline-language', 'baseline', 'Syntax and variables', 'beginner', {
+        assessmentType: 'implementation',
+        preferredKind: 'code',
+        anchor: true,
+      }),
+      slot('baseline-theory', 'baseline', 'Data types and operators', 'beginner', {
+        assessmentType: 'theory',
+        preferredKind: 'multiple_choice',
+        anchor: true,
+      }),
+      slot('implementation-flow', 'implementation', 'Control flow', 'beginner', {
+        assessmentType: 'implementation',
+        preferredKind: 'code',
+      }),
+      slot('implementation-functions', 'implementation', 'Functions', 'intermediate', {
+        assessmentType: 'implementation',
+        preferredKind: 'code',
+      }),
+      slot('implementation-collections', 'implementation', 'Collections', 'intermediate', {
+        assessmentType: 'implementation',
+        preferredKind: 'code',
+      }),
+      slot('comprehension-functions', 'comprehension', 'Functions', 'intermediate', {
+        assessmentType: 'comprehension',
+        preferredKind: 'multiple_choice',
+      }),
+      slot('theory-control-flow', 'theory', 'Control flow', 'beginner', {
+        assessmentType: 'theory',
+        preferredKind: 'multiple_choice',
+      }),
     ],
     intern: [
-      slot('vars-1', 'Syntax and variables', 'beginner', 'code'),
-      slot('collections-1', 'Collections', 'intermediate', 'code'),
-      slot('functions-1', 'Functions', 'intermediate', 'code'),
-      slot('functions-2', 'Functions', 'intermediate', 'code'),
-      slot('problem-solving-1', 'Problem solving', 'intermediate', 'code'),
-      slot('collections-2', 'Collections', 'intermediate', 'code'),
-      slot('flow-1', 'Control flow', 'beginner', 'code'),
-      slot('oop-1', 'Objects and classes', 'advanced'),
+      slot('baseline-language', 'baseline', 'Syntax and variables', 'beginner', {
+        assessmentType: 'implementation',
+        preferredKind: 'code',
+        anchor: true,
+      }),
+      slot('baseline-theory', 'baseline', 'Data types and operators', 'beginner', {
+        assessmentType: 'theory',
+        preferredKind: 'multiple_choice',
+        anchor: true,
+      }),
+      slot('implementation-functions', 'implementation', 'Functions', 'intermediate', {
+        assessmentType: 'implementation',
+        preferredKind: 'code',
+      }),
+      slot('implementation-collections', 'implementation', 'Collections', 'intermediate', {
+        assessmentType: 'implementation',
+        preferredKind: 'code',
+      }),
+      slot('implementation-problem-solving', 'implementation', 'Problem solving', 'intermediate', {
+        assessmentType: 'implementation',
+        preferredKind: 'code',
+      }),
+      slot('debugging-problem-solving', 'debugging', 'Problem solving', 'advanced', {
+        assessmentType: 'debugging',
+        preferredKind: 'code',
+      }),
+      slot('comprehension-problem-solving', 'comprehension', 'Problem solving', 'intermediate', {
+        assessmentType: 'comprehension',
+        preferredKind: 'multiple_choice',
+      }),
+      slot('theory-oop', 'theory', 'Objects and classes', 'advanced', {
+        assessmentType: 'theory',
+        preferredKind: 'multiple_choice',
+      }),
     ],
     junior: [
-      slot('collections-1', 'Collections', 'intermediate', 'code'),
-      slot('functions-1', 'Functions', 'intermediate', 'code'),
-      slot('functions-2', 'Functions', 'intermediate', 'code'),
-      slot('problem-solving-1', 'Problem solving', 'intermediate', 'code'),
-      slot('problem-solving-2', 'Problem solving', 'intermediate', 'code'),
-      slot('oop-1', 'Objects and classes', 'advanced'),
-      slot('collections-2', 'Collections', 'intermediate', 'code'),
-      slot('oop-2', 'Objects and classes', 'advanced'),
+      slot('baseline-language', 'baseline', 'Syntax and variables', 'beginner', {
+        assessmentType: 'implementation',
+        preferredKind: 'code',
+        anchor: true,
+      }),
+      slot('baseline-theory', 'baseline', 'Data types and operators', 'beginner', {
+        assessmentType: 'theory',
+        preferredKind: 'multiple_choice',
+        anchor: true,
+      }),
+      slot('implementation-functions', 'implementation', 'Functions', 'intermediate', {
+        assessmentType: 'implementation',
+        preferredKind: 'code',
+      }),
+      slot('implementation-collections', 'implementation', 'Collections', 'intermediate', {
+        assessmentType: 'implementation',
+        preferredKind: 'code',
+      }),
+      slot('implementation-problem-solving', 'implementation', 'Problem solving', 'intermediate', {
+        assessmentType: 'implementation',
+        preferredKind: 'code',
+      }),
+      slot('debugging-problem-solving', 'debugging', 'Problem solving', 'advanced', {
+        assessmentType: 'debugging',
+        preferredKind: 'code',
+      }),
+      slot('comprehension-functions', 'comprehension', 'Functions', 'intermediate', {
+        assessmentType: 'comprehension',
+        preferredKind: 'multiple_choice',
+      }),
+      slot('comprehension-problem-solving', 'comprehension', 'Problem solving', 'intermediate', {
+        assessmentType: 'comprehension',
+        preferredKind: 'multiple_choice',
+      }),
+      slot('theory-oop', 'theory', 'Objects and classes', 'advanced', {
+        assessmentType: 'theory',
+        preferredKind: 'multiple_choice',
+      }),
     ],
     general_practice: [
-      slot('vars-1', 'Syntax and variables', 'beginner', 'code'),
-      slot('types-1', 'Data types and operators', 'beginner'),
-      slot('flow-1', 'Control flow', 'beginner', 'code'),
-      slot('collections-1', 'Collections', 'intermediate', 'code'),
-      slot('functions-1', 'Functions', 'intermediate', 'code'),
-      slot('functions-2', 'Functions', 'intermediate', 'code'),
-      slot('oop-1', 'Objects and classes', 'advanced'),
+      slot('baseline-language', 'baseline', 'Syntax and variables', 'beginner', {
+        assessmentType: 'implementation',
+        preferredKind: 'code',
+        anchor: true,
+      }),
+      slot('baseline-theory', 'baseline', 'Data types and operators', 'beginner', {
+        assessmentType: 'theory',
+        preferredKind: 'multiple_choice',
+        anchor: true,
+      }),
+      slot('implementation-flow', 'implementation', 'Control flow', 'beginner', {
+        assessmentType: 'implementation',
+        preferredKind: 'code',
+      }),
+      slot('implementation-functions', 'implementation', 'Functions', 'intermediate', {
+        assessmentType: 'implementation',
+        preferredKind: 'code',
+      }),
+      slot('debugging-problem-solving', 'debugging', 'Problem solving', 'advanced', {
+        assessmentType: 'debugging',
+        preferredKind: 'code',
+      }),
+      slot('comprehension-collections', 'comprehension', 'Collections', 'intermediate', {
+        assessmentType: 'comprehension',
+        preferredKind: 'multiple_choice',
+      }),
+      slot('theory-oop', 'theory', 'Objects and classes', 'advanced', {
+        assessmentType: 'theory',
+        preferredKind: 'multiple_choice',
+      }),
     ],
   },
 };
@@ -264,11 +644,93 @@ export const getBenchmarkBlueprintSummary = (setup: BenchmarkSetup): BenchmarkBl
       } as Record<BenchmarkQuestionDifficulty, number>
     ),
     competencies: Array.from(new Set(plan.map((entry) => entry.competency))),
+    sectionMix: plan.reduce(
+      (mix, entry) => {
+        mix[entry.section] += 1;
+        return mix;
+      },
+      {
+        baseline: 0,
+        implementation: 0,
+        debugging: 0,
+        comprehension: 0,
+        theory: 0,
+      } as Record<BenchmarkQuestionSection, number>
+    ),
   };
 };
 
-const getQuestionWeight = (setup: BenchmarkSetup, template: BenchmarkQuestionTemplate) => {
+const getSlotDimensions = (
+  slotDefinition: BenchmarkPlanSlot,
+  template: BenchmarkQuestionTemplate
+): BenchmarkDimensionKey[] => {
+  const set = new Set<BenchmarkDimensionKey>();
+
+  if (slotDefinition.section === 'baseline' || slotDefinition.section === 'theory') {
+    set.add('language_fluency');
+  }
+
+  if (slotDefinition.section === 'implementation') {
+    set.add('code_writing');
+    set.add('code_quality');
+  }
+
+  if (slotDefinition.section === 'debugging') {
+    set.add('debugging');
+    set.add('code_reading');
+    set.add('code_quality');
+  }
+
+  if (slotDefinition.section === 'comprehension') {
+    set.add('code_reading');
+  }
+
+  if (
+    template.competency === 'Collections' ||
+    template.competency === 'Functions' ||
+    template.competency === 'Problem solving'
+  ) {
+    set.add('problem_solving');
+  }
+
+  if (
+    template.competency === 'Syntax and variables' ||
+    template.competency === 'Data types and operators' ||
+    template.competency === 'Objects and classes'
+  ) {
+    set.add('language_fluency');
+  }
+
+  if (template.kind === 'code' && slotDefinition.section !== 'theory') {
+    set.add('code_writing');
+  }
+
+  if (
+    template.kind === 'code' &&
+    (template.competency === 'Collections' || template.competency === 'Problem solving')
+  ) {
+    set.add('efficiency');
+  }
+
+  return Array.from(set);
+};
+
+const sectionWeightMultiplier: Record<BenchmarkQuestionSection, number> = {
+  baseline: 0.95,
+  implementation: 1.15,
+  debugging: 1.2,
+  comprehension: 1.05,
+  theory: 0.9,
+};
+
+const getQuestionWeight = (
+  setup: BenchmarkSetup,
+  template: BenchmarkQuestionTemplate,
+  slotDefinition: BenchmarkPlanSlot
+) => {
   let weight = difficultyWeights[template.difficulty];
+
+  weight *= sectionWeightMultiplier[slotDefinition.section];
 
   if (setup.goal === 'interview_prep' && (template.competency === 'Problem solving' || template.competency === 'Objects and classes')) {
     weight *= 1.12;
@@ -293,30 +755,77 @@ const getQuestionWeight = (setup: BenchmarkSetup, template: BenchmarkQuestionTem
   return Math.round(weight * 100) / 100;
 };
 
+const getLatestComparableReport = (setup: BenchmarkSetup, reports: BenchmarkReport[] = []) =>
+  reports
+    .filter((report) => matchesSetup(report.setup, setup))
+    .sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime())[0];
+
+const getAdaptiveDifficulty = (
+  setup: BenchmarkSetup,
+  slotDefinition: BenchmarkPlanSlot,
+  recentReports: BenchmarkReport[] = []
+) => {
+  const latestComparableReport = getLatestComparableReport(setup, recentReports);
+  if (!latestComparableReport || slotDefinition.anchor || slotDefinition.section === 'baseline') {
+    return slotDefinition.difficulty;
+  }
+
+  if (latestComparableReport.overallScore >= 82 && slotDefinition.difficulty === 'intermediate') {
+    return 'advanced' as const;
+  }
+
+  if (latestComparableReport.overallScore <= 42 && slotDefinition.difficulty === 'advanced') {
+    return 'intermediate' as const;
+  }
+
+  if (
+    latestComparableReport.overallScore <= 36 &&
+    slotDefinition.difficulty === 'intermediate' &&
+    slotDefinition.section !== 'implementation'
+  ) {
+    return 'beginner' as const;
+  }
+
+  return slotDefinition.difficulty;
+};
+
 const getCandidatePool = (
   language: LanguageSlug,
-  slotDefinition: BenchmarkPlanSlot
+  slotDefinition: BenchmarkPlanSlot,
+  setup: BenchmarkSetup,
+  recentReports: BenchmarkReport[]
 ): BenchmarkQuestionTemplate[] => {
   const candidates = getBenchmarkQuestionCandidates(language);
+  const targetDifficulty = getAdaptiveDifficulty(setup, slotDefinition, recentReports);
   const exactMatches = candidates.filter(
     (candidate) =>
       candidate.competency === slotDefinition.competency &&
-      candidate.difficulty === slotDefinition.difficulty &&
+      candidate.difficulty === targetDifficulty &&
+      candidate.assessmentType === slotDefinition.assessmentType &&
       (!slotDefinition.preferredKind || candidate.kind === slotDefinition.preferredKind)
   );
 
   if (exactMatches.length > 0) return exactMatches;
 
+  const assessmentMatches = candidates.filter(
+    (candidate) =>
+      candidate.competency === slotDefinition.competency &&
+      candidate.assessmentType === slotDefinition.assessmentType &&
+      (!slotDefinition.preferredKind || candidate.kind === slotDefinition.preferredKind)
+  );
+  if (assessmentMatches.length > 0) return assessmentMatches;
+
   const competencyMatches = candidates.filter(
     (candidate) =>
       candidate.competency === slotDefinition.competency &&
+      candidate.assessmentType === slotDefinition.assessmentType &&
       (!slotDefinition.preferredKind || candidate.kind === slotDefinition.preferredKind)
   );
   if (competencyMatches.length > 0) return competencyMatches;
 
   const difficultyMatches = candidates.filter(
     (candidate) =>
-      candidate.difficulty === slotDefinition.difficulty &&
+      candidate.difficulty === targetDifficulty &&
       (!slotDefinition.preferredKind || candidate.kind === slotDefinition.preferredKind)
   );
   if (difficultyMatches.length > 0) return difficultyMatches;
@@ -331,15 +840,21 @@ const selectQuestionTemplate = (
   attemptIndex: number,
   slotIndex: number,
   usedTemplateIds: Set<string>,
-  recentlyUsedTemplateIds: Set<string>
+  recentlyUsedTemplateIds: Set<string>,
+  recentReports: BenchmarkReport[]
 ) => {
-  const candidates = getCandidatePool(language, slotDefinition);
+  const candidates = getCandidatePool(language, slotDefinition, setup, recentReports);
   if (candidates.length === 0) return null;
 
   const orderedCandidates = [...candidates].sort((left, right) => left.templateId.localeCompare(right.templateId));
-  const seed = Math.abs(hashString(`${setup.language}:${setup.goal}:${setup.roleLevel}:${attemptIndex}:${slotDefinition.slotId}`));
-  const freshCandidates = orderedCandidates.filter(
-    (candidate) => !usedTemplateIds.has(candidate.templateId) && !recentlyUsedTemplateIds.has(candidate.templateId)
+  const seedKey = slotDefinition.anchor
+    ? `${setup.language}:${setup.goal}:${setup.roleLevel}:${slotDefinition.slotId}`
+    : `${setup.language}:${setup.goal}:${setup.roleLevel}:${attemptIndex}:${slotDefinition.slotId}`;
+  const seed = Math.abs(hashString(seedKey));
+  const freshCandidates = orderedCandidates.filter((candidate) =>
+    slotDefinition.anchor
+      ? !usedTemplateIds.has(candidate.templateId)
+      : !usedTemplateIds.has(candidate.templateId) && !recentlyUsedTemplateIds.has(candidate.templateId)
   );
   const unusedCandidates = orderedCandidates.filter((candidate) => !usedTemplateIds.has(candidate.templateId));
   const activePool =
@@ -371,7 +886,8 @@ export const buildBenchmarkQuestions = (
         attemptIndex,
         slotIndex,
         usedTemplateIds,
-        recentlyUsedTemplateIds
+        recentlyUsedTemplateIds,
+        options.recentReports || []
       );
 
       if (!template) return null;
@@ -382,6 +898,11 @@ export const buildBenchmarkQuestions = (
         id: `${template.templateId}-a${attemptIndex + 1}-s${slotIndex + 1}`,
         templateId: template.templateId,
         slotId: slotDefinition.slotId,
+        section: slotDefinition.section,
+        sectionLabel: benchmarkSectionLabels[slotDefinition.section],
+        assessmentType: template.assessmentType || slotDefinition.assessmentType,
+        dimensions: getSlotDimensions(slotDefinition, template),
+        anchor: Boolean(slotDefinition.anchor),
         lessonId: template.lessonId,
         lessonTitle: template.lessonTitle,
         kind: template.kind,
@@ -392,10 +913,15 @@ export const buildBenchmarkQuestions = (
         referenceCode: template.referenceCode,
         validationMode: template.validationMode,
         requiredSnippets: template.requiredSnippets,
+        edgeCaseSnippets: template.edgeCaseSnippets,
+        qualitySignals: template.qualitySignals,
+        efficiencySignals: template.efficiencySignals,
+        forbiddenPatterns: template.forbiddenPatterns,
+        weights: template.weights,
         explanation: template.explanation,
         competency: template.competency,
         difficulty: template.difficulty,
-        weight: getQuestionWeight(setup, template),
+        weight: getQuestionWeight(setup, template, slotDefinition),
       };
     })
     .filter((question): question is BenchmarkQuestion => Boolean(question));
@@ -582,6 +1108,101 @@ const getDuelReadiness = (overallScore: number, answeredRatio: number) => {
   };
 };
 
+const getAnswerScorePercent = (question: BenchmarkQuestion, answer?: BenchmarkAnswerRecord) => {
+  if (!answer) return 0;
+  if (typeof answer.scorePercent === 'number') {
+    return clamp(Math.round(answer.scorePercent), 0, 100);
+  }
+  if (question.kind === 'multiple_choice') {
+    return answer.isCorrect ? 100 : 0;
+  }
+  return answer.isCorrect ? 100 : 0;
+};
+
+const getDimensionContribution = (
+  dimension: BenchmarkDimensionKey,
+  question: BenchmarkQuestion,
+  answer?: BenchmarkAnswerRecord
+) => {
+  const fallbackScore = getAnswerScorePercent(question, answer);
+  const rubric = answer?.rubricBreakdown;
+
+  if (!rubric) return fallbackScore;
+
+  switch (dimension) {
+    case 'code_quality':
+      return rubric.codeQuality;
+    case 'efficiency':
+      return rubric.efficiency;
+    case 'code_writing':
+      return Math.round((rubric.correctness + rubric.codeQuality) / 2);
+    case 'debugging':
+      return question.section === 'debugging'
+        ? Math.round((rubric.correctness + rubric.edgeCaseHandling + rubric.codeQuality) / 3)
+        : fallbackScore;
+    case 'code_reading':
+      return question.section === 'debugging'
+        ? Math.round((rubric.correctness + rubric.edgeCaseHandling) / 2)
+        : fallbackScore;
+    case 'problem_solving':
+      return Math.round((rubric.correctness + rubric.edgeCaseHandling + rubric.efficiency) / 3);
+    case 'language_fluency':
+      return question.kind === 'code' ? Math.round((rubric.correctness + rubric.codeQuality) / 2) : fallbackScore;
+    default:
+      return fallbackScore;
+  }
+};
+
+const getDimensionDescription = (dimension: BenchmarkDimensionKey, score: number) => {
+  if (dimension === 'consistency') {
+    if (score >= 78) return 'Your signal is stable across benchmark attempts.';
+    if (score >= 58) return 'The benchmark signal is usable, but another retake would improve confidence.';
+    return 'Retake once the roadmap work is done so the score is more reliable.';
+  }
+
+  if (score >= 80) return 'This is a clear strength right now.';
+  if (score >= 62) return 'This skill is developing in the right direction.';
+  return 'This area still needs focused practice before it becomes reliable.';
+};
+
+const getConfidenceBand = (
+  overallScore: number,
+  answeredRatio: number,
+  sectionScores: BenchmarkReportSectionScore[],
+  consistencyScore: number
+): BenchmarkConfidenceBand => {
+  const scoredSections = sectionScores.map((entry) => entry.score);
+  const sectionSpread =
+    scoredSections.length > 0 ? Math.max(...scoredSections) - Math.min(...scoredSections) : 0;
+  const percent = clamp(
+    Math.round(44 + answeredRatio * 22 + consistencyScore * 0.24 + overallScore * 0.16 - sectionSpread * 0.12),
+    32,
+    96
+  );
+
+  if (percent >= 78) {
+    return {
+      label: 'High confidence signal',
+      percent,
+      description: 'Coverage, section balance, and score consistency make this benchmark dependable enough to share.',
+    };
+  }
+
+  if (percent >= 60) {
+    return {
+      label: 'Moderate confidence signal',
+      percent,
+      description: 'This is useful for coaching and routing, but one more benchmark pass would strengthen the signal.',
+    };
+  }
+
+  return {
+    label: 'Early confidence signal',
+    percent,
+    description: 'Use this as an initial baseline, then retake after guided practice to make the score more trustworthy.',
+  };
+};
+
 export const buildBenchmarkReport = (
   setup: BenchmarkSetup,
   questions: BenchmarkQuestion[],
@@ -589,11 +1210,12 @@ export const buildBenchmarkReport = (
   options: BuildBenchmarkQuestionOptions = {}
 ): BenchmarkReport => {
   const attemptIndex = options.attemptIndex ?? 0;
-  const correctAnswers = answerRecords.filter((record) => record.isCorrect).length;
   const totalQuestions = Math.max(1, questions.length);
   const answerRecordMap = new Map(answerRecords.map((record) => [record.questionId, record]));
   const questionMap = new Map(questions.map((question) => [question.id, question]));
-  let weightedCorrect = 0;
+  const latestComparableReport = getLatestComparableReport(setup, options.recentReports || []);
+  const correctAnswers = answerRecords.filter((record) => record.isCorrect).length;
+  let weightedScore = 0;
   let weightedTotal = 0;
   const answeredCount = answerRecords.filter(
     (record) => {
@@ -620,37 +1242,88 @@ export const buildBenchmarkReport = (
       );
     }
   ).length;
-  const competencyMap = new Map<string, { correctWeight: number; totalWeight: number; correct: number; total: number }>();
+  const competencyMap = new Map<string, { scoreWeight: number; totalWeight: number; correct: number; total: number }>();
+  const sectionMap = new Map<BenchmarkQuestionSection, { weightedScore: number; totalWeight: number; questionCount: number }>();
+  const dimensionMap = new Map<BenchmarkDimensionKey, { weightedScore: number; totalWeight: number }>();
 
   questions.forEach((question) => {
     const current = competencyMap.get(question.competency) ?? {
-      correctWeight: 0,
+      scoreWeight: 0,
       totalWeight: 0,
       correct: 0,
       total: 0,
     };
     const answer = answerRecordMap.get(question.id);
     const weight = question.weight || difficultyWeights[question.difficulty];
+    const questionScore = getAnswerScorePercent(question, answer);
+    const normalizedQuestionScore = questionScore / 100;
 
     weightedTotal += weight;
-    if (answer?.isCorrect) {
-      weightedCorrect += weight;
-    }
+    weightedScore += weight * normalizedQuestionScore;
 
     competencyMap.set(question.competency, {
       totalWeight: current.totalWeight + weight,
-      correctWeight: current.correctWeight + (answer?.isCorrect ? weight : 0),
+      scoreWeight: current.scoreWeight + weight * normalizedQuestionScore,
       total: current.total + 1,
       correct: current.correct + (answer?.isCorrect ? 1 : 0),
     });
+
+    const currentSection = sectionMap.get(question.section) ?? {
+      weightedScore: 0,
+      totalWeight: 0,
+      questionCount: 0,
+    };
+    sectionMap.set(question.section, {
+      weightedScore: currentSection.weightedScore + weight * normalizedQuestionScore,
+      totalWeight: currentSection.totalWeight + weight,
+      questionCount: currentSection.questionCount + 1,
+    });
+
+    question.dimensions.forEach((dimension) => {
+      const currentDimension = dimensionMap.get(dimension) ?? {
+        weightedScore: 0,
+        totalWeight: 0,
+      };
+      const dimensionScore = getDimensionContribution(dimension, question, answer) / 100;
+      dimensionMap.set(dimension, {
+        weightedScore: currentDimension.weightedScore + weight * dimensionScore,
+        totalWeight: currentDimension.totalWeight + weight,
+      });
+    });
   });
 
-  const overallScore = clamp(Math.round((weightedCorrect / Math.max(1, weightedTotal)) * 100), 0, 100);
+  const overallScore = clamp(Math.round((weightedScore / Math.max(1, weightedTotal)) * 100), 0, 100);
   const competencyScores = Array.from(competencyMap.entries()).map(([competency, score]) => ({
     competency,
-    ratio: score.totalWeight > 0 ? score.correctWeight / score.totalWeight : 0,
+    ratio: score.totalWeight > 0 ? score.scoreWeight / score.totalWeight : 0,
+  }));
+  const sectionScores = Array.from(sectionMap.entries()).map(([section, score]) => ({
+    section,
+    label: benchmarkSectionLabels[section],
+    score: clamp(Math.round((score.weightedScore / Math.max(1, score.totalWeight)) * 100), 0, 100),
+    questionCount: score.questionCount,
+  }));
+  const rawDimensionScores = Array.from(dimensionMap.entries()).map(([key, score]) => ({
+    key,
+    label: benchmarkDimensionLabels[key],
+    score: clamp(Math.round((score.weightedScore / Math.max(1, score.totalWeight)) * 100), 0, 100),
   }));
   const estimation = getRoleEstimate(setup, overallScore, competencyScores);
+  const consistencyScore = latestComparableReport
+    ? clamp(84 - Math.abs(overallScore - latestComparableReport.overallScore) * 2 + (overallScore >= latestComparableReport.overallScore ? 4 : 0), 36, 96)
+    : clamp(54 + (answeredCount / totalQuestions) * 18 + Math.min(attemptIndex, 1) * 8, 42, 76);
+  const dimensionScores: BenchmarkReportDimensionScore[] = [
+    ...rawDimensionScores.map((dimension) => ({
+      ...dimension,
+      description: getDimensionDescription(dimension.key, dimension.score),
+    })),
+    {
+      key: 'consistency',
+      label: benchmarkDimensionLabels.consistency,
+      score: Math.round(consistencyScore),
+      description: getDimensionDescription('consistency', Math.round(consistencyScore)),
+    },
+  ].sort((left, right) => right.score - left.score);
 
   const strengths = competencyScores
     .filter((entry) => entry.ratio >= 0.7)
@@ -665,6 +1338,7 @@ export const buildBenchmarkReport = (
     .map((entry) => entry.competency);
 
   const recommendedTrackIds = getTrackRecommendations(setup, weaknesses);
+  const confidenceBand = getConfidenceBand(overallScore, answeredCount / totalQuestions, sectionScores, consistencyScore);
   const reportId =
     typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
       ? `benchmark-${crypto.randomUUID()}`
@@ -680,6 +1354,9 @@ export const buildBenchmarkReport = (
     totalQuestions,
     strengths: strengths.length > 0 ? strengths : ['Early benchmark momentum'],
     weaknesses: weaknesses.length > 0 ? weaknesses : ['Advanced challenge depth'],
+    dimensionScores,
+    sectionScores,
+    confidenceBand,
     recommendedTrackIds,
     suggestedLessonIds: getSuggestedLessons(questions, weaknesses, recommendedTrackIds),
     suggestedDuelProblemTitles: getSuggestedDuelProblems(overallScore),
@@ -702,6 +1379,35 @@ export const hydrateBenchmarkReport = (report: BenchmarkReport): BenchmarkReport
     Array.isArray(report.questions) && report.questions.length > 0
       ? report.questions.map((question) => ({
           ...question,
+          section:
+            question.section ||
+            (question.kind === 'code'
+              ? 'implementation'
+              : Array.isArray(question.options) && typeof question.correctAnswer === 'number'
+              ? 'theory'
+              : 'comprehension'),
+          sectionLabel:
+            question.sectionLabel ||
+            benchmarkSectionLabels[
+              question.section ||
+                (question.kind === 'code'
+                  ? 'implementation'
+                  : Array.isArray(question.options) && typeof question.correctAnswer === 'number'
+                  ? 'theory'
+                  : 'comprehension')
+            ],
+          assessmentType:
+            question.assessmentType ||
+            (question.kind === 'code'
+              ? 'implementation'
+              : Array.isArray(question.options) && typeof question.correctAnswer === 'number'
+              ? 'theory'
+              : 'comprehension'),
+          dimensions:
+            Array.isArray(question.dimensions) && question.dimensions.length > 0
+              ? question.dimensions
+              : ['language_fluency'],
+          anchor: Boolean(question.anchor),
           kind:
             question.kind ||
             (Array.isArray(question.options) && typeof question.correctAnswer === 'number'
@@ -720,6 +1426,15 @@ export const hydrateBenchmarkReport = (report: BenchmarkReport): BenchmarkReport
     totalQuestions: Number.isFinite(report.totalQuestions) ? report.totalQuestions : questions.length,
     strengths: Array.isArray(report.strengths) && report.strengths.length > 0 ? report.strengths : fallback.strengths,
     weaknesses: Array.isArray(report.weaknesses) && report.weaknesses.length > 0 ? report.weaknesses : fallback.weaknesses,
+    dimensionScores:
+      Array.isArray(report.dimensionScores) && report.dimensionScores.length > 0
+        ? report.dimensionScores
+        : fallback.dimensionScores,
+    sectionScores:
+      Array.isArray(report.sectionScores) && report.sectionScores.length > 0
+        ? report.sectionScores
+        : fallback.sectionScores,
+    confidenceBand: report.confidenceBand || fallback.confidenceBand,
     recommendedTrackIds:
       Array.isArray(report.recommendedTrackIds) && report.recommendedTrackIds.length > 0
         ? report.recommendedTrackIds

@@ -81,6 +81,13 @@
     color-scheme: dark;
   }
 
+  html,
+  body,
+  #root {
+    min-height: 100%;
+    width: 100%;
+  }
+
   body {
     @apply bg-background text-foreground font-sans antialiased;
     background-image:
@@ -88,6 +95,27 @@
       radial-gradient(circle at 80% 20%, hsl(192 91% 52% / 0.08), transparent 24%),
       linear-gradient(180deg, hsl(var(--background)), hsl(222 47% 5%));
     min-height: 100vh;
+    min-height: 100dvh;
+    overflow-x: clip;
+  }
+
+  #root {
+    min-height: 100dvh;
+    overflow-x: clip;
+  }
+
+  img,
+  video,
+  canvas,
+  svg {
+    max-width: 100%;
+  }
+
+  input,
+  textarea,
+  select,
+  button {
+    min-width: 0;
   }
 
   a {

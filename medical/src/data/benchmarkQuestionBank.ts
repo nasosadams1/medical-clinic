@@ -1,7 +1,10 @@
 import type { LanguageSlug } from './siteContent';
 import { benchmarkCodeChallengeBankByLanguage } from './benchmarkCodeChallengeBank';
-
-export type BenchmarkQuestionDifficulty = 'beginner' | 'intermediate' | 'advanced';
+import type {
+  BenchmarkCodeRubric,
+  BenchmarkQuestionAssessmentType,
+  BenchmarkQuestionDifficulty,
+} from './benchmarkModel';
 
 export interface BenchmarkQuestionTemplate {
   templateId: string;
@@ -10,6 +13,7 @@ export interface BenchmarkQuestionTemplate {
   competency: string;
   difficulty: BenchmarkQuestionDifficulty;
   kind: 'multiple_choice' | 'code';
+  assessmentType: BenchmarkQuestionAssessmentType;
   prompt: string;
   options?: string[];
   correctAnswer?: number;
@@ -17,6 +21,11 @@ export interface BenchmarkQuestionTemplate {
   referenceCode?: string;
   validationMode?: 'exact' | 'includes_all';
   requiredSnippets?: string[];
+  edgeCaseSnippets?: string[];
+  qualitySignals?: string[];
+  efficiencySignals?: string[];
+  forbiddenPatterns?: string[];
+  weights?: BenchmarkCodeRubric['weights'];
   explanation: string;
 }
 
@@ -30,7 +39,8 @@ const defineQuestions = (
     options: string[];
     correctAnswer: number;
     explanation: string;
-  }>
+  }>,
+  assessmentType: BenchmarkQuestionAssessmentType = 'theory'
 ): BenchmarkQuestionTemplate[] =>
   variants.map((variant, index) => ({
     templateId: `${lessonId}-benchmark-${index + 1}`,
@@ -39,6 +49,7 @@ const defineQuestions = (
     competency,
     difficulty,
     kind: 'multiple_choice',
+    assessmentType,
     ...variant,
   }));
 
@@ -122,7 +133,7 @@ const pythonTemplates: BenchmarkQuestionTemplate[] = [
       correctAnswer: 2,
       explanation: 'In Python, index `-1` refers to the last item in the list.',
     },
-  ]),
+  ], 'comprehension'),
   ...defineQuestions('python-functions', 'Python Functions', 'Functions', 'intermediate', [
     {
       prompt: 'What does this function return?\n\ndef add(a, b):\n    return a + b\n\nprint(add(2, 3))',
@@ -142,7 +153,7 @@ const pythonTemplates: BenchmarkQuestionTemplate[] = [
       correctAnswer: 1,
       explanation: 'The function multiplies the value by itself, so `square(4)` returns 16.',
     },
-  ]),
+  ], 'comprehension'),
   ...defineQuestions('python-functions', 'Python Functions', 'Problem solving', 'intermediate', [
     {
       prompt: 'What is printed here?\n\nvalues = [1, 2, 3]\ntotal = 0\nfor value in values:\n    total += value\nprint(total)',
@@ -162,7 +173,7 @@ const pythonTemplates: BenchmarkQuestionTemplate[] = [
       correctAnswer: 1,
       explanation: 'Only 4 and 5 are greater than 3, so the counter ends at 2.',
     },
-  ]),
+  ], 'comprehension'),
   ...defineQuestions('python-oop', 'Python OOP', 'Objects and classes', 'advanced', [
     {
       prompt: 'What is `__init__` commonly used for in a Python class?',
@@ -265,7 +276,7 @@ const javascriptTemplates: BenchmarkQuestionTemplate[] = [
       correctAnswer: 2,
       explanation: '`tools.length - 1` points to the last item in the array, which is `"node"`. ',
     },
-  ]),
+  ], 'comprehension'),
   ...defineQuestions('javascript-functions-1', 'JavaScript Functions', 'Functions', 'intermediate', [
     {
       prompt: 'What does this code return?\n\nfunction multiply(a, b) {\n  return a * b;\n}\nconsole.log(multiply(3, 4));',
@@ -285,7 +296,7 @@ const javascriptTemplates: BenchmarkQuestionTemplate[] = [
       correctAnswer: 1,
       explanation: 'The function multiplies the input by 2, so `double(6)` returns 12.',
     },
-  ]),
+  ], 'comprehension'),
   ...defineQuestions('javascript-functions-1', 'JavaScript Functions', 'Problem solving', 'intermediate', [
     {
       prompt: 'What is logged by this loop?\n\nconst nums = [2, 3, 4];\nlet total = 0;\nfor (const num of nums) {\n  total += num;\n}\nconsole.log(total);',
@@ -305,7 +316,7 @@ const javascriptTemplates: BenchmarkQuestionTemplate[] = [
       correctAnswer: 1,
       explanation: 'Only 6 and 9 are greater than 4, so the counter ends at 2.',
     },
-  ]),
+  ], 'comprehension'),
   ...defineQuestions('js-classes-1', 'JS Classes', 'Objects and classes', 'advanced', [
     {
       prompt: 'When does a JavaScript class `constructor` run?',
@@ -408,7 +419,7 @@ const cppTemplates: BenchmarkQuestionTemplate[] = [
       correctAnswer: 0,
       explanation: 'Index 0 points to the first item in the array.',
     },
-  ]),
+  ], 'comprehension'),
   ...defineQuestions('cpp-functions', 'C++ Functions', 'Functions', 'intermediate', [
     {
       prompt: 'What does the `int` mean in `int add(int a, int b)`?',
@@ -428,7 +439,7 @@ const cppTemplates: BenchmarkQuestionTemplate[] = [
       correctAnswer: 1,
       explanation: 'The function multiplies the value by itself, so `square(4)` returns 16.',
     },
-  ]),
+  ], 'comprehension'),
   ...defineQuestions('cpp-functions', 'C++ Functions', 'Problem solving', 'intermediate', [
     {
       prompt: 'What is printed here?\n\nint total = 0;\nfor (int i = 1; i <= 3; i++) {\n  total += i;\n}\ncout << total;',
@@ -448,7 +459,7 @@ const cppTemplates: BenchmarkQuestionTemplate[] = [
       correctAnswer: 1,
       explanation: 'Values 3 and 4 are greater than 2, so the counter ends at 2.',
     },
-  ]),
+  ], 'comprehension'),
   ...defineQuestions('cpp-classes-objects', 'C++ Classes & Objects', 'Objects and classes', 'advanced', [
     {
       prompt: 'What do you call a value created from a class in C++?',
@@ -551,7 +562,7 @@ const javaTemplates: BenchmarkQuestionTemplate[] = [
       correctAnswer: 0,
       explanation: 'Java arrays are zero-indexed, so index 0 refers to the first item.',
     },
-  ]),
+  ], 'comprehension'),
   ...defineQuestions('java-methods', 'Java Methods', 'Functions', 'intermediate', [
     {
       prompt: 'Which return type should a Java method use if it does not return a value?',
@@ -571,7 +582,7 @@ const javaTemplates: BenchmarkQuestionTemplate[] = [
       correctAnswer: 1,
       explanation: 'The method multiplies the input by 2, so it prints 12.',
     },
-  ]),
+  ], 'comprehension'),
   ...defineQuestions('java-methods', 'Java Methods', 'Problem solving', 'intermediate', [
     {
       prompt: 'What is printed here?\n\nint total = 0;\nfor (int i = 1; i <= 3; i++) {\n  total += i;\n}\nSystem.out.println(total);',
@@ -591,7 +602,7 @@ const javaTemplates: BenchmarkQuestionTemplate[] = [
       correctAnswer: 1,
       explanation: 'Only 3 and 4 are greater than 2, so the counter ends at 2.',
     },
-  ]),
+  ], 'comprehension'),
   ...defineQuestions('java-oop', 'Java OOP', 'Objects and classes', 'advanced', [
     {
       prompt: 'In Java OOP, what is encapsulation?',

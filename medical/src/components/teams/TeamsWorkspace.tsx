@@ -60,8 +60,8 @@ const formatDueLabel = (value: string | null | undefined) => {
   return new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric' }).format(new Date(value));
 };
 
-const workspaceShellClass = 'rounded-[1.5rem] border border-border bg-card p-6 shadow-card sm:p-8';
-const workspacePanelClass = 'rounded-[1.35rem] border border-border bg-background/70 p-5';
+const workspaceShellClass = 'min-w-0 rounded-[1.5rem] border border-border bg-card p-6 shadow-card sm:p-8';
+const workspacePanelClass = 'min-w-0 rounded-[1.35rem] border border-border bg-background/70 p-5';
 const workspaceMetricClass = 'rounded-[1.2rem] border border-border bg-background/70 px-4 py-4';
 const workspaceInputClass =
   'w-full rounded-2xl border border-border bg-background px-4 py-3 text-sm text-foreground placeholder:text-muted-foreground';
@@ -118,7 +118,7 @@ const PublicTeamsWorkspace = ({ mode, inviteCode }: { mode: 'public' | 'app'; in
   const navigate = useNavigate();
 
   return (
-    <div className="grid gap-6 xl:grid-cols-[0.95fr_1.05fr]">
+    <div className="grid gap-4 xl:grid-cols-[0.95fr_1.05fr]">
       <section className={workspaceShellClass}>
         <div className="flex flex-col gap-4 border-b border-border pb-6 sm:flex-row sm:items-start sm:justify-between">
           <div>
@@ -127,7 +127,7 @@ const PublicTeamsWorkspace = ({ mode, inviteCode }: { mode: 'public' | 'app'; in
             </div>
             <h2 className="mt-4 text-3xl font-semibold tracking-tight text-foreground">Benchmark a cohort. Assign the next path. Prove improvement.</h2>
             <p className="mt-3 max-w-2xl text-sm leading-6 text-muted-foreground sm:text-base">
-              Codhak teams are built around real benchmark reports, assignments, invite codes, and proof pages. The public surface shows the workflow, not invented cohort numbers.
+              Benchmark, assign, and track progress.
             </p>
           </div>
           <div className="grid gap-3 sm:min-w-[260px]">
@@ -151,7 +151,7 @@ const PublicTeamsWorkspace = ({ mode, inviteCode }: { mode: 'public' | 'app'; in
 
         {inviteCode ? (
           <div className="mt-6 rounded-[1.35rem] border border-primary/20 bg-primary/10 px-5 py-4 text-sm leading-6 text-primary">
-            You arrived with team invite code <span className="font-semibold text-primary-foreground">{inviteCode}</span>. Sign in to Codhak, then open the Teams workspace to join the cohort with this code already prefilled.
+            Invite code detected: <span className="font-semibold text-primary-foreground">{inviteCode}</span>. Sign in to join.
           </div>
         ) : null}
 
@@ -169,15 +169,15 @@ const PublicTeamsWorkspace = ({ mode, inviteCode }: { mode: 'public' | 'app'; in
           <div className={workspacePanelClass}>
             <div className="flex items-center gap-2 text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground">
               <BarChart3 className="h-4 w-4 text-primary" />
-              What a live team workspace includes
+              What teams get
             </div>
             <div className="mt-4 space-y-3">
               {[
-                'Benchmark completion tracking by learner',
-                'Assignment packs for benchmarks, challenge packs, and roadmaps',
-                'Invite-code based cohort onboarding',
-                'Improvement leaders, attention queue, and progress timeline',
-                'Public proof pages when a cohort is ready to share outcomes',
+                'Completion tracking',
+                'Assignments',
+                'Invite codes',
+                'Improvement view',
+                'Public proof pages',
               ].map((item) => (
                 <div key={item} className="rounded-2xl border border-border bg-card px-4 py-3 text-sm text-foreground">
                   {item}
@@ -194,9 +194,9 @@ const PublicTeamsWorkspace = ({ mode, inviteCode }: { mode: 'public' | 'app'; in
               </div>
               <div className="mt-4 space-y-3">
                 {[
-                  ['1. Benchmark first', 'Start with a short benchmark to create a shared baseline.'],
-                  ['2. Assign follow-up work', 'Create benchmark, challenge-pack, or roadmap assignments based on the results.'],
-                  ['3. Review proof of progress', 'Use score movement, leaderboard shifts, and proof pages to show improvement.'],
+                  ['1. Benchmark first', 'Set the baseline.'],
+                  ['2. Assign follow-up work', 'Send the next task.'],
+                  ['3. Review proof of progress', 'Track score movement.'],
                 ].map(([title, description]) => (
                   <div key={title} className="rounded-2xl border border-border bg-card px-4 py-4">
                     <div className="text-sm font-semibold text-foreground">{title}</div>
@@ -226,9 +226,9 @@ const PublicTeamsWorkspace = ({ mode, inviteCode }: { mode: 'public' | 'app'; in
         </div>
       </section>
 
-      <aside className="grid gap-4">
+      <aside className="min-w-0 grid gap-4">
         <div className={workspacePanelClass}>
-          <div className="text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground">Practice tracks teams can assign</div>
+          <div className="text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground">Assignable tracks</div>
           <div className="mt-4 space-y-3">
             {interviewTracks.slice(0, 4).map((track) => (
               <div key={track.id} className="rounded-2xl border border-border bg-card px-4 py-4">
@@ -622,7 +622,8 @@ export default function TeamsWorkspace({ mode = 'public' }: TeamsWorkspaceProps)
   };
 
   return (
-    <div className="grid gap-6 xl:grid-cols-[0.95fr_1.05fr]">
+    <div className={mode === 'app' ? 'px-2 py-2 sm:px-3 lg:px-4 xl:px-5 lg:py-3 xl:py-4' : ''}>
+      <div className="grid gap-4 xl:grid-cols-[0.95fr_1.05fr]">
       <section className={workspaceShellClass}>
         <div className="flex flex-col gap-4 border-b border-border pb-6">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -684,7 +685,7 @@ export default function TeamsWorkspace({ mode = 'public' }: TeamsWorkspaceProps)
                   Invite code detected from your link. Sign in if needed, then join the team directly from here.
                 </div>
               ) : null}
-              <div className="mt-6 rounded-2xl border border-border bg-card px-4 py-4 text-sm leading-6 text-muted-foreground">Create one pilot team or join an existing cohort to unlock assignments, invite codes, and benchmark-derived analytics.</div>
+              <div className="mt-6 rounded-2xl border border-border bg-card px-4 py-4 text-sm leading-6 text-muted-foreground">Create or join a team to unlock analytics.</div>
             </div>
           </div>
         ) : (
@@ -748,7 +749,7 @@ export default function TeamsWorkspace({ mode = 'public' }: TeamsWorkspaceProps)
                   </ul>
                 ) : (
                   <div className="mt-4 rounded-2xl border border-border bg-card px-4 py-4 text-sm leading-6 text-muted-foreground">
-                    No members yet. Create an invite code to start adding learners to this cohort.
+                    No members yet. Create an invite.
                   </div>
                 )}
               </div>
@@ -773,7 +774,7 @@ export default function TeamsWorkspace({ mode = 'public' }: TeamsWorkspaceProps)
                     </ul>
                   ) : (
                     <div className="mt-4 rounded-2xl border border-border bg-card px-4 py-4 text-sm leading-6 text-muted-foreground">
-                      No assignments yet. Start with a benchmark assignment or roadmap follow-up.
+                      No assignments yet. Add one to begin.
                     </div>
                   )}
                   {canManageTeam ? (
@@ -858,7 +859,7 @@ export default function TeamsWorkspace({ mode = 'public' }: TeamsWorkspaceProps)
                       ))
                     ) : (
                       <div className="rounded-2xl border border-border bg-card px-4 py-4 text-sm leading-6 text-muted-foreground">
-                        No invite codes yet. Create one to onboard your first learners or coaches.
+                        No invite codes yet. Create one to start.
                       </div>
                     )}
                   </div>
@@ -915,7 +916,7 @@ export default function TeamsWorkspace({ mode = 'public' }: TeamsWorkspaceProps)
                 <div className={workspacePanelClass}>
                   <div className="text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground">Public proof page</div>
                   <p className="mt-3 text-sm leading-6 text-muted-foreground">
-                    Turn private cohort progress into a shareable proof page with benchmark completion, score movement, and current assignments.
+                    Share cohort progress with one public page.
                   </p>
                   <div className="mt-4 rounded-2xl border border-border bg-card px-4 py-4 text-sm text-muted-foreground">
                     {teamDetail.team.isPublic && sharedTeamProofUrl ? (
@@ -932,7 +933,7 @@ export default function TeamsWorkspace({ mode = 'public' }: TeamsWorkspaceProps)
                       </div>
                     ) : (
                       <div>
-                        Keep this private until you want a clean public proof surface for schools, bootcamps, or team buyers.
+                        Keep this private until you want to share it.
                       </div>
                     )}
                   </div>
@@ -964,7 +965,7 @@ export default function TeamsWorkspace({ mode = 'public' }: TeamsWorkspaceProps)
         )}
       </section>
 
-      <aside className="grid gap-4">
+      <aside className="min-w-0 grid gap-4">
         {teamDetail ? (
           <>
             <div className={workspacePanelClass}>
@@ -993,7 +994,7 @@ export default function TeamsWorkspace({ mode = 'public' }: TeamsWorkspaceProps)
                   ))
                 ) : (
                   <div className="rounded-2xl border border-border bg-card px-4 py-3">
-                    Repeat benchmarks will populate cohort improvement leaders here.
+                    Improvement leaders appear after retakes.
                   </div>
                 )}
               </div>
@@ -1020,7 +1021,7 @@ export default function TeamsWorkspace({ mode = 'public' }: TeamsWorkspaceProps)
                   ))
                 ) : (
                   <div className="rounded-2xl border border-border bg-card px-4 py-3">
-                    No immediate attention cases. This cohort is benchmarked or above the current baseline.
+                    No learners need attention right now.
                   </div>
                 )}
               </div>
@@ -1044,13 +1045,13 @@ export default function TeamsWorkspace({ mode = 'public' }: TeamsWorkspaceProps)
         ) : (
           <>
             <div className={workspacePanelClass}>
-              <div className="text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground">Before the first cohort launch</div>
+              <div className="text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground">Before launch</div>
               <div className="mt-4 space-y-3">
                 {[
                   'Create one team per cohort or program.',
-                  'Use invite codes for learners, coaches, or admins.',
-                  'Start with a benchmark assignment to establish the baseline.',
-                  'Publish a proof page only after the cohort has real improvement data.',
+                  'Use invite codes.',
+                  'Start with a benchmark assignment.',
+                  'Publish proof after real results.',
                 ].map((item) => (
                   <div key={item} className="rounded-2xl border border-border bg-card px-4 py-3 text-sm text-foreground">
                     {item}
@@ -1068,6 +1069,7 @@ export default function TeamsWorkspace({ mode = 'public' }: TeamsWorkspaceProps)
           </>
         )}
       </aside>
+      </div>
     </div>
   );
 }

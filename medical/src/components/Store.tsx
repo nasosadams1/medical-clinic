@@ -222,8 +222,8 @@ function StoreCard({
   }[item.tone];
 
   return (
-    <div className="rounded-2xl border border-border bg-card shadow-card transition-all duration-300 hover:border-primary/20">
-      <div className="absolute right-4 top-4 z-10 flex flex-col gap-2">
+    <div className="relative overflow-hidden rounded-2xl border border-border bg-card shadow-card transition-all duration-300 hover:border-primary/20">
+      <div className="absolute right-4 top-4 z-10 flex max-w-[45%] flex-col items-end gap-2">
         {item.popular ? (
           <span className="rounded-full border border-destructive/20 bg-destructive/10 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.18em] text-destructive">
             Popular
@@ -243,7 +243,7 @@ function StoreCard({
 
       <div className="p-6">
         <div className="flex items-start justify-between gap-4">
-          <div className="flex min-w-0 items-start gap-4">
+          <div className="flex min-w-0 items-start gap-4 pr-24">
             <div className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl ${toneClasses}`}>
               {item.icon}
             </div>
@@ -373,10 +373,10 @@ function PlanCard({
           {isActive
             ? `Active now${activeUntilLabel ? ` until ${activeUntilLabel}` : ''}.`
             : isTeamPlan
-            ? 'Team plans continue through the dedicated teams flow.'
+            ? 'Use the teams flow.'
             : selfServeProduct
-            ? 'Self-serve activation is available directly in this store.'
-            : 'Individual subscriptions are activated from the pricing flow.'}
+            ? 'Activate here.'
+            : 'Use the pricing page.'}
         </div>
       ) : null}
 
@@ -606,12 +606,12 @@ const Store: React.FC = () => {
           </div>
           <h1 className="mt-5 text-3xl font-bold font-display text-foreground sm:text-4xl">Manage plans first. Use add-ons only when they help.</h1>
           <p className="mt-4 max-w-3xl text-base leading-8 text-muted-foreground">
-            This store is now organized like a billing surface. Benchmark and team plans come first, and coins, hearts, and boosts stay available as optional extras.
+            Plans first. Add-ons second.
           </p>
           <div className="mt-6 grid gap-3 sm:grid-cols-3">
-            <div className="rounded-2xl border border-border bg-background/70 px-4 py-4 text-sm text-muted-foreground">Benchmark and team plans are the main business model.</div>
-            <div className="rounded-2xl border border-border bg-background/70 px-4 py-4 text-sm text-muted-foreground">Coin packs and boosts are still purchasable here without changing your main plan.</div>
-            <div className="rounded-2xl border border-border bg-background/70 px-4 py-4 text-sm text-muted-foreground">If a subscription needs activation, the pricing flow remains the source of truth.</div>
+            <div className="rounded-2xl border border-border bg-background/70 px-4 py-4 text-sm text-muted-foreground">Plans drive access.</div>
+            <div className="rounded-2xl border border-border bg-background/70 px-4 py-4 text-sm text-muted-foreground">Add-ons stay optional.</div>
+            <div className="rounded-2xl border border-border bg-background/70 px-4 py-4 text-sm text-muted-foreground">Billing stays simple.</div>
           </div>
           <div className="mt-6 flex flex-wrap gap-3">
             <Link
@@ -636,12 +636,12 @@ const Store: React.FC = () => {
             </div>
             <div>
               <div className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">Pricing sync</div>
-              <div className="mt-2 text-3xl font-bold font-display text-foreground">Everything important is now in one place</div>
+              <div className="mt-2 text-3xl font-bold font-display text-foreground">One billing surface</div>
               <p className="mt-3 text-sm leading-7 text-muted-foreground">
-                Pro, Interview Sprint, team tiers, coin packs, and temporary boosts now live on the same page instead of feeling like separate systems.
+                Plans and add-ons live here.
               </p>
               <div className="mt-4 rounded-2xl border border-border bg-background/70 px-4 py-4 text-sm text-muted-foreground">
-                Highest coin bundle bonus: <span className="font-semibold text-foreground">up to {maxBundleBonus}% extra</span>
+                Best coin bonus: <span className="font-semibold text-foreground">up to {maxBundleBonus}% extra</span>
               </div>
               {primaryPlan ? (
                 <div className="mt-4 rounded-2xl border border-primary/20 bg-primary/10 px-4 py-4 text-sm text-foreground">
@@ -672,28 +672,28 @@ const Store: React.FC = () => {
           icon={<Coins className="h-5 w-5" />}
           label="Balance"
           value={user.coins.toLocaleString()}
-          subtitle="Available for store purchases"
+          subtitle="Spend in store"
           tone="coins"
         />
         <StoreStat
           icon={<Heart className="h-5 w-5 fill-current" />}
           label="Hearts"
           value={isUnlimitedHeartsActive() ? 'Unlimited' : `${user.hearts}/${user.maxHearts}`}
-          subtitle="Refills and unlimited access live here"
+          subtitle="Refills and unlimited"
           tone="hearts"
         />
         <StoreStat
           icon={<Zap className="h-5 w-5" />}
           label="XP Boost"
           value={isXPBoostActive() ? 'Active' : 'Inactive'}
-          subtitle="Temporary progression boosts"
+          subtitle="Temporary boost"
           tone="xp"
         />
         <StoreStat
           icon={<Crown className="h-5 w-5" />}
           label="Plan status"
           value={primaryPlan ? primaryPlan.planName : 'Free'}
-          subtitle={primaryPlan ? 'A paid plan is currently active' : 'No paid plan active yet'}
+          subtitle={primaryPlan ? 'Current plan' : 'No paid plan'}
           tone="primary"
         />
       </div>
@@ -703,7 +703,7 @@ const Store: React.FC = () => {
           <div>
             <div className="text-sm font-semibold uppercase tracking-[0.18em] text-primary">Plans and subscriptions</div>
             <p className="mt-2 max-w-3xl text-sm leading-7 text-muted-foreground">
-              These are the current Codhak pricing tiers. Subscriptions are managed through the pricing flow, while the purchasable add-ons below work directly in this store.
+              Pick a plan, then add extras if needed.
             </p>
           </div>
           <Link

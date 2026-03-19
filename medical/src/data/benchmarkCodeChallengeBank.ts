@@ -1,6 +1,9 @@
 import type { LanguageSlug } from './siteContent';
-
-type BenchmarkQuestionDifficulty = 'beginner' | 'intermediate' | 'advanced';
+import type {
+  BenchmarkCodeRubric,
+  BenchmarkQuestionAssessmentType,
+  BenchmarkQuestionDifficulty,
+} from './benchmarkModel';
 
 export interface BenchmarkCodeQuestionTemplate {
   templateId: string;
@@ -9,11 +12,17 @@ export interface BenchmarkCodeQuestionTemplate {
   competency: string;
   difficulty: BenchmarkQuestionDifficulty;
   kind: 'code';
+  assessmentType: BenchmarkQuestionAssessmentType;
   prompt: string;
   starterCode: string;
   referenceCode: string;
   validationMode: 'exact' | 'includes_all';
   requiredSnippets?: string[];
+  edgeCaseSnippets?: string[];
+  qualitySignals?: string[];
+  efficiencySignals?: string[];
+  forbiddenPatterns?: string[];
+  weights?: BenchmarkCodeRubric['weights'];
   explanation: string;
 }
 
@@ -22,7 +31,13 @@ const defineCodeQuestions = (
   lessonTitle: string,
   competency: string,
   difficulty: BenchmarkQuestionDifficulty,
-  variants: Array<Omit<BenchmarkCodeQuestionTemplate, 'templateId' | 'lessonId' | 'lessonTitle' | 'competency' | 'difficulty' | 'kind'>>
+  variants: Array<
+    Omit<
+      BenchmarkCodeQuestionTemplate,
+      'templateId' | 'lessonId' | 'lessonTitle' | 'competency' | 'difficulty' | 'kind' | 'assessmentType'
+    >
+  >,
+  assessmentType: BenchmarkQuestionAssessmentType = 'implementation'
 ): BenchmarkCodeQuestionTemplate[] =>
   variants.map((variant, index) => ({
     templateId: `${lessonId}-code-benchmark-${index + 1}`,
@@ -31,6 +46,7 @@ const defineCodeQuestions = (
     competency,
     difficulty,
     kind: 'code',
+    assessmentType,
     ...variant,
   }));
 
@@ -406,9 +422,169 @@ const javaCodeTemplates: BenchmarkCodeQuestionTemplate[] = [
   ]),
 ];
 
+const pythonDebugTemplates = defineCodeQuestions(
+  'python-debugging',
+  'Python Debugging',
+  'Problem solving',
+  'advanced',
+  [
+    {
+      prompt:
+        'Fix the Python function so it counts values greater than 3 and prints the final count. Keep the same variable names.',
+      starterCode:
+        'values = [2, 4, 5]\ncount = 0\nfor value in values:\n    if value > 3\n        count = value\nprint(count)\n',
+      referenceCode:
+        'values = [2, 4, 5]\ncount = 0\nfor value in values:\n    if value > 3:\n        count += 1\nprint(count)\n',
+      validationMode: 'includes_all',
+      requiredSnippets: ['if value > 3:', 'count += 1', 'print(count)'],
+      edgeCaseSnippets: ['count = 0', 'for value in values:'],
+      qualitySignals: ['count += 1'],
+      efficiencySignals: ['for value in values:'],
+      forbiddenPatterns: ['count = value'],
+      explanation: 'This checks debugging around conditions, counting logic, and preserving the intended loop structure.',
+    },
+    {
+      prompt:
+        'Fix the function so it returns the last item from the list without crashing on indexing mistakes.',
+      starterCode:
+        'def last_item(items):\n    return items[len(items)]\n\nprint(last_item(["a", "b", "c"]))\n',
+      referenceCode:
+        'def last_item(items):\n    return items[len(items) - 1]\n\nprint(last_item(["a", "b", "c"]))\n',
+      validationMode: 'includes_all',
+      requiredSnippets: ['def last_item(items):', 'return items[len(items) - 1]', 'print(last_item(["a", "b", "c"]))'],
+      edgeCaseSnippets: ['len(items) - 1'],
+      qualitySignals: ['def last_item(items):'],
+      efficiencySignals: ['return items[len(items) - 1]'],
+      forbiddenPatterns: ['items[len(items)]'],
+      explanation: 'This checks list-index debugging and safe off-by-one fixes.',
+    },
+  ],
+  'debugging'
+);
+
+const javascriptDebugTemplates = defineCodeQuestions(
+  'javascript-debugging',
+  'JavaScript Debugging',
+  'Problem solving',
+  'advanced',
+  [
+    {
+      prompt:
+        'Fix the JavaScript loop so it counts values greater than 4 and logs the final count. Keep the same variable names.',
+      starterCode:
+        'const values = [3, 6, 9];\nlet count = 0;\nfor (const value of values) {\n  if (value > 4) {\n    count = value;\n  }\n}\nconsole.log(total);\n',
+      referenceCode:
+        'const values = [3, 6, 9];\nlet count = 0;\nfor (const value of values) {\n  if (value > 4) {\n    count += 1;\n  }\n}\nconsole.log(count);\n',
+      validationMode: 'includes_all',
+      requiredSnippets: ['if (value > 4)', 'count += 1', 'console.log(count)'],
+      edgeCaseSnippets: ['let count = 0', 'for (const value of values)'],
+      qualitySignals: ['count += 1'],
+      efficiencySignals: ['for (const value of values)'],
+      forbiddenPatterns: ['count = value', 'console.log(total)'],
+      explanation: 'This checks debugging of loop state and output variables.',
+    },
+    {
+      prompt:
+        'Fix the function so it returns the last item from the array instead of reading past the end.',
+      starterCode:
+        'function lastItem(items) {\n  return items[items.length];\n}\n\nconsole.log(lastItem(["api", "ui", "db"]));\n',
+      referenceCode:
+        'function lastItem(items) {\n  return items[items.length - 1];\n}\n\nconsole.log(lastItem(["api", "ui", "db"]));\n',
+      validationMode: 'includes_all',
+      requiredSnippets: ['function lastItem(items)', 'return items[items.length - 1]', 'console.log(lastItem(["api", "ui", "db"]))'],
+      edgeCaseSnippets: ['items.length - 1'],
+      qualitySignals: ['function lastItem(items)'],
+      efficiencySignals: ['return items[items.length - 1]'],
+      forbiddenPatterns: ['items[items.length]'],
+      explanation: 'This checks debugging array indexing in JavaScript.',
+    },
+  ],
+  'debugging'
+);
+
+const cppDebugTemplates = defineCodeQuestions(
+  'cpp-debugging',
+  'C++ Debugging',
+  'Problem solving',
+  'advanced',
+  [
+    {
+      prompt:
+        'Fix the C++ loop so it counts values greater than 2 and prints the final count.',
+      starterCode:
+        'int nums[3] = {2, 3, 4};\nint count = 0;\nfor (int i = 0; i < 3; i++) {\n  if (nums[i] > 2) {\n    count = nums[i];\n  }\n}\ncout << total;\n',
+      referenceCode:
+        'int nums[3] = {2, 3, 4};\nint count = 0;\nfor (int i = 0; i < 3; i++) {\n  if (nums[i] > 2) {\n    count += 1;\n  }\n}\ncout << count;\n',
+      validationMode: 'includes_all',
+      requiredSnippets: ['if (nums[i] > 2)', 'count += 1;', 'cout << count;'],
+      edgeCaseSnippets: ['int count = 0;', 'for (int i = 0; i < 3; i++)'],
+      qualitySignals: ['count += 1;'],
+      efficiencySignals: ['for (int i = 0; i < 3; i++)'],
+      forbiddenPatterns: ['count = nums[i];', 'cout << total;'],
+      explanation: 'This checks debugging variable updates and output in a loop.',
+    },
+    {
+      prompt:
+        'Fix the function so it returns the last array item without going out of bounds.',
+      starterCode:
+        'int lastValue(int nums[3]) {\n  return nums[3];\n}\n\ncout << lastValue((int[3]){1, 2, 3});\n',
+      referenceCode:
+        'int lastValue(int nums[3]) {\n  return nums[2];\n}\n\ncout << lastValue((int[3]){1, 2, 3});\n',
+      validationMode: 'includes_all',
+      requiredSnippets: ['int lastValue(int nums[3])', 'return nums[2];', 'cout << lastValue((int[3]){1, 2, 3});'],
+      edgeCaseSnippets: ['return nums[2];'],
+      qualitySignals: ['int lastValue(int nums[3])'],
+      efficiencySignals: ['return nums[2];'],
+      forbiddenPatterns: ['return nums[3];'],
+      explanation: 'This checks debugging fixed-size array indexing in C++.',
+    },
+  ],
+  'debugging'
+);
+
+const javaDebugTemplates = defineCodeQuestions(
+  'java-debugging',
+  'Java Debugging',
+  'Problem solving',
+  'advanced',
+  [
+    {
+      prompt:
+        'Fix the Java loop so it counts values greater than 2 and prints the final count.',
+      starterCode:
+        'int[] values = {2, 3, 4};\nint count = 0;\nfor (int i = 0; i < values.length; i++) {\n  if (values[i] > 2) {\n    count = values[i];\n  }\n}\nSystem.out.println(total);\n',
+      referenceCode:
+        'int[] values = {2, 3, 4};\nint count = 0;\nfor (int i = 0; i < values.length; i++) {\n  if (values[i] > 2) {\n    count += 1;\n  }\n}\nSystem.out.println(count);\n',
+      validationMode: 'includes_all',
+      requiredSnippets: ['if (values[i] > 2)', 'count += 1;', 'System.out.println(count);'],
+      edgeCaseSnippets: ['int count = 0;', 'for (int i = 0; i < values.length; i++)'],
+      qualitySignals: ['count += 1;'],
+      efficiencySignals: ['for (int i = 0; i < values.length; i++)'],
+      forbiddenPatterns: ['count = values[i];', 'System.out.println(total);'],
+      explanation: 'This checks debugging in Java loops and counters.',
+    },
+    {
+      prompt:
+        'Fix the method so it returns the last array item instead of reading past the end.',
+      starterCode:
+        'int lastValue(int[] values) {\n  return values[values.length];\n}\n\nSystem.out.println(lastValue(new int[]{1, 2, 3}));\n',
+      referenceCode:
+        'int lastValue(int[] values) {\n  return values[values.length - 1];\n}\n\nSystem.out.println(lastValue(new int[]{1, 2, 3}));\n',
+      validationMode: 'includes_all',
+      requiredSnippets: ['int lastValue(int[] values)', 'return values[values.length - 1];', 'System.out.println(lastValue(new int[]{1, 2, 3}));'],
+      edgeCaseSnippets: ['values.length - 1'],
+      qualitySignals: ['int lastValue(int[] values)'],
+      efficiencySignals: ['return values[values.length - 1];'],
+      forbiddenPatterns: ['values[values.length]'],
+      explanation: 'This checks debugging array indexing in Java.',
+    },
+  ],
+  'debugging'
+);
+
 export const benchmarkCodeChallengeBankByLanguage: Record<LanguageSlug, BenchmarkCodeQuestionTemplate[]> = {
-  python: pythonCodeTemplates,
-  javascript: javascriptCodeTemplates,
-  cpp: cppCodeTemplates,
-  java: javaCodeTemplates,
+  python: [...pythonCodeTemplates, ...pythonDebugTemplates],
+  javascript: [...javascriptCodeTemplates, ...javascriptDebugTemplates],
+  cpp: [...cppCodeTemplates, ...cppDebugTemplates],
+  java: [...javaCodeTemplates, ...javaDebugTemplates],
 };

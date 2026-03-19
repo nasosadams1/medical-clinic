@@ -24,7 +24,7 @@ export default function MarketingLayout({ children, openAuthModal, isAuthenticat
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   return (
-    <div className="min-h-screen bg-background text-foreground">
+    <div className="min-h-[100dvh] overflow-x-clip bg-background text-foreground">
       <header className="sticky top-0 z-50 border-b border-border/70 glass">
         <div className="container mx-auto flex h-16 items-center justify-between gap-4 px-5 sm:px-6 xl:px-8">
           <Link to="/" className="flex items-center gap-2.5">
@@ -141,7 +141,7 @@ export default function MarketingLayout({ children, openAuthModal, isAuthenticat
         ) : null}
       </header>
 
-      <main>{children}</main>
+      <main className="min-w-0">{children}</main>
 
       <footer className="border-t border-border/70 bg-card/40">
         <div className="container mx-auto flex flex-col items-center justify-between gap-5 px-5 py-8 text-center sm:px-6 sm:flex-row sm:text-left xl:px-8">

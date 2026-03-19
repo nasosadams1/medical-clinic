@@ -1,5 +1,5 @@
 import React from 'react';
-import { ArrowRight, Award, BarChart3, CheckCircle2, Swords, Target } from 'lucide-react';
+import { ArrowRight, Award, BarChart3, CheckCircle2, ShieldCheck, Swords, Target } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import type { BenchmarkReport } from '../../data/benchmarkCatalog';
 import { getLessonCatalogEntry } from '../../data/lessonCatalog';
@@ -58,6 +58,11 @@ export default function BenchmarkReportCard({ report, actions }: BenchmarkReport
             <div className="mt-1 text-lg font-semibold text-foreground">{report.duelReadiness.label}</div>
             <div className="text-sm text-muted-foreground">{report.duelReadiness.confidencePercent}% confidence</div>
           </div>
+          <div className="rounded-2xl border border-border bg-background/70 px-4 py-3">
+            <div className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Signal confidence</div>
+            <div className="mt-1 text-lg font-semibold text-foreground">{report.confidenceBand.label}</div>
+            <div className="text-sm text-muted-foreground">{report.confidenceBand.percent}% benchmark confidence</div>
+          </div>
         </div>
       </div>
 
@@ -98,6 +103,69 @@ export default function BenchmarkReportCard({ report, actions }: BenchmarkReport
           <div className="mt-4 rounded-2xl border border-border bg-card px-4 py-4">
             <div className="text-sm font-semibold text-foreground">{estimation.label}</div>
             <p className="mt-2 text-sm leading-6 text-muted-foreground">{estimation.description}</p>
+          </div>
+        </div>
+      </div>
+
+      <div className="mt-6 grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
+        <div className="rounded-[1.5rem] border border-border bg-background/70 p-5">
+          <div className="flex items-center gap-2 text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+            <BarChart3 className="h-4 w-4 text-primary" />
+            Skill dimensions
+          </div>
+          <div className="mt-4 grid gap-3 sm:grid-cols-2">
+            {report.dimensionScores.map((dimension) => (
+              <div key={dimension.key} className="rounded-2xl border border-border bg-card px-4 py-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="text-sm font-semibold text-foreground">{dimension.label}</div>
+                    <p className="mt-1 text-sm leading-6 text-muted-foreground">{dimension.description}</p>
+                  </div>
+                  <div className="text-lg font-semibold text-foreground">{dimension.score}</div>
+                </div>
+                <div className="mt-3 h-2 overflow-hidden rounded-full bg-background">
+                  <div
+                    className="h-full rounded-full bg-primary transition-all"
+                    style={{ width: `${dimension.score}%` }}
+                  />
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="grid gap-4">
+          <div className="rounded-[1.5rem] border border-border bg-background/70 p-5">
+            <div className="flex items-center gap-2 text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+              <ShieldCheck className="h-4 w-4 text-xp" />
+              Section scores
+            </div>
+            <div className="mt-4 space-y-3">
+              {report.sectionScores.map((section) => (
+                <div key={section.section} className="rounded-2xl border border-border bg-card px-4 py-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <div className="text-sm font-semibold text-foreground">{section.label}</div>
+                      <div className="mt-1 text-xs uppercase tracking-[0.18em] text-muted-foreground">
+                        {section.questionCount} question{section.questionCount === 1 ? '' : 's'}
+                      </div>
+                    </div>
+                    <div className="text-lg font-semibold text-foreground">{section.score}</div>
+                  </div>
+                  <div className="mt-3 h-2 overflow-hidden rounded-full bg-background">
+                    <div className="h-full rounded-full bg-primary transition-all" style={{ width: `${section.score}%` }} />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="rounded-[1.5rem] border border-border bg-background/70 p-5">
+            <div className="text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground">Confidence note</div>
+            <div className="mt-4 rounded-2xl border border-border bg-card px-4 py-4">
+              <div className="text-sm font-semibold text-foreground">{report.confidenceBand.label}</div>
+              <p className="mt-2 text-sm leading-6 text-muted-foreground">{report.confidenceBand.description}</p>
+            </div>
           </div>
         </div>
       </div>

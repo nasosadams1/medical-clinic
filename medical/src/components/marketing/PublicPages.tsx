@@ -62,10 +62,91 @@ interface PublicPageProps {
 }
 
 const fallbackTrustMetrics = [
-  { label: 'Challenges completed', value: 'Live telemetry ready', helper: 'Benchmark and practice completions flow here.' },
-  { label: 'Duel matches played', value: 'Live telemetry ready', helper: 'Completed duel volume powers this metric.' },
-  { label: 'Average score improvement', value: 'Benchmark delta ready', helper: 'Repeat attempts become visible improvement proof.' },
-  { label: 'Team cohorts active', value: 'Pilot-ready', helper: 'Live team workspaces now feed this count.' },
+  { label: 'Challenges completed', value: 'Ready', helper: 'Completions' },
+  { label: 'Duel matches played', value: 'Ready', helper: 'Duels' },
+  { label: 'Average score improvement', value: 'Ready', helper: 'Retake delta' },
+  { label: 'Team cohorts active', value: 'Pilot-ready', helper: 'Active teams' },
+];
+
+const benchmarkBuyerOutcomes = [
+  {
+    icon: <BarChart3 className="h-5 w-5" />,
+    title: 'Baseline score',
+    description: 'Measure current coding level fast.',
+  },
+  {
+    icon: <ShieldCheck className="h-5 w-5" />,
+    title: 'Skill gaps',
+    description: 'See strengths, weaknesses, and readiness.',
+  },
+  {
+    icon: <BookOpen className="h-5 w-5" />,
+    title: 'Next action',
+    description: 'Route into practice, duels, or teams.',
+  },
+  {
+    icon: <Zap className="h-5 w-5" />,
+    title: 'Repeatable proof',
+    description: 'Retake later and show score movement.',
+  },
+];
+
+const teamProblemCards = [
+  {
+    title: 'No clean baseline',
+    description: 'You cannot coach well if you do not know current level.',
+  },
+  {
+    title: 'No workflow after assessment',
+    description: 'A score alone is not enough. Teams need next steps.',
+  },
+  {
+    title: 'No proof of improvement',
+    description: 'Managers and instructors need visible progress.',
+  },
+];
+
+const teamCapabilityCards = [
+  'Create a team or cohort',
+  'Invite learners, coaches, and admins',
+  'Assign benchmarks or roadmap work',
+  'Track completion, median score, and retake readiness',
+  'Review improvement leaders and attention queue',
+  'Publish a public proof page when ready',
+];
+
+const pricingBuyerPaths = [
+  {
+    title: 'Free',
+    description: 'Best for first-time visitors proving value.',
+  },
+  {
+    title: 'Pro',
+    description: 'Best for individual learners who want depth.',
+  },
+  {
+    title: 'Interview Sprint',
+    description: 'Best for short, high-intent prep windows.',
+  },
+  {
+    title: 'Teams',
+    description: 'Best for cohorts, classes, and upskilling groups.',
+  },
+];
+
+const pricingDecisionSteps = [
+  {
+    title: 'Start with the benchmark',
+    description: 'Free shows value first.',
+  },
+  {
+    title: 'Upgrade if one person needs more depth',
+    description: 'Use Pro or Sprint.',
+  },
+  {
+    title: 'Book a pilot for a group',
+    description: 'Use Teams, Growth, or Custom.',
+  },
 ];
 
 const formatTeamUseCaseLabel = (slug: string) =>
@@ -429,8 +510,8 @@ function SampleReportPreview() {
       <div>
         <SectionHeader
           eyebrow="Sample skill report"
-          title="The report is the value moment."
-          description="Show people the score, strengths, weaknesses, duel-readiness signal, and next recommended track before you ever ask them to commit."
+          title="See the report first."
+          description="Score, gaps, next step."
         />
         <div className="mt-6 space-y-4 rounded-2xl border border-border bg-card p-6 shadow-card">
           {[
@@ -523,12 +604,12 @@ export function HomePage({ openAuthModal }: PublicPageProps) {
         {
           label: 'Challenges completed',
           value: `${summary.challengesCompleted}`,
-          helper: 'Lesson and practice completions recorded across the product.',
+          helper: 'Completions',
         },
         {
           label: 'Duel matches played',
           value: `${summary.duelMatchesPlayed}`,
-          helper: 'Completed matches pulled from the live duel system.',
+          helper: 'Duels',
         },
         {
           label: 'Average score improvement',
@@ -536,12 +617,12 @@ export function HomePage({ openAuthModal }: PublicPageProps) {
             summary.averageScoreImprovement === null
               ? 'Waiting for repeat attempts'
               : `${summary.averageScoreImprovement > 0 ? '+' : ''}${summary.averageScoreImprovement} pts`,
-          helper: 'Calculated from benchmark history when learners retake the assessment.',
+          helper: 'Retake delta',
         },
         {
           label: 'Team cohorts active',
           value: summary.teamCount > 0 ? `${summary.teamCount}` : 'Pilot-ready',
-          helper: 'Counts active team workspaces created in Codhak.',
+          helper: 'Active teams',
         },
       ]);
     };
@@ -556,32 +637,32 @@ export function HomePage({ openAuthModal }: PublicPageProps) {
     {
       icon: <BarChart3 className="h-6 w-6" />,
       title: 'Skill benchmark',
-      description: 'Timed, language-specific assessments that turn a short session into a real signal instead of a generic self-rating.',
+      description: 'Timed benchmark with a real score.',
     },
     {
       icon: <BookOpen className="h-6 w-6" />,
       title: 'Structured practice',
-      description: 'Move from benchmark gaps into targeted tracks, recommended lessons, and challenge packs with a clear next step.',
+      description: 'Targeted practice from real gaps.',
     },
     {
       icon: <Swords className="h-6 w-6" />,
       title: '1v1 duels',
-      description: 'Use live coding pressure as proof of skill, not as a random mini-game. Climb the ladder with judged outcomes.',
+      description: 'Live pressure with judged outcomes.',
     },
     {
       icon: <Users className="h-6 w-6" />,
       title: 'Team workspaces',
-      description: 'Benchmark learners or junior developers, assign practice, and track improvement for bootcamps, schools, and teams.',
+      description: 'Benchmark cohorts and track progress.',
     },
     {
       icon: <ShieldCheck className="h-6 w-6" />,
       title: 'Trusted signal',
-      description: 'Anti-cheat and AI-use expectations are explicit. Benchmarks, duels, and reports are built to create credible evidence.',
+      description: 'Cleaner signal with anti-cheat telemetry.',
     },
     {
       icon: <Zap className="h-6 w-6" />,
       title: 'Competitive momentum',
-      description: 'The design keeps the energy of a coding arena, but the product story stays outcome-first and career-relevant.',
+      description: 'Arena energy without the noise.',
     },
   ];
 
@@ -605,7 +686,7 @@ export function HomePage({ openAuthModal }: PublicPageProps) {
               Measure <span className="text-gradient-primary">real coding skill</span> with live challenges, duels, and interview-style feedback.
             </h1>
             <p className="mt-6 max-w-2xl text-lg leading-8 text-muted-foreground">
-              Codhak helps learners get interview-ready and helps cohorts prove progress with hands-on assessments, not passive course completion.
+              Benchmark skill. Get a report. Start the right path.
             </p>
 
             <div className="mt-8 flex flex-wrap items-center gap-4">
@@ -632,9 +713,9 @@ export function HomePage({ openAuthModal }: PublicPageProps) {
 
             <div className="mt-6 space-y-4">
               {[
-                ['Take benchmark', 'Choose goal, language, and role level before any signup wall.', Play],
-                ['Get skill report', 'See score, strengths, gaps, and duel-readiness immediately.', Trophy],
-                ['Follow roadmap', 'Move into practice, duels, or cohort assignments with one clear next step.', BookOpen],
+                ['Take benchmark', 'Pick goal, language, level.', Play],
+                ['Get skill report', 'See score and gaps.', Trophy],
+                ['Follow roadmap', 'Start practice or duels.', BookOpen],
               ].map(([title, description, IconComponent], index) => {
                 const Icon = IconComponent as typeof Play;
                 return (
@@ -657,7 +738,7 @@ export function HomePage({ openAuthModal }: PublicPageProps) {
             <div className="mt-6 rounded-2xl border border-xp/20 bg-xp/10 p-5">
               <div className="text-xs font-semibold uppercase tracking-[0.2em] text-xp">Activation target</div>
               <p className="mt-2 text-sm leading-7 text-foreground">
-                The main activation event is first completed benchmark plus viewed skill report, not just account creation.
+                Completed benchmark + viewed report.
               </p>
             </div>
           </div>
@@ -682,8 +763,8 @@ export function HomePage({ openAuthModal }: PublicPageProps) {
         <div className="container mx-auto px-5 sm:px-6 xl:px-8">
           <SectionHeader
             eyebrow="Platform"
-            title="Everything you need to turn coding effort into measurable signal."
-            description="From benchmarks to team dashboards, Codhak keeps the same design language and the same product story across the entire surface."
+            title="Everything needed to measure skill."
+            description="One clear product flow."
             align="center"
           />
           <div className="mx-auto mt-12 grid max-w-[1480px] gap-6 sm:grid-cols-2 lg:grid-cols-3">
@@ -699,14 +780,14 @@ export function HomePage({ openAuthModal }: PublicPageProps) {
           <SectionHeader
             eyebrow="How It Works"
             title="From benchmark to proof of progress"
-            description="The product flow is intentionally tight: benchmark, report, roadmap, then measured performance."
+            description="Benchmark, report, improve."
             align="center"
           />
           <div className="mx-auto mt-12 grid max-w-[1320px] gap-8 md:grid-cols-3">
             {[
-              ['01', 'Benchmark', 'Take a short timed assessment built from the existing Codhak lesson and challenge catalog.'],
-              ['02', 'Report', 'See overall score, strengths, weaknesses, and duel-readiness in a single report card.'],
-              ['03', 'Track and prove', 'Move into guided practice, challenge packs, or duels and show improvement over time.'],
+              ['01', 'Benchmark', 'Take the timed benchmark.'],
+              ['02', 'Report', 'See score and gaps.'],
+              ['03', 'Track and prove', 'Practice, duel, retake.'],
             ].map(([step, title, description]) => (
               <div key={step} className="text-center">
                 <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/10 text-primary">
@@ -724,8 +805,8 @@ export function HomePage({ openAuthModal }: PublicPageProps) {
         <div className="container mx-auto px-5 sm:px-6 xl:px-8">
           <SectionHeader
             eyebrow="Built For"
-            title="Different buyers, one core value: measurable coding skill."
-            description="The same benchmark-first workflow can serve an individual learner, a cohort manager, or a hiring and upskilling team."
+            title="Different buyers. One core value."
+            description="Measured coding skill."
             align="center"
           />
           <div className="mx-auto mt-12 grid max-w-[1480px] gap-6 lg:grid-cols-3">
@@ -758,7 +839,7 @@ export function HomePage({ openAuthModal }: PublicPageProps) {
           <SectionHeader
             eyebrow="Tracks and Duel Prep"
             title="Use tracks, challenge packs, and duels as proof of skill."
-            description="Lessons are support content. The product center of gravity stays on benchmark outputs and measurable performance."
+            description="Lessons support the benchmark."
             align="center"
           />
           <div className="mx-auto mt-12 grid max-w-[1480px] gap-6 md:grid-cols-2 xl:grid-cols-3">
@@ -823,7 +904,7 @@ export function HomePage({ openAuthModal }: PublicPageProps) {
           <SectionHeader
             eyebrow="Reviews"
             title="Trust elements are built into the design."
-            description="These are placeholder testimonials for now, but the section is already wired so the public experience feels credible instead of incomplete."
+            description="Replace these with pilot quotes."
             align="center"
           />
           <div className="mx-auto mt-12 grid max-w-[1320px] gap-6 md:grid-cols-3">
@@ -894,7 +975,7 @@ export function BenchmarkPage({ openAuthModal }: PublicPageProps) {
 
   usePageMetadata({
     title: presetLanguage ? `Codhak ${presetLanguage.toUpperCase()} Benchmark` : 'Codhak Benchmark',
-    description: 'Take a short benchmark and get a skill report with measurable next steps.',
+    description: 'Take a short benchmark and get a skill report.',
   });
 
   return (
@@ -906,6 +987,54 @@ export function BenchmarkPage({ openAuthModal }: PublicPageProps) {
             presetLanguage={presetLanguage}
             openAuthModal={openAuthModal}
           />
+        </div>
+      </section>
+
+      <section className="border-t border-border/60 py-20">
+        <div className="container mx-auto px-5 sm:px-6 xl:px-8">
+          <SectionHeader
+            eyebrow="What The Benchmark Gives"
+            title="This is not just a quiz."
+            description="It gives a baseline, a report, and a next step."
+          />
+          <div className="mt-10 grid gap-6 md:grid-cols-2 xl:grid-cols-4">
+            {benchmarkBuyerOutcomes.map((item) => (
+              <FeatureCard
+                key={item.title}
+                icon={item.icon}
+                title={item.title}
+                description={item.description}
+              />
+            ))}
+          </div>
+        </div>
+      </section>
+
+      <section className="border-t border-border/60 py-20">
+        <div className="container mx-auto px-5 sm:px-6 xl:px-8">
+          <div className="grid gap-8 lg:grid-cols-[0.95fr_1.05fr]">
+            <SectionHeader
+              eyebrow="Why Teams Care"
+              title="A benchmark is the first team workflow step."
+              description="Bootcamps, schools, and upskilling teams use it to set a baseline before assigning work."
+            />
+            <div className="grid gap-4">
+              {[
+                'Benchmark a full cohort with one setup',
+                'See who is below baseline',
+                'Assign follow-up work from the result',
+                'Retake later to prove improvement',
+              ].map((item) => (
+                <div key={item} className="rounded-2xl border border-border bg-card px-5 py-4 text-sm text-foreground shadow-card">
+                  {item}
+                </div>
+              ))}
+              <div className="flex flex-col gap-3 sm:flex-row">
+                <ActionButton to="/teams" label="Use this with a cohort" primary />
+                <ActionButton to="/pricing" label="See team pricing" />
+              </div>
+            </div>
+          </div>
         </div>
       </section>
     </MarketingLayout>
@@ -929,15 +1058,15 @@ export function TeamsPage({ openAuthModal }: PublicPageProps) {
           <div>
             <SectionHeader
               eyebrow="Teams"
-              title="A cohort-ready workspace with the same visual system as the rest of the product."
-              description="Benchmark learners quickly, assign practice paths, run coding competitions, and prove improvement with skill reports."
+              title="A cohort-ready workspace."
+              description="Benchmark, assign, compete, improve."
             />
             <div className="mt-8 grid gap-4 sm:grid-cols-2">
               {[
-                ['Bootcamps', 'Segment learners faster and coach the right gaps first.', GraduationCap],
-                ['Universities', 'Track benchmark completion and assignment progress in-browser.', Building2],
-                ['Coding clubs', 'Run competitions and keep members engaged with scorecards.', Users],
-                ['Upskilling teams', 'Surface skill gaps and strongest performers without heavy setup.', Briefcase],
+                ['Bootcamps', 'Segment learners fast.', GraduationCap],
+                ['Universities', 'Track completion and assignments.', Building2],
+                ['Coding clubs', 'Run competitions and scoreboards.', Users],
+                ['Upskilling teams', 'Spot gaps and top performers.', Briefcase],
               ].map(([title, description, IconComponent]) => {
                 const Icon = IconComponent as typeof Users;
                 return (
@@ -971,10 +1100,47 @@ export function TeamsPage({ openAuthModal }: PublicPageProps) {
 
       <section className="border-t border-border/60 py-20">
         <div className="container mx-auto px-5 sm:px-6 xl:px-8">
+          <div className="grid gap-8 lg:grid-cols-[0.9fr_1.1fr]">
+            <SectionHeader
+              eyebrow="Problem Solved"
+              title="Codhak answers three team problems."
+              description="Measure skill, run follow-up work, and prove improvement."
+            />
+            <div className="grid gap-4">
+              {teamProblemCards.map((item) => (
+                <div key={item.title} className="rounded-2xl border border-border bg-card p-6 shadow-card">
+                  <div className="text-lg font-bold font-display text-foreground">{item.title}</div>
+                  <p className="mt-3 text-sm leading-7 text-muted-foreground">{item.description}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section className="border-t border-border/60 py-20">
+        <div className="container mx-auto px-5 sm:px-6 xl:px-8">
+          <SectionHeader
+            eyebrow="Admin Actions"
+            title="What a manager can do today."
+            description="These abilities already exist in the workspace."
+          />
+          <div className="mt-10 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+            {teamCapabilityCards.map((item) => (
+              <div key={item} className="rounded-2xl border border-border bg-card px-5 py-4 text-sm text-foreground shadow-card">
+                {item}
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      <section className="border-t border-border/60 py-20">
+        <div className="container mx-auto px-5 sm:px-6 xl:px-8">
           <SectionHeader
             eyebrow="Use Cases"
-            title="A narrow MVP for real pilots, not bloated enterprise theater."
-            description="The current teams surface is intentionally scoped: overview, members, assignments, leaderboard, benchmark completion, and progress snapshots."
+            title="Who this is for."
+            description="Use cases already supported by the workflow."
           />
           <div className="mt-10 grid gap-6 md:grid-cols-2 xl:grid-cols-4">
             {teamUseCases.map((useCase) => (
@@ -1004,8 +1170,8 @@ export function TeamsPage({ openAuthModal }: PublicPageProps) {
           <div className="grid gap-8 lg:grid-cols-[0.95fr_1.05fr]">
             <SectionHeader
               eyebrow="Pilot pipeline"
-              title="Turn team interest into qualified pilot requests."
-              description="This is not just a contact button anymore. Use this form to capture buyer intent, company context, team size, and the exact workflow they want Codhak to support."
+              title="Book the right next step."
+              description="Use this for pilots, larger cohorts, or custom rollouts."
             />
             <DemoRequestCard
               source="teams_page"
@@ -1102,18 +1268,31 @@ export function PricingPage({ openAuthModal }: PublicPageProps) {
             </div>
           </div>
 
+          <div className="mt-12">
+            <SectionHeader
+              eyebrow="Choose By Buyer"
+              title="Pick the buying path that fits."
+              description="Individual plans self-serve. Team plans start with a pilot conversation."
+            />
+            <div className="mt-10 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+              {pricingBuyerPaths.map((item) => (
+                <div key={item.title} className="rounded-2xl border border-border bg-card p-5 shadow-card">
+                  <div className="text-lg font-bold font-display text-foreground">{item.title}</div>
+                  <p className="mt-3 text-sm leading-7 text-muted-foreground">{item.description}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+
           <div className="mt-12 grid gap-8 lg:grid-cols-[0.95fr_1.05fr]">
             <div className="rounded-[1.5rem] border border-border bg-card p-6 shadow-card">
-              <div className="text-xs font-semibold uppercase tracking-[0.2em] text-primary">Revenue path</div>
-              <h3 className="mt-3 text-2xl font-semibold text-foreground">Use pricing to route people into the right motion.</h3>
+              <div className="text-xs font-semibold uppercase tracking-[0.2em] text-primary">Buying Path</div>
+              <h3 className="mt-3 text-2xl font-semibold text-foreground">How buying works.</h3>
               <div className="mt-6 space-y-4">
-                {[
-                  'Free, Pro, and Interview Sprint should self-serve through benchmark, report, pricing, and in-app upgrades.',
-                  'Interview Sprint is still a strong high-intent offer for job seekers who want a short, focused prep window.',
-                  'Teams, Teams Growth, and Custom should create qualified leads instead of vague clicks.',
-                ].map((item) => (
-                  <div key={item} className="rounded-2xl border border-border bg-background/70 px-4 py-4 text-sm leading-7 text-muted-foreground">
-                    {item}
+                {pricingDecisionSteps.map((item) => (
+                  <div key={item.title} className="rounded-2xl border border-border bg-background/70 px-4 py-4 text-sm leading-7 text-muted-foreground">
+                    <div className="font-semibold text-foreground">{item.title}</div>
+                    <div className="mt-1">{item.description}</div>
                   </div>
                 ))}
               </div>
@@ -1280,7 +1459,7 @@ export function SharedReportPage({ openAuthModal }: PublicPageProps) {
                         Why this matters
                       </div>
                       <p className="mt-3 text-sm leading-7 text-muted-foreground">
-                        Codhak is designed to turn coding practice into visible skill evidence. Benchmarks create a score, roadmap, and repeatable improvement signal instead of a vague learning streak.
+                        Codhak turns practice into visible skill proof.
                       </p>
                     </div>
                     <div className="rounded-[1.5rem] border border-primary/20 bg-primary/10 p-5">
@@ -1288,7 +1467,7 @@ export function SharedReportPage({ openAuthModal }: PublicPageProps) {
                         Run your own benchmark
                       </div>
                       <p className="mt-3 text-sm leading-7 text-foreground/80">
-                        Choose a goal, language, and level, then get a Codhak report immediately after completion.
+                        Pick a setup and get a report.
                       </p>
                       <div className="mt-4 flex flex-col gap-3 sm:flex-row">
                         <ActionButton to="/benchmark" label="Start free benchmark" primary />
@@ -1587,7 +1766,7 @@ export function TrackLandingPage({ openAuthModal }: PublicPageProps) {
                 <div className="rounded-2xl border border-border bg-card p-6 shadow-card">
                   <div className="text-sm font-semibold uppercase tracking-[0.18em] text-primary">Why this page exists</div>
                   <p className="mt-4 text-sm leading-7 text-muted-foreground">
-                    This route is part of the SEO and landing-page foundation for track-specific acquisition and clear internal linking from benchmark reports.
+                    Built for search and report linking.
                   </p>
                 </div>
               </div>
@@ -1595,7 +1774,7 @@ export function TrackLandingPage({ openAuthModal }: PublicPageProps) {
           ) : (
             <TrackOrLandingFallback
               title="Track not found"
-              description="This practice track is not available yet, but the benchmark and core interview-readiness paths are already live."
+              description="This track is not live yet."
               ctaHref="/benchmark"
               ctaLabel="Start the benchmark"
             />
@@ -1689,7 +1868,7 @@ export function InterviewPrepLandingPage({ openAuthModal }: PublicPageProps) {
               </div>
 
               <div className="rounded-2xl border border-border bg-card p-6 shadow-card">
-                <div className="text-sm font-semibold uppercase tracking-[0.18em] text-primary">What this path includes</div>
+                <div className="text-sm font-semibold uppercase tracking-[0.18em] text-primary">Included skills</div>
                 <ul className="mt-5 space-y-3">
                   {track.highlightedSkills.map((skill) => (
                     <li key={skill} className="flex items-start gap-2 text-sm text-foreground">
@@ -1703,7 +1882,7 @@ export function InterviewPrepLandingPage({ openAuthModal }: PublicPageProps) {
           ) : (
             <TrackOrLandingFallback
               title="Interview prep page"
-              description="This route is reserved for track-specific interview-prep acquisition pages."
+              description="This page is not live yet."
               ctaHref="/benchmark"
               ctaLabel="Start the benchmark"
             />
@@ -1749,7 +1928,7 @@ export function TeamUseCasePage({ openAuthModal }: PublicPageProps) {
           ) : (
             <TrackOrLandingFallback
               title="Team workflow not found"
-              description="The teams landing surface is live, but this specific use-case page is not available yet."
+              description="This team page is not live yet."
               ctaHref="/teams"
               ctaLabel="Open teams page"
             />
@@ -1776,7 +1955,7 @@ export function CompilerLandingPage({ openAuthModal }: PublicPageProps) {
         <div className="container mx-auto max-w-5xl px-5 sm:px-6 xl:px-8">
           <TrackOrLandingFallback
             title={`${label} compiler and practice`}
-            description={`This route exists as part of the SEO foundation for compiler and language-specific landing pages. The strongest current action is still the benchmark-first flow for ${label}.`}
+            description={`Start with the ${label} benchmark.`}
             ctaHref={language ? `/benchmark/${language}` : '/benchmark'}
             ctaLabel="Start benchmark"
           />

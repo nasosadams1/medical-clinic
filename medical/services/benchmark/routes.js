@@ -14,6 +14,15 @@ const BenchmarkAnswerRecordSchema = z.object({
   selectedAnswer: z.number().int().min(-1).max(20).optional(),
   submittedCode: z.string().max(12000).optional(),
   evaluationMessage: z.string().trim().min(1).max(800).optional(),
+  scorePercent: z.number().int().min(0).max(100).optional(),
+  rubricBreakdown: z
+    .object({
+      correctness: z.number().int().min(0).max(100),
+      edgeCaseHandling: z.number().int().min(0).max(100),
+      codeQuality: z.number().int().min(0).max(100),
+      efficiency: z.number().int().min(0).max(100),
+    })
+    .optional(),
   isCorrect: z.boolean(),
 });
 
@@ -21,6 +30,25 @@ const BenchmarkQuestionSchema = z.object({
   id: z.string().trim().min(1).max(200),
   templateId: z.string().trim().min(1).max(200),
   slotId: z.string().trim().min(1).max(120),
+  section: z.enum(['baseline', 'implementation', 'debugging', 'comprehension', 'theory']).optional(),
+  sectionLabel: z.string().trim().min(1).max(120).optional(),
+  assessmentType: z.enum(['theory', 'implementation', 'debugging', 'comprehension']).optional(),
+  dimensions: z
+    .array(
+      z.enum([
+        'language_fluency',
+        'code_writing',
+        'code_reading',
+        'debugging',
+        'problem_solving',
+        'code_quality',
+        'efficiency',
+        'consistency',
+      ])
+    )
+    .max(8)
+    .optional(),
+  anchor: z.boolean().optional(),
   lessonId: z.string().trim().min(1).max(160),
   lessonTitle: z.string().trim().min(1).max(200),
   kind: z.enum(['multiple_choice', 'code']),
@@ -31,6 +59,18 @@ const BenchmarkQuestionSchema = z.object({
   referenceCode: z.string().max(12000).optional(),
   validationMode: z.enum(['exact', 'includes_all']).optional(),
   requiredSnippets: z.array(z.string().trim().min(1).max(400)).max(12).optional(),
+  edgeCaseSnippets: z.array(z.string().trim().min(1).max(400)).max(12).optional(),
+  qualitySignals: z.array(z.string().trim().min(1).max(400)).max(12).optional(),
+  efficiencySignals: z.array(z.string().trim().min(1).max(400)).max(12).optional(),
+  forbiddenPatterns: z.array(z.string().trim().min(1).max(400)).max(12).optional(),
+  weights: z
+    .object({
+      correctness: z.number().min(0).max(1).optional(),
+      edgeCaseHandling: z.number().min(0).max(1).optional(),
+      codeQuality: z.number().min(0).max(1).optional(),
+      efficiency: z.number().min(0).max(1).optional(),
+    })
+    .optional(),
   explanation: z.string().trim().min(1).max(1200),
   competency: z.string().trim().min(1).max(120),
   difficulty: z.enum(['beginner', 'intermediate', 'advanced']),
@@ -50,6 +90,44 @@ const BenchmarkReportSchema = z.object({
   totalQuestions: z.number().int().min(1).max(100),
   strengths: z.array(z.string().trim().min(1).max(120)).max(8),
   weaknesses: z.array(z.string().trim().min(1).max(120)).max(8),
+  dimensionScores: z
+    .array(
+      z.object({
+        key: z.enum([
+          'language_fluency',
+          'code_writing',
+          'code_reading',
+          'debugging',
+          'problem_solving',
+          'code_quality',
+          'efficiency',
+          'consistency',
+        ]),
+        label: z.string().trim().min(1).max(120),
+        score: z.number().int().min(0).max(100),
+        description: z.string().trim().min(1).max(600),
+      })
+    )
+    .max(12)
+    .optional(),
+  sectionScores: z
+    .array(
+      z.object({
+        section: z.enum(['baseline', 'implementation', 'debugging', 'comprehension', 'theory']),
+        label: z.string().trim().min(1).max(120),
+        score: z.number().int().min(0).max(100),
+        questionCount: z.number().int().min(1).max(20),
+      })
+    )
+    .max(8)
+    .optional(),
+  confidenceBand: z
+    .object({
+      label: z.string().trim().min(1).max(120),
+      percent: z.number().int().min(0).max(100),
+      description: z.string().trim().min(1).max(600),
+    })
+    .optional(),
   recommendedTrackIds: z.array(z.string().trim().min(1).max(120)).max(8),
   suggestedLessonIds: z.array(z.string().trim().min(1).max(160)).max(8),
   suggestedDuelProblemTitles: z.array(z.string().trim().min(1).max(160)).max(8),

@@ -159,8 +159,8 @@ const buildUpgradeRecommendation = (currentReport: BenchmarkReport | null): Upgr
   if (currentReport.setup.goal === 'class_improvement') {
     return {
       plan: 'Teams',
-      title: 'Turn this into a cohort workflow',
-      description: 'Use team dashboards, assignments, and benchmark analytics to prove improvement across a class or cohort.',
+      title: 'Run this as a cohort',
+      description: 'Use teams, assignments, and reports.',
       ctaLabel: 'See team plans',
     };
   }
@@ -168,16 +168,16 @@ const buildUpgradeRecommendation = (currentReport: BenchmarkReport | null): Upgr
   if (currentReport.setup.goal === 'interview_prep' && currentReport.overallScore >= 55) {
     return {
       plan: 'Interview Sprint',
-      title: 'You are close enough for a focused sprint',
-      description: 'A short, high-intent interview prep offer is the best fit when someone already has workable fundamentals and needs tighter execution.',
+      title: 'Good fit for Interview Sprint',
+      description: 'Use a short, focused prep block.',
       ctaLabel: 'See Interview Sprint',
     };
   }
 
   return {
     plan: 'Pro',
-    title: 'Unlock the full practice and history loop',
-    description: 'Pro is the best fit for learners who need a deeper roadmap, unlimited assessed practice, and a clean history of score progression.',
+    title: 'Unlock full history',
+    description: 'Save reports and practice more.',
     ctaLabel: 'View Pro plan',
   };
 };
@@ -282,6 +282,28 @@ export default function BenchmarkExperience({
     [nextAttemptIndex, reportHistory, setup]
   );
   const activeQuestion = assessmentQuestions[questionIndex];
+  const assessmentSections = useMemo(
+    () => Array.from(new Set(assessmentQuestions.map((question) => question.section))),
+    [assessmentQuestions]
+  );
+  const activeSectionIndex = activeQuestion ? assessmentSections.indexOf(activeQuestion.section) : -1;
+  const activeSectionQuestions = useMemo(
+    () =>
+      activeQuestion
+        ? assessmentQuestions.filter((question) => question.section === activeQuestion.section)
+        : [],
+    [activeQuestion, assessmentQuestions]
+  );
+  const activeSectionQuestionIndex = useMemo(() => {
+    if (!activeQuestion) return 0;
+    let count = 0;
+    for (let index = 0; index <= questionIndex; index += 1) {
+      if (assessmentQuestions[index]?.section === activeQuestion.section) {
+        count += 1;
+      }
+    }
+    return count;
+  }, [activeQuestion, assessmentQuestions, questionIndex]);
   const sampleReport = useMemo(() => buildSampleBenchmarkReport(), []);
   const reportQuestions = useMemo(
     () =>
@@ -351,7 +373,7 @@ export default function BenchmarkExperience({
           ...presetSetup,
           language: presetLanguage ?? presetSetup.language,
         });
-        setHistoryMessage('Benchmark setup was pre-filled from your practice workspace.');
+        setHistoryMessage('Setup added from practice.');
         clearBenchmarkSetupPreset();
       }
       hasRestoredSessionRef.current = true;
@@ -362,7 +384,19 @@ export default function BenchmarkExperience({
     const isExpired = Number.isNaN(updatedAt) || Date.now() - updatedAt > BENCHMARK_SESSION_TTL_MS;
     const restoredQuestions =
       storedSession.questions?.length > 0
-        ? storedSession.questions
+        ? storedSession.questions.map((question) => ({
+            ...question,
+            section: question.section || 'implementation',
+            sectionLabel: question.sectionLabel || 'Code implementation',
+            assessmentType: question.assessmentType || (question.kind === 'code' ? 'implementation' : 'theory'),
+            dimensions:
+              Array.isArray(question.dimensions) && question.dimensions.length > 0
+                ? question.dimensions
+                : question.kind === 'code'
+                ? ['code_writing', 'problem_solving']
+                : ['language_fluency'],
+            anchor: Boolean(question.anchor),
+          }))
         : buildBenchmarkQuestions(storedSession.setup, { attemptIndex: storedSession.attemptIndex ?? 0 });
     const hasValidQuestionIndex =
       storedSession.questionIndex >= 0 && storedSession.questionIndex < restoredQuestions.length;
@@ -383,7 +417,7 @@ export default function BenchmarkExperience({
     setCodeEvaluations(storedSession.codeEvaluations ?? {});
     setSecondsLeft(Math.max(1, Math.min(DURATION_SECONDS, storedSession.secondsLeft)));
     setView('assessment');
-    setHistoryMessage('Restored your in-progress benchmark.');
+    setHistoryMessage('Restored your benchmark.');
     trackEvent('benchmark_session_restored', {
       mode,
       language: storedSession.setup.language,
@@ -460,9 +494,7 @@ export default function BenchmarkExperience({
             setView('report');
           }
         }
-        setHistoryMessage(
-          merged.length > 0 ? 'Signed-in benchmark history is now connected to your workspace.' : null
-        );
+        setHistoryMessage(merged.length > 0 ? 'Benchmark history is synced.' : null);
       } catch (error) {
         if (cancelled) return;
         setReportHistory(localHistory);
@@ -663,21 +695,38 @@ export default function BenchmarkExperience({
       const selectedAnswer =
         question.kind === 'multiple_choice' ? selectedAnswers[question.id] ?? -1 : undefined;
       const submittedCode = question.kind === 'code' ? codeAnswers[question.id] ?? '' : undefined;
-      const evaluation = question.kind === 'code' ? codeEvaluations[question.id] : null;
+      const evaluation =
+        question.kind === 'code'
+          ? codeEvaluations[question.id] ??
+            validateCodeAssessment(submittedCode || '', {
+              language: setup.language,
+              starterCode: question.starterCode || '',
+              referenceCode: question.referenceCode || '',
+              validationMode: question.validationMode || 'exact',
+              requiredSnippets: question.requiredSnippets,
+              edgeCaseSnippets: question.edgeCaseSnippets,
+              qualitySignals: question.qualitySignals,
+              efficiencySignals: question.efficiencySignals,
+              forbiddenPatterns: question.forbiddenPatterns,
+              weights: question.weights,
+            })
+          : null;
+      const mcqCorrect = question.kind === 'multiple_choice' ? selectedAnswer === question.correctAnswer : false;
       return {
         questionId: question.id,
         selectedAnswer,
         submittedCode,
         evaluationMessage: evaluation?.message,
+        scorePercent: question.kind === 'multiple_choice' ? (mcqCorrect ? 100 : 0) : evaluation?.scorePercent,
+        rubricBreakdown: question.kind === 'code' ? evaluation?.rubricScores : undefined,
         isCorrect:
-          question.kind === 'multiple_choice'
-            ? selectedAnswer === question.correctAnswer
-            : Boolean(evaluation?.passed),
+          question.kind === 'multiple_choice' ? mcqCorrect : Boolean(evaluation?.passed),
       };
     });
 
     const nextReport = buildBenchmarkReport(setup, assessmentQuestions, answerRecords, {
       attemptIndex: assessmentAttemptIndex,
+      recentReports: reportHistory,
     });
     setHistoryMessage(null);
     saveBenchmarkReport(nextReport);
@@ -709,7 +758,7 @@ export default function BenchmarkExperience({
       const persistedReport = await persistBenchmarkReport(nextReport);
       setSavedReport(persistedReport);
       setReportHistory((current) => mergeReports([persistedReport], current));
-      setHistoryMessage('Saved to your benchmark history and workspace.');
+      setHistoryMessage('Saved to your history.');
     } catch (error) {
       setHistoryMessage(
         error instanceof Error
@@ -757,6 +806,11 @@ export default function BenchmarkExperience({
       referenceCode: activeQuestion.referenceCode || '',
       validationMode: activeQuestion.validationMode || 'exact',
       requiredSnippets: activeQuestion.requiredSnippets,
+      edgeCaseSnippets: activeQuestion.edgeCaseSnippets,
+      qualitySignals: activeQuestion.qualitySignals,
+      efficiencySignals: activeQuestion.efficiencySignals,
+      forbiddenPatterns: activeQuestion.forbiddenPatterns,
+      weights: activeQuestion.weights,
     });
 
     setCodeEvaluations((current) => ({
@@ -927,7 +981,7 @@ export default function BenchmarkExperience({
         Measure real coding skill in a short, structured benchmark.
       </h1>
       <p className="mt-4 max-w-3xl text-base leading-7 text-muted-foreground">
-        Choose a goal, language, and target level. Codhak turns a short assessment into a score, a skill report, and a clear next step.
+        Pick a goal, language, and level. Get a score and next step.
       </p>
       <div className="mt-6 grid gap-4 sm:grid-cols-3">
         <div className={`${mutedPanelClassName} px-4 py-4`}>
@@ -936,7 +990,7 @@ export default function BenchmarkExperience({
             {blueprintSummary.questionCount} calibrated questions
           </div>
           <div className="mt-2 text-sm leading-6 text-muted-foreground">
-            Stable difficulty for this setup, with rotated question variants across retakes.
+            Layered sections. Stable difficulty.
           </div>
         </div>
         <div className={`${mutedPanelClassName} px-4 py-4`}>
@@ -945,17 +999,20 @@ export default function BenchmarkExperience({
             Difficulty mix
           </div>
           <div className="mt-2 text-sm leading-6 text-muted-foreground">
-            {blueprintSummary.difficultyMix.beginner} foundational, {blueprintSummary.difficultyMix.intermediate} applied, {blueprintSummary.difficultyMix.advanced} stretch questions.
+            {blueprintSummary.difficultyMix.beginner} basic, {blueprintSummary.difficultyMix.intermediate} applied, {blueprintSummary.difficultyMix.advanced} stretch.
           </div>
         </div>
         <div className={`${mutedPanelClassName} px-4 py-4`}>
           <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
             <Target className="h-4 w-4 text-accent" />
-            Measured competencies
+            Section mix
           </div>
           <div className="mt-2 text-sm leading-6 text-muted-foreground">
-            {blueprintSummary.competencies.slice(0, 3).join(', ')}
-            {blueprintSummary.competencies.length > 3 ? ', and more.' : '.'}
+            {Object.entries(blueprintSummary.sectionMix)
+              .filter(([, count]) => count > 0)
+              .map(([section, count]) => `${count} ${section}`)
+              .join(', ')}
+            .
           </div>
         </div>
       </div>
@@ -993,16 +1050,16 @@ export default function BenchmarkExperience({
           : 'px-2 py-2 sm:px-3 lg:px-4 xl:px-5 lg:py-3 xl:py-4'
       }
     >
-      <div className="grid gap-3 lg:gap-4 xl:min-h-[calc(100vh-4.5rem)] xl:grid-cols-[0.9fr_1.1fr] xl:items-start">
-        <div className="space-y-6">
+      <div className="grid gap-3 lg:gap-4 xl:min-h-[calc(100dvh-4rem)] xl:grid-cols-[0.9fr_1.1fr] xl:items-start">
+        <div className="min-w-0 space-y-6">
           {headerCard}
           <div className={surfaceCardClassName}>
             <div className="text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground">How it works</div>
             <div className="mt-6 grid gap-4">
               {[
-                ['Choose your target', 'Set the benchmark around interview prep, class improvement, or general skill growth.', Target],
-                ['Complete the benchmark', 'Move through a short timed sequence built from existing lesson content.', Play],
-                ['Get your report', 'See score, strengths, weaknesses, recommended tracks, and duel readiness.', Trophy],
+                  ['Choose your target', 'Pick the setup.', Target],
+                  ['Complete the benchmark', 'Finish the timed assessment.', Play],
+                  ['Get your report', 'See score and next step.', Trophy],
               ].map(([title, description, IconComponent], index) => {
                 const Icon = IconComponent as typeof Target;
                 return (
@@ -1028,7 +1085,7 @@ export default function BenchmarkExperience({
               <div className="flex items-center justify-between gap-3">
                 <div>
                   <div className="text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground">Benchmark history</div>
-                  <h3 className="mt-2 text-2xl font-semibold text-foreground">See score progression, not just one attempt.</h3>
+                  <h3 className="mt-2 text-2xl font-semibold text-foreground">See score progression.</h3>
                 </div>
                 {historyLoading ? <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /> : null}
               </div>
@@ -1057,7 +1114,7 @@ export default function BenchmarkExperience({
           ) : null}
         </div>
 
-        <div className="space-y-6">
+        <div className="min-w-0 space-y-6">
           {view === 'setup' ? (
             <div className={surfaceCardClassName}>
               <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
@@ -1072,11 +1129,11 @@ export default function BenchmarkExperience({
               <div className="mt-4 rounded-[1.35rem] border border-border bg-background/70 px-4 py-4">
                 <div className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">Current benchmark blueprint</div>
                 <div className="mt-2 text-sm leading-6 text-muted-foreground">
-                  {setup.goal === 'interview_prep'
-                    ? 'Emphasizes screening-style problem solving and pressure readiness.'
-                    : setup.goal === 'class_improvement'
-                    ? 'Emphasizes foundational coverage and instructional gap detection.'
-                    : 'Emphasizes skill-growth coverage and repeatable practice planning.'}
+                    {setup.goal === 'interview_prep'
+                      ? 'Baseline, code, debugging, and reading under pressure.'
+                      : setup.goal === 'class_improvement'
+                      ? 'Baseline first, then applied gaps and debugging.'
+                      : 'Baseline first, then implementation and retake-ready signal.'}
                 </div>
                 <div className="mt-3 flex flex-wrap gap-2">
                   {blueprintSummary.competencies.map((competency) => (
@@ -1141,8 +1198,8 @@ export default function BenchmarkExperience({
               </div>
               <div className="mt-8 flex flex-col gap-4 rounded-[1.5rem] border border-border bg-background/70 p-5 sm:flex-row sm:items-center sm:justify-between">
                 <div>
-                  <div className="text-sm font-semibold text-foreground">You will get your report immediately after completion.</div>
-                  <p className="mt-1 text-sm leading-6 text-muted-foreground">Benchmark first. Save the roadmap after you see the value.</p>
+                  <div className="text-sm font-semibold text-foreground">Get a layered skill report.</div>
+                  <p className="mt-1 text-sm leading-6 text-muted-foreground">Baseline, build, debug, review.</p>
                 </div>
                 <button type="button" onClick={startBenchmark} className={primaryButtonClassName}>
                   <span>Start free benchmark</span>
@@ -1159,6 +1216,13 @@ export default function BenchmarkExperience({
                   <div className="text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground">
                     Question {questionIndex + 1} of {assessmentQuestions.length}
                   </div>
+                  <div className="mt-2 inline-flex items-center gap-2 rounded-full border border-border bg-background px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                    <span>Section {activeSectionIndex + 1}</span>
+                    <span className="text-foreground">{activeQuestion.sectionLabel}</span>
+                    <span>
+                      {activeSectionQuestionIndex}/{Math.max(1, activeSectionQuestions.length)}
+                    </span>
+                  </div>
                   <div className="mt-2 text-xl font-semibold text-foreground">{activeQuestion.lessonTitle}</div>
                 </div>
                 <div className="inline-flex items-center gap-2 rounded-full border border-primary/20 bg-primary/10 px-4 py-2 text-sm font-medium text-primary">
@@ -1173,7 +1237,17 @@ export default function BenchmarkExperience({
                 />
               </div>
               <div className="mt-6 rounded-[1.5rem] border border-border bg-background/70 p-6">
-                <div className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">{activeQuestion.competency}</div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <div className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">{activeQuestion.competency}</div>
+                  {activeQuestion.dimensions.map((dimension) => (
+                    <span
+                      key={dimension}
+                      className="inline-flex rounded-full border border-border bg-card px-2.5 py-1 text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground"
+                    >
+                      {dimension.replace(/_/g, ' ')}
+                    </span>
+                  ))}
+                </div>
                 <h3 className="mt-3 text-2xl font-semibold tracking-tight text-foreground">{activeQuestion.prompt}</h3>
                 {activeQuestion.kind === 'multiple_choice' ? (
                   <div className="mt-6 grid gap-3">
@@ -1197,7 +1271,7 @@ export default function BenchmarkExperience({
                 ) : (
                   <div className="mt-6 space-y-4">
                     <div className="rounded-2xl border border-border bg-card px-4 py-3 text-sm leading-6 text-muted-foreground">
-                      Type the code directly. Practical benchmark prompts are code-first, while theory-heavy prompts may still use multiple choice.
+                      Type your answer. Theory may still use multiple choice.
                     </div>
                     <CodeTypingEditor
                       language={setup.language}
@@ -1220,6 +1294,16 @@ export default function BenchmarkExperience({
                           {codeEvaluations[activeQuestion.id]?.passed ? 'Code accepted' : 'Keep refining this answer'}
                         </div>
                         <div className="mt-1">{codeEvaluations[activeQuestion.id]?.message}</div>
+                        <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+                          {Object.entries(codeEvaluations[activeQuestion.id]?.rubricScores || {}).map(([label, value]) => (
+                            <div key={label} className="rounded-xl border border-white/10 bg-black/10 px-3 py-2">
+                              <div className="text-[11px] uppercase tracking-[0.16em] text-white/70">
+                                {label.replace(/([A-Z])/g, ' $1').trim()}
+                              </div>
+                              <div className="mt-1 text-sm font-semibold text-white">{value}%</div>
+                            </div>
+                          ))}
+                        </div>
                       </div>
                     ) : null}
                   </div>
@@ -1258,7 +1342,7 @@ export default function BenchmarkExperience({
               actions={
                 <div className="flex flex-col gap-4">
                   <div className="rounded-[1.5rem] border border-border bg-background/70 p-5">
-                    <div className="text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground">What to do next</div>
+                    <div className="text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground">Next step</div>
                     <div className={`mt-4 grid gap-3 ${user ? 'lg:grid-cols-4' : 'lg:grid-cols-3'}`}>
                       <button type="button" onClick={openRecommendedTrack} className={primaryButtonClassName}>
                         <span>{primaryTrack ? 'Open recommended track' : 'Open practice path'}</span>
@@ -1293,21 +1377,21 @@ export default function BenchmarkExperience({
                         {scoreDelta} points vs previous benchmark
                       </div>
                       <p className="mt-2 text-sm leading-6 text-foreground/80">
-                        This is the kind of proof-of-progress signal that makes Codhak more valuable for both learners and team buyers.
+                        Clear progress between attempts.
                       </p>
                     </div>
                   ) : (
                     <div className="rounded-[1.5rem] border border-border bg-background/70 p-5">
                       <div className="text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground">Retention loop</div>
                       <p className="mt-3 text-sm leading-6 text-muted-foreground">
-                        Take the benchmark again after a focused practice block. The next report will show score delta and turn effort into visible progress.
+                        Retake after practice to measure progress.
                       </p>
                     </div>
                   )}
                   {upgradeRecommendation ? (
                     <div className="rounded-[1.5rem] border border-primary/20 bg-primary/10 p-5">
                       <div className="text-sm font-semibold uppercase tracking-[0.18em] text-primary">
-                        Recommended next path: {upgradeRecommendation.plan}
+                        Recommended plan: {upgradeRecommendation.plan}
                       </div>
                       <div className="mt-3 text-xl font-semibold text-foreground">{upgradeRecommendation.title}</div>
                       <p className="mt-2 text-sm leading-6 text-foreground/80">{upgradeRecommendation.description}</p>
@@ -1337,7 +1421,7 @@ export default function BenchmarkExperience({
                             <LockKeyhole className="h-4 w-4" />
                             Unlock full roadmap
                           </div>
-                          <p className="mt-2 max-w-2xl text-sm leading-6 text-foreground/80">Create a free account to save this report, track score history, and unlock the personalized roadmap.</p>
+                          <p className="mt-2 max-w-2xl text-sm leading-6 text-foreground/80">Create an account to save this report and roadmap.</p>
                         </div>
                         <button type="button" onClick={unlockRoadmap} className={primaryButtonClassName}>
                           <span>Create free account</span>
@@ -1352,19 +1436,19 @@ export default function BenchmarkExperience({
                         Saved to your workspace
                       </div>
                       <p className="mt-2 text-sm leading-6 text-foreground/80">
-                        Your report is saved to benchmark history when the API is available, with local fallback still preserved for this account.
+                        Saved to your benchmark history.
                       </p>
                       <div className="mt-4 rounded-2xl border border-border bg-background/70 px-4 py-3 text-sm text-foreground">
                         {sharedReportUrl ? (
                           <>
-                            Public proof link is live.
+                            Public link is live.
                             <span className="text-foreground/75">
-                              {' '}Anyone with the link can view this report.
+                              {' '}Anyone with the link can view it.
                             </span>
                           </>
                         ) : (
                           <>
-                            Keep this private by default, or publish a public proof-of-skill link when you want to share progress.
+                            Private by default. Publish when ready.
                           </>
                         )}
                       </div>
@@ -1420,7 +1504,11 @@ export default function BenchmarkExperience({
                             <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                               <div className="min-w-0">
                                 <div className="text-sm font-semibold text-foreground">{question.prompt}</div>
-                                <div className="mt-1 text-xs uppercase tracking-[0.18em] text-muted-foreground">{question.competency}</div>
+                                <div className="mt-1 flex flex-wrap items-center gap-2 text-xs uppercase tracking-[0.18em] text-muted-foreground">
+                                  <span>{question.sectionLabel}</span>
+                                  <span className="text-foreground/60">/</span>
+                                  <span>{question.competency}</span>
+                                </div>
                               </div>
                               <span className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] ${answerRecord?.isCorrect ? 'bg-xp/15 text-xp' : 'bg-coins/15 text-coins'}`}>
                                 {answerRecord?.isCorrect ? 'Correct' : 'Review'}
@@ -1459,6 +1547,18 @@ export default function BenchmarkExperience({
                                 </>
                               )}
                             </div>
+                            {answerRecord?.rubricBreakdown ? (
+                              <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+                                {Object.entries(answerRecord.rubricBreakdown).map(([label, value]) => (
+                                  <div key={label} className="rounded-xl border border-border bg-background px-3 py-2">
+                                    <div className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
+                                      {label.replace(/([A-Z])/g, ' $1').trim()}
+                                    </div>
+                                    <div className="mt-1 text-sm font-semibold text-foreground">{value}%</div>
+                                  </div>
+                                ))}
+                              </div>
+                            ) : null}
                             <div className="mt-3 rounded-2xl border border-border bg-background px-4 py-3">
                               <div className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">Why it matters</div>
                               <div className="mt-1 text-sm leading-6 text-muted-foreground">{question.explanation}</div>
@@ -1479,8 +1579,8 @@ export default function BenchmarkExperience({
           {view === 'setup' ? (
             <div className={surfaceCardClassName}>
               <div className="text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground">Sample output</div>
-              <h3 className="mt-2 text-2xl font-semibold text-foreground">See the report before you start.</h3>
-              <p className="mt-3 text-sm leading-6 text-muted-foreground">The sample report shows the score, strengths, gaps, and next steps you get at the end of the benchmark.</p>
+              <h3 className="mt-2 text-2xl font-semibold text-foreground">Preview the report.</h3>
+              <p className="mt-3 text-sm leading-6 text-muted-foreground">See score, gaps, and next step.</p>
               <div className="mt-5 flex flex-col gap-3 sm:flex-row">
                 <Link to="/report-sample" className={secondaryButtonClassName}>
                   <span>View sample report</span>
