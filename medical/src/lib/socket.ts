@@ -13,7 +13,8 @@ const DUEL_SERVER_URL =
   configuredDevDuelServerUrl ||
   (import.meta.env.DEV
     ? "http://localhost:5000"
-    : configuredDuelServerUrl || "http://localhost:5000");
+    : configuredDuelServerUrl ||
+      (typeof window !== "undefined" && window.location?.origin ? window.location.origin : ""));
 
 const normalizedDuelServerUrl = DUEL_SERVER_URL.replace(/\/+$/, "");
 

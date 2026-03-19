@@ -18,7 +18,11 @@ import { createLegalRouter } from "./services/legal/routes.js";
 import { createDuelAdminRouter } from "./services/duel-admin/routes.js";
 import { createDuelProblemAdminRouter } from "./services/duel-problems/routes.js";
 import { createProgressionRouter } from "./services/progression/routes.js";
-import { formatAllowedOriginsError, isAllowedOrigin, resolveAllowedOrigins } from "./services/allowed-origins.js";
+import {
+  formatAllowedOriginsError,
+  isAllowedOriginForRequest,
+  resolveAllowedOrigins,
+} from "./services/allowed-origins.js";
 
 dotenv.config();
 
@@ -32,34 +36,40 @@ const { origins: allowedOrigins, sourceEnv: allowedOriginsSourceEnv } = resolveA
   isProduction: IS_PRODUCTION,
 });
 
-const corsOptions = {
-  origin(origin, callback) {
-    if (isAllowedOrigin(origin, allowedOrigins, IS_PRODUCTION)) {
-      callback(null, true);
-      return;
-    }
-    callback(new Error("Origin not allowed by duel server CORS"));
-  },
-  credentials: true,
+const isOriginAllowed = (origin, req) =>
+  isAllowedOriginForRequest(origin, allowedOrigins, IS_PRODUCTION, req);
+
+const corsOptionsDelegate = (req, callback) => {
+  callback(null, {
+    origin(origin, originCallback) {
+      if (isOriginAllowed(origin, req)) {
+        originCallback(null, true);
+        return;
+      }
+      originCallback(new Error("Origin not allowed by duel server CORS"));
+    },
+    credentials: true,
+  });
 };
 
 const app = express();
-app.use(cors(corsOptions));
+app.use(cors(corsOptionsDelegate));
 app.use(express.json({ limit: process.env.API_JSON_LIMIT || "20mb" }));
 
 const httpServer = createServer(app);
 
 const io = new Server(httpServer, {
   cors: {
-    origin(origin, callback) {
-      if (isAllowedOrigin(origin, allowedOrigins, IS_PRODUCTION)) {
-        callback(null, true);
-        return;
-      }
-      callback(new Error("Origin not allowed by duel server CORS"));
-    },
+    origin: true,
     methods: ["GET", "POST"],
     credentials: true,
+  },
+  allowRequest(req, callback) {
+    if (isOriginAllowed(req.headers?.origin, req)) {
+      callback(null, true);
+      return;
+    }
+    callback("Origin not allowed by duel server CORS", false);
   },
 });
 

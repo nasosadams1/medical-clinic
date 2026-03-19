@@ -11,6 +11,24 @@ const normalizeOrigin = (origin = "") => String(origin).trim().replace(/\/+$/, "
 const escapeRegex = (value) => value.replace(/[|\\{}()[\]^$+?.]/g, "\\$&");
 const dedupeOrigins = (origins = []) => [...new Set(origins.map(normalizeOrigin).filter(Boolean))];
 
+export function resolveRequestOrigin(req) {
+  if (!req) return "";
+
+  const forwardedProto = String(req.headers?.["x-forwarded-proto"] || "").split(",")[0].trim();
+  const forwardedHost = String(req.headers?.["x-forwarded-host"] || "").split(",")[0].trim();
+  const directHost = String(req.headers?.host || "").trim();
+  const protocol =
+    forwardedProto ||
+    (req.protocol ? String(req.protocol).trim() : "");
+  const host = forwardedHost || directHost;
+
+  if (!protocol || !host) {
+    return "";
+  }
+
+  return normalizeOrigin(`${protocol}://${host}`);
+}
+
 export function matchesAllowedOrigin(origin, allowedOrigin) {
   const normalizedOrigin = normalizeOrigin(origin);
   const normalizedAllowedOrigin = normalizeOrigin(allowedOrigin);
@@ -64,6 +82,19 @@ export function isAllowedOrigin(origin, allowedOrigins, isProduction) {
   if (!origin) return true;
   if (allowedOrigins.length === 0) return !isProduction;
   return allowedOrigins.some((allowedOrigin) => matchesAllowedOrigin(origin, allowedOrigin));
+}
+
+export function isAllowedOriginForRequest(origin, allowedOrigins, isProduction, req) {
+  if (isAllowedOrigin(origin, allowedOrigins, isProduction)) {
+    return true;
+  }
+
+  const requestOrigin = resolveRequestOrigin(req);
+  if (!requestOrigin || !origin) {
+    return false;
+  }
+
+  return matchesAllowedOrigin(origin, requestOrigin);
 }
 
 export function formatAllowedOriginsError(serviceLabel, envKeys = []) {

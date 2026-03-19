@@ -18,7 +18,11 @@ import { createBenchmarkRouter } from './services/benchmark/routes.js';
 import { createTeamsRouter } from './services/teams/routes.js';
 import { createAnalyticsRouter } from './services/analytics/routes.js';
 import { createLeadsRouter } from './services/leads/routes.js';
-import { formatAllowedOriginsError, isAllowedOrigin, resolveAllowedOrigins } from './services/allowed-origins.js';
+import {
+  formatAllowedOriginsError,
+  isAllowedOriginForRequest,
+  resolveAllowedOrigins,
+} from './services/allowed-origins.js';
 
 dotenv.config();
 
@@ -30,15 +34,20 @@ const { origins: allowedOrigins, sourceEnv: allowedOriginsSourceEnv } = resolveA
   isProduction: IS_PRODUCTION,
 });
 
-const corsOptions = {
-  origin(origin, callback) {
-    if (isAllowedOrigin(origin, allowedOrigins, IS_PRODUCTION)) {
-      callback(null, true);
-      return;
-    }
-    callback(new Error('Origin not allowed by API server CORS'));
-  },
-  credentials: true,
+const isOriginAllowed = (origin, req) =>
+  isAllowedOriginForRequest(origin, allowedOrigins, IS_PRODUCTION, req);
+
+const corsOptionsDelegate = (req, callback) => {
+  callback(null, {
+    origin(origin, originCallback) {
+      if (isOriginAllowed(origin, req)) {
+        originCallback(null, true);
+        return;
+      }
+      originCallback(new Error('Origin not allowed by API server CORS'));
+    },
+    credentials: true,
+  });
 };
 
 if (IS_PRODUCTION && allowedOrigins.length === 0) {
@@ -50,21 +59,22 @@ const app = express();
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: {
-    origin(origin, callback) {
-      if (isAllowedOrigin(origin, allowedOrigins, IS_PRODUCTION)) {
-        callback(null, true);
-        return;
-      }
-      callback(new Error('Origin not allowed by API server CORS'));
-    },
+    origin: true,
     methods: ['GET', 'POST'],
     credentials: true,
-  }
+  },
+  allowRequest(req, callback) {
+    if (isOriginAllowed(req.headers?.origin, req)) {
+      callback(null, true);
+      return;
+    }
+    callback('Origin not allowed by API server CORS', false);
+  },
 });
 
 app.set('trust proxy', 1);
 app.use(helmet({ crossOriginResourcePolicy: false }));
-app.use(cors(corsOptions));
+app.use(cors(corsOptionsDelegate));
 app.use(bodyParser.json({ limit: process.env.API_JSON_LIMIT || '20mb' }));
 
 if (allowedOrigins.length > 0) {
