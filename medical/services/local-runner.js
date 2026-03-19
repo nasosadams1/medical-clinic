@@ -1,5 +1,5 @@
 // services/local-runner.js
-// Lightweight, non-Docker sandboxes for JavaScript and Python.
+// Lightweight, non-Docker sandboxes for JavaScript, Python, Java, and C++.
 // These are NOT secure sandboxes for untrusted code.
 // Use ONLY when Docker sandbox is unavailable (e.g., local dev verification).
 
@@ -10,6 +10,9 @@ import path from "path";
 import vm from "vm";
 
 let localPythonCommandPromise = null;
+let localJavaRuntimeCommandPromise = null;
+let localJavaCompilerCommandPromise = null;
+let localCppCompilerCommandPromise = null;
 
 function spawnProcess({ command, args = [], cwd, stdin = "", timeLimitMs = 2000 }) {
   return new Promise((resolve) => {
@@ -105,6 +108,85 @@ async function resolveLocalPythonCommand() {
   })();
 
   return localPythonCommandPromise;
+}
+
+async function resolveLocalJavaRuntimeCommand() {
+  if (localJavaRuntimeCommandPromise) return localJavaRuntimeCommandPromise;
+
+  const candidates = [{ command: "java", args: [] }];
+  localJavaRuntimeCommandPromise = (async () => {
+    for (const candidate of candidates) {
+      const probe = await spawnProcess({
+        command: candidate.command,
+        args: [...candidate.args, "-version"],
+        timeLimitMs: 2000,
+      }).catch(() => null);
+
+      if (probe && !probe.timeout && (probe.exitCode === 0 || probe.stderr.toLowerCase().includes("version"))) {
+        return candidate;
+      }
+    }
+
+    return null;
+  })();
+
+  return localJavaRuntimeCommandPromise;
+}
+
+async function resolveLocalJavaCompilerCommand() {
+  if (localJavaCompilerCommandPromise) return localJavaCompilerCommandPromise;
+
+  const candidates = [{ command: "javac", args: [] }];
+  localJavaCompilerCommandPromise = (async () => {
+    for (const candidate of candidates) {
+      const probe = await spawnProcess({
+        command: candidate.command,
+        args: [...candidate.args, "-version"],
+        timeLimitMs: 2000,
+      }).catch(() => null);
+
+      if (probe && !probe.timeout && (probe.exitCode === 0 || probe.stderr.toLowerCase().includes("javac"))) {
+        return candidate;
+      }
+    }
+
+    return null;
+  })();
+
+  return localJavaCompilerCommandPromise;
+}
+
+async function resolveLocalCppCompilerCommand() {
+  if (localCppCompilerCommandPromise) return localCppCompilerCommandPromise;
+
+  const candidates = process.platform === "win32"
+    ? [
+        { command: "g++", args: [] },
+        { command: "clang++", args: [] },
+      ]
+    : [
+        { command: "g++", args: [] },
+        { command: "c++", args: [] },
+        { command: "clang++", args: [] },
+      ];
+
+  localCppCompilerCommandPromise = (async () => {
+    for (const candidate of candidates) {
+      const probe = await spawnProcess({
+        command: candidate.command,
+        args: [...candidate.args, "--version"],
+        timeLimitMs: 2000,
+      }).catch(() => null);
+
+      if (probe && !probe.timeout && probe.exitCode === 0) {
+        return candidate;
+      }
+    }
+
+    return null;
+  })();
+
+  return localCppCompilerCommandPromise;
 }
 
 function getParamNames(fn) {
@@ -348,6 +430,96 @@ export async function runInLocalPythonSandbox({
       args: [...python.args, "harness.py"],
       cwd: tempDir,
       stdin: stdinJson,
+      timeLimitMs,
+    });
+  } finally {
+    await rm(tempDir, { recursive: true, force: true }).catch(() => {});
+  }
+}
+
+export async function runInLocalJavaSandbox({
+  userCode,
+  stdinText,
+  timeLimitMs = 2500,
+}) {
+  const [javaRuntime, javaCompiler] = await Promise.all([
+    resolveLocalJavaRuntimeCommand(),
+    resolveLocalJavaCompilerCommand(),
+  ]);
+
+  if (!javaRuntime || !javaCompiler) {
+    return {
+      stdout: "",
+      stderr: "Java is not available in the local judge environment",
+      exitCode: 1,
+      timeout: false,
+    };
+  }
+
+  const tempDir = await mkdtemp(path.join(os.tmpdir(), "duel-java-"));
+
+  try {
+    await writeFile(path.join(tempDir, "Main.java"), userCode, "utf8");
+
+    const compileResult = await spawnProcess({
+      command: javaCompiler.command,
+      args: [...javaCompiler.args, "Main.java"],
+      cwd: tempDir,
+      timeLimitMs: Math.max(2000, timeLimitMs),
+    });
+
+    if (compileResult.exitCode !== 0) {
+      return compileResult;
+    }
+
+    return await spawnProcess({
+      command: javaRuntime.command,
+      args: [...javaRuntime.args, "Main"],
+      cwd: tempDir,
+      stdin: stdinText,
+      timeLimitMs,
+    });
+  } finally {
+    await rm(tempDir, { recursive: true, force: true }).catch(() => {});
+  }
+}
+
+export async function runInLocalCppSandbox({
+  userCode,
+  stdinText,
+  timeLimitMs = 2500,
+}) {
+  const cppCompiler = await resolveLocalCppCompilerCommand();
+  if (!cppCompiler) {
+    return {
+      stdout: "",
+      stderr: "C++ is not available in the local judge environment",
+      exitCode: 1,
+      timeout: false,
+    };
+  }
+
+  const tempDir = await mkdtemp(path.join(os.tmpdir(), "duel-cpp-"));
+  const executableName = process.platform === "win32" ? "main.exe" : "main.out";
+
+  try {
+    await writeFile(path.join(tempDir, "main.cpp"), userCode, "utf8");
+
+    const compileResult = await spawnProcess({
+      command: cppCompiler.command,
+      args: [...cppCompiler.args, "-std=c++17", "-O2", "-pipe", "main.cpp", "-o", executableName],
+      cwd: tempDir,
+      timeLimitMs: Math.max(2500, timeLimitMs),
+    });
+
+    if (compileResult.exitCode !== 0) {
+      return compileResult;
+    }
+
+    return await spawnProcess({
+      command: path.join(tempDir, executableName),
+      cwd: tempDir,
+      stdin: stdinText,
       timeLimitMs,
     });
   } finally {

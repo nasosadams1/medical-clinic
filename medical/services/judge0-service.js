@@ -79,12 +79,26 @@ function upgradeTestCase(raw) {
   if (
     raw &&
     typeof raw === "object" &&
-    ("input_json" in raw || "input" in raw || "expected_json" in raw || "expected_output" in raw || "validator" in raw)
+    (
+      "input_json" in raw ||
+      "input" in raw ||
+      "stdin_text" in raw ||
+      "input_text" in raw ||
+      "expected_json" in raw ||
+      "expected_output" in raw ||
+      "validator" in raw
+    )
   ) {
     const inputRaw = raw.input_json !== undefined ? raw.input_json : raw.input;
 
     return {
       input_json: coerceJsonMaybe(inputRaw ?? null),
+      stdin_text:
+        raw.stdin_text !== undefined
+          ? String(raw.stdin_text)
+          : raw.input_text !== undefined
+          ? String(raw.input_text)
+          : null,
       expected_json: raw.expected_json === undefined ? undefined : coerceJsonMaybe(raw.expected_json),
       expected_output: raw.expected_output !== undefined ? String(raw.expected_output) : undefined,
       validator: raw.validator ?? null,
@@ -252,6 +266,8 @@ function normalizeLang(language) {
   if (l === "javascript" || l === "ecmascript") return "javascript";
   if (l === "py" || l === "python3") return "python";
   if (l === "python") return "python";
+  if (l === "java") return "java";
+  if (l === "cpp" || l === "c++" || l === "cxx") return "cpp";
   return l;
 }
 
@@ -275,6 +291,8 @@ export class Judge0Service {
   _languageId(lang) {
     if (lang === "javascript") return 63;
     if (lang === "python") return 71;
+    if (lang === "java") return 62;
+    if (lang === "cpp") return 54;
     throw new Error(`Unsupported language for Judge0: ${lang}`);
   }
 
@@ -363,14 +381,22 @@ export class Judge0Service {
 
     for (let idx = 0; idx < total; idx++) {
       const t = upgradeTestCase(cases[idx]);
-      const stdinJson = JSON.stringify(t.input_json ?? null);
+      const stdinPayload =
+        typeof t.stdin_text === "string"
+          ? t.stdin_text
+          : JSON.stringify(t.input_json ?? null);
       const timeLimitMs = t.time_limit_ms ?? 2000;
 
-      const sourceCode = lang === "python" ? buildPySource(code) : buildJsSource(code);
+      const sourceCode =
+        lang === "python"
+          ? buildPySource(code)
+          : lang === "javascript"
+          ? buildJsSource(code)
+          : code;
       const res = await this._submitAndWait({
         sourceCode,
         languageId,
-        stdin: stdinJson,
+        stdin: stdinPayload,
         timeLimitMs,
       });
 

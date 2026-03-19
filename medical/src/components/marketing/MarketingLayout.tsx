@@ -12,11 +12,12 @@ interface MarketingLayoutProps {
 }
 
 const navItems = [
-  { label: 'Benchmark', href: '/benchmark' },
-  { label: 'Practice', href: '/tracks/python-fundamentals' },
-  { label: 'Duels', href: '/interview-prep/data-structures-algorithms' },
-  { label: 'Teams', href: '/teams' },
+  { label: 'Learn', href: '/learn' },
+  { label: 'Practice', href: '/practice' },
+  { label: 'Skill Check', href: '/skill-check' },
+  { label: 'Duels', href: '/duels' },
   { label: 'Pricing', href: '/pricing' },
+  { label: 'Teams', href: '/teams' },
   { label: 'FAQ', href: '/faq' },
 ];
 
@@ -32,7 +33,7 @@ export default function MarketingLayout({ children, openAuthModal, isAuthenticat
             <div>
               <div className="text-xl font-bold font-display text-foreground">Codhak</div>
               <div className="text-[10px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">
-                Developer skill benchmark
+                Lessons, practice, duels, progress
               </div>
             </div>
           </Link>
@@ -72,7 +73,7 @@ export default function MarketingLayout({ children, openAuthModal, isAuthenticat
                   onClick={() => openAuthModal('signup')}
                   className="inline-flex items-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground shadow-glow transition hover:bg-primary/90"
                 >
-                  <span>Start Free</span>
+                  <span>Start Learning Free</span>
                   <ArrowRight className="h-4 w-4" />
                 </button>
               </>
@@ -131,7 +132,7 @@ export default function MarketingLayout({ children, openAuthModal, isAuthenticat
                     }}
                     className="inline-flex items-center justify-center gap-2 rounded-xl bg-primary px-4 py-3 text-sm font-semibold text-primary-foreground"
                   >
-                    <span>Start Free</span>
+                    <span>Start Learning Free</span>
                     <ArrowRight className="h-4 w-4" />
                   </button>
                 </div>
@@ -150,13 +151,16 @@ export default function MarketingLayout({ children, openAuthModal, isAuthenticat
             <div>
               <div className="font-semibold text-foreground">Codhak</div>
               <div className="text-xs uppercase tracking-[0.18em] text-muted-foreground">
-                Measure coding skill. Build proof of progress.
+                Learn by coding every day.
               </div>
             </div>
           </div>
 
           <div className="flex flex-wrap items-center justify-center gap-5 text-xs font-medium text-muted-foreground">
-            <Link to="/benchmark" className="hover:text-foreground">Benchmark</Link>
+            <Link to="/learn" className="hover:text-foreground">Learn</Link>
+            <Link to="/practice" className="hover:text-foreground">Practice</Link>
+            <Link to="/skill-check" className="hover:text-foreground">Skill Check</Link>
+            <Link to="/duels" className="hover:text-foreground">Duels</Link>
             <Link to="/pricing" className="hover:text-foreground">Pricing</Link>
             <Link to="/teams" className="hover:text-foreground">Teams</Link>
             <Link to="/faq" className="hover:text-foreground">FAQ</Link>

@@ -46,12 +46,12 @@ export const publicProductMetrics = [
   {
     label: 'Guided lessons',
     value: `${TOTAL_LESSON_COUNT}+`,
-    helper: 'Built-in lesson library',
+    helper: 'Structured lesson library',
   },
   {
-    label: 'Duel-ready challenges',
+    label: 'Practice prompts',
     value: `${duelProblemCounts.total}+`,
-    helper: 'Live duel prompt pool',
+    helper: 'Practice and duel pool',
   },
   {
     label: 'Languages',
@@ -59,9 +59,9 @@ export const publicProductMetrics = [
     helper: 'Python, JS, Java, C++',
   },
   {
-    label: 'Team workflows',
-    value: 'Pilot-ready',
-    helper: 'Cohorts, assignments, proof',
+    label: 'Daily progress loop',
+    value: 'Built in',
+    helper: 'Practice, duels, streaks',
   },
 ];
 
@@ -69,7 +69,7 @@ export const interviewTracks: ProductTrack[] = [
   {
     id: 'python-fundamentals',
     title: 'Python Fundamentals',
-    description: 'Build Python basics and backend logic.',
+    description: 'Learn Python with clean fundamentals and steady practice.',
     audience: 'Beginners and early-career Python learners.',
     language: 'python',
     benchmarkLanguage: 'python',
@@ -78,12 +78,12 @@ export const interviewTracks: ProductTrack[] = [
     highlightedSkills: ['Variables and data types', 'Control flow', 'Collections', 'Functions'],
     recommendedLessonIds: ['python-variables-1', 'python-variables-2', 'python-if-statements', 'python-functions'],
     duelProblemTitles: ['Curie\'s Cold Notes', 'Franklin\'s Signal Majority', 'Galileo\'s Rising Streak'],
-    ctaLabel: 'Start Python benchmark',
+    ctaLabel: 'Start Python path',
   },
   {
     id: 'javascript-interview-prep',
-    title: 'JavaScript Interview Prep',
-    description: 'Sharpen JavaScript for screens and take-homes.',
+    title: 'JavaScript Practice Path',
+    description: 'Sharpen JavaScript logic for projects and interviews.',
     audience: 'Frontend learners and job seekers.',
     language: 'javascript',
     benchmarkLanguage: 'javascript',
@@ -92,13 +92,13 @@ export const interviewTracks: ProductTrack[] = [
     highlightedSkills: ['Variables and scope', 'Control flow', 'Functions', 'Arrays and objects'],
     recommendedLessonIds: ['javascript-variables-1', 'javascript-if-else-1', 'javascript-functions-1', 'javascript-arrays-1'],
     duelProblemTitles: ['Hopper\'s Packet Pair', 'Kepler\'s Mirror Label', 'Meitner\'s Rotation Check'],
-    ctaLabel: 'Benchmark JavaScript skills',
+    ctaLabel: 'Start JavaScript path',
   },
   {
     id: 'data-structures-algorithms',
     title: 'Data Structures & Algorithms',
-    description: 'Timed DSA practice for interview pressure.',
-    audience: 'Interview candidates and strong cohorts.',
+    description: 'Timed problem solving that builds speed and pattern recall.',
+    audience: 'Ambitious learners and interview candidates.',
     language: 'multi',
     benchmarkLanguage: 'javascript',
     benchmarkRole: 'junior',
@@ -106,13 +106,13 @@ export const interviewTracks: ProductTrack[] = [
     highlightedSkills: ['Arrays and strings', 'Hash maps', 'Greedy logic', 'Debugging speed'],
     recommendedLessonIds: ['javascript-arrays-1', 'cpp-arrays', 'java-arrays', 'python-lists'],
     duelProblemTitles: ['Hopper\'s Packet Pair', 'Kepler\'s Mirror Label', 'Galileo\'s Rising Streak'],
-    ctaLabel: 'See DSA practice path',
+    ctaLabel: 'Open DSA path',
   },
   {
     id: 'backend-problem-solving',
     title: 'Backend Problem Solving',
-    description: 'Practice backend-style data handling and logic.',
-    audience: 'Backend juniors and upskilling teams.',
+    description: 'Practice backend-style data handling and readable logic.',
+    audience: 'Backend learners and junior developers.',
     language: 'multi',
     benchmarkLanguage: 'python',
     benchmarkRole: 'junior',
@@ -124,9 +124,9 @@ export const interviewTracks: ProductTrack[] = [
   },
   {
     id: 'junior-developer-screening',
-    title: 'Junior Developer Screening',
-    description: 'Benchmark junior readiness fast.',
-    audience: 'Hiring teams, bootcamps, and schools.',
+    title: 'Junior Developer Readiness',
+    description: 'Check core coding readiness before the next step.',
+    audience: 'Learners, bootcamps, and teams validating fundamentals.',
     language: 'multi',
     benchmarkLanguage: 'python',
     benchmarkRole: 'intern',
@@ -134,7 +134,7 @@ export const interviewTracks: ProductTrack[] = [
     highlightedSkills: ['Core syntax', 'Reading code', 'Problem solving', 'Readiness to duel'],
     recommendedLessonIds: ['python-variables-1', 'javascript-functions-1', 'java-methods', 'cpp-functions'],
     duelProblemTitles: ['Curie\'s Cold Notes', 'Hopper\'s Packet Pair', 'Raman\'s Digit Echo'],
-    ctaLabel: 'View screening workflow',
+    ctaLabel: 'Check junior readiness',
   },
 ];
 
@@ -143,57 +143,58 @@ export const pricingPlans: PricingPlan[] = [
     name: 'Free',
     price: '$0',
     cadence: '/ forever',
-    description: 'One benchmark and starter access.',
+    description: 'Start learning, practice daily, and build momentum.',
     features: [
-      'First benchmark and starter report',
-      'One starter path',
+      'Guided lessons and one starter path',
+      'Practice workspace access',
       'Limited duel access',
+      'One free skill check and starter report',
       'Public profile basics',
     ],
-    ctaLabel: 'Start free benchmark',
+    ctaLabel: 'Start learning free',
     ctaKind: 'secondary',
   },
   {
     name: 'Pro',
     price: '$19',
     cadence: '/ month',
-    description: 'Full reports, history, and tracks.',
+    description: 'For serious learners who want more depth and history.',
     badge: 'Most popular',
     features: [
-      'Full skill reports and roadmap',
       'Unlimited assessed practice',
-      'Interview tracks',
+      'Full skill reports and roadmap',
+      'Progress history and retakes',
+      'Interview and challenge tracks',
       'Advanced duel analytics',
-      'Progress history',
       'AI coaching placeholder',
     ],
-    ctaLabel: 'Choose Pro',
+    ctaLabel: 'Unlock Pro',
     ctaKind: 'primary',
   },
   {
     name: 'Interview Sprint',
     price: '$149',
     cadence: '/ 8 weeks',
-    description: 'Short, focused interview prep.',
+    description: 'Focused prep for high-intent interview windows.',
     features: [
-      'Interview-focused benchmark',
+      'Interview-focused skill check',
       'Role-based practice path',
       'Timed challenge packs',
       'Shareable progress summary',
     ],
-    ctaLabel: 'Start Interview Sprint',
+    ctaLabel: 'Start Sprint',
     ctaKind: 'secondary',
   },
   {
     name: 'Teams',
     price: '$299',
     cadence: '/ month',
-    description: 'For cohorts up to 25 learners.',
+    description: 'Bring Codhak to a cohort of up to 25 learners.',
     features: [
-      'Cohort dashboard',
+      'Team dashboard',
       'Assignments and challenge packs',
       'Leaderboards',
-      'Benchmark analytics',
+      'Skill-check analytics',
       'Instructor views',
       'Export-ready report placeholders',
     ],
@@ -204,7 +205,7 @@ export const pricingPlans: PricingPlan[] = [
     name: 'Teams Growth',
     price: '$999',
     cadence: '/ month',
-    description: 'For multi-cohort teams up to 100.',
+    description: 'For larger teams running multiple cohorts.',
     features: [
       'Everything in Teams',
       'Multi-cohort visibility',
@@ -219,7 +220,7 @@ export const pricingPlans: PricingPlan[] = [
     name: 'Custom',
     price: 'Contact',
     cadence: '',
-    description: 'For larger or branded rollouts.',
+    description: 'For larger rollouts and custom training needs.',
     features: [
       'Custom challenge packs',
       'Branded rollouts',
@@ -233,25 +234,29 @@ export const pricingPlans: PricingPlan[] = [
 
 export const faqItems: FaqItem[] = [
   {
-    question: 'Is this for beginners or interview prep?',
-    answer: 'Both. The benchmark adjusts to your goal and level.',
+    question: 'Is Codhak good for beginners?',
+    answer: 'Yes. Start with lessons and guided practice, then use the skill check when you want a clearer baseline.',
   },
   {
-    question: 'How is this different from LeetCode?',
-    answer: 'Codhak adds benchmarking, practice paths, duels, and team reporting.',
+    question: 'How is this different from video courses or LeetCode?',
+    answer: 'Codhak combines short lessons, hands-on practice, duels, and visible progress in one loop.',
   },
   {
-    question: 'Can teams or classes use this?',
-    answer: 'Yes. Teams get dashboards, assignments, and progress views.',
+    question: 'What should I do first?',
+    answer: 'Start learning in practice, or take the free skill check if you want a fast baseline first.',
   },
   {
     question: 'Do I need to install anything?',
     answer:
-      'No. The benchmark, practice paths, and duels all run in the browser.',
+      'No. Lessons, practice, skill checks, and duels all run in the browser.',
+  },
+  {
+    question: 'Can teams or classes use this?',
+    answer: 'Yes. Codhak for Teams adds dashboards, assignments, and progress views on top of the learner product.',
   },
   {
     question: 'How do you handle AI use and cheating?',
-    answer: 'Timed prompts and telemetry reduce abuse. Teams can validate with duels or review.',
+    answer: 'Timed prompts, trust telemetry, and follow-up duels help keep scores more trustworthy.',
   },
 ];
 
@@ -288,67 +293,67 @@ export const teamUseCases: TeamUseCase[] = [
 
 export const testimonialPlaceholders = [
   {
-    quote: 'Pilot quote goes here.',
-    attribution: 'Pilot coach, bootcamp cohort',
+    quote: 'Learner story goes here.',
+    attribution: 'Learner, Python path',
     isPlaceholder: true,
   },
   {
-    quote: 'Team lead quote goes here.',
-    attribution: 'Engineering manager, hiring/upskilling team',
+    quote: 'Progress story goes here.',
+    attribution: 'Learner, JavaScript sprint',
     isPlaceholder: true,
   },
   {
-    quote: 'Learner quote goes here.',
-    attribution: 'Learner, interview prep path',
+    quote: 'Team story goes here.',
+    attribution: 'Instructor or team lead',
     isPlaceholder: true,
   },
 ];
 
 export const audienceSegments = [
   {
-    title: 'For Learners',
-    description: 'Benchmark first. Practice next.',
-    ctaLabel: 'Start free benchmark',
-    href: '/benchmark',
+    title: 'Start learning',
+    description: 'Begin with lessons, coding practice, and steady progress.',
+    ctaLabel: 'Open learner path',
+    href: '/learn',
   },
   {
-    title: 'For Cohorts / Bootcamps / Schools',
-    description: 'Benchmark, assign, track.',
-    ctaLabel: 'See team plans',
+    title: 'Take the skill check',
+    description: 'Find your level and get the next best path.',
+    ctaLabel: 'Take free skill check',
+    href: '/skill-check',
+  },
+  {
+    title: 'Train a team',
+    description: 'Use Codhak for cohorts, onboarding, and internal upskilling.',
+    ctaLabel: 'Explore teams',
     href: '/teams',
-  },
-  {
-    title: 'For Hiring / Upskilling Teams',
-    description: 'Use practical skill signals.',
-    ctaLabel: 'View screening workflow',
-    href: '/teams/upskilling',
   },
 ];
 
 export const howItWorksSteps = [
   {
-    title: 'Take benchmark',
-    description: 'Pick goal, language, and level.',
+    title: 'Learn one skill',
+    description: 'Move through short lessons and examples.',
   },
   {
-    title: 'Get skill report',
-    description: 'See score, gaps, and next step.',
+    title: 'Practice with real code',
+    description: 'Solve problems and build your streak.',
   },
   {
-    title: 'Follow roadmap',
-    description: 'Open practice, duels, or teams.',
+    title: 'Check your level',
+    description: 'Use the skill check and duels to see progress.',
   },
 ];
 
 export const languagePageDescriptions: Record<LanguageSlug, string> = {
-  python: 'Benchmark Python and start the right path.',
-  javascript: 'Benchmark JavaScript and sharpen interview basics.',
-  java: 'Benchmark Java for classwork or junior roles.',
-  cpp: 'Benchmark C++ fundamentals and problem solving.',
+  python: 'Learn Python with structured lessons, practice, and a quick skill check.',
+  javascript: 'Learn JavaScript with practical coding paths and challenge-based progress.',
+  java: 'Learn Java through class-ready fundamentals and junior developer practice.',
+  cpp: 'Learn C++ through structured fundamentals and problem-solving practice.',
 };
 
 export const interviewPrepPageDescriptions: Record<string, string> = {
-  'junior-developer-screening': 'Benchmark junior readiness fast.',
-  'backend-problem-solving': 'Timed backend-style coding practice.',
-  'data-structures-algorithms': 'Hands-on DSA practice.',
+  'junior-developer-screening': 'Check junior developer readiness with practical coding signal.',
+  'backend-problem-solving': 'Practice backend-style coding with clean, readable solutions.',
+  'data-structures-algorithms': 'Build timed DSA skill through hands-on practice.',
 };

@@ -237,10 +237,38 @@ const roundAverage = (values = []) => {
   return Math.round(values.reduce((total, value) => total + value, 0) / values.length);
 };
 
+const roundRate = (value, total) => {
+  if (!total) return null;
+  return Math.round((value / total) * 100);
+};
+
 const toValidDate = (value) => {
   const timestamp = Date.parse(value || '');
   return Number.isFinite(timestamp) ? timestamp : null;
 };
+
+const normalizeBenchmarkFormat = (value) => {
+  const format = String(value || '').trim().toLowerCase();
+  if (format === 'quick' || format === 'full' || format === 'retake') {
+    return format;
+  }
+  return 'quick';
+};
+
+const matchesReportSetup = (left, right) =>
+  Boolean(left && right) &&
+  left.language === right.language &&
+  left.goal === right.goal &&
+  left.roleLevel === right.roleLevel;
+
+const getTrustTier = (score = 0) => {
+  if (score >= 82) return 'high';
+  if (score >= 60) return 'moderate';
+  return 'review';
+};
+
+const getTrustTierLabel = (tier) =>
+  tier === 'high' ? 'High trust' : tier === 'moderate' ? 'Moderate trust' : 'Needs review';
 
 const getLatestReportsByUser = (reports) => {
   const reportsByUser = new Map();
@@ -254,6 +282,114 @@ const getLatestReportsByUser = (reports) => {
   });
 
   return Array.from(reportsByUser.values());
+};
+
+const getPlanPurchaseTimestamp = (row) => {
+  const metadataPurchaseAt = row?.metadata?.latest_purchase_at;
+  return (
+    toValidDate(metadataPurchaseAt) ??
+    toValidDate(row?.updated_at) ??
+    toValidDate(row?.current_period_start) ??
+    null
+  );
+};
+
+const buildFormatFunnels = (reports, analyticsEvents = [], planEntitlements = []) => {
+  const emptyFunnel = () => ({
+    starts: 0,
+    completes: 0,
+    completionRate: null,
+    reportViews: 0,
+    signupAfterReport: 0,
+    subscriptionClicks: 0,
+    upgradeIntentRate: null,
+    paidConversions: 0,
+    reportSignupRate: null,
+    reportPaidRate: null,
+  });
+
+  const funnels = {
+    quick: emptyFunnel(),
+    full: emptyFunnel(),
+    retake: emptyFunnel(),
+  };
+
+  analyticsEvents.forEach((event) => {
+    const format = normalizeBenchmarkFormat(event?.properties?.format);
+    const funnel = funnels[format];
+    if (!funnel) return;
+
+    switch (event?.event_name) {
+      case 'benchmark_start':
+        funnel.starts += 1;
+        break;
+      case 'benchmark_complete':
+        funnel.completes += 1;
+        break;
+      case 'benchmark_report_viewed':
+        funnel.reportViews += 1;
+        break;
+      case 'signup_after_report':
+        funnel.signupAfterReport += 1;
+        break;
+      case 'subscription_cta_clicked':
+        if (String(event?.properties?.source || '') === 'benchmark_report') {
+          funnel.subscriptionClicks += 1;
+        }
+        break;
+      default:
+        break;
+    }
+  });
+
+  const reportsByUser = reports.reduce((map, report) => {
+    if (!report?.userId || !report?.createdAt) return map;
+    const current = map.get(report.userId) || [];
+    current.push(report);
+    map.set(report.userId, current);
+    return map;
+  }, new Map());
+
+  reportsByUser.forEach((userReports) => {
+    userReports.sort((left, right) => toValidDate(left.createdAt) - toValidDate(right.createdAt));
+  });
+
+  const countedConversions = new Set();
+  planEntitlements.forEach((entitlement) => {
+    if (!entitlement?.user_id || entitlement.status !== 'active') return;
+    const purchaseAt = getPlanPurchaseTimestamp(entitlement);
+    if (purchaseAt === null) return;
+
+    const reportsForUser = reportsByUser.get(entitlement.user_id) || [];
+    const candidate = [...reportsForUser]
+      .filter((report) => {
+        const reportAt = toValidDate(report.createdAt);
+        return (
+          reportAt !== null &&
+          purchaseAt >= reportAt &&
+          purchaseAt - reportAt <= 1000 * 60 * 60 * 24 * 14
+        );
+      })
+      .sort((left, right) => toValidDate(right.createdAt) - toValidDate(left.createdAt))[0];
+
+    if (!candidate) return;
+
+    const conversionKey = `${entitlement.user_id}:${candidate.id}:${entitlement.item_id}:${purchaseAt}`;
+    if (countedConversions.has(conversionKey)) return;
+    countedConversions.add(conversionKey);
+
+    funnels[normalizeBenchmarkFormat(candidate.format)].paidConversions += 1;
+  });
+
+  Object.values(funnels).forEach((funnel) => {
+    const reportExposureCount = Math.max(funnel.reportViews, funnel.completes);
+    funnel.completionRate = roundRate(funnel.completes, funnel.starts);
+    funnel.upgradeIntentRate = roundRate(funnel.subscriptionClicks, reportExposureCount);
+    funnel.reportSignupRate = roundRate(funnel.signupAfterReport, reportExposureCount);
+    funnel.reportPaidRate = roundRate(funnel.paidConversions, reportExposureCount);
+  });
+
+  return funnels;
 };
 
 const computeOutcomeValidation = (reports, lessonEvents, matchEvents) => {
@@ -337,7 +473,120 @@ const computeOutcomeValidation = (reports, lessonEvents, matchEvents) => {
   };
 };
 
-const buildQualitySummary = ({ reportRows = [], lessonEvents = [], matchEvents = [] }) => {
+const computeTrustTierOutcomes = (reports, matchEvents) => {
+  const buckets = {
+    high: {
+      tier: 'high',
+      label: getTrustTierLabel('high'),
+      benchmarkCount: 0,
+      trustScores: [],
+      retakeCount: 0,
+      retakeDeltas: [],
+      positiveRetakes: 0,
+      duelHits: 0,
+    },
+    moderate: {
+      tier: 'moderate',
+      label: getTrustTierLabel('moderate'),
+      benchmarkCount: 0,
+      trustScores: [],
+      retakeCount: 0,
+      retakeDeltas: [],
+      positiveRetakes: 0,
+      duelHits: 0,
+    },
+    review: {
+      tier: 'review',
+      label: getTrustTierLabel('review'),
+      benchmarkCount: 0,
+      trustScores: [],
+      retakeCount: 0,
+      retakeDeltas: [],
+      positiveRetakes: 0,
+      duelHits: 0,
+    },
+  };
+
+  const reportsByUser = reports.reduce((map, report) => {
+    if (!report?.userId || !report?.createdAt || !report?.setup) return map;
+    const current = map.get(report.userId) || [];
+    current.push(report);
+    map.set(report.userId, current);
+    return map;
+  }, new Map());
+
+  reportsByUser.forEach((userReports) => {
+    userReports.sort((left, right) => toValidDate(left.createdAt) - toValidDate(right.createdAt));
+
+    userReports.forEach((report, index) => {
+      const tier = getTrustTier(report.trustScore);
+      const bucket = buckets[tier];
+      const benchmarkAt = toValidDate(report.createdAt);
+      if (!bucket || benchmarkAt === null) return;
+
+      bucket.benchmarkCount += 1;
+      bucket.trustScores.push(Number(report.trustScore || 0));
+
+      const duelHit = matchEvents.some((event) => {
+        const occurredAt = toValidDate(event.created_at);
+        return (
+          (event.player_a_user_id === report.userId || event.player_b_user_id === report.userId) &&
+          occurredAt !== null &&
+          occurredAt >= benchmarkAt &&
+          occurredAt <= benchmarkAt + 1000 * 60 * 60 * 24 * 14
+        );
+      });
+
+      if (duelHit) {
+        bucket.duelHits += 1;
+      }
+
+      const nextComparableReport = userReports.slice(index + 1).find((candidate) => {
+        const candidateAt = toValidDate(candidate.createdAt);
+        return (
+          candidateAt !== null &&
+          candidateAt > benchmarkAt &&
+          candidateAt <= benchmarkAt + 1000 * 60 * 60 * 24 * 60 &&
+          matchesReportSetup(candidate.setup, report.setup)
+        );
+      });
+
+      if (!nextComparableReport) {
+        return;
+      }
+
+      const delta = Number(nextComparableReport.overallScore || 0) - Number(report.overallScore || 0);
+      bucket.retakeCount += 1;
+      bucket.retakeDeltas.push(delta);
+      if (delta > 0) {
+        bucket.positiveRetakes += 1;
+      }
+    });
+  });
+
+  return Object.values(buckets).map((bucket) => ({
+    tier: bucket.tier,
+    label: bucket.label,
+    benchmarkCount: bucket.benchmarkCount,
+    averageTrustScore: roundAverage(bucket.trustScores),
+    retakeCount: bucket.retakeCount,
+    retakeRate: roundRate(bucket.retakeCount, bucket.benchmarkCount),
+    averageRetakeDelta:
+      bucket.retakeDeltas.length > 0
+        ? Math.round((bucket.retakeDeltas.reduce((total, value) => total + value, 0) / bucket.retakeDeltas.length) * 10) / 10
+        : null,
+    positiveRetakeRate: roundRate(bucket.positiveRetakes, bucket.retakeCount),
+    duelParticipationRate: roundRate(bucket.duelHits, bucket.benchmarkCount),
+  }));
+};
+
+const buildQualitySummary = ({
+  reportRows = [],
+  lessonEvents = [],
+  matchEvents = [],
+  analyticsEvents = [],
+  planEntitlements = [],
+}) => {
   const hydratedReports = reportRows
     .map((row) => {
       const merged = mergeReportRow(row);
@@ -346,6 +595,8 @@ const buildQualitySummary = ({ reportRows = [], lessonEvents = [], matchEvents =
         userId: row.user_id || null,
         overallScore: Number(merged.overallScore || 0),
         createdAt: merged.createdAt || row.created_at,
+        id: merged.id || row.id || null,
+        setup: merged.setup,
         format: merged.format || 'quick',
         trustScore: Number(merged?.trustSignal?.score || 0),
         confidencePercent: Number(merged?.confidenceBand?.percent || 0),
@@ -385,6 +636,8 @@ const buildQualitySummary = ({ reportRows = [], lessonEvents = [], matchEvents =
   });
 
   const validation = computeOutcomeValidation(hydratedReports, lessonEvents, matchEvents);
+  const trustTierOutcomes = computeTrustTierOutcomes(hydratedReports, matchEvents);
+  const formatFunnels = buildFormatFunnels(hydratedReports, analyticsEvents, planEntitlements);
 
   return {
     available: true,
@@ -394,8 +647,10 @@ const buildQualitySummary = ({ reportRows = [], lessonEvents = [], matchEvents =
       hydratedReports.map((report) => report.confidencePercent).filter(Boolean)
     ),
     formatMix,
+    formatFunnels,
     calibrationMix,
     validation,
+    trustTierOutcomes,
     itemSignals: Array.from(itemSignalMap.values())
       .map((signal) => ({
         templateId: signal.templateId,
@@ -466,10 +721,16 @@ export const createBenchmarkRouter = ({ supabaseAdmin, judgeService = null }) =>
         return res.status(503).json({ error: 'Benchmark API is not configured.' });
       }
 
-      const [benchmarkRowsResult, lessonEventsResult, matchEventsResult] = await Promise.all([
+      const [
+        benchmarkRowsResult,
+        lessonEventsResult,
+        matchEventsResult,
+        analyticsEventsResult,
+        planEntitlementsResult,
+      ] = await Promise.all([
         supabaseAdmin
           .from('benchmark_reports')
-          .select('user_id, created_at, report_payload, is_public, public_token, public_shared_at')
+          .select('id, user_id, created_at, report_payload, is_public, public_token, public_shared_at')
           .order('created_at', { ascending: false })
           .limit(2000),
         supabaseAdmin
@@ -483,10 +744,31 @@ export const createBenchmarkRouter = ({ supabaseAdmin, judgeService = null }) =>
           .eq('status', 'completed')
           .order('created_at', { ascending: false })
           .limit(5000),
+        supabaseAdmin
+          .from('analytics_events')
+          .select('user_id, anonymous_id, event_name, properties, occurred_at')
+          .in('event_name', [
+            'benchmark_start',
+            'benchmark_complete',
+            'benchmark_report_viewed',
+            'signup_after_report',
+            'subscription_cta_clicked',
+          ])
+          .order('occurred_at', { ascending: false })
+          .limit(8000),
+        supabaseAdmin
+          .from('plan_entitlements')
+          .select('user_id, item_id, plan_name, status, current_period_start, current_period_end, updated_at, metadata')
+          .order('updated_at', { ascending: false })
+          .limit(2000),
       ]);
 
       const firstError =
-        benchmarkRowsResult.error || lessonEventsResult.error || matchEventsResult.error;
+        benchmarkRowsResult.error ||
+        lessonEventsResult.error ||
+        matchEventsResult.error ||
+        analyticsEventsResult.error ||
+        planEntitlementsResult.error;
       if (firstError) {
         throw new Error(firstError.message || 'Could not load benchmark quality summary.');
       }
@@ -496,6 +778,8 @@ export const createBenchmarkRouter = ({ supabaseAdmin, judgeService = null }) =>
           reportRows: benchmarkRowsResult.data || [],
           lessonEvents: lessonEventsResult.data || [],
           matchEvents: matchEventsResult.data || [],
+          analyticsEvents: analyticsEventsResult.data || [],
+          planEntitlements: planEntitlementsResult.data || [],
         }),
       });
     } catch (error) {

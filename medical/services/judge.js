@@ -7,7 +7,12 @@
 // - optional { hidden }
 
 import { runInDockerSandbox, isDockerAvailable } from "./sandbox-runner.js";
-import { runInLocalJsSandbox, runInLocalPythonSandbox } from "./local-runner.js";
+import {
+  runInLocalCppSandbox,
+  runInLocalJavaSandbox,
+  runInLocalJsSandbox,
+  runInLocalPythonSandbox,
+} from "./local-runner.js";
 import { pythonHarness, jsHarness } from "./harness.js";
 import { deepEqual, normalizeOutput, validators } from "./validators.js";
 
@@ -40,6 +45,8 @@ function normalizeJudgeLanguage(language) {
   const value = String(language ?? "").trim().toLowerCase();
   if (value === "javascript" || value === "js") return "javascript";
   if (value === "python" || value === "py") return "python";
+  if (value === "java") return "java";
+  if (value === "cpp" || value === "c++") return "cpp";
   return null;
 }
 
@@ -102,12 +109,26 @@ function upgradeTestCase(raw) {
   if (
     raw &&
     typeof raw === "object" &&
-    ("input_json" in raw || "input" in raw || "expected_json" in raw || "expected_output" in raw || "validator" in raw)
+    (
+      "input_json" in raw ||
+      "input" in raw ||
+      "stdin_text" in raw ||
+      "input_text" in raw ||
+      "expected_json" in raw ||
+      "expected_output" in raw ||
+      "validator" in raw
+    )
   ) {
     const inputRaw = raw.input_json !== undefined ? raw.input_json : raw.input;
 
     return {
       input_json: coerceJsonMaybe(inputRaw ?? null),
+      stdin_text:
+        raw.stdin_text !== undefined
+          ? String(raw.stdin_text)
+          : raw.input_text !== undefined
+          ? String(raw.input_text)
+          : null,
       expected_json: raw.expected_json === undefined ? undefined : coerceJsonMaybe(raw.expected_json),
       expected_output: raw.expected_output !== undefined ? String(raw.expected_output) : undefined,
       validator: raw.validator ?? null,
@@ -147,7 +168,6 @@ export class JudgeService {
 
     for (let idx = 0; idx < total; idx++) {
       const t = upgradeTestCase(cases[idx]);
-      const stdinJson = JSON.stringify(t.input_json ?? null);
       debugJudge("case_begin", {
         idx: idx + 1,
         hidden: !!t.hidden,
@@ -155,10 +175,16 @@ export class JudgeService {
         compareMode: t.compare_mode ?? null,
       });
 
+      const stdinPayload =
+        typeof t.stdin_text === "string"
+          ? t.stdin_text
+          : JSON.stringify(t.input_json ?? null);
       const harness =
         lang === "python"
           ? pythonHarness({ entries: ["solution", "solve"], userFile: "user.py" })
-          : jsHarness({ entries: ["solution", "solve"], userFile: "user.js" });
+          : lang === "javascript"
+          ? jsHarness({ entries: ["solution", "solve"], userFile: "user.js" })
+          : "";
 
       let res;
       const timeLimitMs = t.time_limit_ms ?? 2000;
@@ -168,7 +194,7 @@ export class JudgeService {
           language: lang,
           userCode: code,
           harnessCode: harness,
-          stdinJson,
+          stdinJson: stdinPayload,
           timeLimitMs,
         });
       } else {
@@ -179,8 +205,12 @@ export class JudgeService {
         }
         res =
           lang === "javascript"
-            ? await runInLocalJsSandbox({ userCode: code, harnessCode: harness, stdinJson, timeLimitMs })
-            : await runInLocalPythonSandbox({ userCode: code, harnessCode: harness, stdinJson, timeLimitMs });
+            ? await runInLocalJsSandbox({ userCode: code, harnessCode: harness, stdinJson: stdinPayload, timeLimitMs })
+            : lang === "python"
+            ? await runInLocalPythonSandbox({ userCode: code, harnessCode: harness, stdinJson: stdinPayload, timeLimitMs })
+            : lang === "java"
+            ? await runInLocalJavaSandbox({ userCode: code, stdinText: stdinPayload, timeLimitMs })
+            : await runInLocalCppSandbox({ userCode: code, stdinText: stdinPayload, timeLimitMs });
       }
 
       const actualRaw = extractLastNonEmptyLine(res.stdout);

@@ -24,7 +24,7 @@ export async function isDockerAvailable() {
 export async function runInDockerSandbox({
   language,
   userCode,
-  harnessCode,
+  harnessCode = '',
   stdinJson,
   timeLimitMs = 2000,
   memoryMb = 256,
@@ -59,7 +59,7 @@ export async function runInDockerSandbox({
                echo '${harnessB64}' | base64 -d > /tmp/${harnessFileName} && \
                cd /tmp && \
                echo '${stdinB64}' | base64 -d | timeout ${Math.ceil(timeLimitMs / 1000)}s python ${harnessFileName}"`;
-  } else {
+  } else if (language === 'javascript') {
     userFileName = 'user.js';
     harnessFileName = 'harness.js';
 
@@ -75,6 +75,38 @@ export async function runInDockerSandbox({
                echo '${harnessB64}' | base64 -d > /tmp/${harnessFileName} && \
                cd /tmp && \
                echo '${stdinB64}' | base64 -d | timeout ${Math.ceil(timeLimitMs / 1000)}s node ${harnessFileName}"`;
+  } else if (language === 'java') {
+    userFileName = 'Main.java';
+
+    dockerCmd = `docker run --rm --name ${containerName} \
+      --memory=${memoryMb}m \
+      --cpus=${cpuLimit} \
+      --pids-limit=${pidsLimit} \
+      --network=none \
+      --read-only \
+      --tmpfs /tmp:rw,noexec,nosuid,size=10m \
+      openjdk:17-slim \
+      bash -c "echo '${userB64}' | base64 -d > /tmp/${userFileName} && \
+               cd /tmp && \
+               timeout ${Math.max(2, Math.ceil((timeLimitMs + 1000) / 1000))}s javac ${userFileName} && \
+               echo '${stdinB64}' | base64 -d | timeout ${Math.ceil(timeLimitMs / 1000)}s java Main"`;
+  } else if (language === 'cpp') {
+    userFileName = 'main.cpp';
+
+    dockerCmd = `docker run --rm --name ${containerName} \
+      --memory=${memoryMb}m \
+      --cpus=${cpuLimit} \
+      --pids-limit=${pidsLimit} \
+      --network=none \
+      --read-only \
+      --tmpfs /tmp:rw,noexec,nosuid,size=10m \
+      gcc:12.2 \
+      bash -c "echo '${userB64}' | base64 -d > /tmp/${userFileName} && \
+               cd /tmp && \
+               timeout ${Math.max(2, Math.ceil((timeLimitMs + 1000) / 1000))}s g++ -std=c++17 -O2 -pipe ${userFileName} -o main && \
+               echo '${stdinB64}' | base64 -d | timeout ${Math.ceil(timeLimitMs / 1000)}s ./main"`;
+  } else {
+    throw new Error(`Unsupported sandbox language: ${language}`);
   }
 
   let stdout = '';

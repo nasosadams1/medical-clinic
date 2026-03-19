@@ -38,6 +38,21 @@ export interface BenchmarkQualitySummary {
   averageTrustScore: number;
   averageConfidencePercent: number;
   formatMix: Record<string, number>;
+  formatFunnels: Record<
+    string,
+    {
+      starts: number;
+      completes: number;
+      completionRate: number | null;
+      reportViews: number;
+      signupAfterReport: number;
+      subscriptionClicks: number;
+      upgradeIntentRate: number | null;
+      paidConversions: number;
+      reportSignupRate: number | null;
+      reportPaidRate: number | null;
+    }
+  >;
   calibrationMix: Record<string, number>;
   validation: {
     lessonFollowThroughRate: number | null;
@@ -45,6 +60,17 @@ export interface BenchmarkQualitySummary {
     highVsLowScoreLessonLift: number | null;
     highVsLowScoreDuelLift: number | null;
   };
+  trustTierOutcomes: Array<{
+    tier: string;
+    label: string;
+    benchmarkCount: number;
+    averageTrustScore: number;
+    retakeCount: number;
+    retakeRate: number | null;
+    averageRetakeDelta: number | null;
+    positiveRetakeRate: number | null;
+    duelParticipationRate: number | null;
+  }>;
   itemSignals: Array<{
     templateId: string;
     exposureCount: number;

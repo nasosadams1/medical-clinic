@@ -63,6 +63,7 @@ import {
   type CodeAssessmentResult,
   validateCodeAssessment,
 } from '../../lib/codeAssessment';
+import { benchmarkFormatLabels } from '../../data/benchmarkModel';
 
 type AuthModalView = 'login' | 'signup';
 type BenchmarkView = 'setup' | 'assessment' | 'report';
@@ -149,6 +150,8 @@ const formatDuration = (seconds: number) => {
   const remaining = safeSeconds % 60;
   return `${minutes}:${remaining.toString().padStart(2, '0')}`;
 };
+
+const formatPercentMetric = (value: number | null) => (value === null ? 'Pending' : `${value}%`);
 
 const surfaceCardClassName = 'rounded-[1.5rem] border border-border bg-card p-5 shadow-card sm:p-6';
 const mutedPanelClassName = 'rounded-[1.35rem] border border-border bg-background/70';
@@ -807,6 +810,7 @@ export default function BenchmarkExperience({
     if (!report || trackedReportRef.current === report.id) return;
     trackedReportRef.current = report.id;
     trackEvent('benchmark_report_viewed', {
+      format: report.format,
       language: report.setup.language,
       goal: report.setup.goal,
       roleLevel: report.setup.roleLevel,
@@ -824,6 +828,7 @@ export default function BenchmarkExperience({
     if (!report || !upgradeRecommendation) return;
     trackEvent('pricing_plan_recommended', {
       plan: upgradeRecommendation.plan,
+      format: report.format,
       language: report.setup.language,
       goal: report.setup.goal,
       roleLevel: report.setup.roleLevel,
@@ -1256,6 +1261,7 @@ export default function BenchmarkExperience({
   const unlockRoadmap = () => {
     trackEvent('signup_after_report', {
       source: mode,
+      format: report?.format ?? benchmarkFormat,
       language: report?.setup.language ?? setup.language,
       goal: report?.setup.goal ?? setup.goal,
       roleLevel: report?.setup.roleLevel ?? setup.roleLevel,
@@ -1288,6 +1294,7 @@ export default function BenchmarkExperience({
     trackEvent('subscription_cta_clicked', {
       plan: upgradeRecommendation.plan,
       source: 'benchmark_report',
+      format: report?.format ?? benchmarkFormat,
       language: report?.setup.language ?? setup.language,
       goal: report?.setup.goal ?? setup.goal,
       roleLevel: report?.setup.roleLevel ?? setup.roleLevel,
@@ -1524,6 +1531,86 @@ export default function BenchmarkExperience({
                     </div>
                   </div>
                 </div>
+                <div className="mt-4 rounded-[1.35rem] border border-border bg-background/70 p-4">
+                  <div className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">Quick vs full funnel</div>
+                  <div className="mt-3 grid gap-2 lg:grid-cols-3">
+                    {(['quick', 'full', 'retake'] as BenchmarkFormat[]).map((format) => {
+                      const funnel = qualitySummary.formatFunnels?.[format];
+
+                      return (
+                        <div key={format} className="rounded-2xl border border-border bg-card px-4 py-3">
+                          <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                            {benchmarkFormatLabels[format]}
+                          </div>
+                          <div className="mt-2 text-lg font-semibold text-foreground">
+                            {formatPercentMetric(funnel?.completionRate ?? null)}
+                          </div>
+                          <div className="mt-1 text-xs text-muted-foreground">
+                            {funnel?.completes ?? 0}/{funnel?.starts ?? 0} completed
+                          </div>
+                          <div className="mt-3 grid gap-2 sm:grid-cols-3">
+                            <div className="rounded-xl border border-border bg-background px-3 py-2">
+                              <div className="text-[10px] uppercase tracking-[0.16em] text-muted-foreground">Upgrade</div>
+                              <div className="mt-1 text-sm font-medium text-foreground">
+                                {formatPercentMetric(funnel?.upgradeIntentRate ?? null)}
+                              </div>
+                            </div>
+                            <div className="rounded-xl border border-border bg-background px-3 py-2">
+                              <div className="text-[10px] uppercase tracking-[0.16em] text-muted-foreground">Signup</div>
+                              <div className="mt-1 text-sm font-medium text-foreground">
+                                {formatPercentMetric(funnel?.reportSignupRate ?? null)}
+                              </div>
+                            </div>
+                            <div className="rounded-xl border border-border bg-background px-3 py-2">
+                              <div className="text-[10px] uppercase tracking-[0.16em] text-muted-foreground">Paid</div>
+                              <div className="mt-1 text-sm font-medium text-foreground">
+                                {formatPercentMetric(funnel?.reportPaidRate ?? null)}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+                {qualitySummary.trustTierOutcomes?.length ? (
+                  <div className="mt-4 rounded-[1.35rem] border border-border bg-background/70 p-4">
+                    <div className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">Trust tiers and outcomes</div>
+                    <div className="mt-3 grid gap-2">
+                      {qualitySummary.trustTierOutcomes.map((tier) => (
+                        <div
+                          key={tier.tier}
+                          className="grid gap-3 rounded-2xl border border-border bg-card px-4 py-3 text-sm lg:grid-cols-[1.2fr_0.9fr_0.9fr_0.9fr]"
+                        >
+                          <div className="min-w-0">
+                            <div className="font-medium text-foreground">{tier.label}</div>
+                            <div className="mt-1 text-xs uppercase tracking-[0.16em] text-muted-foreground">
+                              {tier.benchmarkCount} reports · {tier.averageTrustScore}/100 trust
+                            </div>
+                          </div>
+                          <div>
+                            <div className="text-[10px] uppercase tracking-[0.16em] text-muted-foreground">Retake rate</div>
+                            <div className="mt-1 font-medium text-foreground">{formatPercentMetric(tier.retakeRate)}</div>
+                          </div>
+                          <div>
+                            <div className="text-[10px] uppercase tracking-[0.16em] text-muted-foreground">Avg delta</div>
+                            <div className="mt-1 font-medium text-foreground">
+                              {tier.averageRetakeDelta === null
+                                ? 'Pending'
+                                : `${tier.averageRetakeDelta > 0 ? '+' : ''}${tier.averageRetakeDelta}`}
+                            </div>
+                          </div>
+                          <div>
+                            <div className="text-[10px] uppercase tracking-[0.16em] text-muted-foreground">Duel rate</div>
+                            <div className="mt-1 font-medium text-foreground">
+                              {formatPercentMetric(tier.duelParticipationRate)}
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
                 {qualitySummary.itemSignals.length > 0 ? (
                   <div className="mt-4 rounded-[1.35rem] border border-border bg-background/70 p-4">
                     <div className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">Top calibrated items</div>

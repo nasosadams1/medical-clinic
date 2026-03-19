@@ -48,7 +48,7 @@ const SectionFallback = () => (
 
 const withSuspense = (node: React.ReactNode) => <Suspense fallback={<SectionFallback />}>{node}</Suspense>;
 
-const defaultSection: SectionId = 'benchmark';
+const defaultSection: SectionId = 'practice';
 const TASKBAR_STORAGE_KEY = 'codhak-taskbar-visible';
 
 const isValidSection = (value: string | null): value is SectionId =>
@@ -169,22 +169,22 @@ export default function AppShell({ openAuthModal }: AppShellProps) {
     () =>
       isAuthenticated
         ? [
-            { id: 'benchmark' as SectionId, label: 'Benchmark', icon: BarChart3 },
             { id: 'practice' as SectionId, label: 'Practice', icon: BookOpen },
+            { id: 'benchmark' as SectionId, label: 'Skill Check', icon: BarChart3 },
             { id: 'duels' as SectionId, label: 'Duels', icon: Swords },
             { id: 'teams' as SectionId, label: 'Teams', icon: Users },
             { id: 'profile' as SectionId, label: 'Profile', icon: UserIcon },
           ]
         : [
-            { id: 'benchmark' as SectionId, label: 'Benchmark', icon: BarChart3 },
             { id: 'practice' as SectionId, label: 'Practice', icon: BookOpen },
+            { id: 'benchmark' as SectionId, label: 'Skill Check', icon: BarChart3 },
             { id: 'teams' as SectionId, label: 'Teams', icon: Users },
             { id: 'signup' as const, label: 'Sign Up', icon: UserPlus },
           ],
     [isAuthenticated]
   );
   const sectionLabelMap: Record<SectionId, string> = {
-    benchmark: 'Benchmark',
+    benchmark: 'Skill Check',
     practice: 'Practice',
     duels: 'Duels',
     teams: 'Teams',

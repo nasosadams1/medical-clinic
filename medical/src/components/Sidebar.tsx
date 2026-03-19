@@ -32,8 +32,8 @@ interface SidebarProps {
 }
 
 const primaryNavItems = [
-  { id: 'benchmark', label: 'Benchmark', icon: BarChart3 },
   { id: 'practice', label: 'Practice', icon: BookOpen },
+  { id: 'benchmark', label: 'Skill Check', icon: BarChart3 },
   { id: 'duels', label: 'Duels', icon: Swords },
   { id: 'teams', label: 'Teams', icon: Users },
 ];
@@ -46,8 +46,8 @@ const secondaryNavItems = [
 ];
 
 const guestNavItems = [
-  { id: 'benchmark', label: 'Benchmark', icon: BarChart3 },
   { id: 'practice', label: 'Practice', icon: BookOpen },
+  { id: 'benchmark', label: 'Skill Check', icon: BarChart3 },
   { id: 'teams', label: 'Teams', icon: Users },
 ];
 
@@ -97,7 +97,7 @@ export default function Sidebar({
   const handleSignOut = async () => {
     setSigningOut(true);
     try {
-      setCurrentSection('benchmark');
+      setCurrentSection('practice');
       await signOut();
       onClose?.();
     } catch (error) {
@@ -239,19 +239,19 @@ export default function Sidebar({
               <div className="flex items-center gap-3">
                 <img src={mascot} alt="" className="h-10 w-10" />
                 <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-semibold text-sidebar-accent-foreground">Start with the benchmark</p>
-                  <p className="text-xs text-sidebar-foreground">Get a report before you sign up.</p>
+                  <p className="truncate text-sm font-semibold text-sidebar-accent-foreground">Start learning free</p>
+                  <p className="text-xs text-sidebar-foreground">Open practice first, then use the skill check when you want a baseline.</p>
                 </div>
               </div>
               <div className="mt-3 grid gap-2">
                 <button
                   onClick={() => {
-                    setCurrentSection('benchmark');
+                    setCurrentSection('practice');
                     onClose?.();
                   }}
                   className="w-full rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground"
                 >
-                  Start free benchmark
+                  Open practice
                 </button>
                 <div className="grid grid-cols-2 gap-2">
                   <button

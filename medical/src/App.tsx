@@ -7,11 +7,14 @@ import { lazyWithPreload } from './lib/lazyWithPreload';
 import {
   BenchmarkPage,
   CompilerLandingPage,
+  DuelsPage,
   FaqPage,
   HomePage,
   InterviewPrepLandingPage,
   LanguageLandingPage,
+  LearnPage,
   PricingPage,
+  PracticePage,
   ReportSamplePage,
   SharedReportPage,
   SharedTeamProofPage,
@@ -57,8 +60,13 @@ function AppRoutes() {
       <Suspense fallback={<SectionFallback />}>
         <Routes>
           <Route path="/" element={<HomePage openAuthModal={openAuthModal} />} />
+          <Route path="/learn" element={<LearnPage openAuthModal={openAuthModal} />} />
+          <Route path="/practice" element={<PracticePage openAuthModal={openAuthModal} />} />
+          <Route path="/skill-check" element={<BenchmarkPage openAuthModal={openAuthModal} />} />
+          <Route path="/skill-check/:language" element={<BenchmarkPage openAuthModal={openAuthModal} />} />
           <Route path="/benchmark" element={<BenchmarkPage openAuthModal={openAuthModal} />} />
           <Route path="/benchmark/:language" element={<BenchmarkPage openAuthModal={openAuthModal} />} />
+          <Route path="/duels" element={<DuelsPage openAuthModal={openAuthModal} />} />
           <Route path="/teams" element={<TeamsPage openAuthModal={openAuthModal} />} />
           <Route path="/teams/:useCase" element={<TeamUseCasePage openAuthModal={openAuthModal} />} />
           <Route path="/pricing" element={<PricingPage openAuthModal={openAuthModal} />} />

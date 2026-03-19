@@ -1,6 +1,7 @@
 const buildCases = (items = []) =>
   items.map((item) => ({
     input_json: item.input,
+    stdin_text: item.stdinText,
     expected_json: item.expected,
     expected_output: item.expectedOutput,
     validator: item.validator ?? null,
@@ -84,9 +85,85 @@ const javascriptExecutionCases = {
   },
 };
 
+const javaExecutionCases = {
+  'java-functions-1-java-implementation-intermediate-exec-1': {
+    language: 'java',
+    testCases: buildCases([
+      { label: 'Simple string', stdinText: 'Ada\n', expectedOutput: 'Hi Ada' },
+      { label: 'Another name', stdinText: 'Mina\n', expectedOutput: 'Hi Mina' },
+      { label: 'Hidden another name', stdinText: 'Noah\n', expectedOutput: 'Hi Noah', hidden: true },
+    ]),
+  },
+  'java-arrays-1-java-implementation-intermediate-exec-1': {
+    language: 'java',
+    testCases: buildCases([
+      { label: 'Basic list', stdinText: '3\n1 2 3\n', expectedOutput: '6' },
+      { label: 'Mixed positives', stdinText: '3\n4 1 5\n', expectedOutput: '10' },
+      { label: 'Hidden empty list', stdinText: '0\n\n', expectedOutput: '0', hidden: true },
+      { label: 'Hidden negatives', stdinText: '3\n5 -2 4\n', expectedOutput: '7', hidden: true },
+    ]),
+  },
+  'java-functions-1-java-implementation-advanced-exec-1': {
+    language: 'java',
+    testCases: buildCases([
+      { label: 'Filter short words', stdinText: 'api server db\n', expectedOutput: 'server' },
+      { label: 'Keep multiple', stdinText: 'react js hooks\n', expectedOutput: 'react hooks' },
+      { label: 'Hidden no matches', stdinText: 'a to be\n', expectedOutput: '', hidden: true },
+      { label: 'Hidden preserve order', stdinText: 'code in java now\n', expectedOutput: 'code java', hidden: true },
+    ]),
+  },
+  'java-functions-1-java-debugging-advanced-exec-1': {
+    language: 'java',
+    testCases: buildCases([
+      { label: 'Mixed values', stdinText: '4\n1 2 4 7\n', expectedOutput: '2' },
+      { label: 'All odd', stdinText: '3\n1 3 5\n', expectedOutput: '0' },
+      { label: 'Hidden all even', stdinText: '3\n2 4 6\n', expectedOutput: '3', hidden: true },
+    ]),
+  },
+};
+
+const cppExecutionCases = {
+  'cpp-functions-1-cpp-implementation-intermediate-exec-1': {
+    language: 'cpp',
+    testCases: buildCases([
+      { label: 'Simple string', stdinText: 'Ada\n', expectedOutput: 'Hi Ada' },
+      { label: 'Another name', stdinText: 'Mina\n', expectedOutput: 'Hi Mina' },
+      { label: 'Hidden another name', stdinText: 'Noah\n', expectedOutput: 'Hi Noah', hidden: true },
+    ]),
+  },
+  'cpp-vectors-1-cpp-implementation-intermediate-exec-1': {
+    language: 'cpp',
+    testCases: buildCases([
+      { label: 'Basic list', stdinText: '3\n1 2 3\n', expectedOutput: '6' },
+      { label: 'Mixed positives', stdinText: '3\n4 1 5\n', expectedOutput: '10' },
+      { label: 'Hidden empty list', stdinText: '0\n\n', expectedOutput: '0', hidden: true },
+      { label: 'Hidden negatives', stdinText: '3\n5 -2 4\n', expectedOutput: '7', hidden: true },
+    ]),
+  },
+  'cpp-functions-1-cpp-implementation-advanced-exec-1': {
+    language: 'cpp',
+    testCases: buildCases([
+      { label: 'Filter short words', stdinText: 'api server db\n', expectedOutput: 'server' },
+      { label: 'Keep multiple', stdinText: 'react js hooks\n', expectedOutput: 'react hooks' },
+      { label: 'Hidden no matches', stdinText: 'a to be\n', expectedOutput: '', hidden: true },
+      { label: 'Hidden preserve order', stdinText: 'code in cplusplus now\n', expectedOutput: 'code cplusplus', hidden: true },
+    ]),
+  },
+  'cpp-functions-1-cpp-debugging-advanced-exec-1': {
+    language: 'cpp',
+    testCases: buildCases([
+      { label: 'Mixed values', stdinText: '4\n1 2 4 7\n', expectedOutput: '2' },
+      { label: 'All odd', stdinText: '3\n1 3 5\n', expectedOutput: '0' },
+      { label: 'Hidden all even', stdinText: '3\n2 4 6\n', expectedOutput: '3', hidden: true },
+    ]),
+  },
+};
+
 const benchmarkExecutionCasesByTemplateId = {
   ...pythonExecutionCases,
   ...javascriptExecutionCases,
+  ...javaExecutionCases,
+  ...cppExecutionCases,
 };
 
 export const getBenchmarkExecutionDefinition = (templateId) => benchmarkExecutionCasesByTemplateId[String(templateId || '').trim()] || null;
