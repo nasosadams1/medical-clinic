@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  Archive,
   ArrowRight,
   BarChart3,
   Check,
@@ -11,6 +12,8 @@ import {
   Loader2,
   Pencil,
   Plus,
+  RotateCcw,
+  Search,
   ShieldCheck,
   Trash2,
   UserMinus,
@@ -43,6 +46,7 @@ import {
   TeamAnalytics,
   TeamAssignment,
   TeamAssignmentType,
+  TeamAssignmentLifecycleState,
   TeamFeedback,
   TeamFeedbackStatus,
   TeamInvite,
@@ -111,6 +115,45 @@ interface JoinSettingsDraft {
   allowedEmailDomain: string;
 }
 
+type MemberConfirmAction =
+  | null
+  | {
+      type: 'role';
+      member: TeamMember;
+      nextRole: TeamRole;
+    }
+  | {
+      type: 'remove';
+      member: TeamMember;
+    };
+
+type MemberActivityBand = 'active_now' | 'within_12h' | 'within_24h' | 'within_3d' | 'within_7d' | 'inactive';
+type MemberActivityFilter = 'all' | 'active_now' | 'last_24h' | 'last_7d' | 'inactive';
+type AssignmentDueBand = 'overdue' | 'due_soon' | 'scheduled' | 'no_due_date';
+type AssignmentLifecycleFilter = 'all' | TeamAssignmentLifecycleState;
+type FeedbackVisibilityFilter = 'all' | 'shared' | 'private';
+type AssignmentSortOption = 'priority' | 'due' | 'completion' | 'recent';
+type FeedbackSortOption = 'recent' | 'score' | 'learner';
+type AssignmentViewMode = 'list' | 'board';
+
+type WorkspaceConfirmAction =
+  | null
+  | {
+      type: 'assignment_archive';
+      assignment: TeamAssignment;
+    }
+  | {
+      type: 'feedback_delete';
+      entry: TeamFeedback;
+    };
+
+const MEMBER_ROLE_ORDER: Record<TeamRole, number> = {
+  owner: 0,
+  admin: 1,
+  coach: 2,
+  learner: 3,
+};
+
 const TEAM_USE_CASE_OPTIONS: Array<{ value: TeamUseCase; label: string }> = [
   { value: 'bootcamps', label: 'Bootcamp cohort' },
   { value: 'universities', label: 'University / class' },
@@ -125,17 +168,100 @@ const TEAM_ROLE_OPTIONS: Array<{ value: Exclude<TeamRole, 'owner'>; label: strin
   { value: 'learner', label: 'Learner' },
 ];
 
-const FEEDBACK_STATUS_OPTIONS: Array<{ value: TeamFeedbackStatus; label: string }> = [
-  { value: 'draft', label: 'Draft' },
-  { value: 'shared', label: 'Shared' },
-  { value: 'resolved', label: 'Resolved' },
-];
-
 const TEAM_JOIN_MODE_OPTIONS: Array<{ value: TeamJoinMode; label: string; helper: string }> = [
   { value: 'open_code', label: 'Open by code', helper: 'Any active code joins instantly.' },
   { value: 'code_domain', label: 'Code + email domain', helper: 'Only signed-in users on one allowed domain can join.' },
   { value: 'code_approval', label: 'Code + admin approval', helper: 'Codes create requests that owners or admins approve.' },
   { value: 'invite_only', label: 'Invite-only', helper: 'Only direct email invites can be used.' },
+];
+
+const MEMBER_ACTIVITY_FILTER_OPTIONS: Array<{ value: MemberActivityFilter; label: string }> = [
+  { value: 'all', label: 'All activity' },
+  { value: 'active_now', label: 'Active now' },
+  { value: 'last_24h', label: 'Last 24 hours' },
+  { value: 'last_7d', label: 'Last 7 days' },
+  { value: 'inactive', label: 'Inactive' },
+];
+
+const ASSIGNMENT_LIFECYCLE_FILTER_OPTIONS: Array<{ value: AssignmentLifecycleFilter; label: string }> = [
+  { value: 'all', label: 'All states' },
+  { value: 'active', label: 'Active' },
+  { value: 'past_due', label: 'Past due' },
+  { value: 'archived', label: 'Archived' },
+];
+
+const FEEDBACK_VISIBILITY_FILTER_OPTIONS: Array<{ value: FeedbackVisibilityFilter; label: string }> = [
+  { value: 'all', label: 'All visibility' },
+  { value: 'shared', label: 'Shared' },
+  { value: 'private', label: 'Private' },
+];
+
+const ASSIGNMENT_TEMPLATES: Array<{
+  id: string;
+  title: string;
+  assignmentType: TeamAssignmentType;
+  benchmarkLanguage?: AssignmentDraft['benchmarkLanguage'];
+  trackId?: string;
+  description: string;
+}> = [
+  {
+    id: 'benchmark-python-screen',
+    title: 'Class benchmark',
+    assignmentType: 'benchmark',
+    benchmarkLanguage: 'python',
+    description: 'Measure baseline fluency before the next coaching sprint.',
+  },
+  {
+    id: 'challenge-pack-speed',
+    title: 'Timed challenge pack',
+    assignmentType: 'challenge_pack',
+    benchmarkLanguage: 'javascript',
+    description: 'Push timed problem solving and raise pressure-readiness.',
+  },
+  {
+    id: 'roadmap-junior',
+    title: 'Junior prep roadmap',
+    assignmentType: 'roadmap',
+    trackId: interviewTracks[0]?.id || '',
+    description: 'Assign a structured roadmap and review completion weekly.',
+  },
+];
+
+const FEEDBACK_SNIPPETS: Array<{
+  id: string;
+  label: string;
+  summary: string;
+  strengths: string;
+  focusAreas: string;
+}> = [
+  {
+    id: 'clean-logic',
+    label: 'Clean logic',
+    summary: 'Strong baseline. The core approach is correct and easy to follow.',
+    strengths: 'Good control flow, readable naming, and clear problem framing.',
+    focusAreas: 'Push deeper on edge cases and test your output against tricky inputs.',
+  },
+  {
+    id: 'needs-edge-cases',
+    label: 'Edge cases',
+    summary: 'The main solution works, but edge-case handling still needs attention.',
+    strengths: 'Core structure is there and the logic is mostly sound.',
+    focusAreas: 'Handle empty input, boundary values, and output formatting more deliberately.',
+  },
+  {
+    id: 'speed-pressure',
+    label: 'Speed under pressure',
+    summary: 'You can solve the task, but speed drops once pressure increases.',
+    strengths: 'Problem-solving instincts are solid once you settle into the task.',
+    focusAreas: 'Practice timed reps and simplify your first pass before optimizing.',
+  },
+  {
+    id: 'ready-retake',
+    label: 'Ready for retake',
+    summary: 'This looks ready for a stronger retake or next-level assignment.',
+    strengths: 'Execution is more confident and the solution quality is improving.',
+    focusAreas: 'Take a harder benchmark or a more time-constrained challenge next.',
+  },
 ];
 
 const TEAM_INVITE_MIN_USES = 1;
@@ -192,40 +318,269 @@ const formatDateLabel = (value: string | null | undefined) => {
   });
 };
 
+const formatRelativeActivityLabel = (value: string | null | undefined) => {
+  if (!value) return 'No activity yet';
+
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return 'No activity yet';
+
+  const diffMs = Date.now() - parsed.getTime();
+  if (!Number.isFinite(diffMs) || diffMs < 0) return 'Moments ago';
+
+  const minuteMs = 60 * 1000;
+  const hourMs = 60 * minuteMs;
+  const dayMs = 24 * hourMs;
+
+  if (diffMs < minuteMs) return 'Moments ago';
+  if (diffMs < hourMs) return `${Math.max(1, Math.floor(diffMs / minuteMs))}m ago`;
+  if (diffMs < dayMs) return `${Math.max(1, Math.floor(diffMs / hourMs))}h ago`;
+  if (diffMs < 7 * dayMs) return `${Math.max(1, Math.floor(diffMs / dayMs))}d ago`;
+  return formatDateLabel(value);
+};
+
+const formatAssignmentTypeLabel = (assignmentType: TeamAssignmentType) => {
+  if (assignmentType === 'challenge_pack') return 'Challenge pack';
+  if (assignmentType === 'roadmap') return 'Roadmap';
+  return 'Benchmark';
+};
+
+const formatBenchmarkLanguageLabel = (language: TeamAssignment['benchmarkLanguage']) => {
+  if (language === 'javascript') return 'JavaScript';
+  if (language === 'java') return 'Java';
+  if (language === 'cpp') return 'C++';
+  return 'Python';
+};
+
+const getAssignmentDueMeta = (dueAt: string | null | undefined) => {
+  if (!dueAt) {
+    return {
+      band: 'no_due_date' as AssignmentDueBand,
+      label: 'No due date',
+      tone: 'default' as const,
+      sortValue: Number.POSITIVE_INFINITY,
+    };
+  }
+
+  const parsed = new Date(dueAt);
+  if (Number.isNaN(parsed.getTime())) {
+    return {
+      band: 'no_due_date' as AssignmentDueBand,
+      label: 'No due date',
+      tone: 'default' as const,
+      sortValue: Number.POSITIVE_INFINITY,
+    };
+  }
+
+  const diffMs = parsed.getTime() - Date.now();
+  if (diffMs < 0) {
+    return {
+      band: 'overdue' as AssignmentDueBand,
+      label: 'Overdue',
+      tone: 'danger' as const,
+      sortValue: parsed.getTime(),
+    };
+  }
+
+  if (diffMs <= 7 * 24 * 60 * 60 * 1000) {
+    return {
+      band: 'due_soon' as AssignmentDueBand,
+      label: 'Due soon',
+      tone: 'warn' as const,
+      sortValue: parsed.getTime(),
+    };
+  }
+
+  return {
+    band: 'scheduled' as AssignmentDueBand,
+    label: 'Scheduled',
+    tone: 'success' as const,
+    sortValue: parsed.getTime(),
+  };
+};
+
+const getAssignmentLifecycleMeta = (lifecycleState: TeamAssignmentLifecycleState) => {
+  switch (lifecycleState) {
+    case 'past_due':
+      return {
+        label: 'Past due',
+        tone: 'danger' as const,
+        sortPriority: 0,
+      };
+    case 'archived':
+      return {
+        label: 'Archived',
+        tone: 'default' as const,
+        sortPriority: 2,
+      };
+    case 'active':
+    default:
+      return {
+        label: 'Active',
+        tone: 'success' as const,
+        sortPriority: 1,
+      };
+  }
+};
+
+const getAssignmentWorkflowStateMeta = (assignment: TeamAssignment) => {
+  const dueMeta = getAssignmentDueMeta(assignment.dueAt);
+  const startedCount = assignment.completedLearnerCount + assignment.inProgressLearnerCount;
+
+  if (assignment.lifecycleState === 'archived') {
+    return {
+      label: 'Archived',
+      description: 'Inactive history',
+      sortPriority: 4,
+    };
+  }
+
+  if (assignment.lifecycleState === 'past_due' || dueMeta.band === 'overdue') {
+    return {
+      label: 'Past due',
+      description: 'Needs action now',
+      sortPriority: 0,
+    };
+  }
+
+  if (dueMeta.band === 'due_soon') {
+    return {
+      label: 'Due soon',
+      description: 'Inside 7 days',
+      sortPriority: 1,
+    };
+  }
+
+  if (dueMeta.band === 'scheduled' && startedCount === 0) {
+    return {
+      label: 'Scheduled',
+      description: 'Waiting to start',
+      sortPriority: 2,
+    };
+  }
+
+  return {
+    label: 'Live',
+    description: 'In progress',
+    sortPriority: 3,
+  };
+};
+
+const getFeedbackStateMeta = (entry: TeamFeedback) => {
+  if (entry.status === 'resolved') {
+    return {
+      label: 'Resolved',
+      tone: 'success' as const,
+      sortPriority: 2,
+    };
+  }
+
+  if (entry.sharedWithMember || entry.status === 'shared') {
+    return {
+      label: 'Shared',
+      tone: 'success' as const,
+      sortPriority: 1,
+    };
+  }
+
+  return {
+    label: 'Needs review',
+    tone: 'warn' as const,
+    sortPriority: 0,
+  };
+};
+
 const getMemberActivityIndicator = (
   lastActiveAt: string | null | undefined,
   options?: { isCurrentUser?: boolean; isCurrentlyActive?: boolean }
 ) => {
+  const parsed = lastActiveAt ? new Date(lastActiveAt) : null;
+  const lastActiveTimestamp = parsed && !Number.isNaN(parsed.getTime()) ? parsed.getTime() : null;
+
   if (options?.isCurrentlyActive || options?.isCurrentUser) {
-    return { className: 'bg-emerald-400', label: 'Active now' };
+    return {
+      band: 'active_now' as MemberActivityBand,
+      className: 'bg-emerald-400',
+      label: 'Active now',
+      description: 'Active now',
+      sortValue: Number.MAX_SAFE_INTEGER,
+    };
   }
 
-  if (!lastActiveAt) {
-    return { className: 'border border-white/10 bg-black', label: 'No recent activity' };
+  if (!lastActiveTimestamp) {
+    return {
+      band: 'inactive' as MemberActivityBand,
+      className: 'border border-white/10 bg-black',
+      label: 'No activity',
+      description: 'No recent activity',
+      sortValue: -1,
+    };
   }
 
-  const ageMs = Date.now() - new Date(lastActiveAt).getTime();
+  const ageMs = Date.now() - lastActiveTimestamp;
   if (Number.isNaN(ageMs)) {
-    return { className: 'border border-white/10 bg-black', label: 'No recent activity' };
+    return {
+      band: 'inactive' as MemberActivityBand,
+      className: 'border border-white/10 bg-black',
+      label: 'No activity',
+      description: 'No recent activity',
+      sortValue: -1,
+    };
   }
 
+  const relativeLabel = formatRelativeActivityLabel(lastActiveAt);
   if (ageMs <= 15 * 60 * 1000) {
-    return { className: 'bg-emerald-400', label: 'Active now' };
+    return {
+      band: 'active_now' as MemberActivityBand,
+      className: 'bg-emerald-400',
+      label: 'Active now',
+      description: 'Active now',
+      sortValue: lastActiveTimestamp,
+    };
   }
   if (ageMs <= 12 * 60 * 60 * 1000) {
-    return { className: 'bg-amber-200', label: 'Active within 12 hours' };
+    return {
+      band: 'within_12h' as MemberActivityBand,
+      className: 'bg-amber-200',
+      label: relativeLabel,
+      description: 'Active within 12 hours',
+      sortValue: lastActiveTimestamp,
+    };
   }
   if (ageMs <= 24 * 60 * 60 * 1000) {
-    return { className: 'bg-amber-400', label: 'Active within 24 hours' };
+    return {
+      band: 'within_24h' as MemberActivityBand,
+      className: 'bg-amber-400',
+      label: relativeLabel,
+      description: 'Active within 24 hours',
+      sortValue: lastActiveTimestamp,
+    };
   }
   if (ageMs <= 3 * 24 * 60 * 60 * 1000) {
-    return { className: 'bg-rose-300', label: 'Active within 3 days' };
+    return {
+      band: 'within_3d' as MemberActivityBand,
+      className: 'bg-rose-300',
+      label: relativeLabel,
+      description: 'Active within 3 days',
+      sortValue: lastActiveTimestamp,
+    };
   }
   if (ageMs <= 7 * 24 * 60 * 60 * 1000) {
-    return { className: 'bg-rose-500', label: 'Active within 7 days' };
+    return {
+      band: 'within_7d' as MemberActivityBand,
+      className: 'bg-rose-500',
+      label: relativeLabel,
+      description: 'Active within 7 days',
+      sortValue: lastActiveTimestamp,
+    };
   }
 
-  return { className: 'border border-white/10 bg-black', label: 'Inactive for over 7 days' };
+  return {
+    band: 'inactive' as MemberActivityBand,
+    className: 'border border-white/10 bg-black',
+    label: relativeLabel,
+    description: 'Inactive for over 7 days',
+    sortValue: lastActiveTimestamp,
+  };
 };
 
 const formatTeamRoleLabel = (role: TeamRole) => {
@@ -373,10 +728,18 @@ function ActionButton({
   );
 }
 
-function StatusPill({ children, tone = 'default' }: { children: React.ReactNode; tone?: 'default' | 'success' | 'warn' }) {
+function StatusPill({
+  children,
+  tone = 'default',
+}: {
+  children: React.ReactNode;
+  tone?: 'default' | 'success' | 'warn' | 'danger';
+}) {
   const toneClass =
     tone === 'success'
       ? 'border-xp/20 bg-xp/10 text-xp'
+      : tone === 'danger'
+      ? 'border-destructive/20 bg-destructive/10 text-destructive'
       : tone === 'warn'
       ? 'border-coins/20 bg-coins/10 text-coins'
       : 'border-primary/20 bg-primary/10 text-primary';
@@ -393,6 +756,120 @@ function EmptyState({ title, helper }: { title: string; helper: string }) {
     <div className="rounded-2xl border border-dashed border-border bg-background/50 px-4 py-6 text-sm text-muted-foreground">
       <div className="font-semibold text-foreground">{title}</div>
       <div className="mt-2">{helper}</div>
+    </div>
+  );
+}
+
+function ConfirmActionDialog({
+  title,
+  description,
+  confirmLabel,
+  tone = 'default',
+  busy = false,
+  onCancel,
+  onConfirm,
+}: {
+  title: string;
+  description: string;
+  confirmLabel: string;
+  tone?: 'default' | 'destructive';
+  busy?: boolean;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-background/80 px-4 py-6 backdrop-blur sm:py-10">
+      <div className="absolute inset-0" onClick={busy ? undefined : onCancel} />
+      <div className="relative z-10 w-full max-w-md rounded-[1.5rem] border border-border bg-card p-6 shadow-elevated">
+        <div className="text-lg font-semibold text-foreground">{title}</div>
+        <div className="mt-3 text-sm leading-7 text-muted-foreground">{description}</div>
+        <div className="mt-6 flex justify-end gap-3">
+          <button
+            type="button"
+            onClick={onCancel}
+            disabled={busy}
+            className="inline-flex h-11 items-center justify-center rounded-2xl border border-border bg-background px-4 text-sm font-semibold text-foreground transition hover:bg-secondary disabled:opacity-60"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={onConfirm}
+            disabled={busy}
+            className={`inline-flex h-11 items-center justify-center gap-2 rounded-2xl px-4 text-sm font-semibold transition disabled:opacity-60 ${
+              tone === 'destructive'
+                ? 'border border-destructive/20 bg-destructive/10 text-destructive hover:bg-destructive/15'
+                : 'border border-primary/20 bg-primary text-primary-foreground hover:bg-primary/90'
+            }`}
+          >
+            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+            {confirmLabel}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function MetricCard({
+  label,
+  value,
+  helper,
+}: {
+  label: string;
+  value: string;
+  helper?: string;
+}) {
+  return (
+    <div className="rounded-2xl border border-border bg-background px-4 py-3">
+      <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-primary">{label}</div>
+      <div className="mt-2 text-xl font-semibold text-foreground">{value}</div>
+      {helper ? <div className="mt-1 text-xs text-muted-foreground">{helper}</div> : null}
+    </div>
+  );
+}
+
+function FormField({
+  label,
+  helper,
+  children,
+}: {
+  label: string;
+  helper?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <label className="block space-y-2">
+      <div className="flex items-center justify-between gap-3">
+        <span className="text-xs font-semibold uppercase tracking-[0.16em] text-primary">{label}</span>
+        {helper ? <span className="text-xs text-muted-foreground">{helper}</span> : null}
+      </div>
+      {children}
+    </label>
+  );
+}
+
+function ProgressStack({
+  completed,
+  inProgress,
+  notStarted,
+}: {
+  completed: number;
+  inProgress: number;
+  notStarted: number;
+}) {
+  const total = completed + inProgress + notStarted;
+  const completedWidth = total > 0 ? (completed / total) * 100 : 0;
+  const inProgressWidth = total > 0 ? (inProgress / total) * 100 : 0;
+  const notStartedWidth = total > 0 ? (notStarted / total) * 100 : 100;
+
+  return (
+    <div className="h-2 overflow-hidden rounded-full bg-secondary">
+      <div className="flex h-full w-full">
+        <div className="bg-emerald-400/90" style={{ width: `${completedWidth}%` }} />
+        <div className="bg-primary/90" style={{ width: `${inProgressWidth}%` }} />
+        <div className="bg-secondary-foreground/20" style={{ width: `${notStartedWidth}%` }} />
+      </div>
     </div>
   );
 }
@@ -422,6 +899,24 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
   const [inviteDraft, setInviteDraft] = useState<InviteDraft>(emptyInviteDraft());
   const [assignmentDraft, setAssignmentDraft] = useState<AssignmentDraft>(emptyAssignmentDraft());
   const [feedbackDraft, setFeedbackDraft] = useState<FeedbackDraft>(emptyFeedbackDraft());
+  const [confirmMemberAction, setConfirmMemberAction] = useState<MemberConfirmAction>(null);
+  const [confirmWorkspaceAction, setConfirmWorkspaceAction] = useState<WorkspaceConfirmAction>(null);
+  const [memberSearchQuery, setMemberSearchQuery] = useState('');
+  const [memberRoleFilter, setMemberRoleFilter] = useState<'all' | TeamRole>('all');
+  const [memberActivityFilter, setMemberActivityFilter] = useState<MemberActivityFilter>('all');
+  const [assignmentSearchQuery, setAssignmentSearchQuery] = useState('');
+  const [assignmentTypeFilter, setAssignmentTypeFilter] = useState<'all' | TeamAssignmentType>('all');
+  const [assignmentLifecycleFilter, setAssignmentLifecycleFilter] = useState<AssignmentLifecycleFilter>('all');
+  const [assignmentSort, setAssignmentSort] = useState<AssignmentSortOption>('priority');
+  const [assignmentViewMode, setAssignmentViewMode] = useState<AssignmentViewMode>('list');
+  const [selectedAssignmentId, setSelectedAssignmentId] = useState<string | null>(null);
+  const [assignmentEditorOpen, setAssignmentEditorOpen] = useState(false);
+  const [feedbackSearchQuery, setFeedbackSearchQuery] = useState('');
+  const [feedbackStatusFilter, setFeedbackStatusFilter] = useState<'all' | TeamFeedbackStatus>('all');
+  const [feedbackVisibilityFilter, setFeedbackVisibilityFilter] = useState<FeedbackVisibilityFilter>('all');
+  const [feedbackSort, setFeedbackSort] = useState<FeedbackSortOption>('recent');
+  const [selectedFeedbackId, setSelectedFeedbackId] = useState<string | null>(null);
+  const [feedbackComposerOpen, setFeedbackComposerOpen] = useState(false);
 
   const inviteJoinHandledRef = useRef<string | null>(null);
 
@@ -434,9 +929,23 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
   const canManageWorkspace = currentRole === 'owner' || currentRole === 'admin' || currentRole === 'coach';
   const canPublishProof = currentRole === 'owner' || currentRole === 'admin';
   const canCreateTeams = hasAnyTeamPlan;
+  const learnerMembers = useMemo(
+    () => (teamDetail?.members || []).filter((member) => member.role === 'learner'),
+    [teamDetail?.members]
+  );
   const selectedTeamPlanPolicy = useMemo(
     () => getTeamPlanPolicyFromSeatLimit(selectedTeam?.seatLimit),
     [selectedTeam?.seatLimit]
+  );
+  const trackTitleById = useMemo(
+    () =>
+      new Map(
+        interviewTracks.map((track) => [
+          track.id,
+          track.title,
+        ])
+      ),
+    []
   );
   const canAccessAdvancedAnalytics = selectedTeamPlanPolicy.supportsAdvancedAnalytics;
   const canAccessCsvExport = selectedTeamPlanPolicy.supportsCsvExport;
@@ -449,7 +958,7 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
   const workspaceCounts = useMemo(
     () => ({
       members: teamDetail?.members.length || 0,
-      assignments: teamDetail?.assignments.length || 0,
+      assignments: teamDetail?.assignments.filter((assignment) => assignment.lifecycleState !== 'archived').length || 0,
       invites: teamDetail?.invites.length || 0,
       feedback: teamDetail?.feedback.length || 0,
     }),
@@ -511,6 +1020,7 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
 
     try {
       const detail = await getTeamWorkspace(teamId);
+      const nextLearners = detail.members.filter((member) => member.role === 'learner');
       setTeamDetail(detail);
       hydrateMemberDrafts(detail.members);
       setJoinSettingsDraft({
@@ -518,8 +1028,8 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
         allowedEmailDomain: detail.team.allowedEmailDomain || '',
       });
       setFeedbackDraft((current) =>
-        !current.memberUserId && detail.members[0]
-          ? { ...current, memberUserId: detail.members[0].userId }
+        !current.memberUserId && nextLearners[0]
+          ? { ...current, memberUserId: nextLearners[0].userId }
           : current
       );
     } catch (error: any) {
@@ -573,13 +1083,37 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
     })();
   }, [isSignedIn, searchParams, setSearchParams]);
 
-  const resetInviteDraft = () => setInviteDraft(emptyInviteDraft());
-  const resetAssignmentDraft = () => setAssignmentDraft(emptyAssignmentDraft());
-  const resetFeedbackEditor = () =>
-    setFeedbackDraft((current) => ({
+  const resetInviteDraft = useCallback(() => setInviteDraft(emptyInviteDraft()), []);
+  const resetAssignmentDraft = useCallback(() => setAssignmentDraft(emptyAssignmentDraft()), []);
+  const resetFeedbackEditor = useCallback(
+    () =>
+      setFeedbackDraft((current) => ({
+        ...emptyFeedbackDraft(),
+        memberUserId: learnerMembers[0]?.userId || current.memberUserId || '',
+      })),
+    [learnerMembers]
+  );
+  const closeAssignmentEditor = useCallback(() => {
+    resetAssignmentDraft();
+    setAssignmentEditorOpen(false);
+  }, [resetAssignmentDraft]);
+  const openNewAssignmentEditor = useCallback(() => {
+    resetAssignmentDraft();
+    setAssignmentEditorOpen(true);
+  }, [resetAssignmentDraft]);
+  const closeFeedbackComposer = useCallback(() => {
+    resetFeedbackEditor();
+    setFeedbackComposerOpen(false);
+  }, [resetFeedbackEditor]);
+  const openNewFeedbackComposer = useCallback((memberUserId?: string, assignmentId?: string) => {
+    setSelectedFeedbackId(null);
+    setFeedbackDraft({
       ...emptyFeedbackDraft(),
-      memberUserId: teamDetail?.members[0]?.userId || current.memberUserId || '',
-    }));
+      memberUserId: memberUserId || learnerMembers[0]?.userId || '',
+      assignmentId: assignmentId || '',
+    });
+    setFeedbackComposerOpen(true);
+  }, [learnerMembers]);
 
   const handleJoinResult = async (
     result: Awaited<ReturnType<typeof joinTeamByCode>>,
@@ -841,6 +1375,7 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
 
     setSubmittingKey('save-assignment');
     try {
+      const isEditing = Boolean(assignmentDraft.id);
       const payload = {
         title: assignmentDraft.title.trim(),
         description: assignmentDraft.description.trim(),
@@ -851,15 +1386,13 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
         dueAt: toIsoOrNull(assignmentDraft.dueAt),
       };
 
-      if (assignmentDraft.id) {
-        await updateTeamAssignment(selectedTeamId, assignmentDraft.id, payload);
-        toast.success('Assignment updated.');
-      } else {
-        await createTeamAssignment(selectedTeamId, payload);
-        toast.success('Assignment created.');
-      }
+      const savedAssignment = assignmentDraft.id
+        ? await updateTeamAssignment(selectedTeamId, assignmentDraft.id, payload)
+        : await createTeamAssignment(selectedTeamId, payload);
 
-      resetAssignmentDraft();
+      toast.success(isEditing ? 'Assignment updated.' : 'Assignment created.');
+      setSelectedAssignmentId(savedAssignment.id);
+      closeAssignmentEditor();
       await refreshSelectedTeam(selectedTeamId);
     } catch (error: any) {
       toast.error(error?.message || 'Could not save assignment.');
@@ -878,20 +1411,66 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
       trackId: assignment.trackId || '',
       dueAt: formatDateTimeInput(assignment.dueAt),
     });
+    setSelectedAssignmentId(assignment.id);
+    setAssignmentEditorOpen(true);
   };
 
-  const handleDeleteAssignment = async (assignmentId: string) => {
+  const handleDuplicateAssignment = async (assignment: TeamAssignment) => {
     if (!selectedTeamId) return;
-    if (!window.confirm('Delete this assignment?')) return;
 
-    setSubmittingKey(`delete-assignment-${assignmentId}`);
+    setSubmittingKey(`duplicate-assignment-${assignment.id}`);
     try {
-      await deleteTeamAssignment(selectedTeamId, assignmentId);
-      toast.success('Assignment deleted.');
-      if (assignmentDraft.id === assignmentId) resetAssignmentDraft();
+      const duplicatedAssignment = await createTeamAssignment(selectedTeamId, {
+        title: `Copy of ${assignment.title}`,
+        description: assignment.description || '',
+        assignmentType: assignment.assignmentType,
+        benchmarkLanguage: assignment.assignmentType === 'roadmap' ? null : assignment.benchmarkLanguage,
+        trackId: assignment.assignmentType === 'roadmap' ? assignment.trackId : null,
+        dueAt: assignment.dueAt,
+      });
+      toast.success('Assignment duplicated.');
+      setSelectedAssignmentId(duplicatedAssignment.id);
       await refreshSelectedTeam(selectedTeamId);
     } catch (error: any) {
-      toast.error(error?.message || 'Could not delete assignment.');
+      toast.error(error?.message || 'Could not duplicate assignment.');
+    } finally {
+      setSubmittingKey(null);
+    }
+  };
+
+  const applyAssignmentTemplate = (templateId: string) => {
+    const template = ASSIGNMENT_TEMPLATES.find((entry) => entry.id === templateId);
+    if (!template) return;
+
+    setAssignmentDraft({
+      id: null,
+      title: template.title,
+      description: template.description,
+      assignmentType: template.assignmentType,
+      benchmarkLanguage: template.assignmentType === 'roadmap' ? 'python' : template.benchmarkLanguage || 'python',
+      trackId: template.assignmentType === 'roadmap' ? template.trackId || '' : '',
+      dueAt: '',
+    });
+    setAssignmentEditorOpen(true);
+  };
+
+  const requestArchiveAssignment = (assignment: TeamAssignment) => {
+    setConfirmWorkspaceAction({
+      type: 'assignment_archive',
+      assignment,
+    });
+  };
+
+  const handleRestoreAssignment = async (assignment: TeamAssignment) => {
+    if (!selectedTeamId) return;
+    const restoreKey = `restore-assignment-${assignment.id}`;
+    setSubmittingKey(restoreKey);
+    try {
+      await updateTeamAssignment(selectedTeamId, assignment.id, { archived: false });
+      toast.success('Assignment restored.');
+      await refreshSelectedTeam(selectedTeamId);
+    } catch (error: any) {
+      toast.error(error?.message || 'Could not restore assignment.');
     } finally {
       setSubmittingKey(null);
     }
@@ -906,6 +1485,7 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
 
     setSubmittingKey('save-feedback');
     try {
+      const isEditing = Boolean(feedbackDraft.id);
       const payload = {
         memberUserId: feedbackDraft.memberUserId,
         assignmentId: feedbackDraft.assignmentId || null,
@@ -918,15 +1498,13 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
         sharedWithMember: feedbackDraft.sharedWithMember,
       };
 
-      if (feedbackDraft.id) {
-        await updateTeamFeedback(selectedTeamId, feedbackDraft.id, payload);
-        toast.success('Feedback updated.');
-      } else {
-        await createTeamFeedback(selectedTeamId, payload);
-        toast.success('Feedback saved.');
-      }
+      const savedFeedback = feedbackDraft.id
+        ? await updateTeamFeedback(selectedTeamId, feedbackDraft.id, payload)
+        : await createTeamFeedback(selectedTeamId, payload);
 
-      resetFeedbackEditor();
+      toast.success(isEditing ? 'Feedback updated.' : 'Feedback saved.');
+      setSelectedFeedbackId(savedFeedback.id);
+      closeFeedbackComposer();
       await refreshSelectedTeam(selectedTeamId);
     } catch (error: any) {
       toast.error(error?.message || 'Could not save feedback.');
@@ -948,17 +1526,132 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
       coachNotes: entry.coachNotes,
       sharedWithMember: entry.sharedWithMember,
     });
+    setSelectedFeedbackId(entry.id);
+    setFeedbackComposerOpen(true);
   };
 
-  const handleDeleteFeedback = async (feedbackId: string) => {
-    if (!selectedTeamId) return;
-    if (!window.confirm('Delete this feedback entry?')) return;
+  const requestDeleteFeedback = (entry: TeamFeedback) => {
+    setConfirmWorkspaceAction({
+      type: 'feedback_delete',
+      entry,
+    });
+  };
 
-    setSubmittingKey(`delete-feedback-${feedbackId}`);
+  const setFeedbackWorkflowState = (nextState: 'draft' | 'shared' | 'resolved') => {
+    setFeedbackDraft((current) => ({
+      ...current,
+      status: nextState,
+      sharedWithMember: nextState !== 'draft',
+    }));
+  };
+
+  const applyFeedbackSnippet = (snippetId: string) => {
+    const snippet = FEEDBACK_SNIPPETS.find((entry) => entry.id === snippetId);
+    if (!snippet) return;
+
+    setFeedbackDraft((current) => ({
+      ...current,
+      summary: current.summary || snippet.summary,
+      strengths: current.strengths || snippet.strengths,
+      focusAreas: current.focusAreas || snippet.focusAreas,
+    }));
+  };
+
+  const requestRoleChange = (member: TeamMember, nextRole: TeamRole) => {
+    if (nextRole === member.role) return;
+    setConfirmMemberAction({
+      type: 'role',
+      member,
+      nextRole,
+    });
+  };
+
+  const requestRemoveMember = (member: TeamMember) => {
+    setConfirmMemberAction({
+      type: 'remove',
+      member,
+    });
+  };
+
+  const handleConfirmMemberAction = async () => {
+    if (!selectedTeamId || !confirmMemberAction) return;
+
+    if (confirmMemberAction.type === 'role') {
+      const { member, nextRole } = confirmMemberAction;
+      const saveKey = `save-member-${member.userId}`;
+      setSubmittingKey(saveKey);
+      try {
+        await updateTeamMember(selectedTeamId, member.userId, {
+          role: nextRole === 'owner' ? undefined : nextRole,
+        });
+        toast.success(`${member.name} is now ${formatTeamRoleLabel(nextRole)}.`);
+        setConfirmMemberAction(null);
+        await refreshSelectedTeam(selectedTeamId);
+      } catch (error: any) {
+        toast.error(error?.message || 'Could not update member.');
+      } finally {
+        setSubmittingKey(null);
+      }
+      return;
+    }
+
+    const { member } = confirmMemberAction;
+    const removeKey = `remove-member-${member.userId}`;
+    setSubmittingKey(removeKey);
     try {
-      await deleteTeamFeedback(selectedTeamId, feedbackId);
+      await removeTeamMember(selectedTeamId, member.userId);
+      toast.success(`${member.name} removed.`);
+      setConfirmMemberAction(null);
+      await refreshSelectedTeam(selectedTeamId);
+    } catch (error: any) {
+      toast.error(error?.message || 'Could not remove member.');
+    } finally {
+      setSubmittingKey(null);
+    }
+  };
+
+  const handleCancelMemberAction = () => {
+    if (confirmMemberAction?.type === 'role') {
+      setMemberDrafts((current) => ({
+        ...current,
+        [confirmMemberAction.member.userId]: {
+          role: confirmMemberAction.member.role,
+        },
+      }));
+    }
+
+    setConfirmMemberAction(null);
+  };
+
+  const handleConfirmWorkspaceAction = async () => {
+    if (!selectedTeamId || !confirmWorkspaceAction) return;
+
+    if (confirmWorkspaceAction.type === 'assignment_archive') {
+      const { assignment } = confirmWorkspaceAction;
+      const deleteKey = `delete-assignment-${assignment.id}`;
+      setSubmittingKey(deleteKey);
+      try {
+        await deleteTeamAssignment(selectedTeamId, assignment.id);
+        toast.success('Assignment archived.');
+        if (assignmentDraft.id === assignment.id) closeAssignmentEditor();
+        setConfirmWorkspaceAction(null);
+        await refreshSelectedTeam(selectedTeamId);
+      } catch (error: any) {
+        toast.error(error?.message || 'Could not archive assignment.');
+      } finally {
+        setSubmittingKey(null);
+      }
+      return;
+    }
+
+    const { entry } = confirmWorkspaceAction;
+    const deleteKey = `delete-feedback-${entry.id}`;
+    setSubmittingKey(deleteKey);
+    try {
+      await deleteTeamFeedback(selectedTeamId, entry.id);
       toast.success('Feedback deleted.');
-      if (feedbackDraft.id === feedbackId) resetFeedbackEditor();
+      if (feedbackDraft.id === entry.id) closeFeedbackComposer();
+      setConfirmWorkspaceAction(null);
       await refreshSelectedTeam(selectedTeamId);
     } catch (error: any) {
       toast.error(error?.message || 'Could not delete feedback.');
@@ -967,39 +1660,8 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
     }
   };
 
-  const handleSaveMember = async (member: TeamMember) => {
-    if (!selectedTeamId) return;
-    const draft = memberDrafts[member.userId];
-    if (!draft) return;
-
-    setSubmittingKey(`save-member-${member.userId}`);
-    try {
-      await updateTeamMember(selectedTeamId, member.userId, {
-        role: draft.role === 'owner' ? undefined : draft.role,
-      });
-      toast.success(`${member.name} updated.`);
-      await refreshSelectedTeam(selectedTeamId);
-    } catch (error: any) {
-      toast.error(error?.message || 'Could not update member.');
-    } finally {
-      setSubmittingKey(null);
-    }
-  };
-
-  const handleRemoveMember = async (member: TeamMember) => {
-    if (!selectedTeamId) return;
-    if (!window.confirm(`Remove ${member.name} from the team?`)) return;
-
-    setSubmittingKey(`remove-member-${member.userId}`);
-    try {
-      await removeTeamMember(selectedTeamId, member.userId);
-      toast.success(`${member.name} removed.`);
-      await refreshSelectedTeam(selectedTeamId);
-    } catch (error: any) {
-      toast.error(error?.message || 'Could not remove member.');
-    } finally {
-      setSubmittingKey(null);
-    }
+  const handleCancelWorkspaceAction = () => {
+    setConfirmWorkspaceAction(null);
   };
 
   const handleExport = async (format: 'json' | 'csv') => {
@@ -1048,6 +1710,1594 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
     if (typeof window === 'undefined') return '';
     return `${window.location.origin}/teams/proof/${teamDetail.team.shareToken}`;
   }, [teamDetail?.team.shareToken]);
+
+  const membersModalStats = useMemo(() => {
+    const members = teamDetail?.members || [];
+
+    return members.reduce(
+      (accumulator, member) => {
+        const activity = getMemberActivityIndicator(member.lastActiveAt, {
+          isCurrentlyActive: member.isCurrentlyActive,
+          isCurrentUser: member.userId === user?.id,
+        });
+
+        accumulator.total += 1;
+        if (member.role === 'learner') {
+          accumulator.learners += 1;
+        } else {
+          accumulator.managers += 1;
+        }
+        if (activity.band === 'active_now') {
+          accumulator.activeNow += 1;
+        }
+        return accumulator;
+      },
+      {
+        total: 0,
+        learners: 0,
+        managers: 0,
+        activeNow: 0,
+      }
+    );
+  }, [teamDetail?.members, user?.id]);
+
+  const filteredMembers = useMemo(() => {
+    const members = teamDetail?.members || [];
+    const normalizedQuery = memberSearchQuery.trim().toLowerCase();
+
+    const matchesActivityFilter = (band: MemberActivityBand) => {
+      if (memberActivityFilter === 'all') return true;
+      if (memberActivityFilter === 'active_now') return band === 'active_now';
+      if (memberActivityFilter === 'last_24h') {
+        return band === 'active_now' || band === 'within_12h' || band === 'within_24h';
+      }
+      if (memberActivityFilter === 'last_7d') {
+        return band === 'within_3d' || band === 'within_7d';
+      }
+      return band === 'inactive';
+    };
+
+    return [...members]
+      .filter((member) => (memberRoleFilter === 'all' ? true : member.role === memberRoleFilter))
+      .filter((member) => {
+        const activity = getMemberActivityIndicator(member.lastActiveAt, {
+          isCurrentlyActive: member.isCurrentlyActive,
+          isCurrentUser: member.userId === user?.id,
+        });
+        return matchesActivityFilter(activity.band);
+      })
+      .filter((member) => {
+        if (!normalizedQuery) return true;
+        return [member.name, member.email || '', formatTeamRoleLabel(member.role)]
+          .join(' ')
+          .toLowerCase()
+          .includes(normalizedQuery);
+      })
+      .sort((left, right) => {
+        if (left.userId === user?.id && right.userId !== user?.id) return -1;
+        if (right.userId === user?.id && left.userId !== user?.id) return 1;
+
+        const roleDiff = MEMBER_ROLE_ORDER[left.role] - MEMBER_ROLE_ORDER[right.role];
+        if (roleDiff !== 0) return roleDiff;
+
+        const leftActivity = getMemberActivityIndicator(left.lastActiveAt, {
+          isCurrentlyActive: left.isCurrentlyActive,
+          isCurrentUser: left.userId === user?.id,
+        });
+        const rightActivity = getMemberActivityIndicator(right.lastActiveAt, {
+          isCurrentlyActive: right.isCurrentlyActive,
+          isCurrentUser: right.userId === user?.id,
+        });
+        if (leftActivity.sortValue !== rightActivity.sortValue) {
+          return rightActivity.sortValue - leftActivity.sortValue;
+        }
+
+        return left.name.localeCompare(right.name);
+      });
+  }, [teamDetail?.members, memberActivityFilter, memberRoleFilter, memberSearchQuery, user?.id]);
+
+  useEffect(() => {
+    setAssignmentSearchQuery('');
+    setAssignmentTypeFilter('all');
+    setAssignmentLifecycleFilter('all');
+    setAssignmentSort('priority');
+    setAssignmentViewMode('list');
+    setAssignmentDraft(emptyAssignmentDraft());
+    setAssignmentEditorOpen(false);
+    setSelectedAssignmentId(null);
+    setFeedbackSearchQuery('');
+    setFeedbackStatusFilter('all');
+    setFeedbackVisibilityFilter('all');
+    setFeedbackSort('recent');
+    setFeedbackDraft(emptyFeedbackDraft());
+    setFeedbackComposerOpen(false);
+    setSelectedFeedbackId(null);
+  }, [activeModal, selectedTeamId]);
+
+  const assignmentModalStats = useMemo(() => {
+    const assignments = teamDetail?.assignments || [];
+
+    return assignments.reduce(
+      (accumulator, assignment) => {
+        const dueMeta = getAssignmentDueMeta(assignment.dueAt);
+        accumulator.total += 1;
+        if (assignment.lifecycleState === 'active') accumulator.active += 1;
+        if (assignment.lifecycleState === 'past_due') accumulator.pastDue += 1;
+        if (assignment.lifecycleState === 'archived') accumulator.archived += 1;
+        if (assignment.assignmentType === 'benchmark') accumulator.benchmark += 1;
+        if (assignment.assignmentType === 'roadmap') accumulator.roadmap += 1;
+        if (assignment.assignmentType === 'challenge_pack') accumulator.challengePack += 1;
+        if (assignment.lifecycleState !== 'archived' && dueMeta.band === 'due_soon') accumulator.dueSoon += 1;
+        accumulator.totalCompletionRate += assignment.completionRate || 0;
+        return accumulator;
+      },
+      {
+        total: 0,
+        active: 0,
+        pastDue: 0,
+        archived: 0,
+        benchmark: 0,
+        roadmap: 0,
+        challengePack: 0,
+        dueSoon: 0,
+        totalCompletionRate: 0,
+      }
+    );
+  }, [teamDetail?.assignments]);
+
+  const filteredAssignments = useMemo(() => {
+    const assignments = teamDetail?.assignments || [];
+    const normalizedQuery = assignmentSearchQuery.trim().toLowerCase();
+
+    return [...assignments]
+      .filter((assignment) => (assignmentTypeFilter === 'all' ? true : assignment.assignmentType === assignmentTypeFilter))
+      .filter((assignment) => (assignmentLifecycleFilter === 'all' ? true : assignment.lifecycleState === assignmentLifecycleFilter))
+      .filter((assignment) => {
+        if (!normalizedQuery) return true;
+        return [
+          assignment.title,
+          assignment.description || '',
+          assignment.benchmarkLanguage || '',
+          assignment.trackId || '',
+          trackTitleById.get(assignment.trackId || '') || '',
+          formatAssignmentTypeLabel(assignment.assignmentType),
+        ]
+          .join(' ')
+          .toLowerCase()
+          .includes(normalizedQuery);
+      })
+      .sort((left, right) => {
+        const leftDue = getAssignmentDueMeta(left.dueAt);
+        const rightDue = getAssignmentDueMeta(right.dueAt);
+        const leftUpdatedAt = new Date(left.updatedAt || left.createdAt).getTime();
+        const rightUpdatedAt = new Date(right.updatedAt || right.createdAt).getTime();
+
+        if (assignmentSort === 'completion') {
+          if (left.completionRate !== right.completionRate) {
+            return right.completionRate - left.completionRate;
+          }
+          return rightUpdatedAt - leftUpdatedAt;
+        }
+
+        if (assignmentSort === 'recent') {
+          return rightUpdatedAt - leftUpdatedAt;
+        }
+
+        if (assignmentSort === 'due') {
+          const leftSortValue = Number.isFinite(leftDue.sortValue) ? leftDue.sortValue : Number.MAX_SAFE_INTEGER;
+          const rightSortValue = Number.isFinite(rightDue.sortValue) ? rightDue.sortValue : Number.MAX_SAFE_INTEGER;
+          if (leftSortValue !== rightSortValue) return leftSortValue - rightSortValue;
+          return rightUpdatedAt - leftUpdatedAt;
+        }
+
+        const leftLifecycle = getAssignmentLifecycleMeta(left.lifecycleState);
+        const rightLifecycle = getAssignmentLifecycleMeta(right.lifecycleState);
+        if (leftLifecycle.sortPriority !== rightLifecycle.sortPriority) {
+          return leftLifecycle.sortPriority - rightLifecycle.sortPriority;
+        }
+
+        const leftPriority = leftDue.band === 'overdue' ? 0 : leftDue.band === 'due_soon' ? 1 : leftDue.band === 'scheduled' ? 2 : 3;
+        const rightPriority = rightDue.band === 'overdue' ? 0 : rightDue.band === 'due_soon' ? 1 : rightDue.band === 'scheduled' ? 2 : 3;
+        if (leftPriority !== rightPriority) return leftPriority - rightPriority;
+        if (left.completionRate !== right.completionRate) {
+          return right.completionRate - left.completionRate;
+        }
+        return rightUpdatedAt - leftUpdatedAt;
+      });
+  }, [
+    assignmentLifecycleFilter,
+    assignmentSearchQuery,
+    assignmentSort,
+    assignmentTypeFilter,
+    teamDetail?.assignments,
+    trackTitleById,
+  ]);
+
+  const feedbackModalStats = useMemo(() => {
+    const feedbackEntries = teamDetail?.feedback || [];
+    const scoredEntries = feedbackEntries.filter((entry) => entry.rubricScore !== null);
+
+    return {
+      total: feedbackEntries.length,
+      shared: feedbackEntries.filter((entry) => getFeedbackStateMeta(entry).label === 'Shared').length,
+      drafts: feedbackEntries.filter((entry) => getFeedbackStateMeta(entry).label === 'Needs review').length,
+      resolved: feedbackEntries.filter((entry) => entry.status === 'resolved').length,
+      averageScore:
+        scoredEntries.length > 0
+          ? Math.round(scoredEntries.reduce((sum, entry) => sum + (entry.rubricScore || 0), 0) / scoredEntries.length)
+          : null,
+    };
+  }, [teamDetail?.feedback]);
+
+  const filteredFeedback = useMemo(() => {
+    const feedbackEntries = teamDetail?.feedback || [];
+    const normalizedQuery = feedbackSearchQuery.trim().toLowerCase();
+
+    return [...feedbackEntries]
+      .filter((entry) => {
+        const feedbackState = getFeedbackStateMeta(entry);
+        if (feedbackStatusFilter === 'all') return true;
+        if (feedbackStatusFilter === 'draft') return feedbackState.label === 'Needs review';
+        if (feedbackStatusFilter === 'shared') return feedbackState.label === 'Shared';
+        return entry.status === 'resolved';
+      })
+      .filter((entry) =>
+        feedbackVisibilityFilter === 'all' ? true : feedbackVisibilityFilter === 'shared' ? entry.sharedWithMember : !entry.sharedWithMember
+      )
+      .filter((entry) => {
+        if (!normalizedQuery) return true;
+        return [
+          entry.memberName,
+          entry.assignmentTitle || '',
+          entry.authorName,
+          entry.summary,
+          entry.strengths,
+          entry.focusAreas,
+          entry.coachNotes,
+        ]
+          .join(' ')
+          .toLowerCase()
+          .includes(normalizedQuery);
+      })
+      .sort((left, right) => {
+        if (feedbackSort === 'learner') {
+          return left.memberName.localeCompare(right.memberName);
+        }
+
+        if (feedbackSort === 'score') {
+          return (right.rubricScore || -1) - (left.rubricScore || -1);
+        }
+
+        const leftState = getFeedbackStateMeta(left);
+        const rightState = getFeedbackStateMeta(right);
+        if (leftState.sortPriority !== rightState.sortPriority) {
+          return leftState.sortPriority - rightState.sortPriority;
+        }
+        return new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime();
+      });
+  }, [feedbackSearchQuery, feedbackSort, feedbackStatusFilter, feedbackVisibilityFilter, teamDetail?.feedback]);
+
+  const selectedAssignment = useMemo(
+    () => filteredAssignments.find((assignment) => assignment.id === selectedAssignmentId) || filteredAssignments[0] || null,
+    [filteredAssignments, selectedAssignmentId]
+  );
+
+  const selectedFeedback = useMemo(
+    () => filteredFeedback.find((entry) => entry.id === selectedFeedbackId) || filteredFeedback[0] || null,
+    [filteredFeedback, selectedFeedbackId]
+  );
+
+  const selectedAssignmentIndex = selectedAssignment ? filteredAssignments.findIndex((assignment) => assignment.id === selectedAssignment.id) : -1;
+  const selectedFeedbackIndex = selectedFeedback ? filteredFeedback.findIndex((entry) => entry.id === selectedFeedback.id) : -1;
+
+  useEffect(() => {
+    if (activeModal !== 'assignments') return;
+    setSelectedAssignmentId((current) =>
+      current && filteredAssignments.some((assignment) => assignment.id === current)
+        ? current
+        : filteredAssignments[0]?.id || null
+    );
+  }, [activeModal, filteredAssignments]);
+
+  useEffect(() => {
+    if (activeModal !== 'feedback') return;
+    setSelectedFeedbackId((current) =>
+      current && filteredFeedback.some((entry) => entry.id === current) ? current : filteredFeedback[0]?.id || null
+    );
+  }, [activeModal, filteredFeedback]);
+
+  useEffect(() => {
+    if (activeModal !== 'assignments' && activeModal !== 'feedback') return;
+
+    const isTypingTarget = (target: EventTarget | null) => {
+      const element = target as HTMLElement | null;
+      if (!element) return false;
+      const tagName = element.tagName;
+      return tagName === 'INPUT' || tagName === 'TEXTAREA' || tagName === 'SELECT' || element.isContentEditable;
+    };
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.metaKey || event.ctrlKey || event.altKey || isTypingTarget(event.target)) return;
+
+      if (activeModal === 'assignments') {
+        if (event.key.toLowerCase() === 'n') {
+          event.preventDefault();
+          openNewAssignmentEditor();
+          return;
+        }
+        if (event.key.toLowerCase() === 'e' && selectedAssignment) {
+          event.preventDefault();
+          startAssignmentEdit(selectedAssignment);
+          return;
+        }
+        if (event.key.toLowerCase() === 'b') {
+          event.preventDefault();
+          setAssignmentViewMode((current) => (current === 'list' ? 'board' : 'list'));
+          return;
+        }
+        if ((event.key.toLowerCase() === 'j' || event.key === 'ArrowDown') && filteredAssignments.length > 0) {
+          event.preventDefault();
+          const nextIndex = selectedAssignmentIndex >= 0 ? Math.min(selectedAssignmentIndex + 1, filteredAssignments.length - 1) : 0;
+          setSelectedAssignmentId(filteredAssignments[nextIndex]?.id || null);
+          setAssignmentEditorOpen(false);
+          return;
+        }
+        if ((event.key.toLowerCase() === 'k' || event.key === 'ArrowUp') && filteredAssignments.length > 0) {
+          event.preventDefault();
+          const previousIndex = selectedAssignmentIndex > 0 ? selectedAssignmentIndex - 1 : 0;
+          setSelectedAssignmentId(filteredAssignments[previousIndex]?.id || null);
+          setAssignmentEditorOpen(false);
+          return;
+        }
+      }
+
+      if (activeModal === 'feedback') {
+        if (event.key.toLowerCase() === 'n') {
+          event.preventDefault();
+          openNewFeedbackComposer(selectedFeedback?.memberUserId, selectedFeedback?.assignmentId || undefined);
+          return;
+        }
+        if (event.key.toLowerCase() === 'e' && selectedFeedback) {
+          event.preventDefault();
+          startFeedbackEdit(selectedFeedback);
+          return;
+        }
+        if ((event.key.toLowerCase() === 'j' || event.key === 'ArrowDown') && filteredFeedback.length > 0) {
+          event.preventDefault();
+          const nextIndex = selectedFeedbackIndex >= 0 ? Math.min(selectedFeedbackIndex + 1, filteredFeedback.length - 1) : 0;
+          setSelectedFeedbackId(filteredFeedback[nextIndex]?.id || null);
+          setFeedbackComposerOpen(false);
+          return;
+        }
+        if ((event.key.toLowerCase() === 'k' || event.key === 'ArrowUp') && filteredFeedback.length > 0) {
+          event.preventDefault();
+          const previousIndex = selectedFeedbackIndex > 0 ? selectedFeedbackIndex - 1 : 0;
+          setSelectedFeedbackId(filteredFeedback[previousIndex]?.id || null);
+          setFeedbackComposerOpen(false);
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [
+    activeModal,
+    filteredAssignments,
+    filteredFeedback,
+    openNewAssignmentEditor,
+    openNewFeedbackComposer,
+    selectedAssignment,
+    selectedAssignmentIndex,
+    selectedFeedback,
+    selectedFeedbackIndex,
+  ]);
+
+  const feedbackContextMemberId = feedbackComposerOpen
+    ? feedbackDraft.memberUserId
+    : selectedFeedback?.memberUserId || '';
+  const feedbackContextAssignmentId = feedbackComposerOpen
+    ? feedbackDraft.assignmentId
+    : selectedFeedback?.assignmentId || '';
+
+  const feedbackContextMember =
+    teamDetail?.members.find((member) => member.userId === feedbackContextMemberId) || null;
+  const feedbackContextAssignment =
+    teamDetail?.assignments.find((assignment) => assignment.id === feedbackContextAssignmentId) || null;
+
+  const feedbackHistory = useMemo(() => {
+    if (!feedbackContextMemberId) return [];
+
+    return [...(teamDetail?.feedback || [])]
+      .filter(
+        (entry) =>
+          entry.memberUserId === feedbackContextMemberId &&
+          (feedbackComposerOpen ? entry.id !== feedbackDraft.id : !selectedFeedback || entry.id !== selectedFeedback.id)
+      )
+      .sort((left, right) => new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime())
+      .slice(0, 5);
+  }, [feedbackComposerOpen, feedbackContextMemberId, feedbackDraft.id, selectedFeedback, teamDetail?.feedback]);
+
+  const selectedAssignmentFeedback = useMemo(() => {
+    if (!selectedAssignment) return [];
+
+    return [...(teamDetail?.feedback || [])]
+      .filter((entry) => entry.assignmentId === selectedAssignment.id)
+      .sort((left, right) => new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime())
+      .slice(0, 4);
+  }, [selectedAssignment, teamDetail?.feedback]);
+
+  const assignmentBoardGroups = useMemo(() => {
+    const groups: Record<string, TeamAssignment[]> = {
+      'Past due': [],
+      'Due soon': [],
+      Live: [],
+      Scheduled: [],
+      Archived: [],
+    };
+
+    filteredAssignments.forEach((assignment) => {
+      const workflowState = getAssignmentWorkflowStateMeta(assignment);
+      groups[workflowState.label] = [...(groups[workflowState.label] || []), assignment];
+    });
+
+    return groups;
+  }, [filteredAssignments]);
+
+  const renderAssignmentsModal = () => {
+    if (activeModal !== 'assignments' || !teamDetail) return null;
+
+    const averageCompletion =
+      assignmentModalStats.total > 0 ? Math.round(assignmentModalStats.totalCompletionRate / assignmentModalStats.total) : 0;
+    const selectedAssignmentScope = selectedAssignment
+      ? selectedAssignment.assignmentType === 'roadmap'
+        ? trackTitleById.get(selectedAssignment.trackId || '') || 'Roadmap'
+        : formatBenchmarkLanguageLabel(selectedAssignment.benchmarkLanguage)
+      : '';
+
+    return (
+      <ModalShell
+        title="Assignments"
+        subtitle="Manage the work queue first. Open creation only when you need it."
+        onClose={() => setActiveModal(null)}
+      >
+        <div className="space-y-5">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+            <div>
+              <div className="text-lg font-semibold text-foreground">Assignments queue</div>
+              <div className="mt-1 text-sm text-muted-foreground">
+                Review deadlines, progress, and state from one operational view.
+              </div>
+              <div className="mt-2 text-xs text-muted-foreground">Shortcuts: `N` new, `E` edit, `J/K` move, `B` switch view.</div>
+            </div>
+            <div className="flex flex-wrap gap-3">
+              <div className="inline-flex rounded-2xl border border-border bg-background p-1">
+                {([
+                  ['list', 'List'],
+                  ['board', 'Board'],
+                ] as Array<[AssignmentViewMode, string]>).map(([value, label]) => (
+                  <button
+                    key={value}
+                    type="button"
+                    onClick={() => setAssignmentViewMode(value)}
+                    className={`inline-flex h-9 items-center rounded-xl px-3 text-sm font-semibold transition ${
+                      assignmentViewMode === value ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+              <button
+                type="button"
+                onClick={openNewAssignmentEditor}
+                disabled={!canManageWorkspace}
+                className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl bg-primary px-5 text-sm font-semibold text-primary-foreground transition hover:bg-primary/90 disabled:opacity-60"
+              >
+                <Plus className="h-4 w-4" />
+                New assignment
+              </button>
+              {assignmentEditorOpen ? (
+                <button
+                  type="button"
+                  onClick={closeAssignmentEditor}
+                  className="inline-flex h-11 items-center justify-center rounded-2xl border border-border bg-background px-4 text-sm font-semibold text-foreground transition hover:bg-secondary"
+                >
+                  Close editor
+                </button>
+              ) : null}
+            </div>
+          </div>
+
+          <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_180px_180px_180px]">
+            <div className="relative">
+              <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <input
+                value={assignmentSearchQuery}
+                onChange={(event) => setAssignmentSearchQuery(event.target.value)}
+                placeholder="Search assignments"
+                className="h-11 w-full rounded-2xl border border-border bg-background pl-11 pr-4 text-sm text-foreground outline-none transition focus:border-primary/40"
+              />
+            </div>
+            <select
+              value={assignmentTypeFilter}
+              onChange={(event) => setAssignmentTypeFilter(event.target.value as 'all' | TeamAssignmentType)}
+              className="h-11 rounded-2xl border border-border bg-background px-4 text-sm text-foreground outline-none transition focus:border-primary/40"
+            >
+              <option value="all">All types</option>
+              <option value="benchmark">Benchmark</option>
+              <option value="challenge_pack">Challenge pack</option>
+              <option value="roadmap">Roadmap</option>
+            </select>
+            <select
+              value={assignmentLifecycleFilter}
+              onChange={(event) => setAssignmentLifecycleFilter(event.target.value as AssignmentLifecycleFilter)}
+              className="h-11 rounded-2xl border border-border bg-background px-4 text-sm text-foreground outline-none transition focus:border-primary/40"
+            >
+              {ASSIGNMENT_LIFECYCLE_FILTER_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+            <select
+              value={assignmentSort}
+              onChange={(event) => setAssignmentSort(event.target.value as AssignmentSortOption)}
+              className="h-11 rounded-2xl border border-border bg-background px-4 text-sm text-foreground outline-none transition focus:border-primary/40"
+            >
+              <option value="priority">Sort: Priority</option>
+              <option value="due">Sort: Due date</option>
+              <option value="completion">Sort: Completion</option>
+              <option value="recent">Sort: Recent</option>
+            </select>
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            {[
+              {
+                label: 'All',
+                active: assignmentLifecycleFilter === 'all' && assignmentTypeFilter === 'all',
+                onClick: () => {
+                  setAssignmentLifecycleFilter('all');
+                  setAssignmentTypeFilter('all');
+                },
+              },
+              {
+                label: 'Active',
+                active: assignmentLifecycleFilter === 'active',
+                onClick: () => setAssignmentLifecycleFilter('active'),
+              },
+              {
+                label: 'Past due',
+                active: assignmentLifecycleFilter === 'past_due',
+                onClick: () => setAssignmentLifecycleFilter('past_due'),
+              },
+              {
+                label: 'Benchmarks',
+                active: assignmentTypeFilter === 'benchmark',
+                onClick: () => setAssignmentTypeFilter('benchmark'),
+              },
+              {
+                label: 'Roadmaps',
+                active: assignmentTypeFilter === 'roadmap',
+                onClick: () => setAssignmentTypeFilter('roadmap'),
+              },
+            ].map((view) => (
+              <button
+                key={view.label}
+                type="button"
+                onClick={view.onClick}
+                className={`inline-flex h-9 items-center rounded-full border px-4 text-sm font-semibold transition ${
+                  view.active
+                    ? 'border-primary/30 bg-primary/10 text-primary'
+                    : 'border-border bg-background text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                {view.label}
+              </button>
+            ))}
+          </div>
+
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+            <MetricCard label="Active" value={String(assignmentModalStats.active)} helper="Live assignments" />
+            <MetricCard label="Past due" value={String(assignmentModalStats.pastDue)} helper="Needs follow-up" />
+            <MetricCard label="Due soon" value={String(assignmentModalStats.dueSoon)} helper="Inside 7 days" />
+            <MetricCard label="Avg completion" value={`${averageCompletion}%`} helper="Across all assignments" />
+            <MetricCard
+              label="Plan cap"
+              value={`${workspaceCounts.assignments}/${selectedTeamPlanPolicy.assignmentLimit}`}
+              helper="Active assignments in plan"
+            />
+          </div>
+
+          <div className="grid gap-5 xl:grid-cols-[minmax(0,1.35fr)_390px]">
+            <div className="rounded-2xl border border-border bg-background">
+              {teamDetail.assignments.length === 0 ? (
+                <div className="p-4">
+                  <EmptyState
+                    title="No assignments yet"
+                    helper="Create your first benchmark, roadmap, or challenge pack to start tracking learner progress."
+                  />
+                </div>
+              ) : filteredAssignments.length === 0 ? (
+                <div className="p-4">
+                  <EmptyState
+                    title="No assignments match this view"
+                    helper="Reset the filters to return to the full assignments queue."
+                  />
+                </div>
+              ) : assignmentViewMode === 'board' ? (
+                <div className="grid max-h-[58vh] gap-3 overflow-y-auto p-4 xl:grid-cols-5">
+                  {(['Past due', 'Due soon', 'Live', 'Scheduled', 'Archived'] as const).map((column) => (
+                    <div key={column} className="rounded-2xl border border-border bg-card/60 p-3">
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="text-xs font-semibold uppercase tracking-[0.16em] text-primary">{column}</div>
+                        <div className="text-xs text-muted-foreground">{assignmentBoardGroups[column]?.length || 0}</div>
+                      </div>
+                      <div className="mt-3 space-y-3">
+                        {(assignmentBoardGroups[column] || []).length === 0 ? (
+                          <div className="rounded-2xl border border-dashed border-border px-3 py-4 text-xs text-muted-foreground">
+                            Nothing here.
+                          </div>
+                        ) : (
+                          assignmentBoardGroups[column].map((assignment) => {
+                            const isSelected = selectedAssignment?.id === assignment.id;
+                            return (
+                              <button
+                                key={assignment.id}
+                                type="button"
+                                onClick={() => {
+                                  setSelectedAssignmentId(assignment.id);
+                                  setAssignmentEditorOpen(false);
+                                }}
+                                className={`w-full rounded-2xl border px-3 py-3 text-left transition ${
+                                  isSelected ? 'border-primary/30 bg-primary/10' : 'border-border bg-background hover:bg-secondary'
+                                }`}
+                              >
+                                <div className="text-sm font-semibold text-foreground">{assignment.title}</div>
+                                <div className="mt-1 text-xs text-muted-foreground">
+                                  {assignment.completedLearnerCount}/{assignment.eligibleLearnerCount} complete
+                                </div>
+                                <div className="mt-3">
+                                  <ProgressStack
+                                    completed={assignment.completedLearnerCount}
+                                    inProgress={assignment.inProgressLearnerCount}
+                                    notStarted={assignment.notStartedLearnerCount}
+                                  />
+                                </div>
+                              </button>
+                            );
+                          })
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <>
+                  <div className="hidden grid-cols-[minmax(0,1.6fr)_140px_130px_150px] gap-4 border-b border-border px-4 py-3 text-[11px] font-semibold uppercase tracking-[0.16em] text-primary lg:grid">
+                    <div>Assignment</div>
+                    <div>Status</div>
+                    <div>Due</div>
+                    <div>Progress</div>
+                  </div>
+                  <div className="max-h-[58vh] divide-y divide-border overflow-y-auto">
+                    {filteredAssignments.map((assignment) => {
+                      const dueMeta = getAssignmentDueMeta(assignment.dueAt);
+                      const workflowState = getAssignmentWorkflowStateMeta(assignment);
+                      const isSelected = selectedAssignment?.id === assignment.id;
+                      const assignmentScope =
+                        assignment.assignmentType === 'roadmap'
+                          ? trackTitleById.get(assignment.trackId || '') || 'Roadmap track'
+                          : formatBenchmarkLanguageLabel(assignment.benchmarkLanguage);
+
+                      return (
+                        <button
+                          key={assignment.id}
+                          type="button"
+                          onClick={() => {
+                            setSelectedAssignmentId(assignment.id);
+                            setAssignmentEditorOpen(false);
+                          }}
+                          className={`grid w-full gap-3 px-4 py-4 text-left transition lg:grid-cols-[minmax(0,1.6fr)_140px_130px_150px] lg:gap-4 ${
+                            isSelected ? 'bg-primary/8' : 'hover:bg-card'
+                          }`}
+                        >
+                          <div className="min-w-0">
+                            <div className="truncate text-sm font-semibold text-foreground sm:text-base">{assignment.title}</div>
+                            <div className="mt-1 truncate text-sm text-muted-foreground">
+                              {formatAssignmentTypeLabel(assignment.assignmentType)} | {assignmentScope} | All learners
+                            </div>
+                            <div className="mt-2 text-sm text-muted-foreground">
+                              {assignment.description || 'No brief added yet.'}
+                            </div>
+                          </div>
+                          <div className="flex items-start lg:items-center">
+                            <div>
+                              <div className="text-sm font-semibold text-foreground">{workflowState.label}</div>
+                              <div className="mt-1 text-xs text-muted-foreground">{workflowState.description}</div>
+                            </div>
+                          </div>
+                          <div className="flex items-start lg:items-center">
+                            <div>
+                              <div className="text-sm font-semibold text-foreground">
+                                {assignment.dueAt ? formatDateLabel(assignment.dueAt) : 'No due date'}
+                              </div>
+                              <div className="mt-1 text-xs text-muted-foreground">
+                                {assignment.updatedAt ? `Updated ${formatDateLabel(assignment.updatedAt)}` : dueMeta.label}
+                              </div>
+                            </div>
+                          </div>
+                          <div className="space-y-2">
+                            <div className="flex items-center justify-between gap-3 text-sm">
+                              <span className="font-semibold text-foreground">
+                                {assignment.completedLearnerCount}/{assignment.eligibleLearnerCount}
+                              </span>
+                              <span className="text-muted-foreground">{assignment.completionRate}%</span>
+                            </div>
+                            <ProgressStack
+                              completed={assignment.completedLearnerCount}
+                              inProgress={assignment.inProgressLearnerCount}
+                              notStarted={assignment.notStartedLearnerCount}
+                            />
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </>
+              )}
+            </div>
+
+            <div className="rounded-2xl border border-border bg-background p-4">
+              {assignmentEditorOpen ? (
+                <div className="space-y-4">
+                  <div>
+                    <div className="text-sm font-semibold text-foreground">
+                      {assignmentDraft.id ? 'Edit assignment' : 'New assignment'}
+                    </div>
+                    <div className="mt-1 text-sm text-muted-foreground">
+                      Define the work, deadline, and learning target without leaving the queue.
+                    </div>
+                  </div>
+
+                  {!assignmentDraft.id ? (
+                    <FormField label="Start from template">
+                      <div className="grid gap-2">
+                        {ASSIGNMENT_TEMPLATES.map((template) => (
+                          <button
+                            key={template.id}
+                            type="button"
+                            onClick={() => applyAssignmentTemplate(template.id)}
+                            className="rounded-2xl border border-border bg-card px-4 py-3 text-left transition hover:bg-secondary"
+                          >
+                            <div className="text-sm font-semibold text-foreground">{template.title}</div>
+                            <div className="mt-1 text-sm text-muted-foreground">{template.description}</div>
+                          </button>
+                        ))}
+                      </div>
+                    </FormField>
+                  ) : null}
+
+                  <FormField label="Assignment type">
+                    <div className="grid gap-2 sm:grid-cols-3">
+                      {([
+                        ['benchmark', 'Benchmark'],
+                        ['roadmap', 'Roadmap'],
+                        ['challenge_pack', 'Challenge pack'],
+                      ] as Array<[TeamAssignmentType, string]>).map(([value, label]) => (
+                        <button
+                          key={value}
+                          type="button"
+                          onClick={() =>
+                            setAssignmentDraft((current) => ({
+                              ...current,
+                              assignmentType: value,
+                              trackId: value === 'roadmap' ? current.trackId : '',
+                            }))
+                          }
+                          className={`rounded-2xl border px-4 py-3 text-sm font-semibold transition ${
+                            assignmentDraft.assignmentType === value
+                              ? 'border-primary/30 bg-primary/10 text-primary'
+                              : 'border-border bg-card text-foreground hover:bg-secondary'
+                          }`}
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                  </FormField>
+
+                  <FormField label="Title">
+                    <input
+                      value={assignmentDraft.title}
+                      onChange={(event) => setAssignmentDraft((current) => ({ ...current, title: event.target.value }))}
+                      placeholder="Class benchmark"
+                      className="h-11 w-full rounded-2xl border border-border bg-card px-4 text-sm text-foreground outline-none transition focus:border-primary/40"
+                    />
+                  </FormField>
+
+                  {assignmentDraft.assignmentType === 'roadmap' ? (
+                    <FormField label="Track">
+                      <select
+                        value={assignmentDraft.trackId}
+                        onChange={(event) => setAssignmentDraft((current) => ({ ...current, trackId: event.target.value }))}
+                        className="h-11 w-full rounded-2xl border border-border bg-card px-4 text-sm text-foreground outline-none transition focus:border-primary/40"
+                      >
+                        <option value="">Select a roadmap track</option>
+                        {interviewTracks.map((track) => (
+                          <option key={track.id} value={track.id}>
+                            {track.title}
+                          </option>
+                        ))}
+                      </select>
+                    </FormField>
+                  ) : (
+                    <FormField label="Language">
+                      <select
+                        value={assignmentDraft.benchmarkLanguage || 'python'}
+                        onChange={(event) =>
+                          setAssignmentDraft((current) => ({
+                            ...current,
+                            benchmarkLanguage: event.target.value as AssignmentDraft['benchmarkLanguage'],
+                          }))
+                        }
+                        className="h-11 w-full rounded-2xl border border-border bg-card px-4 text-sm text-foreground outline-none transition focus:border-primary/40"
+                      >
+                        <option value="python">Python</option>
+                        <option value="javascript">JavaScript</option>
+                        <option value="java">Java</option>
+                        <option value="cpp">C++</option>
+                      </select>
+                    </FormField>
+                  )}
+
+                  <FormField label="Due date" helper="Optional">
+                    <input
+                      type="datetime-local"
+                      value={assignmentDraft.dueAt}
+                      onChange={(event) => setAssignmentDraft((current) => ({ ...current, dueAt: event.target.value }))}
+                      className="h-11 w-full rounded-2xl border border-border bg-card px-4 text-sm text-foreground outline-none transition focus:border-primary/40"
+                    />
+                  </FormField>
+
+                  <FormField label="Brief" helper="One-line purpose">
+                    <textarea
+                      value={assignmentDraft.description}
+                      onChange={(event) => setAssignmentDraft((current) => ({ ...current, description: event.target.value }))}
+                      placeholder="Measure baseline fluency before the next interview sprint."
+                      rows={5}
+                      className="w-full rounded-2xl border border-border bg-card px-4 py-3 text-sm text-foreground outline-none transition focus:border-primary/40"
+                    />
+                  </FormField>
+
+                  <div className="flex flex-wrap gap-3 pt-1">
+                    <button
+                      type="button"
+                      onClick={handleSaveAssignment}
+                      disabled={!canManageWorkspace || submittingKey === 'save-assignment'}
+                      className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl bg-primary px-5 text-sm font-semibold text-primary-foreground transition hover:bg-primary/90 disabled:opacity-60"
+                    >
+                      {submittingKey === 'save-assignment' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
+                      {assignmentDraft.id ? 'Save assignment' : 'Create assignment'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={closeAssignmentEditor}
+                      className="inline-flex h-11 items-center justify-center rounded-2xl border border-border bg-card px-4 text-sm font-semibold text-foreground transition hover:bg-secondary"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              ) : selectedAssignment ? (
+                <div className="space-y-4">
+                  <div>
+                    <div className="text-xs font-semibold uppercase tracking-[0.16em] text-primary">Assignment detail</div>
+                    <div className="mt-2 text-xl font-semibold text-foreground">{selectedAssignment.title}</div>
+                    <div className="mt-2 text-sm text-muted-foreground">
+                      {selectedAssignment.description || 'No brief has been added yet.'}
+                    </div>
+                  </div>
+
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <MetricCard label="Type" value={formatAssignmentTypeLabel(selectedAssignment.assignmentType)} />
+                    <MetricCard label="Focus" value={selectedAssignmentScope} />
+                    <MetricCard
+                      label="Due"
+                      value={selectedAssignment.dueAt ? formatDateLabel(selectedAssignment.dueAt) : 'No due date'}
+                      helper={getAssignmentDueMeta(selectedAssignment.dueAt).label}
+                    />
+                    <MetricCard
+                      label="State"
+                      value={getAssignmentWorkflowStateMeta(selectedAssignment).label}
+                      helper={selectedAssignment.updatedAt ? `Updated ${formatDateLabel(selectedAssignment.updatedAt)}` : 'Recently updated'}
+                    />
+                  </div>
+
+                  <div className="rounded-2xl border border-border bg-card px-4 py-4">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <div className="text-sm font-semibold text-foreground">Completion</div>
+                        <div className="mt-1 text-sm text-muted-foreground">
+                          {selectedAssignment.completedLearnerCount} complete | {selectedAssignment.inProgressLearnerCount} in progress |{' '}
+                          {selectedAssignment.notStartedLearnerCount} not started
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <div className="text-lg font-semibold text-foreground">{selectedAssignment.completionRate}%</div>
+                        <div className="text-xs text-muted-foreground">completion rate</div>
+                      </div>
+                    </div>
+                    <div className="mt-4">
+                      <ProgressStack
+                        completed={selectedAssignment.completedLearnerCount}
+                        inProgress={selectedAssignment.inProgressLearnerCount}
+                        notStarted={selectedAssignment.notStartedLearnerCount}
+                      />
+                    </div>
+                    <div className="mt-4 grid gap-3 sm:grid-cols-3">
+                      <MetricCard label="Learners" value={String(selectedAssignment.eligibleLearnerCount)} />
+                      <MetricCard label="Avg progress" value={`${selectedAssignment.averageProgressPercent}%`} />
+                      <MetricCard
+                        label="Target"
+                        value={`${selectedAssignment.requiredCompletionCount} ${selectedAssignment.progressUnitLabel}`}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <MetricCard
+                      label="Needs attention"
+                      value={String(Math.max(selectedAssignment.eligibleLearnerCount - selectedAssignment.completedLearnerCount, 0))}
+                      helper="Learners not fully complete"
+                    />
+                    <MetricCard
+                      label="Coaching notes"
+                      value={String(selectedAssignmentFeedback.length)}
+                      helper="Linked to this assignment"
+                    />
+                  </div>
+
+                  {selectedAssignmentFeedback.length > 0 ? (
+                    <div className="rounded-2xl border border-border bg-card px-4 py-4">
+                      <div className="text-sm font-semibold text-foreground">Recent coaching activity</div>
+                      <div className="mt-3 space-y-3">
+                        {selectedAssignmentFeedback.map((entry) => {
+                          const state = getFeedbackStateMeta(entry);
+                          return (
+                            <button
+                              key={entry.id}
+                              type="button"
+                              onClick={() => {
+                                setActiveModal('feedback');
+                                setSelectedFeedbackId(entry.id);
+                                setFeedbackComposerOpen(false);
+                              }}
+                              className="w-full rounded-2xl border border-border bg-background px-4 py-3 text-left transition hover:bg-secondary"
+                            >
+                              <div className="flex items-center justify-between gap-3">
+                                <div className="text-sm font-semibold text-foreground">{entry.memberName}</div>
+                                <div className="text-xs text-muted-foreground">{state.label}</div>
+                              </div>
+                              <div className="mt-1 text-sm text-muted-foreground">{entry.summary || 'Open coaching note'}</div>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ) : null}
+
+                  <div className="flex flex-wrap gap-3 pt-1">
+                    <button
+                      type="button"
+                      onClick={() => startAssignmentEdit(selectedAssignment)}
+                      disabled={!canManageWorkspace}
+                      className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl border border-border bg-card px-4 text-sm font-semibold text-foreground transition hover:bg-secondary disabled:opacity-60"
+                    >
+                      <Pencil className="h-4 w-4" />
+                      Edit
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void handleDuplicateAssignment(selectedAssignment)}
+                      disabled={!canManageWorkspace || submittingKey === `duplicate-assignment-${selectedAssignment.id}`}
+                      className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl border border-border bg-card px-4 text-sm font-semibold text-foreground transition hover:bg-secondary disabled:opacity-60"
+                    >
+                      {submittingKey === `duplicate-assignment-${selectedAssignment.id}` ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Copy className="h-4 w-4" />
+                      )}
+                      Duplicate
+                    </button>
+                    {selectedAssignment.lifecycleState === 'archived' ? (
+                      <button
+                        type="button"
+                        onClick={() => void handleRestoreAssignment(selectedAssignment)}
+                        disabled={!canManageWorkspace || submittingKey === `restore-assignment-${selectedAssignment.id}`}
+                        className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl border border-border bg-card px-4 text-sm font-semibold text-foreground transition hover:bg-secondary disabled:opacity-60"
+                      >
+                        {submittingKey === `restore-assignment-${selectedAssignment.id}` ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <RotateCcw className="h-4 w-4" />
+                        )}
+                        Restore
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => requestArchiveAssignment(selectedAssignment)}
+                        disabled={!canManageWorkspace || submittingKey === `delete-assignment-${selectedAssignment.id}`}
+                        className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl border border-destructive/20 bg-destructive/10 px-4 text-sm font-semibold text-destructive transition hover:bg-destructive/15 disabled:opacity-60"
+                      >
+                        {submittingKey === `delete-assignment-${selectedAssignment.id}` ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <Archive className="h-4 w-4" />
+                        )}
+                        Archive
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                <EmptyState
+                  title="Select an assignment"
+                  helper="Choose a row from the queue to inspect progress, deadlines, and quick actions."
+                />
+              )}
+            </div>
+          </div>
+        </div>
+      </ModalShell>
+    );
+  };
+
+  const renderFeedbackModal = () => {
+    if (activeModal !== 'feedback' || !teamDetail) return null;
+
+    const selectedFeedbackState = selectedFeedback ? getFeedbackStateMeta(selectedFeedback) : null;
+
+    return (
+      <ModalShell
+        title="Grade and coach"
+        subtitle="Review the queue, inspect learner context, and publish coaching notes without living inside a form."
+        onClose={() => setActiveModal(null)}
+      >
+        <div className="space-y-5">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+            <div>
+              <div className="text-lg font-semibold text-foreground">Review queue</div>
+              <div className="mt-1 text-sm text-muted-foreground">
+                Work through learners quickly, keep notes structured, and make sharing explicit.
+              </div>
+              <div className="mt-2 text-xs text-muted-foreground">Shortcuts: `N` new note, `E` edit, `J/K` move through the queue.</div>
+            </div>
+            <div className="flex flex-wrap gap-3">
+              <button
+                type="button"
+                onClick={() => openNewFeedbackComposer(selectedFeedback?.memberUserId, selectedFeedback?.assignmentId || undefined)}
+                disabled={!canManageWorkspace}
+                className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl bg-primary px-5 text-sm font-semibold text-primary-foreground transition hover:bg-primary/90 disabled:opacity-60"
+              >
+                <Plus className="h-4 w-4" />
+                New coaching note
+              </button>
+              {feedbackComposerOpen ? (
+                <button
+                  type="button"
+                  onClick={closeFeedbackComposer}
+                  className="inline-flex h-11 items-center justify-center rounded-2xl border border-border bg-background px-4 text-sm font-semibold text-foreground transition hover:bg-secondary"
+                >
+                  Close composer
+                </button>
+              ) : null}
+            </div>
+          </div>
+
+          <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_180px_180px]">
+            <div className="relative">
+              <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <input
+                value={feedbackSearchQuery}
+                onChange={(event) => setFeedbackSearchQuery(event.target.value)}
+                placeholder="Search learner, assignment, author, or note"
+                className="h-11 w-full rounded-2xl border border-border bg-background pl-11 pr-4 text-sm text-foreground outline-none transition focus:border-primary/40"
+              />
+            </div>
+            <select
+              value={feedbackVisibilityFilter}
+              onChange={(event) => setFeedbackVisibilityFilter(event.target.value as FeedbackVisibilityFilter)}
+              className="h-11 rounded-2xl border border-border bg-background px-4 text-sm text-foreground outline-none transition focus:border-primary/40"
+            >
+              {FEEDBACK_VISIBILITY_FILTER_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+            <select
+              value={feedbackSort}
+              onChange={(event) => setFeedbackSort(event.target.value as FeedbackSortOption)}
+              className="h-11 rounded-2xl border border-border bg-background px-4 text-sm text-foreground outline-none transition focus:border-primary/40"
+            >
+              <option value="recent">Sort: Recent</option>
+              <option value="score">Sort: Score</option>
+              <option value="learner">Sort: Learner</option>
+            </select>
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            {[
+              { value: 'all' as const, label: 'All' },
+              { value: 'draft' as const, label: 'Needs review' },
+              { value: 'shared' as const, label: 'Shared' },
+              { value: 'resolved' as const, label: 'Resolved' },
+            ].map((tab) => (
+              <button
+                key={tab.value}
+                type="button"
+                onClick={() => setFeedbackStatusFilter(tab.value)}
+                className={`inline-flex h-9 items-center rounded-full border px-4 text-sm font-semibold transition ${
+                  feedbackStatusFilter === tab.value
+                    ? 'border-primary/30 bg-primary/10 text-primary'
+                    : 'border-border bg-background text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            <MetricCard label="Needs review" value={String(feedbackModalStats.drafts)} helper="Private drafts" />
+            <MetricCard label="Shared" value={String(feedbackModalStats.shared)} helper="Visible to learners" />
+            <MetricCard label="Resolved" value={String(feedbackModalStats.resolved)} helper="Closed coaching loops" />
+            <MetricCard
+              label="Avg score"
+              value={feedbackModalStats.averageScore !== null ? `${feedbackModalStats.averageScore}` : '--'}
+              helper="Across scored notes"
+            />
+          </div>
+
+          <div className="grid gap-5 xl:grid-cols-[290px_minmax(0,1fr)_370px]">
+            <div className="rounded-2xl border border-border bg-background">
+              {teamDetail.feedback.length === 0 ? (
+                <div className="p-4">
+                  <EmptyState
+                    title="No feedback yet"
+                    helper="When learners submit work, coaching notes and reviews will collect here."
+                  />
+                </div>
+              ) : filteredFeedback.length === 0 ? (
+                <div className="p-4">
+                  <EmptyState
+                    title="No feedback in this view"
+                    helper="Reset the filters to return to the full coaching queue."
+                  />
+                </div>
+              ) : (
+                <div className="max-h-[58vh] divide-y divide-border overflow-y-auto">
+                  {filteredFeedback.map((entry) => {
+                    const feedbackState = getFeedbackStateMeta(entry);
+                    const isSelected = selectedFeedback?.id === entry.id;
+                    const preview = entry.summary || entry.focusAreas || entry.strengths || 'Open note';
+
+                    return (
+                      <button
+                        key={entry.id}
+                        type="button"
+                        onClick={() => {
+                          setSelectedFeedbackId(entry.id);
+                          setFeedbackComposerOpen(false);
+                        }}
+                        className={`w-full px-4 py-4 text-left transition ${isSelected ? 'bg-primary/8' : 'hover:bg-card'}`}
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <div className="truncate text-sm font-semibold text-foreground">{entry.memberName}</div>
+                            <div className="mt-1 truncate text-sm text-muted-foreground">
+                              {entry.assignmentTitle || 'General coaching note'}
+                            </div>
+                          </div>
+                          <div className="text-right text-xs text-muted-foreground">{formatRelativeActivityLabel(entry.updatedAt)}</div>
+                        </div>
+                        <div className="mt-2 flex items-center gap-2 text-xs">
+                          <span className="font-semibold text-foreground">{feedbackState.label}</span>
+                          <span className="text-muted-foreground">|</span>
+                          <span className="text-muted-foreground">{entry.rubricScore ?? '--'} score</span>
+                        </div>
+                        <div className="mt-2 line-clamp-2 text-sm text-muted-foreground">{preview}</div>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            <div className="rounded-2xl border border-border bg-background p-4">
+              {feedbackContextMember ? (
+                <div className="space-y-4">
+                  <div>
+                    <div className="text-xs font-semibold uppercase tracking-[0.16em] text-primary">Learner context</div>
+                    <div className="mt-2 text-xl font-semibold text-foreground">{feedbackContextMember.name}</div>
+                    <div className="mt-1 text-sm text-muted-foreground">{feedbackContextMember.email || 'No email saved'}</div>
+                    <div className="mt-2 text-sm text-muted-foreground">
+                      Last active {formatRelativeActivityLabel(feedbackContextMember.lastActiveAt)}
+                    </div>
+                  </div>
+
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <MetricCard label="Role" value={formatTeamRoleLabel(feedbackContextMember.role)} />
+                    <MetricCard label="Joined" value={formatDateLabel(feedbackContextMember.joinedAt)} />
+                    <MetricCard
+                      label="Latest benchmark"
+                      value={
+                        feedbackContextMember.latestBenchmarkScore !== null
+                          ? `${feedbackContextMember.latestBenchmarkScore}`
+                          : '--'
+                      }
+                      helper={feedbackContextMember.latestBenchmarkAt ? formatDateLabel(feedbackContextMember.latestBenchmarkAt) : 'No benchmark yet'}
+                    />
+                    <MetricCard
+                      label="Momentum"
+                      value={`${feedbackContextMember.currentStreak} day streak`}
+                      helper={`${feedbackContextMember.benchmarkCount} benchmarks on record`}
+                    />
+                  </div>
+
+                  <div className="rounded-2xl border border-border bg-card px-4 py-4">
+                    <div className="text-sm font-semibold text-foreground">Linked assignment</div>
+                    {feedbackContextAssignment ? (
+                      <div className="mt-3 space-y-2">
+                        <div className="font-semibold text-foreground">{feedbackContextAssignment.title}</div>
+                        <div className="text-sm text-muted-foreground">
+                          {formatAssignmentTypeLabel(feedbackContextAssignment.assignmentType)} |{' '}
+                          {feedbackContextAssignment.assignmentType === 'roadmap'
+                            ? trackTitleById.get(feedbackContextAssignment.trackId || '') || 'Roadmap'
+                            : formatBenchmarkLanguageLabel(feedbackContextAssignment.benchmarkLanguage)}
+                        </div>
+                        <div className="text-sm text-muted-foreground">
+                          Due {feedbackContextAssignment.dueAt ? formatDateLabel(feedbackContextAssignment.dueAt) : 'No due date'}
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="mt-3 text-sm text-muted-foreground">
+                        No assignment is linked yet. You can still create a general coaching note.
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="rounded-2xl border border-border bg-card px-4 py-4">
+                    <div className="text-sm font-semibold text-foreground">
+                      {feedbackComposerOpen ? 'Recent history' : 'Current note'}
+                    </div>
+                    {!feedbackComposerOpen && selectedFeedback ? (
+                      <div className="mt-3 space-y-3">
+                        <div className="grid gap-3 sm:grid-cols-3">
+                          <MetricCard label="State" value={selectedFeedbackState?.label || 'Draft'} />
+                          <MetricCard
+                            label="Visibility"
+                            value={selectedFeedback.sharedWithMember ? 'Shared' : 'Private'}
+                          />
+                          <MetricCard label="Score" value={selectedFeedback.rubricScore !== null ? `${selectedFeedback.rubricScore}` : '--'} />
+                        </div>
+                        <div className="space-y-3 text-sm text-muted-foreground">
+                          <div>
+                            <div className="font-semibold text-foreground">Summary</div>
+                            <div className="mt-1">{selectedFeedback.summary || 'No summary yet.'}</div>
+                          </div>
+                          <div>
+                            <div className="font-semibold text-foreground">Strengths</div>
+                            <div className="mt-1">{selectedFeedback.strengths || 'No strengths captured yet.'}</div>
+                          </div>
+                          <div>
+                            <div className="font-semibold text-foreground">Focus areas</div>
+                            <div className="mt-1">{selectedFeedback.focusAreas || 'No focus areas captured yet.'}</div>
+                          </div>
+                        </div>
+                      </div>
+                    ) : feedbackHistory.length > 0 ? (
+                      <div className="mt-3 space-y-3">
+                        {feedbackHistory.map((entry) => {
+                          const feedbackState = getFeedbackStateMeta(entry);
+                          return (
+                            <button
+                              key={entry.id}
+                              type="button"
+                              onClick={() => {
+                                setSelectedFeedbackId(entry.id);
+                                setFeedbackComposerOpen(false);
+                              }}
+                              className="w-full rounded-2xl border border-border bg-background px-4 py-3 text-left transition hover:bg-secondary"
+                            >
+                              <div className="flex items-center justify-between gap-3">
+                                <div className="text-sm font-semibold text-foreground">{feedbackState.label}</div>
+                                <div className="text-xs text-muted-foreground">{formatDateLabel(entry.updatedAt)}</div>
+                              </div>
+                              <div className="mt-1 text-sm text-muted-foreground">
+                                {entry.assignmentTitle || 'General coaching note'}
+                              </div>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <div className="mt-3 text-sm text-muted-foreground">
+                        No previous coaching notes for this learner yet.
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                <EmptyState
+                  title="Select a learner or note"
+                  helper="Choose a review item from the queue or start a new coaching note to load context here."
+                />
+              )}
+            </div>
+
+            <div className="rounded-2xl border border-border bg-background p-4">
+              {feedbackComposerOpen ? (
+                <div className="space-y-4">
+                  <div>
+                    <div className="text-sm font-semibold text-foreground">
+                      {feedbackDraft.id ? 'Edit coaching note' : 'New coaching note'}
+                    </div>
+                    <div className="mt-1 text-sm text-muted-foreground">
+                      Save privately, share when ready, and resolve when the feedback loop is closed.
+                    </div>
+                  </div>
+
+                  <FormField label="Learner">
+                    <select
+                      value={feedbackDraft.memberUserId}
+                      onChange={(event) => setFeedbackDraft((current) => ({ ...current, memberUserId: event.target.value }))}
+                      className="h-11 w-full rounded-2xl border border-border bg-card px-4 text-sm text-foreground outline-none transition focus:border-primary/40"
+                    >
+                      <option value="">Select learner</option>
+                      {learnerMembers.map((member) => (
+                        <option key={member.userId} value={member.userId}>
+                          {member.name}
+                        </option>
+                      ))}
+                    </select>
+                  </FormField>
+
+                  <FormField label="Assignment link" helper="Optional">
+                    <select
+                      value={feedbackDraft.assignmentId}
+                      onChange={(event) => setFeedbackDraft((current) => ({ ...current, assignmentId: event.target.value }))}
+                      className="h-11 w-full rounded-2xl border border-border bg-card px-4 text-sm text-foreground outline-none transition focus:border-primary/40"
+                    >
+                      <option value="">General coaching note</option>
+                      {teamDetail.assignments.map((assignment) => (
+                        <option key={assignment.id} value={assignment.id}>
+                          {assignment.title}
+                        </option>
+                      ))}
+                    </select>
+                  </FormField>
+
+                  <FormField label="Workflow state">
+                    <div className="grid gap-2 sm:grid-cols-3">
+                      {([
+                        ['draft', 'Draft'],
+                        ['shared', 'Shared'],
+                        ['resolved', 'Resolved'],
+                      ] as Array<['draft' | 'shared' | 'resolved', string]>).map(([value, label]) => {
+                        const active =
+                          value === 'draft'
+                            ? feedbackDraft.status === 'draft' && !feedbackDraft.sharedWithMember
+                            : value === 'shared'
+                            ? feedbackDraft.status === 'shared' && feedbackDraft.sharedWithMember
+                            : feedbackDraft.status === 'resolved';
+
+                        return (
+                          <button
+                            key={value}
+                            type="button"
+                            onClick={() => setFeedbackWorkflowState(value)}
+                            className={`rounded-2xl border px-4 py-3 text-sm font-semibold transition ${
+                              active
+                                ? 'border-primary/30 bg-primary/10 text-primary'
+                                : 'border-border bg-card text-foreground hover:bg-secondary'
+                            }`}
+                          >
+                            {label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </FormField>
+
+                  <FormField label="Quick feedback">
+                    <div className="flex flex-wrap gap-2">
+                      {FEEDBACK_SNIPPETS.map((snippet) => (
+                        <button
+                          key={snippet.id}
+                          type="button"
+                          onClick={() => applyFeedbackSnippet(snippet.id)}
+                          className="inline-flex h-9 items-center rounded-full border border-border bg-card px-4 text-sm font-semibold text-foreground transition hover:bg-secondary"
+                        >
+                          {snippet.label}
+                        </button>
+                      ))}
+                    </div>
+                  </FormField>
+
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <FormField label="Rubric score" helper="0-100">
+                      <input
+                        value={feedbackDraft.rubricScore}
+                        onChange={(event) => setFeedbackDraft((current) => ({ ...current, rubricScore: event.target.value }))}
+                        placeholder="82"
+                        className="h-11 w-full rounded-2xl border border-border bg-card px-4 text-sm text-foreground outline-none transition focus:border-primary/40"
+                      />
+                    </FormField>
+                    <FormField label="Visibility">
+                      <div className="flex h-11 items-center rounded-2xl border border-border bg-card px-4 text-sm font-semibold text-foreground">
+                        {feedbackDraft.sharedWithMember ? 'Shared with learner' : 'Private draft'}
+                      </div>
+                    </FormField>
+                  </div>
+
+                  <FormField label="Summary">
+                    <textarea
+                      value={feedbackDraft.summary}
+                      onChange={(event) => setFeedbackDraft((current) => ({ ...current, summary: event.target.value }))}
+                      rows={3}
+                      placeholder="Strong baseline on syntax and iteration."
+                      className="w-full rounded-2xl border border-border bg-card px-4 py-3 text-sm text-foreground outline-none transition focus:border-primary/40"
+                    />
+                  </FormField>
+
+                  <FormField label="Strengths">
+                    <textarea
+                      value={feedbackDraft.strengths}
+                      onChange={(event) => setFeedbackDraft((current) => ({ ...current, strengths: event.target.value }))}
+                      rows={3}
+                      placeholder="Clear control flow and readable variable names."
+                      className="w-full rounded-2xl border border-border bg-card px-4 py-3 text-sm text-foreground outline-none transition focus:border-primary/40"
+                    />
+                  </FormField>
+
+                  <FormField label="Focus areas">
+                    <textarea
+                      value={feedbackDraft.focusAreas}
+                      onChange={(event) => setFeedbackDraft((current) => ({ ...current, focusAreas: event.target.value }))}
+                      rows={3}
+                      placeholder="Edge cases and output formatting need more consistency."
+                      className="w-full rounded-2xl border border-border bg-card px-4 py-3 text-sm text-foreground outline-none transition focus:border-primary/40"
+                    />
+                  </FormField>
+
+                  <FormField label="Private coach notes" helper="Internal only">
+                    <textarea
+                      value={feedbackDraft.coachNotes}
+                      onChange={(event) => setFeedbackDraft((current) => ({ ...current, coachNotes: event.target.value }))}
+                      rows={4}
+                      placeholder="Use the next session to walk through debugging strategy."
+                      className="w-full rounded-2xl border border-border bg-card px-4 py-3 text-sm text-foreground outline-none transition focus:border-primary/40"
+                    />
+                  </FormField>
+
+                  <div className="flex flex-wrap gap-3 pt-1">
+                    <button
+                      type="button"
+                      onClick={handleSaveFeedback}
+                      disabled={!canManageWorkspace || submittingKey === 'save-feedback'}
+                      className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl bg-primary px-5 text-sm font-semibold text-primary-foreground transition hover:bg-primary/90 disabled:opacity-60"
+                    >
+                      {submittingKey === 'save-feedback' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
+                      {feedbackDraft.id ? 'Save note' : 'Create note'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={closeFeedbackComposer}
+                      className="inline-flex h-11 items-center justify-center rounded-2xl border border-border bg-card px-4 text-sm font-semibold text-foreground transition hover:bg-secondary"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              ) : selectedFeedback ? (
+                <div className="space-y-4">
+                  <div>
+                    <div className="text-xs font-semibold uppercase tracking-[0.16em] text-primary">Feedback detail</div>
+                    <div className="mt-2 text-xl font-semibold text-foreground">{selectedFeedback.memberName}</div>
+                    <div className="mt-1 text-sm text-muted-foreground">
+                      {selectedFeedback.assignmentTitle || 'General coaching note'} | {selectedFeedback.authorName}
+                    </div>
+                  </div>
+
+                  <div className="grid gap-3 sm:grid-cols-3">
+                    <MetricCard label="State" value={selectedFeedbackState?.label || 'Draft'} />
+                    <MetricCard label="Visibility" value={selectedFeedback.sharedWithMember ? 'Shared' : 'Private'} />
+                    <MetricCard label="Score" value={selectedFeedback.rubricScore !== null ? `${selectedFeedback.rubricScore}` : '--'} />
+                  </div>
+
+                  <div className="space-y-4 rounded-2xl border border-border bg-card px-4 py-4 text-sm text-muted-foreground">
+                    <div>
+                      <div className="font-semibold text-foreground">Summary</div>
+                      <div className="mt-1">{selectedFeedback.summary || 'No summary yet.'}</div>
+                    </div>
+                    <div>
+                      <div className="font-semibold text-foreground">Strengths</div>
+                      <div className="mt-1">{selectedFeedback.strengths || 'No strengths captured yet.'}</div>
+                    </div>
+                    <div>
+                      <div className="font-semibold text-foreground">Focus areas</div>
+                      <div className="mt-1">{selectedFeedback.focusAreas || 'No focus areas captured yet.'}</div>
+                    </div>
+                    <div>
+                      <div className="font-semibold text-foreground">Private coach notes</div>
+                      <div className="mt-1">{selectedFeedback.coachNotes || 'No private coach notes yet.'}</div>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap gap-3 pt-1">
+                    <button
+                      type="button"
+                      onClick={() => startFeedbackEdit(selectedFeedback)}
+                      disabled={!canManageWorkspace}
+                      className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl border border-border bg-card px-4 text-sm font-semibold text-foreground transition hover:bg-secondary disabled:opacity-60"
+                    >
+                      <Pencil className="h-4 w-4" />
+                      Edit note
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => openNewFeedbackComposer(selectedFeedback.memberUserId, selectedFeedback.assignmentId || undefined)}
+                      disabled={!canManageWorkspace}
+                      className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl border border-border bg-card px-4 text-sm font-semibold text-foreground transition hover:bg-secondary disabled:opacity-60"
+                    >
+                      <Plus className="h-4 w-4" />
+                      Follow-up note
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (filteredFeedback.length === 0) return;
+                        const nextIndex =
+                          selectedFeedbackIndex >= 0 ? Math.min(selectedFeedbackIndex + 1, filteredFeedback.length - 1) : 0;
+                        setSelectedFeedbackId(filteredFeedback[nextIndex]?.id || null);
+                        setFeedbackComposerOpen(false);
+                      }}
+                      disabled={!selectedFeedback || filteredFeedback.length <= 1}
+                      className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl border border-border bg-card px-4 text-sm font-semibold text-foreground transition hover:bg-secondary disabled:opacity-60"
+                    >
+                      <ArrowRight className="h-4 w-4" />
+                      Next review
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => requestDeleteFeedback(selectedFeedback)}
+                      disabled={!canManageWorkspace || submittingKey === `delete-feedback-${selectedFeedback.id}`}
+                      className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl border border-destructive/20 bg-destructive/10 px-4 text-sm font-semibold text-destructive transition hover:bg-destructive/15 disabled:opacity-60"
+                    >
+                      {submittingKey === `delete-feedback-${selectedFeedback.id}` ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Trash2 className="h-4 w-4" />
+                      )}
+                      Delete
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <EmptyState
+                  title="Select a note"
+                  helper="Pick a coaching note from the queue or start a new one to review details here."
+                />
+              )}
+            </div>
+          </div>
+        </div>
+      </ModalShell>
+    );
+  };
 
   const teamSelectorValue = selectedTeamId || TEAM_WORKSPACE_OVERVIEW_VALUE;
   const isBusy = loadingTeams || loadingDetail;
@@ -1294,14 +3544,65 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
       {activeModal === 'members' && teamDetail ? (
         <ModalShell
           title="Team members"
-          subtitle="Manage roles and direct access. Activity is shown automatically."
+          subtitle="Search, filter, and manage access."
           onClose={() => setActiveModal(null)}
         >
           <div className="space-y-4">
             {teamDetail.members.length === 0 ? (
               <EmptyState title="No members yet" helper="Invite learners first, then promote members if needed." />
             ) : (
-              teamDetail.members.map((member) => {
+              <>
+                <div className="space-y-4 rounded-2xl border border-border bg-background p-4">
+                  <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_220px_220px]">
+                    <div className="relative">
+                      <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                      <input
+                        value={memberSearchQuery}
+                        onChange={(event) => setMemberSearchQuery(event.target.value)}
+                        placeholder="Search by name or email"
+                        className="h-11 w-full rounded-2xl border border-border bg-card pl-11 pr-4 text-sm text-foreground outline-none transition focus:border-primary/40"
+                      />
+                    </div>
+                    <select
+                      value={memberRoleFilter}
+                      onChange={(event) => setMemberRoleFilter(event.target.value as 'all' | TeamRole)}
+                      className="h-11 rounded-2xl border border-border bg-card px-4 text-sm text-foreground outline-none transition focus:border-primary/40"
+                    >
+                      <option value="all">All roles</option>
+                      <option value="owner">Owners</option>
+                      <option value="admin">Admins</option>
+                      <option value="coach">Coaches</option>
+                      <option value="learner">Learners</option>
+                    </select>
+                    <select
+                      value={memberActivityFilter}
+                      onChange={(event) => setMemberActivityFilter(event.target.value as MemberActivityFilter)}
+                      className="h-11 rounded-2xl border border-border bg-card px-4 text-sm text-foreground outline-none transition focus:border-primary/40"
+                    >
+                      {MEMBER_ACTIVITY_FILTER_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="flex flex-wrap gap-2">
+                    <StatusPill>{membersModalStats.total} members</StatusPill>
+                    <StatusPill tone="success">{membersModalStats.activeNow} active now</StatusPill>
+                    <StatusPill>{membersModalStats.managers} managers</StatusPill>
+                    <StatusPill>{membersModalStats.learners} learners</StatusPill>
+                    {filteredMembers.length !== membersModalStats.total ? (
+                      <StatusPill tone="warn">{filteredMembers.length} shown</StatusPill>
+                    ) : null}
+                  </div>
+                </div>
+
+                {filteredMembers.length === 0 ? (
+                  <EmptyState title="No members match these filters" helper="Clear the search or filter controls to see the whole team." />
+                ) : (
+                  <div className="max-h-[56vh] space-y-3 overflow-y-auto pr-1">
+                    {filteredMembers.map((member) => {
                 const draft = memberDrafts[member.userId] || { role: member.role };
                 const saveKey = `save-member-${member.userId}`;
                 const removeKey = `remove-member-${member.userId}`;
@@ -1319,36 +3620,51 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
                 const showRoleEditor = (currentRole === 'owner' || currentRole === 'admin') && canEditThisMember;
 
                 return (
-                  <div key={member.userId} className="rounded-2xl border border-border bg-background p-4">
+                  <div
+                    key={member.userId}
+                    className="rounded-2xl border border-border bg-background p-4 transition hover:border-primary/25 hover:bg-card"
+                  >
                     <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
                       <div className="min-w-0">
-                        <div className="font-semibold text-foreground">{member.name}</div>
-                        <div className="mt-1 text-sm text-muted-foreground">{member.email || 'No email saved'}</div>
-                        <div className="mt-2 flex flex-wrap gap-2">
-                          <StatusPill>{member.latestBenchmarkScore ?? '--'} latest</StatusPill>
-                          <StatusPill>{member.currentStreak} streak</StatusPill>
-                          <StatusPill>{member.recommendedAction}</StatusPill>
+                        <div className="text-lg font-semibold text-foreground sm:text-xl">{member.name}</div>
+                        <div className="mt-1 text-base text-muted-foreground">{member.email || 'No email saved'}</div>
+                        <div className="mt-2 text-xs font-medium uppercase tracking-[0.16em] text-muted-foreground">
+                          Joined {formatDateLabel(member.joinedAt)}
                         </div>
                       </div>
 
                       <div
-                        className={`grid gap-3 sm:grid-cols-2 lg:min-w-[420px] ${
-                          showRoleEditor ? 'lg:grid-cols-[1fr_auto_auto_auto]' : 'lg:grid-cols-[1fr_auto]'
+                        className={`grid gap-3 sm:grid-cols-2 lg:min-w-[520px] ${
+                          showRoleEditor ? 'lg:grid-cols-[1fr_170px_auto]' : 'lg:grid-cols-[1fr_170px]'
                         }`}
                       >
                         {showRoleEditor ? (
                           <select
                             value={draft.role}
-                            onChange={(event) =>
+                            onChange={(event) => {
+                              const nextRole = event.target.value as MemberDraft['role'];
+                              if (nextRole === member.role) {
+                                setMemberDrafts((current) => ({
+                                  ...current,
+                                  [member.userId]: {
+                                    ...draft,
+                                    role: nextRole,
+                                  },
+                                }));
+                                return;
+                              }
+
                               setMemberDrafts((current) => ({
                                 ...current,
                                 [member.userId]: {
                                   ...draft,
-                                  role: event.target.value as MemberDraft['role'],
+                                  role: nextRole,
                                 },
-                              }))
-                            }
-                            className="h-11 rounded-2xl border border-border bg-card px-4 text-sm text-foreground outline-none transition focus:border-primary/40"
+                              }));
+                              requestRoleChange(member, nextRole);
+                            }}
+                            disabled={submittingKey === saveKey}
+                            className="h-11 rounded-2xl border border-border bg-card px-4 text-sm text-foreground outline-none transition focus:border-primary/40 disabled:opacity-60"
                           >
                             {isOwner ? <option value="owner">Owner</option> : null}
                             {memberRoleOptions.map((option) => (
@@ -1363,192 +3679,37 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
                           </div>
                         )}
                         <div
-                          title={activityIndicator.label}
-                          className="flex h-11 items-center justify-center rounded-2xl border border-border bg-card px-4"
+                          title={`${activityIndicator.description} • ${activityIndicator.label}`}
+                          className="flex h-11 items-center justify-start gap-3 rounded-2xl border border-border bg-card px-4 text-sm font-semibold text-foreground"
                         >
                           <span className={`h-3.5 w-3.5 rounded-full ${activityIndicator.className}`} />
-                          <span className="sr-only">{activityIndicator.label}</span>
+                          <span className="truncate">{activityIndicator.label}</span>
                         </div>
                         {showRoleEditor ? (
-                          <>
-                            <button
-                              type="button"
-                              onClick={() => handleSaveMember(member)}
-                              disabled={submittingKey === saveKey}
-                              className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl border border-border bg-card px-4 text-sm font-semibold text-foreground transition hover:bg-secondary disabled:opacity-60"
-                            >
-                              {submittingKey === saveKey ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
-                              Save
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => handleRemoveMember(member)}
-                              disabled={submittingKey === removeKey}
-                              className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl border border-destructive/20 bg-destructive/10 px-4 text-sm font-semibold text-destructive transition hover:bg-destructive/15 disabled:opacity-60"
-                            >
-                              {submittingKey === removeKey ? <Loader2 className="h-4 w-4 animate-spin" /> : <UserMinus className="h-4 w-4" />}
-                              Remove
-                            </button>
-                          </>
+                          <button
+                            type="button"
+                            onClick={() => requestRemoveMember(member)}
+                            disabled={submittingKey === removeKey}
+                            className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl border border-destructive/20 bg-destructive/10 px-4 text-sm font-semibold text-destructive transition hover:bg-destructive/15 disabled:opacity-60"
+                          >
+                            {submittingKey === removeKey ? <Loader2 className="h-4 w-4 animate-spin" /> : <UserMinus className="h-4 w-4" />}
+                            Remove
+                          </button>
                         ) : null}
                       </div>
                     </div>
                   </div>
                 );
-              })
+                    })}
+                  </div>
+                )}
+              </>
             )}
           </div>
         </ModalShell>
       ) : null}
 
-      {activeModal === 'assignments' && teamDetail ? (
-        <ModalShell
-          title="Assignments"
-          subtitle="Create, update, and retire practice or benchmark work."
-          onClose={() => setActiveModal(null)}
-        >
-          <div className="grid gap-5 xl:grid-cols-[380px_minmax(0,1fr)]">
-            <div className="rounded-2xl border border-border bg-background p-4">
-              <div className="text-sm font-semibold text-foreground">{assignmentDraft.id ? 'Edit assignment' : 'New assignment'}</div>
-              <div className="mt-2 text-xs text-muted-foreground">
-                {workspaceCounts.assignments}/{selectedTeamPlanPolicy.assignmentLimit} active assignments on this plan.
-              </div>
-              <div className="mt-4 space-y-3">
-                <input
-                  value={assignmentDraft.title}
-                  onChange={(event) => setAssignmentDraft((current) => ({ ...current, title: event.target.value }))}
-                  placeholder="Assignment title"
-                  className="h-11 w-full rounded-2xl border border-border bg-card px-4 text-sm text-foreground outline-none transition focus:border-primary/40"
-                />
-                <select
-                  value={assignmentDraft.assignmentType}
-                  onChange={(event) =>
-                    setAssignmentDraft((current) => ({
-                      ...current,
-                      assignmentType: event.target.value as TeamAssignmentType,
-                      trackId: event.target.value === 'roadmap' ? current.trackId : '',
-                    }))
-                  }
-                  className="h-11 w-full rounded-2xl border border-border bg-card px-4 text-sm text-foreground outline-none transition focus:border-primary/40"
-                >
-                  <option value="benchmark">Benchmark</option>
-                  <option value="challenge_pack">Challenge pack</option>
-                  <option value="roadmap">Roadmap</option>
-                </select>
-                {assignmentDraft.assignmentType === 'roadmap' ? (
-                  <select
-                    value={assignmentDraft.trackId}
-                    onChange={(event) => setAssignmentDraft((current) => ({ ...current, trackId: event.target.value }))}
-                    className="h-11 w-full rounded-2xl border border-border bg-card px-4 text-sm text-foreground outline-none transition focus:border-primary/40"
-                  >
-                    <option value="">Select a track</option>
-                    {interviewTracks.map((track) => (
-                      <option key={track.id} value={track.id}>
-                        {track.title}
-                      </option>
-                    ))}
-                  </select>
-                ) : (
-                  <select
-                    value={assignmentDraft.benchmarkLanguage || 'python'}
-                    onChange={(event) =>
-                      setAssignmentDraft((current) => ({
-                        ...current,
-                        benchmarkLanguage: event.target.value as AssignmentDraft['benchmarkLanguage'],
-                      }))
-                    }
-                    className="h-11 w-full rounded-2xl border border-border bg-card px-4 text-sm text-foreground outline-none transition focus:border-primary/40"
-                  >
-                    <option value="python">Python</option>
-                    <option value="javascript">JavaScript</option>
-                    <option value="java">Java</option>
-                    <option value="cpp">C++</option>
-                  </select>
-                )}
-                <input
-                  type="datetime-local"
-                  value={assignmentDraft.dueAt}
-                  onChange={(event) => setAssignmentDraft((current) => ({ ...current, dueAt: event.target.value }))}
-                  className="h-11 w-full rounded-2xl border border-border bg-card px-4 text-sm text-foreground outline-none transition focus:border-primary/40"
-                />
-                <textarea
-                  value={assignmentDraft.description}
-                  onChange={(event) => setAssignmentDraft((current) => ({ ...current, description: event.target.value }))}
-                  placeholder="Short assignment brief"
-                  rows={4}
-                  className="w-full rounded-2xl border border-border bg-card px-4 py-3 text-sm text-foreground outline-none transition focus:border-primary/40"
-                />
-                <div className="flex flex-wrap gap-3">
-                  <button
-                    type="button"
-                    onClick={handleSaveAssignment}
-                    disabled={!canManageWorkspace || submittingKey === 'save-assignment'}
-                    className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl bg-primary px-5 text-sm font-semibold text-primary-foreground transition hover:bg-primary/90 disabled:opacity-60"
-                  >
-                    {submittingKey === 'save-assignment' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
-                    {assignmentDraft.id ? 'Save changes' : 'Create assignment'}
-                  </button>
-                  {assignmentDraft.id ? (
-                    <button
-                      type="button"
-                      onClick={resetAssignmentDraft}
-                      className="inline-flex h-11 items-center justify-center rounded-2xl border border-border bg-card px-4 text-sm font-semibold text-foreground transition hover:bg-secondary"
-                    >
-                      Cancel edit
-                    </button>
-                  ) : null}
-                </div>
-              </div>
-            </div>
-
-            <div className="space-y-4">
-              {teamDetail.assignments.length === 0 ? (
-                <EmptyState title="No assignments yet" helper="Create benchmark, roadmap, or challenge work here." />
-              ) : (
-                teamDetail.assignments.map((assignment) => {
-                  const deleteKey = `delete-assignment-${assignment.id}`;
-                  return (
-                    <div key={assignment.id} className="rounded-2xl border border-border bg-background p-4">
-                      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-                        <div className="min-w-0">
-                          <div className="font-semibold text-foreground">{assignment.title}</div>
-                          <div className="mt-2 text-sm text-muted-foreground">{assignment.description || 'No description'}</div>
-                          <div className="mt-3 flex flex-wrap gap-2">
-                            <StatusPill>{assignment.assignmentType.replace('_', ' ')}</StatusPill>
-                            {assignment.benchmarkLanguage ? <StatusPill>{assignment.benchmarkLanguage}</StatusPill> : null}
-                            {assignment.trackId ? <StatusPill>{assignment.trackId}</StatusPill> : null}
-                            <StatusPill>{formatDateLabel(assignment.dueAt)}</StatusPill>
-                          </div>
-                        </div>
-                        <div className="flex gap-2">
-                          <button
-                            type="button"
-                            onClick={() => startAssignmentEdit(assignment)}
-                            disabled={!canManageWorkspace}
-                            className="inline-flex h-10 items-center justify-center gap-2 rounded-2xl border border-border bg-card px-4 text-sm font-semibold text-foreground transition hover:bg-secondary disabled:opacity-60"
-                          >
-                            <Pencil className="h-4 w-4" />
-                            Edit
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleDeleteAssignment(assignment.id)}
-                            disabled={!canManageWorkspace || submittingKey === deleteKey}
-                            className="inline-flex h-10 items-center justify-center gap-2 rounded-2xl border border-destructive/20 bg-destructive/10 px-4 text-sm font-semibold text-destructive transition hover:bg-destructive/15 disabled:opacity-60"
-                          >
-                            {submittingKey === deleteKey ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
-                            Delete
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })
-              )}
-            </div>
-          </div>
-        </ModalShell>
-      ) : null}
+      {renderAssignmentsModal()}
 
       {activeModal === 'invites' && teamDetail ? (
         <ModalShell
@@ -1834,170 +3995,7 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
         </ModalShell>
       ) : null}
 
-      {activeModal === 'feedback' && teamDetail ? (
-        <ModalShell
-          title="Instructor feedback"
-          subtitle="Grade work, leave coaching notes, and share actionable next steps."
-          onClose={() => setActiveModal(null)}
-        >
-          <div className="grid gap-5 xl:grid-cols-[380px_minmax(0,1fr)]">
-            <div className="rounded-2xl border border-border bg-background p-4">
-              <div className="text-sm font-semibold text-foreground">{feedbackDraft.id ? 'Edit feedback' : 'New feedback'}</div>
-              <div className="mt-4 space-y-3">
-                <select
-                  value={feedbackDraft.memberUserId}
-                  onChange={(event) => setFeedbackDraft((current) => ({ ...current, memberUserId: event.target.value }))}
-                  className="h-11 w-full rounded-2xl border border-border bg-card px-4 text-sm text-foreground outline-none transition focus:border-primary/40"
-                >
-                  <option value="">Select learner</option>
-                  {teamDetail.members.map((member) => (
-                    <option key={member.userId} value={member.userId}>
-                      {member.name}
-                    </option>
-                  ))}
-                </select>
-                <select
-                  value={feedbackDraft.assignmentId}
-                  onChange={(event) => setFeedbackDraft((current) => ({ ...current, assignmentId: event.target.value }))}
-                  className="h-11 w-full rounded-2xl border border-border bg-card px-4 text-sm text-foreground outline-none transition focus:border-primary/40"
-                >
-                  <option value="">No assignment link</option>
-                  {teamDetail.assignments.map((assignment) => (
-                    <option key={assignment.id} value={assignment.id}>
-                      {assignment.title}
-                    </option>
-                  ))}
-                </select>
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <input
-                    value={feedbackDraft.rubricScore}
-                    onChange={(event) => setFeedbackDraft((current) => ({ ...current, rubricScore: event.target.value }))}
-                    placeholder="Rubric score"
-                    className="h-11 w-full rounded-2xl border border-border bg-card px-4 text-sm text-foreground outline-none transition focus:border-primary/40"
-                  />
-                  <select
-                    value={feedbackDraft.status}
-                    onChange={(event) =>
-                      setFeedbackDraft((current) => ({ ...current, status: event.target.value as TeamFeedbackStatus }))
-                    }
-                    className="h-11 w-full rounded-2xl border border-border bg-card px-4 text-sm text-foreground outline-none transition focus:border-primary/40"
-                  >
-                    {FEEDBACK_STATUS_OPTIONS.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <input
-                  value={feedbackDraft.summary}
-                  onChange={(event) => setFeedbackDraft((current) => ({ ...current, summary: event.target.value }))}
-                  placeholder="Summary"
-                  className="h-11 w-full rounded-2xl border border-border bg-card px-4 text-sm text-foreground outline-none transition focus:border-primary/40"
-                />
-                <textarea
-                  value={feedbackDraft.strengths}
-                  onChange={(event) => setFeedbackDraft((current) => ({ ...current, strengths: event.target.value }))}
-                  placeholder="Strengths"
-                  rows={3}
-                  className="w-full rounded-2xl border border-border bg-card px-4 py-3 text-sm text-foreground outline-none transition focus:border-primary/40"
-                />
-                <textarea
-                  value={feedbackDraft.focusAreas}
-                  onChange={(event) => setFeedbackDraft((current) => ({ ...current, focusAreas: event.target.value }))}
-                  placeholder="Focus areas"
-                  rows={3}
-                  className="w-full rounded-2xl border border-border bg-card px-4 py-3 text-sm text-foreground outline-none transition focus:border-primary/40"
-                />
-                <textarea
-                  value={feedbackDraft.coachNotes}
-                  onChange={(event) => setFeedbackDraft((current) => ({ ...current, coachNotes: event.target.value }))}
-                  placeholder="Coach notes"
-                  rows={4}
-                  className="w-full rounded-2xl border border-border bg-card px-4 py-3 text-sm text-foreground outline-none transition focus:border-primary/40"
-                />
-                <label className="flex items-center gap-3 rounded-2xl border border-border bg-card px-4 py-3 text-sm text-foreground">
-                  <input
-                    type="checkbox"
-                    checked={feedbackDraft.sharedWithMember}
-                    onChange={(event) => setFeedbackDraft((current) => ({ ...current, sharedWithMember: event.target.checked }))}
-                    className="h-4 w-4 rounded border-border bg-background"
-                  />
-                  Shared with learner
-                </label>
-                <div className="flex flex-wrap gap-3">
-                  <button
-                    type="button"
-                    onClick={handleSaveFeedback}
-                    disabled={!canManageWorkspace || submittingKey === 'save-feedback'}
-                    className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl bg-primary px-5 text-sm font-semibold text-primary-foreground transition hover:bg-primary/90 disabled:opacity-60"
-                  >
-                    {submittingKey === 'save-feedback' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
-                    {feedbackDraft.id ? 'Save feedback' : 'Create feedback'}
-                  </button>
-                  {feedbackDraft.id ? (
-                    <button
-                      type="button"
-                      onClick={resetFeedbackEditor}
-                      className="inline-flex h-11 items-center justify-center rounded-2xl border border-border bg-card px-4 text-sm font-semibold text-foreground transition hover:bg-secondary"
-                    >
-                      Cancel edit
-                    </button>
-                  ) : null}
-                </div>
-              </div>
-            </div>
-
-            <div className="space-y-4">
-              {teamDetail.feedback.length === 0 ? (
-                <EmptyState title="No feedback yet" helper="Use this to run a real grading and instructor feedback workflow." />
-              ) : (
-                teamDetail.feedback.map((entry) => {
-                  const deleteKey = `delete-feedback-${entry.id}`;
-                  return (
-                    <div key={entry.id} className="rounded-2xl border border-border bg-background p-4">
-                      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-                        <div className="min-w-0">
-                          <div className="font-semibold text-foreground">{entry.memberName}</div>
-                          <div className="mt-2 text-sm text-muted-foreground">{entry.assignmentTitle || 'General coaching note'} • {entry.authorName}</div>
-                          <div className="mt-3 flex flex-wrap gap-2">
-                            <StatusPill>{entry.status}</StatusPill>
-                            <StatusPill>{entry.rubricScore ?? '--'} / 100</StatusPill>
-                            {entry.sharedWithMember ? <StatusPill tone="success">Shared</StatusPill> : <StatusPill tone="warn">Private</StatusPill>}
-                          </div>
-                          <div className="mt-3 text-sm leading-7 text-muted-foreground">
-                            {entry.summary || entry.focusAreas || entry.strengths || 'No written summary yet.'}
-                          </div>
-                        </div>
-                        <div className="flex gap-2">
-                          <button
-                            type="button"
-                            onClick={() => startFeedbackEdit(entry)}
-                            disabled={!canManageWorkspace}
-                            className="inline-flex h-10 items-center justify-center gap-2 rounded-2xl border border-border bg-card px-4 text-sm font-semibold text-foreground transition hover:bg-secondary disabled:opacity-60"
-                          >
-                            <Pencil className="h-4 w-4" />
-                            Edit
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleDeleteFeedback(entry.id)}
-                            disabled={!canManageWorkspace || submittingKey === deleteKey}
-                            className="inline-flex h-10 items-center justify-center gap-2 rounded-2xl border border-destructive/20 bg-destructive/10 px-4 text-sm font-semibold text-destructive transition hover:bg-destructive/15 disabled:opacity-60"
-                          >
-                            {submittingKey === deleteKey ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
-                            Delete
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })
-              )}
-            </div>
-          </div>
-        </ModalShell>
-      ) : null}
+      {renderFeedbackModal()}
 
       {activeModal === 'analytics' && teamDetail ? (
         <ModalShell
@@ -2047,7 +4045,12 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
                   </div>
                   <div className="rounded-2xl border border-border bg-card px-4 py-3">
                     <div className="text-xs uppercase tracking-[0.16em] text-primary">Assignments</div>
-                    <div className="mt-2 text-sm text-foreground">{teamAnalytics.assignmentStats.total} total • {teamAnalytics.assignmentStats.dueSoon} due soon</div>
+                    <div className="mt-2 text-sm text-foreground">
+                      {teamAnalytics.assignmentStats.active} active • {teamAnalytics.assignmentStats.pastDue} past due • {teamAnalytics.assignmentStats.archived} archived
+                    </div>
+                    <div className="mt-1 text-xs text-muted-foreground">
+                      {teamAnalytics.assignmentStats.averageCompletionRate}% average completion
+                    </div>
                   </div>
                   <div className="rounded-2xl border border-border bg-card px-4 py-3">
                     <div className="text-xs uppercase tracking-[0.16em] text-primary">Invites</div>
@@ -2183,8 +4186,57 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
           </div>
         </ModalShell>
       ) : null}
+
+      {confirmMemberAction ? (
+        <ConfirmActionDialog
+          title={
+            confirmMemberAction.type === 'role'
+              ? `Change ${confirmMemberAction.member.name}'s role?`
+              : `Remove ${confirmMemberAction.member.name}?`
+          }
+          description={
+            confirmMemberAction.type === 'role'
+              ? `${confirmMemberAction.member.name} will change from ${formatTeamRoleLabel(
+                  confirmMemberAction.member.role
+                )} to ${formatTeamRoleLabel(confirmMemberAction.nextRole)}.`
+              : `${confirmMemberAction.member.name} will lose access to this team workspace.`
+          }
+          confirmLabel={confirmMemberAction.type === 'role' ? 'Confirm role change' : 'Confirm removal'}
+          tone={confirmMemberAction.type === 'remove' ? 'destructive' : 'default'}
+          busy={
+            submittingKey === `save-member-${confirmMemberAction.member.userId}` ||
+            submittingKey === `remove-member-${confirmMemberAction.member.userId}`
+          }
+          onCancel={handleCancelMemberAction}
+          onConfirm={() => void handleConfirmMemberAction()}
+        />
+      ) : null}
+      {confirmWorkspaceAction ? (
+        <ConfirmActionDialog
+          title={
+            confirmWorkspaceAction.type === 'assignment_archive'
+              ? `Archive ${confirmWorkspaceAction.assignment.title}?`
+              : `Delete feedback for ${confirmWorkspaceAction.entry.memberName}?`
+          }
+          description={
+            confirmWorkspaceAction.type === 'assignment_archive'
+              ? 'This assignment will move to Archived and stop counting against the active assignment limit.'
+              : 'This coaching note will be removed from the grading history.'
+          }
+          confirmLabel={confirmWorkspaceAction.type === 'assignment_archive' ? 'Confirm archive' : 'Confirm delete'}
+          tone={confirmWorkspaceAction.type === 'assignment_archive' ? 'default' : 'destructive'}
+          busy={
+            confirmWorkspaceAction.type === 'assignment_archive'
+              ? submittingKey === `delete-assignment-${confirmWorkspaceAction.assignment.id}`
+              : submittingKey === `delete-feedback-${confirmWorkspaceAction.entry.id}`
+          }
+          onCancel={handleCancelWorkspaceAction}
+          onConfirm={() => void handleConfirmWorkspaceAction()}
+        />
+      ) : null}
     </div>
   );
 };
 
 export default TeamsWorkspace;
+

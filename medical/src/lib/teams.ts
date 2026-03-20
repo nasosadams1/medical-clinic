@@ -4,6 +4,7 @@ import { supabase } from './supabase';
 export type TeamUseCase = 'bootcamps' | 'universities' | 'coding-clubs' | 'upskilling' | 'general';
 export type TeamRole = 'owner' | 'admin' | 'coach' | 'learner';
 export type TeamAssignmentType = 'benchmark' | 'challenge_pack' | 'roadmap';
+export type TeamAssignmentLifecycleState = 'active' | 'past_due' | 'archived';
 export type BenchmarkLanguage = 'python' | 'javascript' | 'java' | 'cpp';
 export type TeamFeedbackStatus = 'draft' | 'shared' | 'resolved';
 export type TeamJoinMode = 'open_code' | 'code_domain' | 'code_approval' | 'invite_only';
@@ -48,6 +49,18 @@ export interface TeamAssignment {
   trackId: string | null;
   dueAt: string | null;
   createdAt: string;
+  updatedAt: string | null;
+  lifecycleState: TeamAssignmentLifecycleState;
+  archivedAt: string | null;
+  archivedByUserId: string | null;
+  eligibleLearnerCount: number;
+  completedLearnerCount: number;
+  inProgressLearnerCount: number;
+  notStartedLearnerCount: number;
+  completionRate: number;
+  averageProgressPercent: number;
+  requiredCompletionCount: number;
+  progressUnitLabel: string;
   metadata?: Record<string, unknown>;
 }
 
@@ -144,10 +157,14 @@ export interface TeamAnalytics {
   };
   assignmentStats: {
     total: number;
+    active: number;
+    pastDue: number;
+    archived: number;
     benchmark: number;
     challengePack: number;
     roadmap: number;
     dueSoon: number;
+    averageCompletionRate: number;
   };
   streakStats: {
     average: number | null;
@@ -395,6 +412,7 @@ export const updateTeamAssignment = async (
     benchmarkLanguage: BenchmarkLanguage | null;
     trackId: string | null;
     dueAt: string | null;
+    archived: boolean;
   }>
 ) => {
   const payload = await teamsFetch<{ assignment: TeamAssignment }>(`/${teamId}/assignments/${assignmentId}`, {
