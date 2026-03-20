@@ -71,7 +71,6 @@ interface TeamsWorkspaceProps {
 
 interface MemberDraft {
   role: TeamRole;
-  status: TeamMember['status'];
 }
 
 interface InviteDraft {
@@ -191,6 +190,35 @@ const formatDateLabel = (value: string | null | undefined) => {
     day: 'numeric',
     year: 'numeric',
   });
+};
+
+const getMemberActivityIndicator = (lastActiveAt: string | null | undefined) => {
+  if (!lastActiveAt) {
+    return { className: 'border border-white/10 bg-black', label: 'No recent activity' };
+  }
+
+  const ageMs = Date.now() - new Date(lastActiveAt).getTime();
+  if (Number.isNaN(ageMs)) {
+    return { className: 'border border-white/10 bg-black', label: 'No recent activity' };
+  }
+
+  if (ageMs <= 15 * 60 * 1000) {
+    return { className: 'bg-emerald-400', label: 'Active now' };
+  }
+  if (ageMs <= 12 * 60 * 60 * 1000) {
+    return { className: 'bg-amber-200', label: 'Active within 12 hours' };
+  }
+  if (ageMs <= 24 * 60 * 60 * 1000) {
+    return { className: 'bg-amber-400', label: 'Active within 24 hours' };
+  }
+  if (ageMs <= 3 * 24 * 60 * 60 * 1000) {
+    return { className: 'bg-rose-300', label: 'Active within 3 days' };
+  }
+  if (ageMs <= 7 * 24 * 60 * 60 * 1000) {
+    return { className: 'bg-rose-500', label: 'Active within 7 days' };
+  }
+
+  return { className: 'border border-white/10 bg-black', label: 'Inactive for over 7 days' };
 };
 
 const formatDateTimeInput = (value: string | null | undefined) => {
@@ -413,17 +441,12 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
     }),
     [teamDetail]
   );
-  const inviteRoleOptions = useMemo(
-    () => (currentRole === 'coach' ? TEAM_ROLE_OPTIONS.filter((option) => option.value === 'learner') : TEAM_ROLE_OPTIONS),
-    [currentRole]
-  );
 
   const hydrateMemberDrafts = (members: TeamMember[]) => {
     setMemberDrafts(
       members.reduce<Record<string, MemberDraft>>((accumulator, member) => {
         accumulator[member.userId] = {
           role: member.role,
-          status: member.status,
         };
         return accumulator;
       }, {})
@@ -718,7 +741,7 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
         await updateTeamInvite(selectedTeamId, inviteDraft.id, {
           label: inviteDraft.label.trim(),
           email: inviteDraft.email.trim() || null,
-          role: inviteDraft.role,
+          role: 'learner',
           maxUses,
           expiresInDays,
           status: inviteDraft.status,
@@ -728,7 +751,7 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
         const createdInvite = await createTeamInvite(selectedTeamId, {
           label: inviteDraft.label.trim(),
           email: inviteDraft.email.trim() || undefined,
-          role: inviteDraft.role,
+          role: 'learner',
           maxUses,
           expiresInDays,
         });
@@ -749,7 +772,7 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
       id: invite.id,
       label: invite.label,
       email: invite.email || '',
-      role: invite.role,
+      role: 'learner',
       maxUses: String(invite.maxUses),
       expiresInDays: getDaysUntil(invite.expiresAt),
       status: invite.status,
@@ -925,7 +948,6 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
     try {
       await updateTeamMember(selectedTeamId, member.userId, {
         role: draft.role === 'owner' ? undefined : draft.role,
-        status: draft.status,
       });
       toast.success(`${member.name} updated.`);
       await refreshSelectedTeam(selectedTeamId);
@@ -1244,19 +1266,25 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
       {activeModal === 'members' && teamDetail ? (
         <ModalShell
           title="Team members"
-          subtitle="Manage roles, statuses, and direct access."
+          subtitle="Manage roles and direct access. Activity is shown automatically."
           onClose={() => setActiveModal(null)}
         >
           <div className="space-y-4">
             {teamDetail.members.length === 0 ? (
-              <EmptyState title="No members yet" helper="Invite learners, coaches, or admins first." />
+              <EmptyState title="No members yet" helper="Invite learners first, then promote members if needed." />
             ) : (
               teamDetail.members.map((member) => {
-                const draft = memberDrafts[member.userId] || { role: member.role, status: member.status };
+                const draft = memberDrafts[member.userId] || { role: member.role };
                 const saveKey = `save-member-${member.userId}`;
                 const removeKey = `remove-member-${member.userId}`;
                 const isOwner = member.role === 'owner';
-                const canEditThisMember = canManageMembers && (!isOwner || currentRole === 'owner');
+                const canEditThisMember =
+                  canManageMembers && !isOwner && (currentRole === 'owner' || member.role !== 'admin');
+                const activityIndicator = getMemberActivityIndicator(member.lastActiveAt);
+                const memberRoleOptions =
+                  currentRole === 'owner'
+                    ? TEAM_ROLE_OPTIONS
+                    : TEAM_ROLE_OPTIONS.filter((option) => option.value !== 'admin');
 
                 return (
                   <div key={member.userId} className="rounded-2xl border border-border bg-background p-4">
@@ -1271,7 +1299,7 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
                         </div>
                       </div>
 
-                      <div className="grid gap-3 sm:grid-cols-2 lg:min-w-[420px] lg:grid-cols-[1fr_1fr_auto_auto]">
+                      <div className="grid gap-3 sm:grid-cols-2 lg:min-w-[420px] lg:grid-cols-[1fr_auto_auto]">
                         <select
                           value={draft.role}
                           onChange={(event) =>
@@ -1287,29 +1315,19 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
                           className="h-11 rounded-2xl border border-border bg-card px-4 text-sm text-foreground outline-none transition focus:border-primary/40 disabled:opacity-60"
                         >
                           {isOwner ? <option value="owner">Owner</option> : null}
-                          {TEAM_ROLE_OPTIONS.map((option) => (
+                          {memberRoleOptions.map((option) => (
                             <option key={option.value} value={option.value}>
                               {option.label}
                             </option>
                           ))}
                         </select>
-                        <select
-                          value={draft.status}
-                          onChange={(event) =>
-                            setMemberDrafts((current) => ({
-                              ...current,
-                              [member.userId]: {
-                                ...draft,
-                                status: event.target.value as TeamMember['status'],
-                              },
-                            }))
-                          }
-                          disabled={!canEditThisMember}
-                          className="h-11 rounded-2xl border border-border bg-card px-4 text-sm text-foreground outline-none transition focus:border-primary/40 disabled:opacity-60"
+                        <div
+                          title={activityIndicator.label}
+                          className="flex h-11 items-center justify-center rounded-2xl border border-border bg-card px-4"
                         >
-                          <option value="active">Active</option>
-                          <option value="inactive">Inactive</option>
-                        </select>
+                          <span className={`h-3.5 w-3.5 rounded-full ${activityIndicator.className}`} />
+                          <span className="sr-only">{activityIndicator.label}</span>
+                        </div>
                         <button
                           type="button"
                           onClick={() => handleSaveMember(member)}
@@ -1555,19 +1573,9 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
                     placeholder="Optional email"
                     className="h-11 w-full rounded-2xl border border-border bg-card px-4 text-sm text-foreground outline-none transition focus:border-primary/40"
                   />
-                  <select
-                    value={inviteDraft.role}
-                    onChange={(event) =>
-                      setInviteDraft((current) => ({ ...current, role: event.target.value as InviteDraft['role'] }))
-                    }
-                    className="h-11 w-full rounded-2xl border border-border bg-card px-4 text-sm text-foreground outline-none transition focus:border-primary/40"
-                  >
-                    {inviteRoleOptions.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
+                  <div className="rounded-2xl border border-border bg-card px-4 py-3 text-sm text-muted-foreground">
+                    All invites start as <span className="font-semibold text-foreground">Learner</span>. Owners and admins can promote members later.
+                  </div>
                   <div className="grid gap-3 sm:grid-cols-2">
                     <input
                       value={inviteDraft.maxUses}
@@ -1717,7 +1725,7 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
                 <div className="text-sm font-semibold text-foreground">Invite codes</div>
                 <div className="mt-4 space-y-4">
                   {teamDetail.invites.length === 0 ? (
-                    <EmptyState title="No invites yet" helper="Create direct learner, coach, or admin access here." />
+                    <EmptyState title="No invites yet" helper="Create learner invites here, then promote members after they join." />
                   ) : (
                     teamDetail.invites.map((invite) => {
                       const deleteKey = `delete-invite-${invite.id}`;

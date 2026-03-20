@@ -95,6 +95,7 @@ export interface TeamMember {
   role: TeamRole;
   status: 'active' | 'inactive';
   joinedAt: string;
+  lastActiveAt: string | null;
   currentStreak: number;
   latestBenchmarkScore: number | null;
   latestBenchmarkAt: string | null;

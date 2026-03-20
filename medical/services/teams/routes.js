@@ -376,17 +376,31 @@ const ensureTeamRole = (membership, allowedRoles) => {
   }
 };
 
-const ensureInviteRoleAllowed = (membership, inviteRole, existingInvite = null) => {
-  if (membership.role !== 'coach') {
+const ensureInviteRoleAllowed = (inviteRole) => {
+  if (inviteRole && inviteRole !== 'learner') {
+    throw new Error('Invites can only create learner access. Promote members after they join.');
+  }
+};
+
+const ensureRoleTransitionAllowed = (actorMembership, targetMembership, nextRole) => {
+  if (nextRole === 'owner' && targetMembership.role !== 'owner') {
+    throw new Error('Owner role changes are not supported from the team workspace.');
+  }
+
+  if (actorMembership.role === 'owner') {
     return;
   }
 
-  if (inviteRole && inviteRole !== 'learner') {
-    throw new Error('Coaches can only create or manage learner invites.');
+  if (actorMembership.role !== 'admin') {
+    throw new Error('Only owners and admins can change team roles.');
   }
 
-  if (existingInvite && existingInvite.role !== 'learner') {
-    throw new Error('Coaches can only manage learner invites.');
+  if (targetMembership.role === 'owner' || targetMembership.role === 'admin') {
+    throw new Error('Admins can only manage coaches and learners.');
+  }
+
+  if (nextRole === 'admin' || nextRole === 'owner') {
+    throw new Error('Only owners can assign admin access.');
   }
 };
 
@@ -645,6 +659,10 @@ const buildTeamDetail = ({ team, memberships, profiles, assignments, invites, re
         ? Number(latestReport?.overall_score || 0) - Number(earliestReport?.overall_score || 0)
         : null;
     const latestScore = latestReport ? Number(latestReport.overall_score || 0) : null;
+    const lastActiveAt =
+      [profile?.updated_at, latestReport?.created_at, membership.joined_at]
+        .filter(Boolean)
+        .sort((left, right) => new Date(right).getTime() - new Date(left).getTime())[0] || null;
 
     return {
       userId: membership.user_id,
@@ -654,6 +672,7 @@ const buildTeamDetail = ({ team, memberships, profiles, assignments, invites, re
       role: membership.role,
       status: membership.status,
       joinedAt: membership.joined_at,
+      lastActiveAt,
       currentStreak: Number(profile?.current_streak || 0),
       latestBenchmarkScore: latestScore,
       latestBenchmarkAt: latestReport?.created_at || null,
@@ -959,7 +978,7 @@ const loadTeamWorkspaceResources = async (supabaseAdmin, teamId) => {
 
   const [{ data: profiles, error: profilesError }, { data: reports, error: reportsError }] = await Promise.all([
     userIds.length
-      ? supabaseAdmin.from('user_profiles').select('id, name, email, current_avatar, current_streak').in('id', userIds)
+      ? supabaseAdmin.from('user_profiles').select('id, name, email, current_avatar, current_streak, updated_at').in('id', userIds)
       : Promise.resolve({ data: [], error: null }),
     userIds.length
       ? supabaseAdmin.from('benchmark_reports').select('user_id, overall_score, created_at').in('user_id', userIds).order('created_at', { ascending: false }).limit(1000)
@@ -1555,7 +1574,7 @@ export const createTeamsRouter = ({ supabaseAdmin }) => {
       }
 
       const parsed = CreateInviteSchema.parse(req.body || {});
-      ensureInviteRoleAllowed(membership, parsed.role);
+      ensureInviteRoleAllowed(parsed.role);
       if ((teamSummary.join_mode || 'open_code') === 'invite_only' && !parsed.email) {
         throw new Error('Invite-only teams require a direct email on every invite.');
       }
@@ -2223,7 +2242,7 @@ export const createTeamsRouter = ({ supabaseAdmin }) => {
         throw new Error('Could not find that invite.');
       }
 
-      ensureInviteRoleAllowed(membership, parsed.role ?? existingInvite.role, existingInvite);
+      ensureInviteRoleAllowed(parsed.role);
       const { data: teamSummary, error: teamSummaryError } = await supabaseAdmin
         .from('skill_teams')
         .select('id, seat_limit')
@@ -2347,6 +2366,8 @@ export const createTeamsRouter = ({ supabaseAdmin }) => {
       const nextRole = parsed.role ?? targetMembership.role;
       const nextStatus = parsed.status ?? targetMembership.status;
 
+      ensureRoleTransitionAllowed(membership, targetMembership, nextRole);
+
       if (nextStatus === 'active') {
         await ensureMembershipLimitAvailable({
           supabaseAdmin,
@@ -2388,6 +2409,10 @@ export const createTeamsRouter = ({ supabaseAdmin }) => {
 
       if (!targetMembership) {
         throw new Error('Could not find that team member.');
+      }
+
+      if (membership.role === 'admin' && (targetMembership.role === 'owner' || targetMembership.role === 'admin')) {
+        throw new Error('Admins can only remove coaches and learners.');
       }
 
       if (targetMembership.role === 'owner') {
