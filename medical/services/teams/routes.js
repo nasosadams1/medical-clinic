@@ -627,7 +627,17 @@ const getRecommendedTeamAction = ({ latestScore, improvementDelta, latestBenchma
   return 'Continue roadmap';
 };
 
-const buildTeamDetail = ({ team, memberships, profiles, assignments, invites, reports, feedback = [], joinRequests = [] }) => {
+const buildTeamDetail = ({
+  team,
+  memberships,
+  profiles,
+  assignments,
+  invites,
+  reports,
+  feedback = [],
+  joinRequests = [],
+  authActivityByUserId = new Map(),
+}) => {
   const profileMap = new Map((profiles || []).map((profile) => [profile.id, profile]));
   const assignmentMap = new Map((assignments || []).map((assignment) => [assignment.id, assignment]));
   const inviteMap = new Map((invites || []).map((invite) => [invite.id, invite]));
@@ -648,6 +658,7 @@ const buildTeamDetail = ({ team, memberships, profiles, assignments, invites, re
 
   const members = memberships.map((membership) => {
     const profile = profileMap.get(membership.user_id);
+    const authActivity = authActivityByUserId.get(membership.user_id);
     const memberReports = reportsByUser.get(membership.user_id) || [];
     const orderedReports = [...memberReports].sort(
       (left, right) => new Date(left.created_at).getTime() - new Date(right.created_at).getTime()
@@ -660,7 +671,7 @@ const buildTeamDetail = ({ team, memberships, profiles, assignments, invites, re
         : null;
     const latestScore = latestReport ? Number(latestReport.overall_score || 0) : null;
     const lastActiveAt =
-      [profile?.updated_at, latestReport?.created_at, membership.joined_at]
+      [authActivity?.lastSignInAt, latestReport?.created_at, profile?.updated_at]
         .filter(Boolean)
         .sort((left, right) => new Date(right).getTime() - new Date(left).getTime())[0] || null;
 
@@ -787,6 +798,34 @@ const buildTeamDetail = ({ team, memberships, profiles, assignments, invites, re
       updatedAt: entry.updated_at,
     })),
   };
+};
+
+const loadAuthActivityByUserIds = async (supabaseAdmin, userIds = []) => {
+  if (!userIds.length || typeof supabaseAdmin?.auth?.admin?.getUserById !== 'function') {
+    return new Map();
+  }
+
+  const entries = await Promise.all(
+    userIds.map(async (userId) => {
+      try {
+        const { data, error } = await supabaseAdmin.auth.admin.getUserById(userId);
+        if (error || !data?.user) {
+          return [userId, null];
+        }
+
+        return [
+          userId,
+          {
+            lastSignInAt: data.user.last_sign_in_at || null,
+          },
+        ];
+      } catch {
+        return [userId, null];
+      }
+    })
+  );
+
+  return new Map(entries);
 };
 
 const buildPublicTeamProof = ({ detail }) => ({
@@ -976,13 +1015,14 @@ const loadTeamWorkspaceResources = async (supabaseAdmin, teamId) => {
     )
   );
 
-  const [{ data: profiles, error: profilesError }, { data: reports, error: reportsError }] = await Promise.all([
+  const [{ data: profiles, error: profilesError }, { data: reports, error: reportsError }, authActivityByUserId] = await Promise.all([
     userIds.length
       ? supabaseAdmin.from('user_profiles').select('id, name, email, current_avatar, current_streak, updated_at').in('id', userIds)
       : Promise.resolve({ data: [], error: null }),
     userIds.length
       ? supabaseAdmin.from('benchmark_reports').select('user_id, overall_score, created_at').in('user_id', userIds).order('created_at', { ascending: false }).limit(1000)
       : Promise.resolve({ data: [], error: null }),
+    loadAuthActivityByUserIds(supabaseAdmin, userIds),
   ]);
 
   if (profilesError || reportsError) {
@@ -998,6 +1038,7 @@ const loadTeamWorkspaceResources = async (supabaseAdmin, teamId) => {
     feedback: feedback || [],
     profiles: profiles || [],
     reports: reports || [],
+    authActivityByUserId,
   };
 };
 

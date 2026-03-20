@@ -221,6 +221,13 @@ const getMemberActivityIndicator = (lastActiveAt: string | null | undefined) => 
   return { className: 'border border-white/10 bg-black', label: 'Inactive for over 7 days' };
 };
 
+const formatTeamRoleLabel = (role: TeamRole) => {
+  if (role === 'owner') return 'Owner';
+  if (role === 'admin') return 'Admin';
+  if (role === 'coach') return 'Coach';
+  return 'Learner';
+};
+
 const formatDateTimeInput = (value: string | null | undefined) => {
   if (!value) return '';
   const parsed = new Date(value);
@@ -1285,6 +1292,7 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
                   currentRole === 'owner'
                     ? TEAM_ROLE_OPTIONS
                     : TEAM_ROLE_OPTIONS.filter((option) => option.value !== 'admin');
+                const showRoleEditor = (currentRole === 'owner' || currentRole === 'admin') && canEditThisMember;
 
                 return (
                   <div key={member.userId} className="rounded-2xl border border-border bg-background p-4">
@@ -1299,28 +1307,37 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
                         </div>
                       </div>
 
-                      <div className="grid gap-3 sm:grid-cols-2 lg:min-w-[420px] lg:grid-cols-[1fr_auto_auto]">
-                        <select
-                          value={draft.role}
-                          onChange={(event) =>
-                            setMemberDrafts((current) => ({
-                              ...current,
-                              [member.userId]: {
-                                ...draft,
-                                role: event.target.value as MemberDraft['role'],
-                              },
-                            }))
-                          }
-                          disabled={!canEditThisMember}
-                          className="h-11 rounded-2xl border border-border bg-card px-4 text-sm text-foreground outline-none transition focus:border-primary/40 disabled:opacity-60"
-                        >
-                          {isOwner ? <option value="owner">Owner</option> : null}
-                          {memberRoleOptions.map((option) => (
-                            <option key={option.value} value={option.value}>
-                              {option.label}
-                            </option>
-                          ))}
-                        </select>
+                      <div
+                        className={`grid gap-3 sm:grid-cols-2 lg:min-w-[420px] ${
+                          showRoleEditor ? 'lg:grid-cols-[1fr_auto_auto_auto]' : 'lg:grid-cols-[1fr_auto]'
+                        }`}
+                      >
+                        {showRoleEditor ? (
+                          <select
+                            value={draft.role}
+                            onChange={(event) =>
+                              setMemberDrafts((current) => ({
+                                ...current,
+                                [member.userId]: {
+                                  ...draft,
+                                  role: event.target.value as MemberDraft['role'],
+                                },
+                              }))
+                            }
+                            className="h-11 rounded-2xl border border-border bg-card px-4 text-sm text-foreground outline-none transition focus:border-primary/40"
+                          >
+                            {isOwner ? <option value="owner">Owner</option> : null}
+                            {memberRoleOptions.map((option) => (
+                              <option key={option.value} value={option.value}>
+                                {option.label}
+                              </option>
+                            ))}
+                          </select>
+                        ) : (
+                          <div className="flex h-11 items-center rounded-2xl border border-border bg-card px-4 text-sm font-semibold text-foreground">
+                            {formatTeamRoleLabel(member.role)}
+                          </div>
+                        )}
                         <div
                           title={activityIndicator.label}
                           className="flex h-11 items-center justify-center rounded-2xl border border-border bg-card px-4"
@@ -1328,24 +1345,28 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
                           <span className={`h-3.5 w-3.5 rounded-full ${activityIndicator.className}`} />
                           <span className="sr-only">{activityIndicator.label}</span>
                         </div>
-                        <button
-                          type="button"
-                          onClick={() => handleSaveMember(member)}
-                          disabled={!canEditThisMember || submittingKey === saveKey}
-                          className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl border border-border bg-card px-4 text-sm font-semibold text-foreground transition hover:bg-secondary disabled:opacity-60"
-                        >
-                          {submittingKey === saveKey ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
-                          Save
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleRemoveMember(member)}
-                          disabled={!canEditThisMember || submittingKey === removeKey}
-                          className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl border border-destructive/20 bg-destructive/10 px-4 text-sm font-semibold text-destructive transition hover:bg-destructive/15 disabled:opacity-60"
-                        >
-                          {submittingKey === removeKey ? <Loader2 className="h-4 w-4 animate-spin" /> : <UserMinus className="h-4 w-4" />}
-                          Remove
-                        </button>
+                        {showRoleEditor ? (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => handleSaveMember(member)}
+                              disabled={submittingKey === saveKey}
+                              className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl border border-border bg-card px-4 text-sm font-semibold text-foreground transition hover:bg-secondary disabled:opacity-60"
+                            >
+                              {submittingKey === saveKey ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
+                              Save
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveMember(member)}
+                              disabled={submittingKey === removeKey}
+                              className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl border border-destructive/20 bg-destructive/10 px-4 text-sm font-semibold text-destructive transition hover:bg-destructive/15 disabled:opacity-60"
+                            >
+                              {submittingKey === removeKey ? <Loader2 className="h-4 w-4 animate-spin" /> : <UserMinus className="h-4 w-4" />}
+                              Remove
+                            </button>
+                          </>
+                        ) : null}
                       </div>
                     </div>
                   </div>

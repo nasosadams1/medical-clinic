@@ -14,7 +14,13 @@ import {
   STORE_ITEMS,
   STRIPE_STORE_ITEMS,
 } from './shared/store-catalog.js';
-import { formatAllowedOriginsError, isAllowedOrigin, resolveAllowedOrigins } from './services/allowed-origins.js';
+import {
+  formatAllowedOriginsError,
+  getDevAllowedOrigins,
+  isAllowedOriginForRequest,
+  isLocalhostOrigin,
+  resolveAllowedOrigins,
+} from './services/allowed-origins.js';
 import {
   CoinPurchaseSchema,
   ConfirmPaymentSchema,
@@ -35,10 +41,48 @@ const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 const API_JSON_LIMIT = process.env.STRIPE_API_JSON_LIMIT || '10mb';
 const NODE_ENV = (process.env.NODE_ENV || 'development').toLowerCase();
 const IS_PRODUCTION = NODE_ENV === 'production';
+const IS_RENDER = Boolean(process.env.RENDER || process.env.RENDER_EXTERNAL_URL || process.env.RENDER_SERVICE_ID);
+const HAS_EXPLICIT_BROWSER_ORIGIN_CONFIG = ['STRIPE_ALLOWED_ORIGINS', 'FRONTEND_URL'].some(
+  (envKey) => String(process.env[envKey] || '').trim()
+);
+const ALLOW_RENDER_BROWSER_ORIGIN_FALLBACK =
+  IS_RENDER && IS_PRODUCTION && !HAS_EXPLICIT_BROWSER_ORIGIN_CONFIG;
+const ALLOW_LOCALHOST_DEV_ORIGINS =
+  (process.env.ALLOW_LOCALHOST_DEV_ORIGINS || '').trim() === ''
+    ? true
+    : process.env.ALLOW_LOCALHOST_DEV_ORIGINS === '1';
 const STRIPE_ALLOWED_ORIGIN_ENV_KEYS = ['STRIPE_ALLOWED_ORIGINS', 'FRONTEND_URL', 'RENDER_EXTERNAL_URL'];
 const { origins: allowedOrigins, sourceEnv: allowedOriginsSourceEnv } = resolveAllowedOrigins(STRIPE_ALLOWED_ORIGIN_ENV_KEYS, {
   isProduction: IS_PRODUCTION,
 });
+
+const isRenderBrowserOriginFallbackAllowed = (origin) =>
+  ALLOW_RENDER_BROWSER_ORIGIN_FALLBACK &&
+  typeof origin === 'string' &&
+  /^https:\/\/[^/]+$/i.test(origin.trim());
+
+const isLocalhostDevOriginAllowed = (origin) =>
+  ALLOW_LOCALHOST_DEV_ORIGINS &&
+  isLocalhostOrigin(origin) &&
+  getDevAllowedOrigins().some((allowedOrigin) => allowedOrigin === String(origin).trim().replace(/\/+$/, ''));
+
+const isOriginAllowed = (origin, req) =>
+  isAllowedOriginForRequest(origin, allowedOrigins, IS_PRODUCTION, req) ||
+  isRenderBrowserOriginFallbackAllowed(origin) ||
+  isLocalhostDevOriginAllowed(origin);
+
+const corsOptionsDelegate = (req, callback) => {
+  callback(null, {
+    origin(origin, originCallback) {
+      if (isOriginAllowed(origin, req)) {
+        originCallback(null, true);
+        return;
+      }
+      originCallback(new Error('Origin not allowed by store server CORS'));
+    },
+    credentials: true,
+  });
+};
 
 const stripeConfigValid = typeof STRIPE_SECRET_KEY === 'string'
   && (STRIPE_SECRET_KEY.startsWith('sk_test_') || STRIPE_SECRET_KEY.startsWith('sk_live_'));
@@ -543,15 +587,7 @@ app.post('/webhook', express.raw({ type: 'application/json' }), async (req, res)
 });
 
 app.use(helmet({ crossOriginResourcePolicy: false }));
-app.use(cors({
-  origin(origin, callback) {
-    if (isAllowedOrigin(origin, allowedOrigins, IS_PRODUCTION)) {
-      return callback(null, true);
-    }
-    return callback(new Error('Origin not allowed by store server CORS'));
-  },
-  credentials: true,
-}));
+app.use(cors(corsOptionsDelegate));
 app.use(express.json({ limit: API_JSON_LIMIT }));
 
 const paymentIntentLimiter = createLimiter({ max: 10, windowMs: 10 * 60 * 1000, label: 'Payment intent' });
@@ -966,6 +1002,14 @@ app.listen(STRIPE_SERVER_PORT, () => {
     console.log(`- STRIPE_ALLOWED_ORIGINS (${allowedOriginsSourceEnv}): ${allowedOrigins.join(', ')}`);
   } else {
     console.log('- STRIPE_ALLOWED_ORIGINS: none configured');
+  }
+  if (ALLOW_RENDER_BROWSER_ORIGIN_FALLBACK) {
+    console.warn(
+      '- Store server is allowing HTTPS browser origins because only Render self-origin config was detected. Set STRIPE_ALLOWED_ORIGINS or FRONTEND_URL to lock this down.'
+    );
+  }
+  if (ALLOW_LOCALHOST_DEV_ORIGINS) {
+    console.log(`- Store server localhost dev origins enabled: ${getDevAllowedOrigins().join(', ')}`);
   }
   console.log('- STORE_ITEMS:', STORE_ITEMS.length);
 });
