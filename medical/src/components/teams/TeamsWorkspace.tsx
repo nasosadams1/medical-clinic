@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowRight,
   BarChart3,
@@ -192,7 +192,14 @@ const formatDateLabel = (value: string | null | undefined) => {
   });
 };
 
-const getMemberActivityIndicator = (lastActiveAt: string | null | undefined) => {
+const getMemberActivityIndicator = (
+  lastActiveAt: string | null | undefined,
+  options?: { isCurrentUser?: boolean; isCurrentlyActive?: boolean }
+) => {
+  if (options?.isCurrentlyActive || options?.isCurrentUser) {
+    return { className: 'bg-emerald-400', label: 'Active now' };
+  }
+
   if (!lastActiveAt) {
     return { className: 'border border-white/10 bg-black', label: 'No recent activity' };
   }
@@ -460,7 +467,7 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
     );
   };
 
-  const refreshTeamList = async (preferredTeamId?: string) => {
+  const refreshTeamList = useCallback(async (preferredTeamId?: string) => {
     if (!isSignedIn) {
       setTeams([]);
       setSelectedTeamId(TEAM_WORKSPACE_OVERVIEW_VALUE);
@@ -490,9 +497,9 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
     } finally {
       setLoadingTeams(false);
     }
-  };
+  }, [isSignedIn, selectedTeamId]);
 
-  const refreshSelectedTeam = async (teamId: string) => {
+  const refreshSelectedTeam = useCallback(async (teamId: string) => {
     if (!teamId || !isSignedIn) {
       setTeamDetail(null);
       setTeamAnalytics(null);
@@ -510,19 +517,21 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
         joinMode: detail.team.joinMode || 'open_code',
         allowedEmailDomain: detail.team.allowedEmailDomain || '',
       });
-      if (!feedbackDraft.memberUserId && detail.members[0]) {
-        setFeedbackDraft((current) => ({ ...current, memberUserId: detail.members[0].userId }));
-      }
+      setFeedbackDraft((current) =>
+        !current.memberUserId && detail.members[0]
+          ? { ...current, memberUserId: detail.members[0].userId }
+          : current
+      );
     } catch (error: any) {
       setErrorMessage(error?.message || 'Could not load the selected team.');
     } finally {
       setLoadingDetail(false);
     }
-  };
+  }, [isSignedIn]);
 
   useEffect(() => {
     void refreshTeamList();
-  }, [user?.id]);
+  }, [refreshTeamList, user?.id]);
 
   useEffect(() => {
     if (!selectedTeamId || selectedTeamId === TEAM_WORKSPACE_OVERVIEW_VALUE) {
@@ -532,7 +541,19 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
     }
 
     void refreshSelectedTeam(selectedTeamId);
-  }, [selectedTeamId]);
+  }, [refreshSelectedTeam, selectedTeamId]);
+
+  useEffect(() => {
+    if (!isSignedIn || !selectedTeamId || selectedTeamId === TEAM_WORKSPACE_OVERVIEW_VALUE) {
+      return;
+    }
+
+    const intervalId = window.setInterval(() => {
+      void refreshSelectedTeam(selectedTeamId);
+    }, 60_000);
+
+    return () => window.clearInterval(intervalId);
+  }, [isSignedIn, refreshSelectedTeam, selectedTeamId]);
 
   useEffect(() => {
     const inviteParam = searchParams.get('invite');
@@ -1287,7 +1308,10 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
                 const isOwner = member.role === 'owner';
                 const canEditThisMember =
                   canManageMembers && !isOwner && (currentRole === 'owner' || member.role !== 'admin');
-                const activityIndicator = getMemberActivityIndicator(member.lastActiveAt);
+                const activityIndicator = getMemberActivityIndicator(member.lastActiveAt, {
+                  isCurrentlyActive: member.isCurrentlyActive,
+                  isCurrentUser: member.userId === user?.id,
+                });
                 const memberRoleOptions =
                   currentRole === 'owner'
                     ? TEAM_ROLE_OPTIONS

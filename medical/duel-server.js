@@ -23,6 +23,7 @@ import { createTeamsRouter } from "./services/teams/routes.js";
 import { createAnalyticsRouter } from "./services/analytics/routes.js";
 import { createLeadsRouter } from "./services/leads/routes.js";
 import { createBillingRouter } from "./services/billing/routes.js";
+import { createActivityRouter } from "./services/activity/routes.js";
 import {
   formatAllowedOriginsError,
   getDevAllowedOrigins,
@@ -204,6 +205,7 @@ app.use("/api/teams", createTeamsRouter({ supabaseAdmin: supabase }));
 app.use("/api/analytics", createAnalyticsRouter({ supabaseAdmin: supabase }));
 app.use("/api/leads", createLeadsRouter({ supabaseAdmin: supabase }));
 app.use("/api/billing", createBillingRouter({ supabaseAdmin: supabase }));
+app.use("/api/activity", createActivityRouter({ supabaseAdmin: supabase }));
 
 function emitServerError(socket, message, details) {
   console.error("server_error:", message, details || "");

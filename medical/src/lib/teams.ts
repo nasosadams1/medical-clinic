@@ -96,6 +96,7 @@ export interface TeamMember {
   status: 'active' | 'inactive';
   joinedAt: string;
   lastActiveAt: string | null;
+  isCurrentlyActive: boolean;
   currentStreak: number;
   latestBenchmarkScore: number | null;
   latestBenchmarkAt: string | null;

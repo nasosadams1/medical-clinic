@@ -658,7 +658,7 @@ const buildTeamDetail = ({
 
   const members = memberships.map((membership) => {
     const profile = profileMap.get(membership.user_id);
-    const authActivity = authActivityByUserId.get(membership.user_id);
+    const activityPresence = authActivityByUserId.get(membership.user_id);
     const memberReports = reportsByUser.get(membership.user_id) || [];
     const orderedReports = [...memberReports].sort(
       (left, right) => new Date(left.created_at).getTime() - new Date(right.created_at).getTime()
@@ -671,9 +671,10 @@ const buildTeamDetail = ({
         : null;
     const latestScore = latestReport ? Number(latestReport.overall_score || 0) : null;
     const lastActiveAt =
-      [authActivity?.lastSignInAt, latestReport?.created_at, profile?.updated_at]
+      [activityPresence?.lastActiveAt, latestReport?.created_at]
         .filter(Boolean)
         .sort((left, right) => new Date(right).getTime() - new Date(left).getTime())[0] || null;
+    const isCurrentlyActive = Boolean(activityPresence?.isCurrentlyActive);
 
     return {
       userId: membership.user_id,
@@ -684,6 +685,7 @@ const buildTeamDetail = ({
       status: membership.status,
       joinedAt: membership.joined_at,
       lastActiveAt,
+      isCurrentlyActive,
       currentStreak: Number(profile?.current_streak || 0),
       latestBenchmarkScore: latestScore,
       latestBenchmarkAt: latestReport?.created_at || null,
@@ -801,31 +803,30 @@ const buildTeamDetail = ({
 };
 
 const loadAuthActivityByUserIds = async (supabaseAdmin, userIds = []) => {
-  if (!userIds.length || typeof supabaseAdmin?.auth?.admin?.getUserById !== 'function') {
+  if (!userIds.length) {
     return new Map();
   }
 
-  const entries = await Promise.all(
-    userIds.map(async (userId) => {
-      try {
-        const { data, error } = await supabaseAdmin.auth.admin.getUserById(userId);
-        if (error || !data?.user) {
-          return [userId, null];
-        }
+  const { data, error } = await supabaseAdmin
+    .from('user_activity_presence')
+    .select('user_id, last_active_at, active_session_expires_at')
+    .in('user_id', userIds);
 
-        return [
-          userId,
-          {
-            lastSignInAt: data.user.last_sign_in_at || null,
-          },
-        ];
-      } catch {
-        return [userId, null];
-      }
-    })
+  if (error) {
+    return new Map();
+  }
+
+  return new Map(
+    (data || []).map((entry) => [
+      entry.user_id,
+      {
+        lastActiveAt: entry.last_active_at || null,
+        isCurrentlyActive:
+          Boolean(entry.active_session_expires_at) &&
+          new Date(entry.active_session_expires_at).getTime() > Date.now(),
+      },
+    ])
   );
-
-  return new Map(entries);
 };
 
 const buildPublicTeamProof = ({ detail }) => ({

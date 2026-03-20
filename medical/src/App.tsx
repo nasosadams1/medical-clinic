@@ -1,9 +1,10 @@
 import React, { Suspense, useEffect, useState } from 'react';
-import { BrowserRouter as Router, Route, Routes, useNavigate } from 'react-router-dom';
+import { BrowserRouter as Router, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { UserProvider } from './context/UserContext';
 import AppShell from './components/AppShell';
 import { lazyWithPreload } from './lib/lazyWithPreload';
+import { useActivityHeartbeat } from './hooks/useActivityHeartbeat';
 import {
   BenchmarkPage,
   CompilerLandingPage,
@@ -38,9 +39,15 @@ const SectionFallback = () => (
 
 function AppRoutes() {
   const navigate = useNavigate();
-  const { setNavigationCallback } = useAuth();
+  const location = useLocation();
+  const { user, setNavigationCallback } = useAuth();
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [authInitialView, setAuthInitialView] = useState<AuthModalView>('login');
+
+  useActivityHeartbeat({
+    enabled: Boolean(user?.id),
+    path: `${location.pathname}${location.search}`,
+  });
 
   useEffect(() => {
     setNavigationCallback(() => {
