@@ -6,6 +6,7 @@ import { useAdminAccess } from './useAdminAccess';
 import {
   FREE_DUEL_DAILY_LIMIT,
   canAccessStarterLesson,
+  getTeamPlanPolicy,
   incrementFreeDuelUsage,
   isPremiumLearnerPlanName,
   isTeamPlanName,
@@ -114,9 +115,17 @@ export function usePlanAccess() {
   );
 
   const activeTeamEntitlement = useMemo(
-    () => mergedActiveEntitlements.find((entitlement) => isTeamPlanName(entitlement.planName)) || null,
-    [mergedActiveEntitlements]
+    () => {
+      const policy = getTeamPlanPolicy(mergedActivePlanNames);
+      return (
+        mergedActiveEntitlements.find(
+          (entitlement) => entitlement.planName.trim().toLowerCase() === policy.label.trim().toLowerCase()
+        ) || null
+      );
+    },
+    [mergedActiveEntitlements, mergedActivePlanNames]
   );
+  const teamPlanPolicy = useMemo(() => getTeamPlanPolicy(mergedActivePlanNames), [mergedActivePlanNames]);
 
   const primaryPlan = entitlementPrimaryPlan || adminOverrideEntitlements[0] || null;
 
@@ -165,6 +174,7 @@ export function usePlanAccess() {
     hasPaidLearnerAccess,
     hasAnyTeamPlan,
     activeTeamEntitlement,
+    teamPlanPolicy,
     hasAdminAccess,
     freeDuelLimit: FREE_DUEL_DAILY_LIMIT,
     freeDuelUsage,

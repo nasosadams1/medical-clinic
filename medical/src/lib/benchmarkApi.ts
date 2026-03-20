@@ -34,6 +34,7 @@ export interface BenchmarkExecutionEvaluationResult {
 
 export interface BenchmarkQualitySummary {
   available: boolean;
+  reason?: string | null;
   benchmarkCount: number;
   averageTrustScore: number;
   averageConfidencePercent: number;

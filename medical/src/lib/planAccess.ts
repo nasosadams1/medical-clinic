@@ -1,5 +1,6 @@
 import type { SelfServePlanId } from './billing';
 import type { LanguageSlug } from '../data/siteContent';
+import { resolveTeamPlanPolicy } from '../../shared/team-plan-policy.js';
 
 export const STARTER_PATH_LANGUAGE: LanguageSlug = 'python';
 export const STARTER_PATH_LESSON_LIMIT = 12;
@@ -19,6 +20,9 @@ export const isTeamPlanName = (planName: string) =>
 
 export const isPremiumLearnerPlanName = (planName: string) =>
   PREMIUM_LEARNER_PLAN_NAMES.some((candidate) => normalizePlanName(candidate) === normalizePlanName(planName));
+
+export const getTeamPlanPolicy = (planNames: string[] | string) =>
+  resolveTeamPlanPolicy(Array.isArray(planNames) ? planNames : [planNames]);
 
 export const canAccessStarterLesson = (language: string, languageIndex: number | null | undefined) =>
   language === STARTER_PATH_LANGUAGE && Number(languageIndex ?? -1) >= 0 && Number(languageIndex) < STARTER_PATH_LESSON_LIMIT;

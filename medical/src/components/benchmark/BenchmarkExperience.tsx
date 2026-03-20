@@ -614,8 +614,15 @@ export default function BenchmarkExperience({
       try {
         const summary = await fetchBenchmarkQualitySummary();
         if (!cancelled) {
-          setQualitySummary(summary);
-          setQualityMessage(null);
+          if (summary.available) {
+            setQualitySummary(summary);
+            setQualityMessage(null);
+          } else {
+            setQualitySummary(null);
+            setQualityMessage(
+              summary.reason || 'Benchmark calibration details are temporarily unavailable.'
+            );
+          }
         }
       } catch (error) {
         if (!cancelled) {

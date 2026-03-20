@@ -6,6 +6,7 @@ export type TeamRole = 'owner' | 'admin' | 'coach' | 'learner';
 export type TeamAssignmentType = 'benchmark' | 'challenge_pack' | 'roadmap';
 export type BenchmarkLanguage = 'python' | 'javascript' | 'java' | 'cpp';
 export type TeamFeedbackStatus = 'draft' | 'shared' | 'resolved';
+export type TeamJoinMode = 'open_code' | 'code_domain' | 'code_approval' | 'invite_only';
 
 export interface TeamSummary {
   id: string;
@@ -14,6 +15,8 @@ export interface TeamSummary {
   description: string;
   useCase: TeamUseCase;
   seatLimit: number;
+  joinMode?: TeamJoinMode;
+  allowedEmailDomain?: string | null;
   currentUserRole: TeamRole;
   memberCount: number;
   joinedAt?: string;
@@ -67,6 +70,23 @@ export interface TeamFeedback {
   updatedAt: string;
 }
 
+export interface TeamJoinRequest {
+  id: string;
+  userId: string;
+  userName: string;
+  userEmail: string | null;
+  requestedRole: Exclude<TeamRole, 'owner'>;
+  status: 'pending' | 'approved' | 'denied' | 'cancelled';
+  note: string;
+  inviteId: string | null;
+  inviteCode: string | null;
+  inviteLabel: string | null;
+  reviewedByUserId: string | null;
+  reviewedByName: string | null;
+  requestedAt: string;
+  reviewedAt: string | null;
+}
+
 export interface TeamMember {
   userId: string;
   name: string;
@@ -101,6 +121,7 @@ export interface TeamWorkspaceDetail {
   assignments: TeamAssignment[];
   invites: TeamInvite[];
   feedback: TeamFeedback[];
+  joinRequests: TeamJoinRequest[];
 }
 
 export interface TeamAnalytics {
@@ -304,11 +325,44 @@ export const createTeamInvite = async (
 };
 
 export const joinTeamByCode = async (code: string) => {
-  const payload = await teamsFetch<{ team: TeamSummary }>('/join', {
+  const payload = await teamsFetch<{
+    status: 'joined' | 'pending';
+    team: TeamSummary;
+    joinRequest?: TeamJoinRequest | null;
+  }>('/join', {
     method: 'POST',
     body: JSON.stringify({ code }),
   });
+  return payload;
+};
+
+export const updateTeamJoinSettings = async (
+  teamId: string,
+  input: {
+    joinMode: TeamJoinMode;
+    allowedEmailDomain?: string | null;
+  }
+) => {
+  const payload = await teamsFetch<{ team: TeamWorkspaceDetail['team'] }>(`/${teamId}/join-settings`, {
+    method: 'PATCH',
+    body: JSON.stringify(input),
+  });
   return payload.team;
+};
+
+export const reviewTeamJoinRequest = async (
+  teamId: string,
+  requestId: string,
+  input: {
+    status: 'approved' | 'denied';
+    note?: string;
+  }
+) => {
+  const payload = await teamsFetch<{ joinRequest: TeamJoinRequest }>(`/${teamId}/join-requests/${requestId}`, {
+    method: 'PATCH',
+    body: JSON.stringify(input),
+  });
+  return payload.joinRequest;
 };
 
 export const createTeamAssignment = async (

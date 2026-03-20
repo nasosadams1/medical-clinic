@@ -22,6 +22,7 @@ import { createBenchmarkRouter } from "./services/benchmark/routes.js";
 import { createTeamsRouter } from "./services/teams/routes.js";
 import { createAnalyticsRouter } from "./services/analytics/routes.js";
 import { createLeadsRouter } from "./services/leads/routes.js";
+import { createBillingRouter } from "./services/billing/routes.js";
 import {
   formatAllowedOriginsError,
   getDevAllowedOrigins,
@@ -202,6 +203,7 @@ app.use("/api/benchmark", createBenchmarkRouter({ supabaseAdmin: supabase, judge
 app.use("/api/teams", createTeamsRouter({ supabaseAdmin: supabase }));
 app.use("/api/analytics", createAnalyticsRouter({ supabaseAdmin: supabase }));
 app.use("/api/leads", createLeadsRouter({ supabaseAdmin: supabase }));
+app.use("/api/billing", createBillingRouter({ supabaseAdmin: supabase }));
 
 function emitServerError(socket, message, details) {
   console.error("server_error:", message, details || "");

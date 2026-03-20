@@ -19,6 +19,7 @@ import { createBenchmarkRouter } from './services/benchmark/routes.js';
 import { createTeamsRouter } from './services/teams/routes.js';
 import { createAnalyticsRouter } from './services/analytics/routes.js';
 import { createLeadsRouter } from './services/leads/routes.js';
+import { createBillingRouter } from './services/billing/routes.js';
 import {
   formatAllowedOriginsError,
   getDevAllowedOrigins,
@@ -939,6 +940,7 @@ app.use('/api/benchmark', createBenchmarkRouter({ supabaseAdmin, judgeService: b
 app.use('/api/teams', createTeamsRouter({ supabaseAdmin }));
 app.use('/api/analytics', createAnalyticsRouter({ supabaseAdmin }));
 app.use('/api/leads', createLeadsRouter({ supabaseAdmin }));
+app.use('/api/billing', createBillingRouter({ supabaseAdmin }));
 
 // REST API Endpoints
 app.get('/', (req, res) => {

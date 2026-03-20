@@ -23,6 +23,7 @@ import {
   CreatePaymentIntentSchema,
   FinalizeCheckoutSessionSchema,
 } from './shared/store-contract.js';
+import { createBillingRouter } from './services/billing/routes.js';
 
 dotenv.config();
 
@@ -579,6 +580,8 @@ app.get('/api/stripe-config', (_req, res) => {
 app.get('/api/store/catalog', (_req, res) => {
   res.json({ items: getPublicCatalog() });
 });
+
+app.use('/api/billing', createBillingRouter({ supabaseAdmin }));
 
 app.post('/api/create-checkout-session', checkoutSessionLimiter, async (req, res) => {
   try {

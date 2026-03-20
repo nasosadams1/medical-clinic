@@ -105,16 +105,11 @@ export function formatPlanRenewalDate(value: string | null | undefined) {
 }
 
 export async function listPlanEntitlements(): Promise<PlanEntitlement[]> {
-  const { data, error } = await supabase
-    .from('plan_entitlements')
-    .select('*')
-    .order('updated_at', { ascending: false });
+  const payload = (await authorizedBillingFetch('/api/billing/entitlements', {
+    method: 'GET',
+  })) as { entitlements?: Array<Record<string, any>> };
 
-  if (error) {
-    throw error;
-  }
-
-  return (data || []).map((row) => mapEntitlement(row as Record<string, any>));
+  return (payload.entitlements || []).map((row) => mapEntitlement(row));
 }
 
 async function getAccessToken() {

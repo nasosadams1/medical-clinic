@@ -1,19 +1,15 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
-  ArrowRight,
   BookOpen,
   CheckCircle2,
   Code,
   Database,
-  Flame,
   Globe,
   Heart,
   Link2,
   Lock,
   Play,
   RefreshCcw,
-  Target,
-  Trophy,
   Zap,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
@@ -22,12 +18,6 @@ import { useUser } from '../context/UserContext';
 import { usePlanAccess } from '../hooks/usePlanAccess';
 import LessonModal from './LessonModal';
 import {
-  readSavedBenchmarkHistory,
-  saveBenchmarkSetupPreset,
-  type BenchmarkReport,
-  type BenchmarkSetup,
-} from '../data/benchmarkCatalog';
-import {
   countCompletedLessonsByLanguage,
   formatLessonIdAsDisplayName,
   getLessonCatalogEntry,
@@ -35,8 +25,6 @@ import {
   LessonLanguage,
 } from '../data/lessonCatalog';
 import { loadLessonsModule } from '../data/lessonsLoader';
-import { listBenchmarkReports } from '../lib/benchmarkApi';
-import { trackEvent } from '../lib/analytics';
 import { STARTER_PATH_LANGUAGE, STARTER_PATH_LESSON_LIMIT } from '../lib/planAccess';
 
 type Language = LessonLanguage;
@@ -69,14 +57,6 @@ type VisibleLesson = LessonPreview & {
   tier: DifficultyTier;
   sortIndex: number;
   languageIndex: number;
-};
-
-type BenchmarkActionState = {
-  title: string;
-  description: string;
-  primaryLabel: string;
-  secondaryLabel?: string;
-  shouldRetakeNow: boolean;
 };
 
 const cx = (...classes: Array<string | false | null | undefined>) => classes.filter(Boolean).join(' ');
@@ -121,125 +101,11 @@ const normalizeDifficultyTier = (difficulty: string): DifficultyTier => {
   return 'Beginner';
 };
 
-const mergeBenchmarkReports = (...reportGroups: Array<Array<BenchmarkReport | null | undefined>>) => {
-  const deduped = new Map<string, BenchmarkReport>();
-
-  reportGroups.flat().forEach((report) => {
-    if (!report?.id || deduped.has(report.id)) return;
-    deduped.set(report.id, report);
-  });
-
-  return Array.from(deduped.values()).sort(
-    (left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime()
-  );
-};
-
-const formatBenchmarkDate = (value: string) =>
-  new Intl.DateTimeFormat(undefined, {
-    month: 'short',
-    day: 'numeric',
-  }).format(new Date(value));
-
-const getReportAgeInDays = (report: BenchmarkReport | null) => {
-  if (!report) return null;
-  const createdAt = new Date(report.createdAt).getTime();
-  if (Number.isNaN(createdAt)) return null;
-  return Math.max(0, Math.floor((Date.now() - createdAt) / (1000 * 60 * 60 * 24)));
-};
-
-const buildBenchmarkActionState = (
-  report: BenchmarkReport | null,
-  suggestedLessonsCompleted: number,
-  suggestedLessonCount: number,
-  scoreDelta: number | null
-): BenchmarkActionState => {
-  if (!report) {
-    return {
-      title: 'Start the first benchmark',
-      description: 'Measure the current baseline before spending more time in lessons, so practice has a clear target.',
-      primaryLabel: 'Run benchmark',
-      secondaryLabel: 'Benchmark first',
-      shouldRetakeNow: false,
-    };
-  }
-
-  const reportAgeDays = getReportAgeInDays(report) ?? 0;
-  const finishedSuggestedLessons =
-    suggestedLessonCount > 0 && suggestedLessonsCompleted >= Math.max(1, Math.min(2, suggestedLessonCount));
-
-  if (finishedSuggestedLessons || reportAgeDays >= 7 || (scoreDelta !== null && scoreDelta >= 8)) {
-    return {
-      title: 'Retake now and capture improvement',
-      description:
-        'You have enough new practice signal to make another benchmark meaningful. Turn the last practice block into a visible score delta.',
-      primaryLabel: 'Retake benchmark',
-      secondaryLabel: 'Open latest report',
-      shouldRetakeNow: true,
-    };
-  }
-
-  if (report.overallScore >= 80) {
-    return {
-      title: 'Keep sharpening, then benchmark for consistency',
-      description:
-        'Your current score is already strong. Use practice to reinforce weak spots and retake later to prove the level holds under another timed pass.',
-      primaryLabel: 'Open latest report',
-      secondaryLabel: 'Retake later',
-      shouldRetakeNow: false,
-    };
-  }
-
-  return {
-    title: 'Stay on the roadmap before retaking',
-    description:
-      'Keep working through the suggested lessons first. The goal is not more activity, it is a stronger next benchmark result.',
-    primaryLabel: 'Open latest report',
-    secondaryLabel: 'Retake after more practice',
-    shouldRetakeNow: false,
-  };
-};
-
 const difficultyTone: Record<DifficultyTier, string> = {
   Beginner: 'bg-xp/10 text-xp',
   Intermediate: 'bg-coins/10 text-coins',
   Advanced: 'bg-destructive/10 text-destructive',
 };
-
-function MetricCard({
-  icon,
-  label,
-  value,
-  subtitle,
-  tone = 'primary',
-}: {
-  icon: React.ReactNode;
-  label: string;
-  value: string | number;
-  subtitle: string;
-  tone?: 'primary' | 'xp' | 'coins' | 'hearts' | 'streak';
-}) {
-  const iconTone = {
-    primary: 'bg-primary/10 text-primary glow-primary',
-    xp: 'bg-xp/10 text-xp glow-xp',
-    coins: 'bg-coins/10 text-coins glow-coins',
-    hearts: 'bg-destructive/10 text-destructive',
-    streak: 'bg-streak/10 text-streak animate-streak-fire',
-  }[tone];
-
-  return (
-    <div className="group relative overflow-hidden rounded-xl border border-border bg-card p-4 shadow-card transition-all duration-300 hover:border-primary/30 hover:shadow-elevated">
-      <div className="absolute inset-0 opacity-0 transition-opacity duration-300 group-hover:opacity-100" style={{ background: 'var(--gradient-card-glow)' }} />
-      <div className="relative flex items-start gap-3">
-        <div className={cx('flex h-10 w-10 shrink-0 items-center justify-center rounded-lg', iconTone)}>{icon}</div>
-        <div className="min-w-0">
-          <div className="text-xs font-medium uppercase tracking-[0.16em] text-muted-foreground">{label}</div>
-          <div className="text-2xl font-bold font-display text-foreground">{value}</div>
-          <div className="mt-0.5 text-xs text-muted-foreground">{subtitle}</div>
-        </div>
-      </div>
-    </div>
-  );
-}
 
 function LessonSkeleton() {
   return (
@@ -274,8 +140,6 @@ const Learn: React.FC<LearnProps> = ({ setCurrentSection, openAuthModal, isAuthe
   const [isLessonsLoading, setIsLessonsLoading] = useState(true);
   const [lessonsError, setLessonsError] = useState<string | null>(null);
   const [lessonsReloadKey, setLessonsReloadKey] = useState(0);
-  const [benchmarkHistory, setBenchmarkHistory] = useState<BenchmarkReport[]>([]);
-  const [benchmarkHistoryLoading, setBenchmarkHistoryLoading] = useState(false);
 
   useEffect(() => {
     let isActive = true;
@@ -299,41 +163,6 @@ const Learn: React.FC<LearnProps> = ({ setCurrentSection, openAuthModal, isAuthe
       isActive = false;
     };
   }, [lessonsReloadKey]);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    const localAnonymousHistory = readSavedBenchmarkHistory();
-    const localUserHistory = readSavedBenchmarkHistory(user.id);
-    const localHistory = mergeBenchmarkReports(localUserHistory, localAnonymousHistory);
-    setBenchmarkHistory(localHistory);
-
-    if (!isAuthenticated || !user.id || user.id === 'guest') {
-      return;
-    }
-
-    const loadBenchmarkHistory = async () => {
-      setBenchmarkHistoryLoading(true);
-      try {
-        const remoteHistory = await listBenchmarkReports(12);
-        if (cancelled) return;
-        setBenchmarkHistory(mergeBenchmarkReports(remoteHistory, localHistory));
-      } catch {
-        if (!cancelled) {
-          setBenchmarkHistory(localHistory);
-        }
-      } finally {
-        if (!cancelled) {
-          setBenchmarkHistoryLoading(false);
-        }
-      }
-    };
-
-    void loadBenchmarkHistory();
-    return () => {
-      cancelled = true;
-    };
-  }, [isAuthenticated, user.id]);
 
   const currentLessons = useMemo<VisibleLesson[]>(() => {
     if (!lessonsModule) return [];
@@ -447,81 +276,13 @@ const Learn: React.FC<LearnProps> = ({ setCurrentSection, openAuthModal, isAuthe
 
   const selectedTrack = languageStats.find((language) => language.id === selectedLanguage) ?? languageStats[0];
   const selectedProgressPercent = Math.round((selectedLanguageCompletedCount / Math.max(1, selectedLanguageTotalLessons)) * 100);
-  const selectedLanguageBenchmarkHistory = useMemo(
-    () => benchmarkHistory.filter((entry) => entry.setup.language === selectedLanguage),
-    [benchmarkHistory, selectedLanguage]
-  );
-  const latestLanguageBenchmark = selectedLanguageBenchmarkHistory[0] || null;
-  const previousLanguageBenchmark = selectedLanguageBenchmarkHistory[1] || null;
-  const latestBenchmarkScoreDelta =
-    latestLanguageBenchmark && previousLanguageBenchmark
-      ? latestLanguageBenchmark.overallScore - previousLanguageBenchmark.overallScore
-      : null;
-  const suggestedLessonCount = latestLanguageBenchmark?.suggestedLessonIds.length || 0;
-  const suggestedLessonsCompleted = latestLanguageBenchmark
-    ? latestLanguageBenchmark.suggestedLessonIds.filter((lessonId) => user.completedLessons.includes(lessonId)).length
-    : 0;
-  const benchmarkActionState = useMemo(
-    () =>
-      buildBenchmarkActionState(
-        latestLanguageBenchmark,
-        suggestedLessonsCompleted,
-        suggestedLessonCount,
-        latestBenchmarkScoreDelta
-      ),
-    [latestBenchmarkScoreDelta, latestLanguageBenchmark, suggestedLessonCount, suggestedLessonsCompleted]
-  );
-  const benchmarkAgeDays = getReportAgeInDays(latestLanguageBenchmark);
-
-  const goToBenchmarkWorkspace = (options?: { openLatestReport?: boolean }) => {
-    if (!hasPaidLearnerAccess && !options?.openLatestReport && benchmarkHistory.length >= 1) {
-      toast.error('Free includes one skill check. Upgrade to unlock more attempts.');
-      navigate('/pricing?intent=pro');
-      return;
-    }
-
-    const nextSetup: BenchmarkSetup = {
-      goal: hasPaidLearnerAccess ? latestLanguageBenchmark?.setup.goal || 'interview_prep' : 'skill_growth',
-      language: selectedLanguage,
-      roleLevel: hasPaidLearnerAccess ? latestLanguageBenchmark?.setup.roleLevel || 'junior' : 'beginner',
-    };
-
-    saveBenchmarkSetupPreset(nextSetup);
-    trackEvent('benchmark_retake_cta_clicked', {
-      source: 'practice_workspace',
-      language: nextSetup.language,
-      goal: nextSetup.goal,
-      roleLevel: nextSetup.roleLevel,
-      hasPreviousReport: Boolean(latestLanguageBenchmark),
-      action: options?.openLatestReport ? 'open_latest_report' : benchmarkActionState.shouldRetakeNow ? 'retake' : 'start_or_resume',
-    });
-    navigate(options?.openLatestReport ? '/app?section=benchmark&report=latest' : '/app?section=benchmark');
-  };
 
   return (
     <div className="space-y-8 p-4 lg:p-8">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+      <div className="flex flex-col gap-4">
         <div>
-          <h1 className="text-2xl font-bold font-display text-foreground">Practice Paths</h1>
-          <p className="mt-1 text-muted-foreground">Use lessons to close benchmark gaps, sharpen weak spots, and return to duels with more signal.</p>
-        </div>
-        <div className="flex flex-wrap gap-3">
-          <button
-            type="button"
-            onClick={() => goToBenchmarkWorkspace()}
-            className="inline-flex items-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground shadow-glow transition hover:bg-primary/90"
-          >
-            <Target className="h-4 w-4" />
-            Benchmark
-          </button>
-          <button
-            type="button"
-            onClick={() => setCurrentSection?.('duels')}
-            className="inline-flex items-center gap-2 rounded-xl border border-border bg-card px-4 py-2.5 text-sm font-semibold text-foreground transition hover:bg-secondary"
-          >
-            <Trophy className="h-4 w-4" />
-            Duels
-          </button>
+          <h1 className="text-2xl font-bold font-display text-foreground">Practice Lessons</h1>
+          <p className="mt-1 text-muted-foreground">Choose a language path, unlock harder tiers, and move through the lesson library.</p>
         </div>
       </div>
 
@@ -534,175 +295,42 @@ const Learn: React.FC<LearnProps> = ({ setCurrentSection, openAuthModal, isAuthe
         </div>
       ) : null}
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <MetricCard
-          icon={<BookOpen className="h-5 w-5" />}
-          label="Selected Path"
-          value={`${selectedLanguageCompletedCount}/${selectedLanguageTotalLessons}`}
-          subtitle={`${selectedTrack.name} lessons completed`}
-          tone="primary"
-        />
-        <MetricCard
-          icon={<Zap className="h-5 w-5" />}
-          label="XP"
-          value={user.xp.toLocaleString()}
-          subtitle={`Level ${user.level}`}
-          tone="xp"
-        />
-        <MetricCard
-          icon={<Heart className="h-5 w-5 fill-current" />}
-          label="Hearts"
-          value={isUnlimitedHeartsActive() ? 'Unlimited' : `${user.hearts}/${user.maxHearts}`}
-          subtitle={isUnlimitedHeartsActive() ? 'Practice without interruption' : 'Needed to start lessons'}
-          tone="hearts"
-        />
-        <MetricCard
-          icon={<Flame className="h-5 w-5" />}
-          label="Streak"
-          value={`${user.currentStreak} days`}
-          subtitle="Consistency compounds benchmark gains"
-          tone="streak"
-        />
-      </div>
-
-      <div className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
-        <div className="rounded-2xl border border-border bg-card p-6 shadow-card">
-          <div className="inline-flex items-center gap-2 rounded-full border border-primary/30 bg-primary/10 px-4 py-1.5">
-            <Target className="h-3.5 w-3.5 text-primary" />
-            <span className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">Support content, not the starting point</span>
-          </div>
-          <h2 className="mt-5 text-3xl font-bold font-display text-foreground">Practice is here to sharpen exactly what your benchmark exposes.</h2>
-          <p className="mt-4 max-w-2xl text-sm leading-7 text-muted-foreground">
-            Start with the benchmark, then use these paths to repair fundamentals, deepen weak areas, and return to live duel conditions with more confidence.
-          </p>
-          <div className="mt-6 grid gap-4 sm:grid-cols-3">
-            {[
-              ['Repair weak spots', 'Use beginner tracks to patch syntax and reading gaps.', CheckCircle2],
-              ['Build speed', 'Move into intermediate problems once the basics feel automatic.', Zap],
-              ['Prove it live', 'Treat duels as your proof layer after the practice loop.', Trophy],
-            ].map(([title, description, IconComponent], index) => {
-              const Icon = IconComponent as typeof Target;
-              return (
-                <div key={title as string} className="rounded-2xl border border-border bg-secondary/40 p-4">
-                  <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-xl bg-card text-primary shadow-card">
-                    <Icon className="h-4 w-4" />
-                  </div>
-                  <div className="text-[10px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">Step {index + 1}</div>
-                  <div className="mt-1 text-sm font-semibold text-foreground">{title}</div>
-                  <p className="mt-2 text-xs leading-6 text-muted-foreground">{description}</p>
-                </div>
-              );
-            })}
-          </div>
+      <div className="rounded-2xl border border-border bg-card p-6 shadow-card">
+        <div className={`inline-flex rounded-full bg-gradient-to-r px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-white ${selectedTrack.gradient}`}>
+          {selectedTrack.name} path
         </div>
+        <h2 className="mt-4 text-2xl font-bold font-display text-foreground">Lessons first. Everything here should help you learn by doing.</h2>
+        <p className="mt-3 max-w-3xl text-sm leading-7 text-muted-foreground">{selectedTrack.description}</p>
 
-        <div className="rounded-2xl border border-border bg-gradient-to-br from-card via-sidebar to-background p-6 shadow-elevated">
-          <div className="inline-flex rounded-full border border-primary/25 bg-primary/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-primary">
-            Benchmark momentum
+        <div className="mt-6 rounded-2xl border border-border bg-secondary/35 p-5">
+          <div className="flex items-center justify-between text-sm">
+            <span className="font-medium text-muted-foreground">Path progress</span>
+            <span className="font-mono font-semibold text-foreground">{selectedProgressPercent}%</span>
           </div>
-          <h3 className="mt-4 text-2xl font-bold font-display text-foreground">
-            {latestLanguageBenchmark ? `${selectedTrack.name} benchmark: ${latestLanguageBenchmark.overallScore}/100` : `No ${selectedTrack.name} benchmark yet`}
-          </h3>
-          <p className="mt-3 text-sm leading-7 text-muted-foreground">
-            {benchmarkActionState.description}
+          <div className="mt-3 h-2 w-full overflow-hidden rounded-full bg-secondary">
+            <div className={`h-full rounded-full bg-gradient-to-r ${selectedTrack.gradient}`} style={{ width: `${selectedProgressPercent}%` }} />
+          </div>
+          <p className="mt-3 text-xs leading-6 text-muted-foreground">
+            {selectedLanguageCompletedCount} of {selectedLanguageTotalLessons} lessons complete in this path.
           </p>
-          {benchmarkHistoryLoading ? (
-            <div className="mt-3 text-xs uppercase tracking-[0.18em] text-muted-foreground">Syncing benchmark history...</div>
-          ) : null}
 
-          <div className="mt-6 grid gap-3 sm:grid-cols-2">
-            <div className="rounded-2xl border border-border bg-secondary/45 p-4">
-              <div className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">Latest report</div>
+          <div className="mt-5 grid gap-3 lg:grid-cols-3">
+            <div className="rounded-2xl border border-border bg-card px-4 py-4">
+              <div className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">Hearts</div>
               <div className="mt-2 text-lg font-semibold text-foreground">
-                {latestLanguageBenchmark ? formatBenchmarkDate(latestLanguageBenchmark.createdAt) : 'Not started'}
+                {isUnlimitedHeartsActive() ? 'Unlimited' : `${user.hearts}/${user.maxHearts}`}
               </div>
               <div className="mt-1 text-sm text-muted-foreground">
-                {latestLanguageBenchmark
-                  ? benchmarkAgeDays === 0
-                    ? 'Completed today'
-                    : `${benchmarkAgeDays} day${benchmarkAgeDays === 1 ? '' : 's'} since last benchmark`
-                  : 'Measure the baseline before choosing the next path.'}
+                {isUnlimitedHeartsActive() ? 'Practice without interruption.' : 'Lessons use hearts when you make mistakes.'}
               </div>
             </div>
-            <div className="rounded-2xl border border-border bg-secondary/45 p-4">
-              <div className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">Improvement signal</div>
-              <div className="mt-2 text-lg font-semibold text-foreground">
-                {latestBenchmarkScoreDelta === null ? 'Waiting for retake' : `${latestBenchmarkScoreDelta > 0 ? '+' : ''}${latestBenchmarkScoreDelta} pts`}
-              </div>
-              <div className="mt-1 text-sm text-muted-foreground">
-                {latestBenchmarkScoreDelta === null
-                  ? 'A second benchmark turns practice into a visible delta.'
-                  : 'Score change versus the previous benchmark in this language.'}
-              </div>
-            </div>
-          </div>
-
-          <div className="mt-4 rounded-2xl border border-border bg-secondary/35 p-4">
-            <div className="flex items-center justify-between text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
-              <span>Suggested lesson progress</span>
-              <span>{latestLanguageBenchmark ? `${suggestedLessonsCompleted}/${suggestedLessonCount || 0}` : '--'}</span>
-            </div>
-            <div className="mt-3 h-2 w-full overflow-hidden rounded-full bg-secondary">
-              <div
-                className="h-full rounded-full bg-primary transition-all"
-                style={{
-                  width: `${latestLanguageBenchmark ? Math.round((suggestedLessonsCompleted / Math.max(1, suggestedLessonCount)) * 100) : 0}%`,
-                }}
-              />
-            </div>
-            <p className="mt-3 text-xs leading-6 text-muted-foreground">
-              {latestLanguageBenchmark
-                ? `${suggestedLessonsCompleted} of ${suggestedLessonCount} suggested lessons from the latest report are already complete.`
-                : 'Run the benchmark first to generate a focused lesson list for this language.'}
-            </p>
-          </div>
-
-          <div className="mt-4 flex flex-col gap-3 sm:flex-row">
-            <button
-              type="button"
-              onClick={() => goToBenchmarkWorkspace()}
-              className="inline-flex items-center justify-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground shadow-glow transition hover:bg-primary/90"
-            >
-              <Target className="h-4 w-4" />
-              {benchmarkActionState.primaryLabel}
-            </button>
-            {latestLanguageBenchmark ? (
-              <button
-                type="button"
-                onClick={() => goToBenchmarkWorkspace({ openLatestReport: true })}
-                className="inline-flex items-center justify-center gap-2 rounded-xl border border-border bg-card px-4 py-2.5 text-sm font-semibold text-foreground transition hover:bg-secondary"
-              >
-                <ArrowRight className="h-4 w-4" />
-                Open latest report
-              </button>
-            ) : null}
-          </div>
-
-          <div className="mt-6 rounded-2xl border border-border bg-secondary/45 p-5">
-            <div className={`inline-flex rounded-full bg-gradient-to-r px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-white ${selectedTrack.gradient}`}>
-              {selectedTrack.name} track
-            </div>
-            <p className="mt-3 text-sm leading-7 text-muted-foreground">{selectedTrack.description}</p>
-            <div className="mt-4 flex items-center justify-between text-sm">
-              <span className="font-medium text-muted-foreground">Current progress</span>
-              <span className="font-mono font-semibold text-foreground">{selectedProgressPercent}%</span>
-            </div>
-            <div className="mt-3 h-2 w-full overflow-hidden rounded-full bg-secondary">
-              <div className={`h-full rounded-full bg-gradient-to-r ${selectedTrack.gradient}`} style={{ width: `${selectedProgressPercent}%` }} />
-            </div>
-            <p className="mt-3 text-xs leading-6 text-muted-foreground">
-              {selectedLanguageCompletedCount} of {selectedLanguageTotalLessons} lessons complete in this track.
-            </p>
-          </div>
-
-          <div className="mt-4 space-y-3">
             {([
               ['Intermediate unlock', difficultyUnlocks.progress.Beginner.completed, difficultyUnlocks.progress.Beginner.total],
               ['Advanced unlock', difficultyUnlocks.progress.Intermediate.completed, difficultyUnlocks.progress.Intermediate.total],
             ] as const).map(([label, completed, total]) => {
               const percent = total ? Math.round((completed / total) * 100) : 100;
               return (
-                <div key={label} className="rounded-2xl border border-border bg-secondary/35 p-4">
+                <div key={label} className="rounded-2xl border border-border bg-card px-4 py-4">
                   <div className="flex items-center justify-between text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
                     <span>{label}</span>
                     <span>{completed}/{total || 0}</span>

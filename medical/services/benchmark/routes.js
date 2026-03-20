@@ -667,6 +667,62 @@ const buildQualitySummary = ({
   };
 };
 
+const buildUnavailableQualitySummary = (reason = null) => ({
+  available: false,
+  reason,
+  benchmarkCount: 0,
+  averageTrustScore: 0,
+  averageConfidencePercent: 0,
+  formatMix: { quick: 0, full: 0, retake: 0 },
+  formatFunnels: {
+    quick: {
+      starts: 0,
+      completes: 0,
+      completionRate: null,
+      reportViews: 0,
+      signupAfterReport: 0,
+      subscriptionClicks: 0,
+      upgradeIntentRate: null,
+      paidConversions: 0,
+      reportSignupRate: null,
+      reportPaidRate: null,
+    },
+    full: {
+      starts: 0,
+      completes: 0,
+      completionRate: null,
+      reportViews: 0,
+      signupAfterReport: 0,
+      subscriptionClicks: 0,
+      upgradeIntentRate: null,
+      paidConversions: 0,
+      reportSignupRate: null,
+      reportPaidRate: null,
+    },
+    retake: {
+      starts: 0,
+      completes: 0,
+      completionRate: null,
+      reportViews: 0,
+      signupAfterReport: 0,
+      subscriptionClicks: 0,
+      upgradeIntentRate: null,
+      paidConversions: 0,
+      reportSignupRate: null,
+      reportPaidRate: null,
+    },
+  },
+  calibrationMix: { draft: 0, calibrating: 0, validated: 0 },
+  validation: {
+    lessonFollowThroughRate: null,
+    duelParticipationRate: null,
+    highVsLowScoreLessonLift: null,
+    highVsLowScoreDuelLift: null,
+  },
+  trustTierOutcomes: [],
+  itemSignals: [],
+});
+
 const createUniquePublicShareToken = async (supabaseAdmin) => {
   for (let attempt = 0; attempt < 6; attempt += 1) {
     const candidate = buildPublicShareToken();
@@ -718,7 +774,9 @@ export const createBenchmarkRouter = ({ supabaseAdmin, judgeService = null }) =>
   router.get('/quality/summary', async (_req, res) => {
     try {
       if (!supabaseAdmin) {
-        return res.status(503).json({ error: 'Benchmark API is not configured.' });
+        return res.json({
+          summary: buildUnavailableQualitySummary('Benchmark quality is unavailable because the API is not configured.'),
+        });
       }
 
       const [
@@ -763,27 +821,42 @@ export const createBenchmarkRouter = ({ supabaseAdmin, judgeService = null }) =>
           .limit(2000),
       ]);
 
-      const firstError =
-        benchmarkRowsResult.error ||
-        lessonEventsResult.error ||
-        matchEventsResult.error ||
-        analyticsEventsResult.error ||
-        planEntitlementsResult.error;
-      if (firstError) {
-        throw new Error(firstError.message || 'Could not load benchmark quality summary.');
+      if (benchmarkRowsResult.error) {
+        return res.json({
+          summary: buildUnavailableQualitySummary(
+            benchmarkRowsResult.error.message || 'Benchmark quality is unavailable until benchmark reports are configured.'
+          ),
+        });
+      }
+
+      const optionalQueryErrors = [
+        lessonEventsResult.error,
+        matchEventsResult.error,
+        analyticsEventsResult.error,
+        planEntitlementsResult.error,
+      ].filter(Boolean);
+
+      const summary = buildQualitySummary({
+        reportRows: benchmarkRowsResult.data || [],
+        lessonEvents: lessonEventsResult.error ? [] : lessonEventsResult.data || [],
+        matchEvents: matchEventsResult.error ? [] : matchEventsResult.data || [],
+        analyticsEvents: analyticsEventsResult.error ? [] : analyticsEventsResult.data || [],
+        planEntitlements: planEntitlementsResult.error ? [] : planEntitlementsResult.data || [],
+      });
+
+      if (optionalQueryErrors.length > 0) {
+        summary.reason = 'Some quality metrics are temporarily unavailable because supporting analytics data is missing.';
       }
 
       return res.json({
-        summary: buildQualitySummary({
-          reportRows: benchmarkRowsResult.data || [],
-          lessonEvents: lessonEventsResult.data || [],
-          matchEvents: matchEventsResult.data || [],
-          analyticsEvents: analyticsEventsResult.data || [],
-          planEntitlements: planEntitlementsResult.data || [],
-        }),
+        summary,
       });
     } catch (error) {
-      return res.status(400).json({ error: error.message || 'Could not load benchmark quality summary.' });
+      return res.json({
+        summary: buildUnavailableQualitySummary(
+          error.message || 'Benchmark calibration details are temporarily unavailable.'
+        ),
+      });
     }
   });
 

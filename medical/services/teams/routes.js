@@ -5,17 +5,24 @@ import { createAuthenticatedUserMiddleware, isPrivilegedAdmin } from '../auth-ut
 import { FRONTEND_URL } from '../email/config.js';
 import { sendTransactionalEmail } from '../email/mailer.js';
 import { buildTeamInviteEmail } from '../email/templates.js';
+import {
+  TEAM_PLAN_POLICY_NONE,
+  TEAM_PLAN_POLICIES,
+  getTeamPlanPolicyFromSeatLimit,
+  resolveTeamPlanPolicy,
+} from '../../shared/team-plan-policy.js';
 
 const TEAM_USE_CASES = ['bootcamps', 'universities', 'coding-clubs', 'upskilling', 'general'];
 const ASSIGNMENT_TYPES = ['benchmark', 'challenge_pack', 'roadmap'];
 const BENCHMARK_LANGUAGES = ['python', 'javascript', 'java', 'cpp'];
 const TEAM_FEEDBACK_STATUSES = ['draft', 'shared', 'resolved'];
+const TEAM_JOIN_MODES = ['open_code', 'code_domain', 'code_approval', 'invite_only'];
 
 const CreateTeamSchema = z.object({
   name: z.string().trim().min(2).max(80),
   description: z.string().trim().max(500).optional().default(''),
   useCase: z.enum(TEAM_USE_CASES).optional().default('bootcamps'),
-  seatLimit: z.number().int().min(1).max(1000).optional().default(25),
+  seatLimit: z.number().int().min(1).max(1000).optional().default(1000),
 });
 
 const CreateInviteSchema = z.object({
@@ -29,6 +36,24 @@ const CreateInviteSchema = z.object({
 const JoinTeamSchema = z.object({
   code: z.string().trim().min(4).max(32),
 });
+
+const UpdateJoinSettingsSchema = z
+  .object({
+    joinMode: z.enum(TEAM_JOIN_MODES),
+    allowedEmailDomain: z
+      .union([z.string().trim().min(1).max(160), z.literal(''), z.null()])
+      .optional()
+      .transform((value) => (typeof value === 'string' ? value.trim() : value ?? null)),
+  })
+  .superRefine((value, ctx) => {
+    if (value.joinMode === 'code_domain' && !String(value.allowedEmailDomain || '').trim()) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['allowedEmailDomain'],
+        message: 'Email domain restriction requires an allowed domain.',
+      });
+    }
+  });
 
 const CreateAssignmentSchema = z.object({
   title: z.string().trim().min(2).max(120),
@@ -121,8 +146,17 @@ const TeamFeedbackRouteParamsSchema = TeamRouteParamsSchema.extend({
   feedbackId: z.string().uuid(),
 });
 
+const TeamJoinRequestRouteParamsSchema = TeamRouteParamsSchema.extend({
+  requestId: z.string().uuid(),
+});
+
 const TeamExportQuerySchema = z.object({
   format: z.enum(['json', 'csv']).optional().default('json'),
+});
+
+const ReviewJoinRequestSchema = z.object({
+  status: z.enum(['approved', 'denied']),
+  note: z.string().trim().max(500).optional().default(''),
 });
 
 const SharedTeamRouteParamsSchema = z.object({
@@ -140,8 +174,38 @@ const buildInviteCode = () => `CODH-${randomBytes(3).toString('hex').toUpperCase
 
 const buildPublicShareToken = () => randomBytes(12).toString('hex');
 
+const normalizeEmailDomain = (value) => {
+  const normalized = String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/^@+/, '')
+    .replace(/\s+/g, '');
+
+  return normalized || null;
+};
+
+const getEmailDomain = (email) => {
+  const normalized = String(email || '').trim().toLowerCase();
+  const atIndex = normalized.lastIndexOf('@');
+  if (atIndex === -1) return null;
+  return normalizeEmailDomain(normalized.slice(atIndex + 1));
+};
+
+const inviteMatchesUserEmail = (invite, authenticatedUser) => {
+  const inviteEmail = String(invite?.email || '').trim().toLowerCase();
+  if (!inviteEmail) return true;
+  const userEmail = String(authenticatedUser?.email || '').trim().toLowerCase();
+  return Boolean(userEmail && userEmail === inviteEmail);
+};
+
 const buildTeamInviteJoinUrl = (inviteCode) =>
   `${FRONTEND_URL}/app?section=teams&invite=${encodeURIComponent(inviteCode)}`;
+
+const isValidDateInput = (value) => {
+  if (!value) return true;
+  const parsed = new Date(value);
+  return !Number.isNaN(parsed.getTime());
+};
 
 const getMedian = (values) => {
   if (!values.length) return null;
@@ -212,6 +276,66 @@ const buildStarterAssignments = (useCase, userId) => {
   ];
 };
 
+const isManagerRole = (role) => role === 'owner' || role === 'admin' || role === 'coach';
+
+const loadActiveMembershipsForUser = async (supabaseAdmin, userId) => {
+  const { data, error } = await supabaseAdmin
+    .from('skill_team_memberships')
+    .select('team_id, role, status')
+    .eq('user_id', userId)
+    .eq('status', 'active');
+
+  if (error) {
+    throw new Error(error.message || 'Could not load active team memberships.');
+  }
+
+  return data || [];
+};
+
+const countUserMembershipsByRole = (memberships, excludeTeamId = null) =>
+  memberships.reduce(
+    (accumulator, membership) => {
+      if (excludeTeamId && membership.team_id === excludeTeamId) {
+        return accumulator;
+      }
+
+      if (isManagerRole(membership.role)) {
+        accumulator.manager += 1;
+      } else {
+        accumulator.learner += 1;
+      }
+
+      return accumulator;
+    },
+    { learner: 0, manager: 0 }
+  );
+
+const ensureMembershipLimitAvailable = async ({
+  supabaseAdmin,
+  userId,
+  nextRole,
+  teamPolicy,
+  teamId,
+}) => {
+  const activeMemberships = await loadActiveMembershipsForUser(supabaseAdmin, userId);
+  const counts = countUserMembershipsByRole(activeMemberships, teamId);
+
+  if (isManagerRole(nextRole)) {
+    const limit = Number(teamPolicy?.managerMembershipLimit || TEAM_PLAN_POLICY_NONE.managerMembershipLimit || 0);
+    if (limit > 0 && counts.manager >= limit) {
+      throw new Error(
+        `This role is limited to ${limit} active team workspace${limit === 1 ? '' : 's'} on this plan.`
+      );
+    }
+    return;
+  }
+
+  const limit = Number(teamPolicy?.learnerMembershipLimit || TEAM_PLAN_POLICY_NONE.learnerMembershipLimit || 3);
+  if (counts.learner >= limit) {
+    throw new Error(`Learners can only join ${limit} active team${limit === 1 ? '' : 's'} at a time.`);
+  }
+};
+
 const loadMembership = async (supabaseAdmin, teamId, userId) => {
   const { data, error } = await supabaseAdmin
     .from('skill_team_memberships')
@@ -249,6 +373,114 @@ const ensureTeamAccess = async (supabaseAdmin, teamId, userId, authenticatedUser
 const ensureTeamRole = (membership, allowedRoles) => {
   if (!membership || !allowedRoles.includes(membership.role)) {
     throw new Error('You do not have permission to manage this team.');
+  }
+};
+
+const ensureInviteRoleAllowed = (membership, inviteRole, existingInvite = null) => {
+  if (membership.role !== 'coach') {
+    return;
+  }
+
+  if (inviteRole && inviteRole !== 'learner') {
+    throw new Error('Coaches can only create or manage learner invites.');
+  }
+
+  if (existingInvite && existingInvite.role !== 'learner') {
+    throw new Error('Coaches can only manage learner invites.');
+  }
+};
+
+const ensureAssignmentPayloadIsValid = (payload) => {
+  const isRoadmap = payload.assignmentType === 'roadmap';
+
+  if (!isValidDateInput(payload.dueAt)) {
+    throw new Error('Assignment due date is invalid.');
+  }
+
+  if (isRoadmap) {
+    if (!payload.trackId) {
+      throw new Error('Roadmap assignments require a track.');
+    }
+    if (payload.benchmarkLanguage) {
+      throw new Error('Roadmap assignments cannot also set a benchmark language.');
+    }
+    return;
+  }
+
+  if (!payload.benchmarkLanguage) {
+    throw new Error('Benchmark and challenge assignments require a language.');
+  }
+  if (payload.trackId) {
+    throw new Error('Only roadmap assignments can include a track.');
+  }
+};
+
+const loadTeamAssignment = async (supabaseAdmin, teamId, assignmentId) => {
+  const { data, error } = await supabaseAdmin
+    .from('skill_team_assignments')
+    .select('*')
+    .eq('team_id', teamId)
+    .eq('id', assignmentId)
+    .maybeSingle();
+
+  if (error) {
+    throw new Error(error.message || 'Could not load that assignment.');
+  }
+
+  return data;
+};
+
+const ensureFeedbackTargetsAreValid = async (supabaseAdmin, teamId, memberUserId, assignmentId = null) => {
+  const targetMembership = await loadMembership(supabaseAdmin, teamId, memberUserId);
+
+  if (!targetMembership) {
+    throw new Error('The selected learner is not part of this team.');
+  }
+
+  if (targetMembership.role !== 'learner') {
+    throw new Error('Feedback can only be attached to learner accounts.');
+  }
+
+  if (assignmentId) {
+    const assignment = await loadTeamAssignment(supabaseAdmin, teamId, assignmentId);
+    if (!assignment) {
+      throw new Error('The selected assignment does not belong to this team.');
+    }
+  }
+
+  return targetMembership;
+};
+
+const ensureOwnerStateChangeAllowed = async (supabaseAdmin, teamId, actorMembership, targetMembership, parsedUpdate) => {
+  if (targetMembership.role !== 'owner') {
+    return;
+  }
+
+  if (actorMembership.role !== 'owner') {
+    throw new Error('Only an owner can manage another owner.');
+  }
+
+  if (parsedUpdate.role !== undefined && parsedUpdate.role !== 'owner') {
+    throw new Error('Owner role changes are not supported from the team workspace.');
+  }
+
+  if (parsedUpdate.status !== 'inactive') {
+    return;
+  }
+
+  const { data: owners, error } = await supabaseAdmin
+    .from('skill_team_memberships')
+    .select('user_id')
+    .eq('team_id', teamId)
+    .eq('role', 'owner')
+    .eq('status', 'active');
+
+  if (error) {
+    throw new Error(error.message || 'Could not validate team ownership.');
+  }
+
+  if ((owners || []).length <= 1) {
+    throw new Error('The last owner must stay active.');
   }
 };
 
@@ -297,6 +529,66 @@ const createUniquePublicTeamToken = async (supabaseAdmin) => {
   return `${buildPublicShareToken()}${Date.now().toString().slice(-4)}`;
 };
 
+const createUniqueInviteCode = async (supabaseAdmin) => {
+  for (let index = 0; index < 8; index += 1) {
+    const candidate = buildInviteCode();
+    const { data, error } = await supabaseAdmin
+      .from('skill_team_invites')
+      .select('id')
+      .eq('code', candidate)
+      .maybeSingle();
+
+    if (error) {
+      throw new Error(error.message || 'Could not create an invite code.');
+    }
+
+    if (!data) {
+      return candidate;
+    }
+  }
+
+  return `${buildInviteCode()}${Date.now().toString().slice(-4)}`;
+};
+
+const createDefaultJoinInvite = async (supabaseAdmin, { teamId, createdBy, maxUses }) => {
+  const code = await createUniqueInviteCode(supabaseAdmin);
+  const { error } = await supabaseAdmin.from('skill_team_invites').insert({
+    team_id: teamId,
+    code,
+    label: 'General learner access',
+    email: null,
+    role: 'learner',
+    max_uses: maxUses,
+    use_count: 0,
+    status: 'active',
+    expires_at: null,
+    created_by: createdBy,
+  });
+
+  if (error) {
+    throw new Error(error.message || 'Could not create the default join code.');
+  }
+};
+
+const serializeJoinRequest = (requestRow, profileMap = new Map(), inviteMap = new Map()) => ({
+  id: requestRow.id,
+  userId: requestRow.user_id,
+  userName: profileMap.get(requestRow.user_id)?.name || profileMap.get(requestRow.user_id)?.email || 'Learner',
+  userEmail: profileMap.get(requestRow.user_id)?.email || null,
+  requestedRole: requestRow.requested_role,
+  status: requestRow.status,
+  note: requestRow.note || '',
+  inviteId: requestRow.invite_id || null,
+  inviteCode: requestRow.invite_id ? inviteMap.get(requestRow.invite_id)?.code || null : null,
+  inviteLabel: requestRow.invite_id ? inviteMap.get(requestRow.invite_id)?.label || null : null,
+  reviewedByUserId: requestRow.reviewed_by_user_id || null,
+  reviewedByName: requestRow.reviewed_by_user_id
+    ? profileMap.get(requestRow.reviewed_by_user_id)?.name || profileMap.get(requestRow.reviewed_by_user_id)?.email || 'Reviewer'
+    : null,
+  requestedAt: requestRow.requested_at,
+  reviewedAt: requestRow.reviewed_at || null,
+});
+
 const getRecommendedTeamAction = ({ latestScore, improvementDelta, latestBenchmarkAt }) => {
   if (latestScore === null || latestScore === undefined) {
     return 'Needs first benchmark';
@@ -321,9 +613,10 @@ const getRecommendedTeamAction = ({ latestScore, improvementDelta, latestBenchma
   return 'Continue roadmap';
 };
 
-const buildTeamDetail = ({ team, memberships, profiles, assignments, invites, reports, feedback = [] }) => {
+const buildTeamDetail = ({ team, memberships, profiles, assignments, invites, reports, feedback = [], joinRequests = [] }) => {
   const profileMap = new Map((profiles || []).map((profile) => [profile.id, profile]));
   const assignmentMap = new Map((assignments || []).map((assignment) => [assignment.id, assignment]));
+  const inviteMap = new Map((invites || []).map((invite) => [invite.id, invite]));
   const latestReportsByUser = new Map();
   const reportsByUser = new Map();
 
@@ -398,6 +691,8 @@ const buildTeamDetail = ({ team, memberships, profiles, assignments, invites, re
       description: team.description,
       useCase: team.use_case,
       seatLimit: team.seat_limit,
+      joinMode: team.join_mode || 'open_code',
+      allowedEmailDomain: normalizeEmailDomain(team.allowed_email_domain),
       memberCount: members.length,
       createdAt: team.created_at,
       updatedAt: team.updated_at,
@@ -450,6 +745,10 @@ const buildTeamDetail = ({ team, memberships, profiles, assignments, invites, re
       status: invite.status,
       createdAt: invite.created_at,
     })),
+    joinRequests: joinRequests
+      .slice()
+      .sort((left, right) => new Date(right.requested_at).getTime() - new Date(left.requested_at).getTime())
+      .map((entry) => serializeJoinRequest(entry, profileMap, inviteMap)),
     feedback: feedback.map((entry) => ({
       id: entry.id,
       memberUserId: entry.member_user_id,
@@ -535,6 +834,97 @@ const createUniqueTeamSlug = async (supabaseAdmin, name) => {
   return `${base}-${Date.now().toString().slice(-4)}`;
 };
 
+const loadActiveTeamEntitlements = async (supabaseAdmin, userId) => {
+  const { data, error } = await supabaseAdmin
+    .from('plan_entitlements')
+    .select('plan_name, item_id, status, current_period_end')
+    .eq('user_id', userId)
+    .eq('status', 'active');
+
+  if (error) {
+    throw new Error(error.message || 'Could not load team plan entitlements.');
+  }
+
+  const activeRows = (data || []).filter((entry) => {
+    const expiresAt = new Date(entry.current_period_end || '').getTime();
+    return Number.isFinite(expiresAt) && expiresAt > Date.now();
+  });
+
+  return activeRows;
+};
+
+const resolveUserTeamPlanPolicy = async (supabaseAdmin, authenticatedUser) => {
+  if (isPrivilegedAdmin(authenticatedUser)) {
+    return TEAM_PLAN_POLICIES.custom;
+  }
+
+  const entitlements = await loadActiveTeamEntitlements(supabaseAdmin, authenticatedUser.id);
+  return resolveTeamPlanPolicy(entitlements.map((entry) => entry.plan_name));
+};
+
+const ensureWorkspaceCreationAllowed = async (supabaseAdmin, authenticatedUser) => {
+  const policy = await resolveUserTeamPlanPolicy(supabaseAdmin, authenticatedUser);
+  if (policy.workspaceLimit <= 0) {
+    throw new Error('An active Teams plan is required before you can create a team.');
+  }
+
+  if (isPrivilegedAdmin(authenticatedUser)) {
+    return policy;
+  }
+
+  await ensureMembershipLimitAvailable({
+    supabaseAdmin,
+    userId: authenticatedUser.id,
+    nextRole: 'owner',
+    teamPolicy: policy,
+    teamId: null,
+  });
+
+  const { count, error } = await supabaseAdmin
+    .from('skill_teams')
+    .select('id', { count: 'exact', head: true })
+    .eq('created_by', authenticatedUser.id);
+
+  if (error) {
+    throw new Error(error.message || 'Could not validate your team workspace limit.');
+  }
+
+  if (Number(count || 0) >= policy.workspaceLimit) {
+    throw new Error(
+      policy.supportsMultiCohort
+        ? `Your ${policy.label} plan has reached its workspace limit of ${policy.workspaceLimit}.`
+        : `Your ${policy.label} plan includes ${policy.workspaceLimit} team workspace. Upgrade to Teams Growth for multi-cohort access.`
+    );
+  }
+
+  return policy;
+};
+
+const ensureTeamCapacityAvailable = async (supabaseAdmin, teamId, nextSeatCount = 1) => {
+  const [{ data: team, error: teamError }, { count: activeMembers, error: memberError }] = await Promise.all([
+    supabaseAdmin.from('skill_teams').select('id, seat_limit').eq('id', teamId).single(),
+    supabaseAdmin
+      .from('skill_team_memberships')
+      .select('user_id', { count: 'exact', head: true })
+      .eq('team_id', teamId)
+      .eq('status', 'active'),
+  ]);
+
+  if (teamError || !team) {
+    throw new Error(teamError?.message || 'Could not load the team seat limit.');
+  }
+
+  if (memberError) {
+    throw new Error(memberError.message || 'Could not validate current team capacity.');
+  }
+
+  if (Number(activeMembers || 0) + nextSeatCount > Number(team.seat_limit || 0)) {
+    throw new Error(`This team is at capacity for its plan (${team.seat_limit} seats).`);
+  }
+
+  return team;
+};
+
 const loadTeamWorkspaceResources = async (supabaseAdmin, teamId) => {
   const [
     { data: team, error: teamError },
@@ -542,15 +932,17 @@ const loadTeamWorkspaceResources = async (supabaseAdmin, teamId) => {
     { data: assignments, error: assignmentsError },
     { data: invites, error: invitesError },
     { data: feedback, error: feedbackError },
+    { data: joinRequests, error: joinRequestsError },
   ] = await Promise.all([
     supabaseAdmin.from('skill_teams').select('*').eq('id', teamId).single(),
     supabaseAdmin.from('skill_team_memberships').select('*').eq('team_id', teamId).order('joined_at', { ascending: true }),
     supabaseAdmin.from('skill_team_assignments').select('*').eq('team_id', teamId).order('created_at', { ascending: false }),
     supabaseAdmin.from('skill_team_invites').select('*').eq('team_id', teamId).order('created_at', { ascending: false }),
     supabaseAdmin.from('skill_team_feedback').select('*').eq('team_id', teamId).order('updated_at', { ascending: false }),
+    supabaseAdmin.from('skill_team_join_requests').select('*').eq('team_id', teamId).order('requested_at', { ascending: false }),
   ]);
 
-  const firstError = teamError || membershipsError || assignmentsError || invitesError || feedbackError;
+  const firstError = teamError || membershipsError || assignmentsError || invitesError || feedbackError || joinRequestsError;
   if (firstError || !team) {
     throw new Error(firstError?.message || 'Could not load team workspace.');
   }
@@ -560,6 +952,7 @@ const loadTeamWorkspaceResources = async (supabaseAdmin, teamId) => {
       [
         ...(memberships || []).map((entry) => entry.user_id),
         ...(feedback || []).flatMap((entry) => [entry.member_user_id, entry.author_user_id].filter(Boolean)),
+        ...(joinRequests || []).flatMap((entry) => [entry.user_id, entry.reviewed_by_user_id].filter(Boolean)),
       ].filter(Boolean)
     )
   );
@@ -582,6 +975,7 @@ const loadTeamWorkspaceResources = async (supabaseAdmin, teamId) => {
     memberships: memberships || [],
     assignments: assignments || [],
     invites: invites || [],
+    joinRequests: joinRequests || [],
     feedback: feedback || [],
     profiles: profiles || [],
     reports: reports || [],
@@ -914,6 +1308,7 @@ export const createTeamsRouter = ({ supabaseAdmin }) => {
   router.post('/', requireAuth, async (req, res) => {
     try {
       const parsed = CreateTeamSchema.parse(req.body || {});
+      const planPolicy = await ensureWorkspaceCreationAllowed(supabaseAdmin, req.authenticatedUser);
       const slug = await createUniqueTeamSlug(supabaseAdmin, parsed.name);
 
       const { data: team, error: teamError } = await supabaseAdmin
@@ -923,7 +1318,7 @@ export const createTeamsRouter = ({ supabaseAdmin }) => {
           slug,
           description: parsed.description,
           use_case: parsed.useCase,
-          seat_limit: parsed.seatLimit,
+          seat_limit: Math.min(parsed.seatLimit, planPolicy.seatLimit),
           created_by: req.authenticatedUser.id,
         })
         .select('*')
@@ -954,6 +1349,12 @@ export const createTeamsRouter = ({ supabaseAdmin }) => {
       if (assignmentError) {
         throw new Error(assignmentError.message || 'Could not create starter assignments.');
       }
+
+      await createDefaultJoinInvite(supabaseAdmin, {
+        teamId: team.id,
+        createdBy: req.authenticatedUser.id,
+        maxUses: Math.min(planPolicy.inviteMaxUses, team.seat_limit),
+      });
 
       return res.status(201).json({
         team: {
@@ -994,11 +1395,56 @@ export const createTeamsRouter = ({ supabaseAdmin }) => {
     }
   });
 
+  router.patch('/:teamId/join-settings', requireAuth, async (req, res) => {
+    try {
+      const { teamId } = TeamRouteParamsSchema.parse(req.params || {});
+      const membership = await getActorMembership(teamId, req);
+      ensureTeamRole(membership, ['owner', 'admin']);
+      const parsed = UpdateJoinSettingsSchema.parse(req.body || {});
+
+      const { data: updatedTeam, error } = await supabaseAdmin
+        .from('skill_teams')
+        .update({
+          join_mode: parsed.joinMode,
+          allowed_email_domain: parsed.joinMode === 'code_domain' ? normalizeEmailDomain(parsed.allowedEmailDomain) : null,
+        })
+        .eq('id', teamId)
+        .select('*')
+        .single();
+
+      if (error || !updatedTeam) {
+        throw new Error(error?.message || 'Could not update join settings.');
+      }
+
+      return res.json({
+        team: {
+          id: updatedTeam.id,
+          name: updatedTeam.name,
+          slug: updatedTeam.slug,
+          description: updatedTeam.description,
+          useCase: updatedTeam.use_case,
+          seatLimit: updatedTeam.seat_limit,
+          joinMode: updatedTeam.join_mode,
+          allowedEmailDomain: normalizeEmailDomain(updatedTeam.allowed_email_domain),
+          currentUserRole: membership.role,
+          memberCount: 0,
+          createdAt: updatedTeam.created_at,
+          updatedAt: updatedTeam.updated_at,
+          isPublic: Boolean(updatedTeam.is_public),
+          shareToken: updatedTeam.public_token || null,
+          publicSharedAt: updatedTeam.public_shared_at || null,
+        },
+      });
+    } catch (error) {
+      return res.status(400).json({ error: error.message || 'Could not update join settings.' });
+    }
+  });
+
   router.post('/:teamId/share', requireAuth, async (req, res) => {
     try {
       const { teamId } = TeamRouteParamsSchema.parse(req.params || {});
       const membership = await getActorMembership(teamId, req);
-      ensureTeamRole(membership, ['owner', 'admin', 'coach']);
+      ensureTeamRole(membership, ['owner', 'admin']);
 
       const { data: existingTeam, error: teamError } = await supabaseAdmin
         .from('skill_teams')
@@ -1054,7 +1500,7 @@ export const createTeamsRouter = ({ supabaseAdmin }) => {
     try {
       const { teamId } = TeamRouteParamsSchema.parse(req.params || {});
       const membership = await getActorMembership(teamId, req);
-      ensureTeamRole(membership, ['owner', 'admin', 'coach']);
+      ensureTeamRole(membership, ['owner', 'admin']);
 
       const { data: updatedTeam, error: updateError } = await supabaseAdmin
         .from('skill_teams')
@@ -1100,7 +1546,7 @@ export const createTeamsRouter = ({ supabaseAdmin }) => {
 
       const { data: teamSummary, error: teamSummaryError } = await supabaseAdmin
         .from('skill_teams')
-        .select('id, name, slug')
+        .select('id, name, slug, seat_limit, join_mode')
         .eq('id', teamId)
         .single();
 
@@ -1109,7 +1555,12 @@ export const createTeamsRouter = ({ supabaseAdmin }) => {
       }
 
       const parsed = CreateInviteSchema.parse(req.body || {});
-      const code = buildInviteCode();
+      ensureInviteRoleAllowed(membership, parsed.role);
+      if ((teamSummary.join_mode || 'open_code') === 'invite_only' && !parsed.email) {
+        throw new Error('Invite-only teams require a direct email on every invite.');
+      }
+      const inviteMaxUsesCap = getTeamPlanPolicyFromSeatLimit(teamSummary.seat_limit).inviteMaxUses;
+      const code = await createUniqueInviteCode(supabaseAdmin);
       const expiresAt = new Date(Date.now() + parsed.expiresInDays * 24 * 60 * 60 * 1000).toISOString();
 
       const { data, error } = await supabaseAdmin
@@ -1120,7 +1571,7 @@ export const createTeamsRouter = ({ supabaseAdmin }) => {
           label: parsed.label,
           email: parsed.email,
           role: parsed.role,
-          max_uses: parsed.maxUses,
+          max_uses: Math.min(parsed.maxUses, inviteMaxUsesCap),
           use_count: 0,
           status: 'active',
           expires_at: expiresAt,
@@ -1200,6 +1651,142 @@ export const createTeamsRouter = ({ supabaseAdmin }) => {
         throw new Error('This invite code has already reached its usage limit.');
       }
 
+      const { data: teamSummary, error: teamSummaryError } = await supabaseAdmin
+        .from('skill_teams')
+        .select('id, name, slug, description, use_case, seat_limit, join_mode, allowed_email_domain, is_public, public_token, public_shared_at')
+        .eq('id', invite.team_id)
+        .single();
+
+      if (teamSummaryError || !teamSummary) {
+        throw new Error(teamSummaryError?.message || 'Could not load team limits for this invite.');
+      }
+
+      const existingMembership = await loadMembership(supabaseAdmin, invite.team_id, req.authenticatedUser.id);
+      if (existingMembership?.status === 'active') {
+        return res.status(200).json({
+          status: 'joined',
+          team: {
+            id: teamSummary.id,
+            name: teamSummary.name,
+            slug: teamSummary.slug,
+            description: teamSummary.description,
+            useCase: teamSummary.use_case,
+            seatLimit: teamSummary.seat_limit,
+            joinMode: teamSummary.join_mode || 'open_code',
+            allowedEmailDomain: normalizeEmailDomain(teamSummary.allowed_email_domain),
+            currentUserRole: existingMembership.role,
+            isPublic: Boolean(teamSummary.is_public),
+            shareToken: teamSummary.public_token || null,
+            publicSharedAt: teamSummary.public_shared_at || null,
+          },
+        });
+      }
+
+      if (!inviteMatchesUserEmail(invite, req.authenticatedUser)) {
+        throw new Error('This invite is reserved for a different email address.');
+      }
+
+      const joinMode = teamSummary.join_mode || 'open_code';
+      const allowedEmailDomain = normalizeEmailDomain(teamSummary.allowed_email_domain);
+
+      if (joinMode === 'invite_only' && !invite.email) {
+        throw new Error('This team only accepts direct email invites.');
+      }
+
+      if (joinMode === 'code_domain') {
+        if (!allowedEmailDomain) {
+          throw new Error('This team requires an allowed email domain before members can join.');
+        }
+
+        const userDomain = getEmailDomain(req.authenticatedUser.email);
+        if (!userDomain || userDomain !== allowedEmailDomain) {
+          throw new Error(`This team only accepts ${allowedEmailDomain} email addresses.`);
+        }
+      }
+
+      if (joinMode === 'code_approval') {
+        const { data: existingPendingRequest, error: existingPendingRequestError } = await supabaseAdmin
+          .from('skill_team_join_requests')
+          .select('*')
+          .eq('team_id', invite.team_id)
+          .eq('user_id', req.authenticatedUser.id)
+          .eq('status', 'pending')
+          .maybeSingle();
+
+        if (existingPendingRequestError) {
+          throw new Error(existingPendingRequestError.message || 'Could not create your join request.');
+        }
+
+        let pendingRequest = existingPendingRequest;
+        if (!pendingRequest) {
+          const { data: createdRequest, error: createRequestError } = await supabaseAdmin
+            .from('skill_team_join_requests')
+            .insert({
+              team_id: invite.team_id,
+              invite_id: invite.id,
+              user_id: req.authenticatedUser.id,
+              requested_role: invite.role,
+              status: 'pending',
+              note: '',
+            })
+            .select('*')
+            .single();
+
+          if (createRequestError || !createdRequest) {
+            throw new Error(createRequestError?.message || 'Could not create your join request.');
+          }
+
+          pendingRequest = createdRequest;
+        }
+
+        return res.status(existingPendingRequest ? 200 : 202).json({
+          status: 'pending',
+          team: {
+            id: teamSummary.id,
+            name: teamSummary.name,
+            slug: teamSummary.slug,
+            description: teamSummary.description,
+            useCase: teamSummary.use_case,
+            seatLimit: teamSummary.seat_limit,
+            joinMode,
+            allowedEmailDomain,
+            currentUserRole: invite.role,
+            isPublic: Boolean(teamSummary.is_public),
+            shareToken: teamSummary.public_token || null,
+            publicSharedAt: teamSummary.public_shared_at || null,
+          },
+          joinRequest: {
+            id: pendingRequest.id,
+            userId: req.authenticatedUser.id,
+            userName:
+              String(req.authenticatedUser.user_metadata?.name || '').trim() ||
+              String(req.authenticatedUser.email || '').trim() ||
+              'Learner',
+            userEmail: req.authenticatedUser.email || null,
+            requestedRole: pendingRequest.requested_role,
+            status: pendingRequest.status,
+            note: pendingRequest.note || '',
+            inviteId: pendingRequest.invite_id || null,
+            inviteCode: invite.code,
+            inviteLabel: invite.label,
+            reviewedByUserId: null,
+            reviewedByName: null,
+            requestedAt: pendingRequest.requested_at,
+            reviewedAt: pendingRequest.reviewed_at || null,
+          },
+        });
+      }
+
+      await ensureMembershipLimitAvailable({
+        supabaseAdmin,
+        userId: req.authenticatedUser.id,
+        nextRole: invite.role,
+        teamPolicy: getTeamPlanPolicyFromSeatLimit(teamSummary.seat_limit),
+        teamId: invite.team_id,
+      });
+
+      await ensureTeamCapacityAvailable(supabaseAdmin, invite.team_id);
+
       const { error: membershipError } = await supabaseAdmin.from('skill_team_memberships').upsert(
         {
           team_id: invite.team_id,
@@ -1218,17 +1805,40 @@ export const createTeamsRouter = ({ supabaseAdmin }) => {
       const nextUseCount = Number(invite.use_count || 0) + 1;
       const nextStatus = nextUseCount >= Number(invite.max_uses || 0) ? 'expired' : invite.status;
 
-      const { error: inviteUpdateError } = await supabaseAdmin
+      const { data: claimedInvite, error: inviteUpdateError } = await supabaseAdmin
         .from('skill_team_invites')
         .update({
           use_count: nextUseCount,
           status: nextStatus,
           last_used_at: new Date().toISOString(),
         })
-        .eq('id', invite.id);
+        .eq('id', invite.id)
+        .eq('status', 'active')
+        .eq('use_count', Number(invite.use_count || 0))
+        .select('id')
+        .maybeSingle();
 
-      if (inviteUpdateError) {
-        throw new Error(inviteUpdateError.message || 'Could not update invite usage.');
+      if (inviteUpdateError || !claimedInvite) {
+        if (existingMembership) {
+          await supabaseAdmin.from('skill_team_memberships').upsert(
+            {
+              team_id: existingMembership.team_id,
+              user_id: existingMembership.user_id,
+              role: existingMembership.role,
+              status: existingMembership.status,
+              joined_at: existingMembership.joined_at,
+            },
+            { onConflict: 'team_id,user_id' }
+          );
+        } else {
+          await supabaseAdmin
+            .from('skill_team_memberships')
+            .delete()
+            .eq('team_id', invite.team_id)
+            .eq('user_id', req.authenticatedUser.id);
+        }
+
+        throw new Error(inviteUpdateError?.message || 'This invite was just used by someone else. Try again.');
       }
 
       const { data: team, error: teamError } = await supabaseAdmin
@@ -1242,6 +1852,7 @@ export const createTeamsRouter = ({ supabaseAdmin }) => {
       }
 
       return res.status(201).json({
+        status: 'joined',
         team: {
           id: team.id,
           name: team.name,
@@ -1249,11 +1860,194 @@ export const createTeamsRouter = ({ supabaseAdmin }) => {
           description: team.description,
           useCase: team.use_case,
           seatLimit: team.seat_limit,
+          joinMode: team.join_mode || 'open_code',
+          allowedEmailDomain: normalizeEmailDomain(team.allowed_email_domain),
           currentUserRole: invite.role,
+          isPublic: Boolean(team.is_public),
+          shareToken: team.public_token || null,
+          publicSharedAt: team.public_shared_at || null,
         },
       });
     } catch (error) {
       return res.status(400).json({ error: error.message || 'Could not join team.' });
+    }
+  });
+
+  router.patch('/:teamId/join-requests/:requestId', requireAuth, async (req, res) => {
+    try {
+      const { teamId, requestId } = TeamJoinRequestRouteParamsSchema.parse(req.params || {});
+      const membership = await getActorMembership(teamId, req);
+      ensureTeamRole(membership, ['owner', 'admin']);
+      const parsed = ReviewJoinRequestSchema.parse(req.body || {});
+
+      const { data: joinRequest, error: joinRequestError } = await supabaseAdmin
+        .from('skill_team_join_requests')
+        .select('*')
+        .eq('team_id', teamId)
+        .eq('id', requestId)
+        .maybeSingle();
+
+      if (joinRequestError || !joinRequest) {
+        throw new Error(joinRequestError?.message || 'Could not load that join request.');
+      }
+
+      if (joinRequest.status !== 'pending') {
+        throw new Error('Only pending join requests can be reviewed.');
+      }
+
+      if (parsed.status === 'approved') {
+        const [{ data: teamSummary, error: teamSummaryError }, { data: requesterProfile, error: requesterProfileError }] =
+          await Promise.all([
+            supabaseAdmin.from('skill_teams').select('id, seat_limit').eq('id', teamId).single(),
+            supabaseAdmin.from('user_profiles').select('id, email').eq('id', joinRequest.user_id).maybeSingle(),
+          ]);
+
+        if (teamSummaryError || !teamSummary) {
+          throw new Error(teamSummaryError?.message || 'Could not load team limits for this request.');
+        }
+
+        if (requesterProfileError) {
+          throw new Error(requesterProfileError.message || 'Could not validate the requester profile.');
+        }
+
+        let invite = null;
+        if (joinRequest.invite_id) {
+          const { data: requestInvite, error: requestInviteError } = await supabaseAdmin
+            .from('skill_team_invites')
+            .select('*')
+            .eq('id', joinRequest.invite_id)
+            .maybeSingle();
+
+          if (requestInviteError || !requestInvite) {
+            throw new Error(requestInviteError?.message || 'Could not load the request invite.');
+          }
+
+          if (requestInvite.status !== 'active') {
+            throw new Error('The invite tied to this request is no longer active.');
+          }
+
+          if (requestInvite.expires_at && new Date(requestInvite.expires_at).getTime() <= Date.now()) {
+            throw new Error('The invite tied to this request has expired.');
+          }
+
+          if (Number(requestInvite.use_count || 0) >= Number(requestInvite.max_uses || 0)) {
+            throw new Error('The invite tied to this request has reached its usage limit.');
+          }
+
+          const requesterEmail = String(requesterProfile?.email || '').trim().toLowerCase();
+          const inviteEmail = String(requestInvite.email || '').trim().toLowerCase();
+          if (inviteEmail && (!requesterEmail || requesterEmail !== inviteEmail)) {
+            throw new Error('This request no longer matches the invite email restriction.');
+          }
+
+          invite = requestInvite;
+        }
+
+        const existingMembership = await loadMembership(supabaseAdmin, teamId, joinRequest.user_id);
+        const shouldActivateMembership = existingMembership?.status !== 'active';
+
+        if (shouldActivateMembership) {
+          await ensureMembershipLimitAvailable({
+            supabaseAdmin,
+            userId: joinRequest.user_id,
+            nextRole: joinRequest.requested_role,
+            teamPolicy: getTeamPlanPolicyFromSeatLimit(teamSummary.seat_limit),
+            teamId,
+          });
+
+          await ensureTeamCapacityAvailable(supabaseAdmin, teamId);
+
+          const { error: membershipError } = await supabaseAdmin.from('skill_team_memberships').upsert(
+            {
+              team_id: teamId,
+              user_id: joinRequest.user_id,
+              role: joinRequest.requested_role,
+              status: 'active',
+              joined_at: existingMembership?.joined_at || new Date().toISOString(),
+            },
+            { onConflict: 'team_id,user_id' }
+          );
+
+          if (membershipError) {
+            throw new Error(membershipError.message || 'Could not approve this join request.');
+          }
+
+          if (invite) {
+            const nextUseCount = Number(invite.use_count || 0) + 1;
+            const nextStatus = nextUseCount >= Number(invite.max_uses || 0) ? 'expired' : invite.status;
+
+            const { data: claimedInvite, error: inviteUpdateError } = await supabaseAdmin
+              .from('skill_team_invites')
+              .update({
+                use_count: nextUseCount,
+                status: nextStatus,
+                last_used_at: new Date().toISOString(),
+              })
+              .eq('id', invite.id)
+              .eq('status', 'active')
+              .eq('use_count', Number(invite.use_count || 0))
+              .select('id')
+              .maybeSingle();
+
+            if (inviteUpdateError || !claimedInvite) {
+              if (existingMembership) {
+                await supabaseAdmin.from('skill_team_memberships').upsert(
+                  {
+                    team_id: existingMembership.team_id,
+                    user_id: existingMembership.user_id,
+                    role: existingMembership.role,
+                    status: existingMembership.status,
+                    joined_at: existingMembership.joined_at,
+                  },
+                  { onConflict: 'team_id,user_id' }
+                );
+              } else {
+                await supabaseAdmin
+                  .from('skill_team_memberships')
+                  .delete()
+                  .eq('team_id', teamId)
+                  .eq('user_id', joinRequest.user_id);
+              }
+
+              throw new Error(inviteUpdateError?.message || 'This invite was just used by someone else. Try again.');
+            }
+          }
+        }
+      }
+
+      const { data: reviewedRequest, error: reviewError } = await supabaseAdmin
+        .from('skill_team_join_requests')
+        .update({
+          status: parsed.status,
+          note: parsed.note || '',
+          reviewed_by_user_id: req.authenticatedUser.id,
+          reviewed_at: new Date().toISOString(),
+        })
+        .eq('id', requestId)
+        .eq('team_id', teamId)
+        .eq('status', 'pending')
+        .select('*')
+        .single();
+
+      if (reviewError || !reviewedRequest) {
+        throw new Error(reviewError?.message || 'Could not update the join request.');
+      }
+
+      const resources = await loadTeamWorkspaceResources(supabaseAdmin, teamId);
+      const detail = buildTeamDetail(resources);
+      const serializedRequest = detail.joinRequests.find((entry) => entry.id === reviewedRequest.id);
+
+      return res.json({
+        joinRequest:
+          serializedRequest ||
+          serializeJoinRequest(
+            reviewedRequest,
+            new Map(),
+            new Map((resources.invites || []).map((invite) => [invite.id, invite]))
+          ),
+      });
+    } catch (error) {
+      return res.status(400).json({ error: error.message || 'Could not review that join request.' });
     }
   });
 
@@ -1263,6 +2057,32 @@ export const createTeamsRouter = ({ supabaseAdmin }) => {
       const membership = await getActorMembership(teamId, req);
       ensureTeamRole(membership, ['owner', 'admin', 'coach']);
       const parsed = CreateAssignmentSchema.parse(req.body || {});
+      ensureAssignmentPayloadIsValid(parsed);
+      const { data: teamSummary, error: teamSummaryError } = await supabaseAdmin
+        .from('skill_teams')
+        .select('id, seat_limit, join_mode')
+        .eq('id', teamId)
+        .single();
+
+      if (teamSummaryError || !teamSummary) {
+        throw new Error(teamSummaryError?.message || 'Could not load team plan limits.');
+      }
+
+      const teamPolicy = getTeamPlanPolicyFromSeatLimit(teamSummary.seat_limit);
+      const { count: assignmentCount, error: assignmentCountError } = await supabaseAdmin
+        .from('skill_team_assignments')
+        .select('id', { count: 'exact', head: true })
+        .eq('team_id', teamId);
+
+      if (assignmentCountError) {
+        throw new Error(assignmentCountError.message || 'Could not validate assignment limits.');
+      }
+
+      if (Number(assignmentCount || 0) >= teamPolicy.assignmentLimit) {
+        throw new Error(
+          `${teamPolicy.label} includes up to ${teamPolicy.assignmentLimit} active assignments per team.`
+        );
+      }
 
       const { data, error } = await supabaseAdmin
         .from('skill_team_assignments')
@@ -1308,6 +2128,19 @@ export const createTeamsRouter = ({ supabaseAdmin }) => {
       const membership = await getActorMembership(teamId, req);
       ensureTeamRole(membership, ['owner', 'admin', 'coach']);
       const parsed = UpdateAssignmentSchema.parse(req.body || {});
+      const existingAssignment = await loadTeamAssignment(supabaseAdmin, teamId, assignmentId);
+
+      if (!existingAssignment) {
+        throw new Error('Could not find that assignment.');
+      }
+
+      ensureAssignmentPayloadIsValid({
+        assignmentType: parsed.assignmentType ?? existingAssignment.assignment_type,
+        benchmarkLanguage:
+          parsed.benchmarkLanguage !== undefined ? parsed.benchmarkLanguage : existingAssignment.benchmark_language,
+        trackId: parsed.trackId !== undefined ? parsed.trackId : existingAssignment.track_id,
+        dueAt: parsed.dueAt !== undefined ? parsed.dueAt : existingAssignment.due_at,
+      });
 
       const updatePayload = {};
       if (parsed.title !== undefined) updatePayload.title = parsed.title;
@@ -1375,12 +2208,44 @@ export const createTeamsRouter = ({ supabaseAdmin }) => {
       const membership = await getActorMembership(teamId, req);
       ensureTeamRole(membership, ['owner', 'admin', 'coach']);
       const parsed = UpdateInviteSchema.parse(req.body || {});
+      const { data: existingInvite, error: existingInviteError } = await supabaseAdmin
+        .from('skill_team_invites')
+        .select('*')
+        .eq('id', inviteId)
+        .eq('team_id', teamId)
+        .maybeSingle();
+
+      if (existingInviteError) {
+        throw new Error(existingInviteError.message || 'Could not load that invite.');
+      }
+
+      if (!existingInvite) {
+        throw new Error('Could not find that invite.');
+      }
+
+      ensureInviteRoleAllowed(membership, parsed.role ?? existingInvite.role, existingInvite);
+      const { data: teamSummary, error: teamSummaryError } = await supabaseAdmin
+        .from('skill_teams')
+        .select('id, seat_limit')
+        .eq('id', teamId)
+        .single();
+
+      if (teamSummaryError || !teamSummary) {
+        throw new Error(teamSummaryError?.message || 'Could not load team limits for invite updates.');
+      }
+
+      const nextInviteEmail = parsed.email !== undefined ? parsed.email : existingInvite.email;
+      if ((teamSummary.join_mode || 'open_code') === 'invite_only' && !nextInviteEmail) {
+        throw new Error('Invite-only teams require a direct email on every invite.');
+      }
+
+      const inviteMaxUsesCap = getTeamPlanPolicyFromSeatLimit(teamSummary.seat_limit).inviteMaxUses;
 
       const updatePayload = {};
       if (parsed.label !== undefined) updatePayload.label = parsed.label;
       if (parsed.email !== undefined) updatePayload.email = parsed.email;
       if (parsed.role !== undefined) updatePayload.role = parsed.role;
-      if (parsed.maxUses !== undefined) updatePayload.max_uses = parsed.maxUses;
+      if (parsed.maxUses !== undefined) updatePayload.max_uses = Math.min(parsed.maxUses, inviteMaxUsesCap);
       if (parsed.status !== undefined) updatePayload.status = parsed.status;
       if (parsed.expiresInDays !== undefined) {
         updatePayload.expires_at = new Date(Date.now() + parsed.expiresInDays * 24 * 60 * 60 * 1000).toISOString();
@@ -1422,6 +2287,22 @@ export const createTeamsRouter = ({ supabaseAdmin }) => {
       const { teamId, inviteId } = TeamInviteRouteParamsSchema.parse(req.params || {});
       const membership = await getActorMembership(teamId, req);
       ensureTeamRole(membership, ['owner', 'admin', 'coach']);
+      const { data: existingInvite, error: existingInviteError } = await supabaseAdmin
+        .from('skill_team_invites')
+        .select('id, role')
+        .eq('id', inviteId)
+        .eq('team_id', teamId)
+        .maybeSingle();
+
+      if (existingInviteError) {
+        throw new Error(existingInviteError.message || 'Could not load that invite.');
+      }
+
+      if (!existingInvite) {
+        throw new Error('Could not find that invite.');
+      }
+
+      ensureInviteRoleAllowed(membership, existingInvite.role, existingInvite);
 
       const { error } = await supabaseAdmin
         .from('skill_team_invites')
@@ -1451,8 +2332,33 @@ export const createTeamsRouter = ({ supabaseAdmin }) => {
         throw new Error('Could not find that team member.');
       }
 
-      if (targetMembership.role === 'owner' && membership.role !== 'owner') {
-        throw new Error('Only an owner can manage another owner.');
+      await ensureOwnerStateChangeAllowed(supabaseAdmin, teamId, membership, targetMembership, parsed);
+
+      const { data: teamSummary, error: teamSummaryError } = await supabaseAdmin
+        .from('skill_teams')
+        .select('id, seat_limit')
+        .eq('id', teamId)
+        .single();
+
+      if (teamSummaryError || !teamSummary) {
+        throw new Error(teamSummaryError?.message || 'Could not load team limits.');
+      }
+
+      const nextRole = parsed.role ?? targetMembership.role;
+      const nextStatus = parsed.status ?? targetMembership.status;
+
+      if (nextStatus === 'active') {
+        await ensureMembershipLimitAvailable({
+          supabaseAdmin,
+          userId,
+          nextRole,
+          teamPolicy: getTeamPlanPolicyFromSeatLimit(teamSummary.seat_limit),
+          teamId,
+        });
+      }
+
+      if (parsed.status === 'active' && targetMembership.status !== 'active') {
+        await ensureTeamCapacityAvailable(supabaseAdmin, teamId);
       }
 
       const { data, error } = await supabaseAdmin
@@ -1536,11 +2442,7 @@ export const createTeamsRouter = ({ supabaseAdmin }) => {
       const membership = await getActorMembership(teamId, req);
       ensureTeamRole(membership, ['owner', 'admin', 'coach']);
       const parsed = CreateFeedbackSchema.parse(req.body || {});
-      const targetMembership = await loadMembership(supabaseAdmin, teamId, parsed.memberUserId);
-
-      if (!targetMembership) {
-        throw new Error('The selected learner is not part of this team.');
-      }
+      await ensureFeedbackTargetsAreValid(supabaseAdmin, teamId, parsed.memberUserId, parsed.assignmentId);
 
       const { data, error } = await supabaseAdmin
         .from('skill_team_feedback')
@@ -1579,6 +2481,27 @@ export const createTeamsRouter = ({ supabaseAdmin }) => {
       const membership = await getActorMembership(teamId, req);
       ensureTeamRole(membership, ['owner', 'admin', 'coach']);
       const parsed = UpdateFeedbackSchema.parse(req.body || {});
+      const { data: existingFeedback, error: existingFeedbackError } = await supabaseAdmin
+        .from('skill_team_feedback')
+        .select('id, member_user_id, assignment_id')
+        .eq('id', feedbackId)
+        .eq('team_id', teamId)
+        .maybeSingle();
+
+      if (existingFeedbackError) {
+        throw new Error(existingFeedbackError.message || 'Could not load that feedback entry.');
+      }
+
+      if (!existingFeedback) {
+        throw new Error('Could not find that feedback entry.');
+      }
+
+      await ensureFeedbackTargetsAreValid(
+        supabaseAdmin,
+        teamId,
+        existingFeedback.member_user_id,
+        parsed.assignmentId !== undefined ? parsed.assignmentId : existingFeedback.assignment_id
+      );
 
       const updatePayload = {};
       if (parsed.assignmentId !== undefined) updatePayload.assignment_id = parsed.assignmentId;
@@ -1639,6 +2562,10 @@ export const createTeamsRouter = ({ supabaseAdmin }) => {
       const membership = await getActorMembership(teamId, req);
       ensureTeamRole(membership, ['owner', 'admin', 'coach']);
       const resources = await loadTeamWorkspaceResources(supabaseAdmin, teamId);
+      const teamPolicy = getTeamPlanPolicyFromSeatLimit(resources.team?.seat_limit);
+      if (!teamPolicy.supportsAdvancedAnalytics) {
+        throw new Error('Expanded analytics unlock with Teams Growth or Custom.');
+      }
       const detail = buildTeamDetail(resources);
       const analytics = buildTeamAnalytics({ detail });
       return res.json({ analytics });
@@ -1654,6 +2581,10 @@ export const createTeamsRouter = ({ supabaseAdmin }) => {
       const membership = await getActorMembership(teamId, req);
       ensureTeamRole(membership, ['owner', 'admin', 'coach']);
       const resources = await loadTeamWorkspaceResources(supabaseAdmin, teamId);
+      const teamPolicy = getTeamPlanPolicyFromSeatLimit(resources.team?.seat_limit);
+      if (format === 'csv' && !teamPolicy.supportsCsvExport) {
+        throw new Error('CSV export unlocks with Teams Growth or Custom.');
+      }
       const detail = buildTeamDetail(resources);
       const analytics = buildTeamAnalytics({ detail });
 

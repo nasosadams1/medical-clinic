@@ -51,7 +51,11 @@ const loadRemoteAdminCapabilities = async (userId: string, accessToken: string) 
 
 export function useAdminAccess() {
   const { user, session } = useAuth();
-  const localAdminAccess = useMemo(() => isAdminFromMetadata(user), [user]);
+  const hasDevelopmentAdminAccess = import.meta.env.DEV && Boolean(user?.id);
+  const localAdminAccess = useMemo(
+    () => hasDevelopmentAdminAccess || isAdminFromMetadata(user),
+    [hasDevelopmentAdminAccess, user]
+  );
   const [remoteAdminAccess, setRemoteAdminAccess] = useState<boolean>(() => {
     if (!user?.id) return false;
     return adminCapabilityCache.get(user.id) || false;

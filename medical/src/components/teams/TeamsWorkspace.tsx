@@ -23,6 +23,7 @@ import { useAuth } from '../../context/AuthContext';
 import { interviewTracks } from '../../data/siteContent';
 import { usePlanAccess } from '../../hooks/usePlanAccess';
 import { trackEvent } from '../../lib/analytics';
+import { getTeamPlanPolicyFromSeatLimit } from '../../../shared/team-plan-policy.js';
 import {
   createTeam,
   createTeamAssignment,
@@ -37,6 +38,7 @@ import {
   joinTeamByCode,
   listTeams,
   removeTeamMember,
+  reviewTeamJoinRequest,
   shareTeamWorkspace,
   TeamAnalytics,
   TeamAssignment,
@@ -44,6 +46,8 @@ import {
   TeamFeedback,
   TeamFeedbackStatus,
   TeamInvite,
+  TeamJoinMode,
+  TeamJoinRequest,
   TeamMember,
   TeamRole,
   TeamSummary,
@@ -53,11 +57,13 @@ import {
   updateTeamAssignment,
   updateTeamFeedback,
   updateTeamInvite,
+  updateTeamJoinSettings,
   updateTeamMember,
 } from '../../lib/teams';
 
 type TeamsWorkspaceMode = 'app' | 'public';
 type WorkspaceModal = null | 'members' | 'assignments' | 'invites' | 'feedback' | 'analytics' | 'reports';
+const TEAM_WORKSPACE_OVERVIEW_VALUE = '__overview__';
 
 interface TeamsWorkspaceProps {
   mode?: TeamsWorkspaceMode;
@@ -101,6 +107,11 @@ interface FeedbackDraft {
   sharedWithMember: boolean;
 }
 
+interface JoinSettingsDraft {
+  joinMode: TeamJoinMode;
+  allowedEmailDomain: string;
+}
+
 const TEAM_USE_CASE_OPTIONS: Array<{ value: TeamUseCase; label: string }> = [
   { value: 'bootcamps', label: 'Bootcamp cohort' },
   { value: 'universities', label: 'University / class' },
@@ -120,6 +131,18 @@ const FEEDBACK_STATUS_OPTIONS: Array<{ value: TeamFeedbackStatus; label: string 
   { value: 'shared', label: 'Shared' },
   { value: 'resolved', label: 'Resolved' },
 ];
+
+const TEAM_JOIN_MODE_OPTIONS: Array<{ value: TeamJoinMode; label: string; helper: string }> = [
+  { value: 'open_code', label: 'Open by code', helper: 'Any active code joins instantly.' },
+  { value: 'code_domain', label: 'Code + email domain', helper: 'Only signed-in users on one allowed domain can join.' },
+  { value: 'code_approval', label: 'Code + admin approval', helper: 'Codes create requests that owners or admins approve.' },
+  { value: 'invite_only', label: 'Invite-only', helper: 'Only direct email invites can be used.' },
+];
+
+const TEAM_INVITE_MIN_USES = 1;
+const TEAM_INVITE_MAX_USES = 500;
+const TEAM_INVITE_MIN_EXPIRES_DAYS = 1;
+const TEAM_INVITE_MAX_EXPIRES_DAYS = 90;
 
 const emptyInviteDraft = (): InviteDraft => ({
   id: null,
@@ -152,6 +175,11 @@ const emptyFeedbackDraft = (): FeedbackDraft => ({
   focusAreas: '',
   coachNotes: '',
   sharedWithMember: false,
+});
+
+const emptyJoinSettingsDraft = (): JoinSettingsDraft => ({
+  joinMode: 'open_code',
+  allowedEmailDomain: '',
 });
 
 const formatDateLabel = (value: string | null | undefined) => {
@@ -188,6 +216,21 @@ const getDaysUntil = (value: string | null | undefined) => {
   const diff = parsed.getTime() - Date.now();
   return String(Math.max(1, Math.ceil(diff / (1000 * 60 * 60 * 24))));
 };
+
+const sanitizeIntegerDraftValue = (value: string) => value.replace(/[^\d]/g, '');
+
+const clampInteger = (value: number, minimum: number, maximum: number) => Math.min(maximum, Math.max(minimum, value));
+
+const parseInviteInteger = (value: string, fallback: number, minimum: number, maximum: number) => {
+  const normalized = sanitizeIntegerDraftValue(value);
+  if (!normalized) return fallback;
+  const parsed = Number(normalized);
+  if (!Number.isFinite(parsed)) return fallback;
+  return clampInteger(parsed, minimum, maximum);
+};
+
+const clampInviteDraftField = (value: string, fallback: number, minimum: number, maximum: number) =>
+  String(parseInviteInteger(value, fallback, minimum, maximum));
 
 const downloadBlob = (blob: Blob, filename: string) => {
   const url = URL.createObjectURL(blob);
@@ -316,10 +359,10 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const { user } = useAuth();
-  const { hasAnyTeamPlan, activeTeamEntitlement } = usePlanAccess();
+  const { hasAnyTeamPlan, activeTeamEntitlement, teamPlanPolicy } = usePlanAccess();
 
   const [teams, setTeams] = useState<TeamSummary[]>([]);
-  const [selectedTeamId, setSelectedTeamId] = useState('');
+  const [selectedTeamId, setSelectedTeamId] = useState(TEAM_WORKSPACE_OVERVIEW_VALUE);
   const [teamDetail, setTeamDetail] = useState<TeamWorkspaceDetail | null>(null);
   const [teamAnalytics, setTeamAnalytics] = useState<TeamAnalytics | null>(null);
   const [loadingTeams, setLoadingTeams] = useState(false);
@@ -333,6 +376,7 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
   const [joinCode, setJoinCode] = useState(searchParams.get('invite') || '');
 
   const [memberDrafts, setMemberDrafts] = useState<Record<string, MemberDraft>>({});
+  const [joinSettingsDraft, setJoinSettingsDraft] = useState<JoinSettingsDraft>(emptyJoinSettingsDraft());
   const [inviteDraft, setInviteDraft] = useState<InviteDraft>(emptyInviteDraft());
   const [assignmentDraft, setAssignmentDraft] = useState<AssignmentDraft>(emptyAssignmentDraft());
   const [feedbackDraft, setFeedbackDraft] = useState<FeedbackDraft>(emptyFeedbackDraft());
@@ -340,12 +384,25 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
   const inviteJoinHandledRef = useRef<string | null>(null);
 
   const isSignedIn = Boolean(user);
-  const selectedTeam = teamDetail?.team || null;
+  const isOverviewSelected = selectedTeamId === TEAM_WORKSPACE_OVERVIEW_VALUE;
+  const selectedTeam = isOverviewSelected ? null : teamDetail?.team || null;
   const currentRole =
     selectedTeam?.currentUserRole || teams.find((team) => team.id === selectedTeamId)?.currentUserRole || null;
   const canManageMembers = currentRole === 'owner' || currentRole === 'admin';
   const canManageWorkspace = currentRole === 'owner' || currentRole === 'admin' || currentRole === 'coach';
+  const canPublishProof = currentRole === 'owner' || currentRole === 'admin';
   const canCreateTeams = hasAnyTeamPlan;
+  const selectedTeamPlanPolicy = useMemo(
+    () => getTeamPlanPolicyFromSeatLimit(selectedTeam?.seatLimit),
+    [selectedTeam?.seatLimit]
+  );
+  const canAccessAdvancedAnalytics = selectedTeamPlanPolicy.supportsAdvancedAnalytics;
+  const canAccessCsvExport = selectedTeamPlanPolicy.supportsCsvExport;
+  const selectedTeamInviteUsesCap = useMemo(() => {
+    const policyCap = selectedTeamPlanPolicy.inviteMaxUses || TEAM_INVITE_MAX_USES;
+    const seatCap = Number(selectedTeam?.seatLimit || policyCap);
+    return clampInteger(Math.min(policyCap, seatCap), TEAM_INVITE_MIN_USES, TEAM_INVITE_MAX_USES);
+  }, [selectedTeam?.seatLimit, selectedTeamPlanPolicy.inviteMaxUses]);
 
   const workspaceCounts = useMemo(
     () => ({
@@ -355,6 +412,10 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
       feedback: teamDetail?.feedback.length || 0,
     }),
     [teamDetail]
+  );
+  const inviteRoleOptions = useMemo(
+    () => (currentRole === 'coach' ? TEAM_ROLE_OPTIONS.filter((option) => option.value === 'learner') : TEAM_ROLE_OPTIONS),
+    [currentRole]
   );
 
   const hydrateMemberDrafts = (members: TeamMember[]) => {
@@ -372,7 +433,7 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
   const refreshTeamList = async (preferredTeamId?: string) => {
     if (!isSignedIn) {
       setTeams([]);
-      setSelectedTeamId('');
+      setSelectedTeamId(TEAM_WORKSPACE_OVERVIEW_VALUE);
       return;
     }
 
@@ -386,12 +447,12 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
       const nextSelectedTeamId =
         preferredTeamId && nextTeams.some((team) => team.id === preferredTeamId)
           ? preferredTeamId
-          : selectedTeamId && nextTeams.some((team) => team.id === selectedTeamId)
+        : selectedTeamId && nextTeams.some((team) => team.id === selectedTeamId)
           ? selectedTeamId
-          : nextTeams[0]?.id || '';
+          : TEAM_WORKSPACE_OVERVIEW_VALUE;
 
       setSelectedTeamId(nextSelectedTeamId);
-      if (!nextSelectedTeamId) {
+      if (nextSelectedTeamId === TEAM_WORKSPACE_OVERVIEW_VALUE) {
         setTeamDetail(null);
       }
     } catch (error: any) {
@@ -415,6 +476,10 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
       const detail = await getTeamWorkspace(teamId);
       setTeamDetail(detail);
       hydrateMemberDrafts(detail.members);
+      setJoinSettingsDraft({
+        joinMode: detail.team.joinMode || 'open_code',
+        allowedEmailDomain: detail.team.allowedEmailDomain || '',
+      });
       if (!feedbackDraft.memberUserId && detail.members[0]) {
         setFeedbackDraft((current) => ({ ...current, memberUserId: detail.members[0].userId }));
       }
@@ -430,7 +495,7 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
   }, [user?.id]);
 
   useEffect(() => {
-    if (!selectedTeamId) {
+    if (!selectedTeamId || selectedTeamId === TEAM_WORKSPACE_OVERVIEW_VALUE) {
       setTeamDetail(null);
       setTeamAnalytics(null);
       return;
@@ -449,13 +514,8 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
     inviteJoinHandledRef.current = inviteParam;
     void (async () => {
       try {
-        const team = await joinTeamByCode(inviteParam);
-        toast.success(`Joined ${team.name}.`);
-        await refreshTeamList(team.id);
-        setSelectedTeamId(team.id);
-        const nextParams = new URLSearchParams(searchParams);
-        nextParams.delete('invite');
-        setSearchParams(nextParams, { replace: true });
+        const result = await joinTeamByCode(inviteParam);
+        await handleJoinResult(result, inviteParam);
       } catch (error: any) {
         toast.error(error?.message || 'Could not join team with that invite.');
       }
@@ -469,6 +529,38 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
       ...emptyFeedbackDraft(),
       memberUserId: teamDetail?.members[0]?.userId || current.memberUserId || '',
     }));
+
+  const handleJoinResult = async (
+    result: Awaited<ReturnType<typeof joinTeamByCode>>,
+    inviteCodeFromUrl?: string | null
+  ) => {
+    setJoinCode('');
+
+    if (result.status === 'pending') {
+      trackEvent('team_join_requested', {
+        source: 'teams_workspace',
+        mode,
+        joinMode: result.team.joinMode || 'code_approval',
+      });
+      toast.success(`Request sent to ${result.team.name}.`);
+      await refreshTeamList();
+    } else {
+      trackEvent('team_joined', {
+        source: 'teams_workspace',
+        mode,
+        joinMode: result.team.joinMode || 'open_code',
+      });
+      toast.success(`Joined ${result.team.name}.`);
+      await refreshTeamList(result.team.id);
+      setSelectedTeamId(result.team.id);
+    }
+
+    if (inviteCodeFromUrl) {
+      const nextParams = new URLSearchParams(searchParams);
+      nextParams.delete('invite');
+      setSearchParams(nextParams, { replace: true });
+    }
+  };
 
   const handleCreateTeam = async () => {
     if (!isSignedIn) {
@@ -492,6 +584,7 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
       const team = await createTeam({
         name: newTeamName.trim(),
         useCase: newTeamUseCase,
+        seatLimit: teamPlanPolicy.seatLimit,
       });
       trackEvent('team_created', { useCase: newTeamUseCase, source: 'teams_workspace', mode });
       toast.success(`${team.name} is ready.`);
@@ -518,14 +611,8 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
 
     setSubmittingKey('join-team');
     try {
-      const team = await joinTeamByCode(joinCode.trim());
-      trackEvent('team_joined', { source: 'teams_workspace', mode });
-      toast.success(`Joined ${team.name}.`);
-      await refreshTeamList(team.id);
-      setSelectedTeamId(team.id);
-      const nextParams = new URLSearchParams(searchParams);
-      nextParams.delete('invite');
-      setSearchParams(nextParams, { replace: true });
+      const result = await joinTeamByCode(joinCode.trim());
+      await handleJoinResult(result, searchParams.get('invite'));
     } catch (error: any) {
       toast.error(error?.message || 'Could not join team.');
     } finally {
@@ -533,7 +620,53 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
     }
   };
 
+  const handleSaveJoinSettings = async () => {
+    if (!selectedTeamId || !selectedTeam) return;
+
+    if (joinSettingsDraft.joinMode === 'code_domain' && !joinSettingsDraft.allowedEmailDomain.trim()) {
+      toast.error('Enter an allowed email domain.');
+      return;
+    }
+
+    setSubmittingKey('save-join-settings');
+    try {
+      const nextTeam = await updateTeamJoinSettings(selectedTeamId, {
+        joinMode: joinSettingsDraft.joinMode,
+        allowedEmailDomain:
+          joinSettingsDraft.joinMode === 'code_domain' ? joinSettingsDraft.allowedEmailDomain.trim() : null,
+      });
+      setTeamDetail((current) => (current ? { ...current, team: { ...current.team, ...nextTeam } } : current));
+      toast.success('Join settings updated.');
+      await refreshTeamList(selectedTeamId);
+    } catch (error: any) {
+      toast.error(error?.message || 'Could not update join settings.');
+    } finally {
+      setSubmittingKey(null);
+    }
+  };
+
+  const handleReviewJoinRequest = async (request: TeamJoinRequest, status: 'approved' | 'denied') => {
+    if (!selectedTeamId) return;
+
+    setSubmittingKey(`${status}-join-request-${request.id}`);
+    try {
+      await reviewTeamJoinRequest(selectedTeamId, request.id, { status });
+      toast.success(status === 'approved' ? `${request.userName} approved.` : `${request.userName} denied.`);
+      await refreshSelectedTeam(selectedTeamId);
+      await refreshTeamList(selectedTeamId);
+    } catch (error: any) {
+      toast.error(error?.message || 'Could not review join request.');
+    } finally {
+      setSubmittingKey(null);
+    }
+  };
+
   const openModal = async (modal: Exclude<WorkspaceModal, null>) => {
+    if (modal === 'analytics' && !canAccessAdvancedAnalytics) {
+      toast.error('Expanded analytics unlock with Teams Growth or Custom.');
+      return;
+    }
+
     setActiveModal(modal);
     if (modal === 'analytics' && selectedTeamId) {
       setSubmittingKey('analytics');
@@ -555,6 +688,30 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
       return;
     }
 
+    const maxUses = parseInviteInteger(
+      inviteDraft.maxUses,
+      Math.min(25, selectedTeamInviteUsesCap),
+      TEAM_INVITE_MIN_USES,
+      selectedTeamInviteUsesCap
+    );
+    const expiresInDays = parseInviteInteger(
+      inviteDraft.expiresInDays,
+      14,
+      TEAM_INVITE_MIN_EXPIRES_DAYS,
+      TEAM_INVITE_MAX_EXPIRES_DAYS
+    );
+
+    if (
+      String(maxUses) !== sanitizeIntegerDraftValue(inviteDraft.maxUses || '') ||
+      String(expiresInDays) !== sanitizeIntegerDraftValue(inviteDraft.expiresInDays || '')
+    ) {
+      setInviteDraft((current) => ({
+        ...current,
+        maxUses: String(maxUses),
+        expiresInDays: String(expiresInDays),
+      }));
+    }
+
     setSubmittingKey('save-invite');
     try {
       if (inviteDraft.id) {
@@ -562,8 +719,8 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
           label: inviteDraft.label.trim(),
           email: inviteDraft.email.trim() || null,
           role: inviteDraft.role,
-          maxUses: Number(inviteDraft.maxUses || 25),
-          expiresInDays: Number(inviteDraft.expiresInDays || 14),
+          maxUses,
+          expiresInDays,
           status: inviteDraft.status,
         });
         toast.success('Invite updated.');
@@ -572,8 +729,8 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
           label: inviteDraft.label.trim(),
           email: inviteDraft.email.trim() || undefined,
           role: inviteDraft.role,
-          maxUses: Number(inviteDraft.maxUses || 25),
-          expiresInDays: Number(inviteDraft.expiresInDays || 14),
+          maxUses,
+          expiresInDays,
         });
         toast.success(createdInvite.emailDelivery === 'sent' ? 'Invite created and emailed.' : 'Invite created.');
       }
@@ -620,6 +777,14 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
     if (!selectedTeamId) return;
     if (!assignmentDraft.title.trim()) {
       toast.error('Enter an assignment title.');
+      return;
+    }
+    if (assignmentDraft.assignmentType === 'roadmap' && !assignmentDraft.trackId) {
+      toast.error('Select a roadmap track.');
+      return;
+    }
+    if (assignmentDraft.assignmentType !== 'roadmap' && !assignmentDraft.benchmarkLanguage) {
+      toast.error('Select a benchmark language.');
       return;
     }
 
@@ -789,6 +954,10 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
 
   const handleExport = async (format: 'json' | 'csv') => {
     if (!selectedTeamId || !selectedTeam) return;
+    if (format === 'csv' && !canAccessCsvExport) {
+      toast.error('CSV export unlocks with Teams Growth or Custom.');
+      return;
+    }
 
     setSubmittingKey(`export-${format}`);
     try {
@@ -830,7 +999,7 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
     return `${window.location.origin}/teams/proof/${teamDetail.team.shareToken}`;
   }, [teamDetail?.team.shareToken]);
 
-  const teamSelectorValue = selectedTeamId || '';
+  const teamSelectorValue = selectedTeamId || TEAM_WORKSPACE_OVERVIEW_VALUE;
   const isBusy = loadingTeams || loadingDetail;
   const createCardDisabled = !isSignedIn || !canCreateTeams;
   const joinCardDisabled = !isSignedIn;
@@ -855,7 +1024,7 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
           </p>
 
           <div className="mx-auto mt-6 w-full max-w-sm text-left">
-            <div className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">Current team</div>
+            <div className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">Workspace view</div>
             <div className="relative mt-3">
               <select
                 value={teamSelectorValue}
@@ -863,7 +1032,9 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
                 disabled={!isSignedIn || loadingTeams}
                 className="h-12 w-full appearance-none rounded-2xl border border-border bg-background px-4 pr-11 text-sm font-semibold text-foreground outline-none transition focus:border-primary/40 disabled:cursor-not-allowed disabled:opacity-70"
               >
-                <option value="">{loadingTeams ? 'Loading teams...' : 'No teams yet'}</option>
+                <option value={TEAM_WORKSPACE_OVERVIEW_VALUE}>
+                  {loadingTeams ? 'Loading workspace...' : teams.length > 0 ? 'Workspace overview' : 'Get started'}
+                </option>
                 {teams.map((team) => (
                   <option key={team.id} value={team.id}>
                     {team.name}
@@ -921,8 +1092,8 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
 
                   <div className="mt-4 text-sm text-muted-foreground">
                     {activeTeamEntitlement
-                      ? `Active plan: ${activeTeamEntitlement.planName}`
-                      : 'Create or upgrade to unlock company analytics.'}
+                      ? `${activeTeamEntitlement.planName}: ${teamPlanPolicy.workspaceLimit} workspace${teamPlanPolicy.workspaceLimit === 1 ? '' : 's'}, ${teamPlanPolicy.managerMembershipLimit} managed teams, ${teamPlanPolicy.seatLimit} seats per team.`
+                      : `Learners can join up to ${teamPlanPolicy.learnerMembershipLimit} active teams. Upgrade to create and manage team workspaces.`}
                   </div>
                 </div>
               </section>
@@ -946,7 +1117,9 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
                     Join team
                   </button>
                   <div className="mt-4 rounded-2xl border border-border bg-card px-4 py-4 text-sm text-muted-foreground">
-                    {joinCardDisabled ? 'Sign in first, then use the invite code you received.' : 'Create or join a team to unlock analytics.'}
+                    {joinCardDisabled
+                      ? 'Sign in first, then use the invite code you received.'
+                      : `Learners can join up to ${teamPlanPolicy.learnerMembershipLimit} active teams. Staff roles unlock higher limits based on the team plan.`}
                   </div>
                 </div>
               </section>
@@ -964,6 +1137,7 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
 
                 <div className="mt-4 flex flex-wrap gap-2">
                   <StatusPill>{workspaceCounts.members} members</StatusPill>
+                  <StatusPill>{selectedTeam.seatLimit} seat cap</StatusPill>
                   <StatusPill>{workspaceCounts.assignments} assignments</StatusPill>
                   <StatusPill>{workspaceCounts.feedback} reviews</StatusPill>
                 </div>
@@ -977,7 +1151,11 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
                   />
                   <ActionButton
                     title="Assignments"
-                    value={canManageWorkspace ? 'Create, edit, delete' : `${workspaceCounts.assignments} assigned`}
+                    value={
+                      canManageWorkspace
+                        ? `${workspaceCounts.assignments}/${selectedTeamPlanPolicy.assignmentLimit} active`
+                        : `${workspaceCounts.assignments} assigned`
+                    }
                     onClick={() => openModal('assignments')}
                     icon={<Plus className="h-5 w-5" />}
                   />
@@ -1013,17 +1191,34 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
 
                 <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
                   <ActionButton
-                    title="Invites"
-                    value={canManageWorkspace ? 'Create and edit access' : `${workspaceCounts.invites} issued`}
+                    title="Access"
+                    value={
+                      canManageWorkspace
+                        ? `Create and edit access (${selectedTeamPlanPolicy.inviteMaxUses} max uses)`
+                        : `${workspaceCounts.invites} issued`
+                    }
                     onClick={() => openModal('invites')}
                     icon={<Copy className="h-5 w-5" />}
                   />
-                  <ActionButton title="Analytics" value="Company and cohort signals" onClick={() => openModal('analytics')} icon={<BarChart3 className="h-5 w-5" />} />
-                  <ActionButton title="Reports" value="Export and publish proof" onClick={() => openModal('reports')} icon={<FileOutput className="h-5 w-5" />} />
+                  <ActionButton
+                    title="Analytics"
+                    value={canAccessAdvancedAnalytics ? 'Company and cohort signals' : 'Unlock with Teams Growth'}
+                    onClick={() => openModal('analytics')}
+                    disabled={!canAccessAdvancedAnalytics}
+                    icon={<BarChart3 className="h-5 w-5" />}
+                  />
+                  <ActionButton
+                    title="Reports"
+                    value={canAccessCsvExport ? 'Export and publish proof' : 'JSON export and proof page'}
+                    onClick={() => openModal('reports')}
+                    icon={<FileOutput className="h-5 w-5" />}
+                  />
                 </div>
 
                 <div className="mt-4 text-sm text-muted-foreground">
-                  Benchmarks, feedback, and exports are kept in one place without adding more dashboard clutter.
+                  {selectedTeamPlanPolicy.supportsAdvancedAnalytics
+                    ? 'Benchmarks, feedback, and exports are kept in one place without adding more dashboard clutter.'
+                    : 'Teams includes one cohort with core workspace tools. Upgrade to Teams Growth for expanded analytics and CSV reporting.'}
                 </div>
               </section>
             </>
@@ -1152,6 +1347,9 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
           <div className="grid gap-5 xl:grid-cols-[380px_minmax(0,1fr)]">
             <div className="rounded-2xl border border-border bg-background p-4">
               <div className="text-sm font-semibold text-foreground">{assignmentDraft.id ? 'Edit assignment' : 'New assignment'}</div>
+              <div className="mt-2 text-xs text-muted-foreground">
+                {workspaceCounts.assignments}/{selectedTeamPlanPolicy.assignmentLimit} active assignments on this plan.
+              </div>
               <div className="mt-4 space-y-3">
                 <input
                   value={assignmentDraft.title}
@@ -1291,144 +1489,293 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
 
       {activeModal === 'invites' && teamDetail ? (
         <ModalShell
-          title="Invites"
-          subtitle="Issue, update, and revoke workspace access."
+          title="Access"
+          subtitle="Choose how people join, review pending requests, and manage invite codes."
           onClose={() => setActiveModal(null)}
         >
           <div className="grid gap-5 xl:grid-cols-[360px_minmax(0,1fr)]">
-            <div className="rounded-2xl border border-border bg-background p-4">
-              <div className="text-sm font-semibold text-foreground">{inviteDraft.id ? 'Edit invite' : 'Create invite'}</div>
-              <div className="mt-4 space-y-3">
-                <input
-                  value={inviteDraft.label}
-                  onChange={(event) => setInviteDraft((current) => ({ ...current, label: event.target.value }))}
-                  placeholder="Invite label"
-                  className="h-11 w-full rounded-2xl border border-border bg-card px-4 text-sm text-foreground outline-none transition focus:border-primary/40"
-                />
-                <input
-                  value={inviteDraft.email}
-                  onChange={(event) => setInviteDraft((current) => ({ ...current, email: event.target.value }))}
-                  placeholder="Optional email"
-                  className="h-11 w-full rounded-2xl border border-border bg-card px-4 text-sm text-foreground outline-none transition focus:border-primary/40"
-                />
-                <select
-                  value={inviteDraft.role}
-                  onChange={(event) =>
-                    setInviteDraft((current) => ({ ...current, role: event.target.value as InviteDraft['role'] }))
-                  }
-                  className="h-11 w-full rounded-2xl border border-border bg-card px-4 text-sm text-foreground outline-none transition focus:border-primary/40"
-                >
-                  {TEAM_ROLE_OPTIONS.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <input
-                    value={inviteDraft.maxUses}
-                    onChange={(event) => setInviteDraft((current) => ({ ...current, maxUses: event.target.value }))}
-                    placeholder="Max uses"
-                    className="h-11 w-full rounded-2xl border border-border bg-card px-4 text-sm text-foreground outline-none transition focus:border-primary/40"
-                  />
-                  <input
-                    value={inviteDraft.expiresInDays}
-                    onChange={(event) => setInviteDraft((current) => ({ ...current, expiresInDays: event.target.value }))}
-                    placeholder="Expires in days"
-                    className="h-11 w-full rounded-2xl border border-border bg-card px-4 text-sm text-foreground outline-none transition focus:border-primary/40"
-                  />
-                </div>
-                {inviteDraft.id ? (
+            <div className="space-y-5">
+              <div className="rounded-2xl border border-border bg-background p-4">
+                <div className="text-sm font-semibold text-foreground">Join settings</div>
+                <div className="mt-4 space-y-3">
                   <select
-                    value={inviteDraft.status}
+                    value={joinSettingsDraft.joinMode}
                     onChange={(event) =>
-                      setInviteDraft((current) => ({ ...current, status: event.target.value as TeamInvite['status'] }))
+                      setJoinSettingsDraft((current) => ({
+                        ...current,
+                        joinMode: event.target.value as TeamJoinMode,
+                        allowedEmailDomain: event.target.value === 'code_domain' ? current.allowedEmailDomain : '',
+                      }))
                     }
                     className="h-11 w-full rounded-2xl border border-border bg-card px-4 text-sm text-foreground outline-none transition focus:border-primary/40"
                   >
-                    <option value="active">Active</option>
-                    <option value="expired">Expired</option>
-                    <option value="revoked">Revoked</option>
+                    {TEAM_JOIN_MODE_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
                   </select>
-                ) : null}
-                <div className="flex flex-wrap gap-3">
+                  <div className="rounded-2xl border border-border bg-card px-4 py-3 text-sm text-muted-foreground">
+                    {TEAM_JOIN_MODE_OPTIONS.find((option) => option.value === joinSettingsDraft.joinMode)?.helper}
+                  </div>
+                  {joinSettingsDraft.joinMode === 'code_domain' ? (
+                    <input
+                      value={joinSettingsDraft.allowedEmailDomain}
+                      onChange={(event) =>
+                        setJoinSettingsDraft((current) => ({ ...current, allowedEmailDomain: event.target.value }))
+                      }
+                      placeholder="school.edu"
+                      className="h-11 w-full rounded-2xl border border-border bg-card px-4 text-sm text-foreground outline-none transition focus:border-primary/40"
+                    />
+                  ) : null}
                   <button
                     type="button"
-                    onClick={handleSaveInvite}
-                    disabled={!canManageWorkspace || submittingKey === 'save-invite'}
+                    onClick={handleSaveJoinSettings}
+                    disabled={!canManageMembers || submittingKey === 'save-join-settings'}
                     className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl bg-primary px-5 text-sm font-semibold text-primary-foreground transition hover:bg-primary/90 disabled:opacity-60"
                   >
-                    {submittingKey === 'save-invite' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
-                    {inviteDraft.id ? 'Save invite' : 'Create invite'}
+                    {submittingKey === 'save-join-settings' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
+                    Save access mode
                   </button>
+                </div>
+              </div>
+
+              <div className="rounded-2xl border border-border bg-background p-4">
+                <div className="text-sm font-semibold text-foreground">{inviteDraft.id ? 'Edit invite' : 'Create invite'}</div>
+                <div className="mt-4 space-y-3">
+                  <input
+                    value={inviteDraft.label}
+                    onChange={(event) => setInviteDraft((current) => ({ ...current, label: event.target.value }))}
+                    placeholder="Invite label"
+                    className="h-11 w-full rounded-2xl border border-border bg-card px-4 text-sm text-foreground outline-none transition focus:border-primary/40"
+                  />
+                  <input
+                    value={inviteDraft.email}
+                    onChange={(event) => setInviteDraft((current) => ({ ...current, email: event.target.value }))}
+                    placeholder="Optional email"
+                    className="h-11 w-full rounded-2xl border border-border bg-card px-4 text-sm text-foreground outline-none transition focus:border-primary/40"
+                  />
+                  <select
+                    value={inviteDraft.role}
+                    onChange={(event) =>
+                      setInviteDraft((current) => ({ ...current, role: event.target.value as InviteDraft['role'] }))
+                    }
+                    className="h-11 w-full rounded-2xl border border-border bg-card px-4 text-sm text-foreground outline-none transition focus:border-primary/40"
+                  >
+                    {inviteRoleOptions.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <input
+                      value={inviteDraft.maxUses}
+                      onChange={(event) =>
+                        setInviteDraft((current) => ({
+                          ...current,
+                          maxUses: sanitizeIntegerDraftValue(event.target.value),
+                        }))
+                      }
+                      onBlur={() =>
+                        setInviteDraft((current) => ({
+                          ...current,
+                          maxUses: clampInviteDraftField(
+                            current.maxUses,
+                            Math.min(25, selectedTeamInviteUsesCap),
+                            TEAM_INVITE_MIN_USES,
+                            selectedTeamInviteUsesCap
+                          ),
+                        }))
+                      }
+                      inputMode="numeric"
+                      pattern="[0-9]*"
+                      placeholder={`Max uses (1-${selectedTeamInviteUsesCap})`}
+                      className="h-11 w-full rounded-2xl border border-border bg-card px-4 text-sm text-foreground outline-none transition focus:border-primary/40"
+                    />
+                    <input
+                      value={inviteDraft.expiresInDays}
+                      onChange={(event) =>
+                        setInviteDraft((current) => ({
+                          ...current,
+                          expiresInDays: sanitizeIntegerDraftValue(event.target.value),
+                        }))
+                      }
+                      onBlur={() =>
+                        setInviteDraft((current) => ({
+                          ...current,
+                          expiresInDays: clampInviteDraftField(
+                            current.expiresInDays,
+                            14,
+                            TEAM_INVITE_MIN_EXPIRES_DAYS,
+                            TEAM_INVITE_MAX_EXPIRES_DAYS
+                          ),
+                        }))
+                      }
+                      inputMode="numeric"
+                      pattern="[0-9]*"
+                      placeholder="Expires in days (1-90)"
+                      className="h-11 w-full rounded-2xl border border-border bg-card px-4 text-sm text-foreground outline-none transition focus:border-primary/40"
+                    />
+                  </div>
+                  <div className="grid gap-2 text-xs text-muted-foreground sm:grid-cols-2">
+                    <div>Invite uses are limited to {TEAM_INVITE_MIN_USES}-{selectedTeamInviteUsesCap} on this plan.</div>
+                    <div>Expiry must stay within {TEAM_INVITE_MIN_EXPIRES_DAYS}-{TEAM_INVITE_MAX_EXPIRES_DAYS} days.</div>
+                  </div>
                   {inviteDraft.id ? (
+                    <select
+                      value={inviteDraft.status}
+                      onChange={(event) =>
+                        setInviteDraft((current) => ({ ...current, status: event.target.value as TeamInvite['status'] }))
+                      }
+                      className="h-11 w-full rounded-2xl border border-border bg-card px-4 text-sm text-foreground outline-none transition focus:border-primary/40"
+                    >
+                      <option value="active">Active</option>
+                      <option value="expired">Expired</option>
+                      <option value="revoked">Revoked</option>
+                    </select>
+                  ) : null}
+                  <div className="flex flex-wrap gap-3">
                     <button
                       type="button"
-                      onClick={resetInviteDraft}
-                      className="inline-flex h-11 items-center justify-center rounded-2xl border border-border bg-card px-4 text-sm font-semibold text-foreground transition hover:bg-secondary"
+                      onClick={handleSaveInvite}
+                      disabled={!canManageWorkspace || submittingKey === 'save-invite'}
+                      className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl bg-primary px-5 text-sm font-semibold text-primary-foreground transition hover:bg-primary/90 disabled:opacity-60"
                     >
-                      Cancel edit
+                      {submittingKey === 'save-invite' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
+                      {inviteDraft.id ? 'Save invite' : 'Create invite'}
                     </button>
-                  ) : null}
+                    {inviteDraft.id ? (
+                      <button
+                        type="button"
+                        onClick={resetInviteDraft}
+                        className="inline-flex h-11 items-center justify-center rounded-2xl border border-border bg-card px-4 text-sm font-semibold text-foreground transition hover:bg-secondary"
+                      >
+                        Cancel edit
+                      </button>
+                    ) : null}
+                  </div>
                 </div>
               </div>
             </div>
 
             <div className="space-y-4">
-              {teamDetail.invites.length === 0 ? (
-                <EmptyState title="No invites yet" helper="Create direct learner, coach, or admin access here." />
-              ) : (
-                teamDetail.invites.map((invite) => {
-                  const deleteKey = `delete-invite-${invite.id}`;
-                  return (
-                    <div key={invite.id} className="rounded-2xl border border-border bg-background p-4">
-                      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-                        <div className="min-w-0">
-                          <div className="font-semibold text-foreground">{invite.label}</div>
-                          <div className="mt-2 text-sm text-muted-foreground">{invite.email || 'No email attached'}</div>
-                          <div className="mt-3 flex flex-wrap gap-2">
-                            <StatusPill>{invite.code}</StatusPill>
-                            <StatusPill>{invite.role}</StatusPill>
-                            <StatusPill>{invite.useCount}/{invite.maxUses} used</StatusPill>
-                            <StatusPill>{invite.status}</StatusPill>
+              <div className="rounded-2xl border border-border bg-background p-4">
+                <div className="text-sm font-semibold text-foreground">Pending join requests</div>
+                <div className="mt-4 space-y-3">
+                  {teamDetail.joinRequests.filter((request) => request.status === 'pending').length === 0 ? (
+                    <EmptyState title="No requests yet" helper="Approval-mode requests show up here for owners and admins." />
+                  ) : (
+                    teamDetail.joinRequests
+                      .filter((request) => request.status === 'pending')
+                      .map((request) => {
+                        const approveKey = `approved-join-request-${request.id}`;
+                        const denyKey = `denied-join-request-${request.id}`;
+                        return (
+                          <div key={request.id} className="rounded-2xl border border-border bg-card p-4">
+                            <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                              <div className="min-w-0">
+                                <div className="font-semibold text-foreground">{request.userName}</div>
+                                <div className="mt-2 text-sm text-muted-foreground">
+                                  {request.userEmail || 'No public email'} {request.inviteCode ? `• ${request.inviteCode}` : ''}
+                                </div>
+                                <div className="mt-3 flex flex-wrap gap-2">
+                                  <StatusPill>{request.requestedRole}</StatusPill>
+                                  <StatusPill>{formatDateLabel(request.requestedAt)}</StatusPill>
+                                  {request.inviteLabel ? <StatusPill>{request.inviteLabel}</StatusPill> : null}
+                                </div>
+                              </div>
+                              <div className="flex flex-wrap gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => handleReviewJoinRequest(request, 'approved')}
+                                  disabled={!canManageMembers || submittingKey === approveKey}
+                                  className="inline-flex h-10 items-center justify-center gap-2 rounded-2xl bg-primary px-4 text-sm font-semibold text-primary-foreground transition hover:bg-primary/90 disabled:opacity-60"
+                                >
+                                  {submittingKey === approveKey ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
+                                  Approve
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleReviewJoinRequest(request, 'denied')}
+                                  disabled={!canManageMembers || submittingKey === denyKey}
+                                  className="inline-flex h-10 items-center justify-center gap-2 rounded-2xl border border-destructive/20 bg-destructive/10 px-4 text-sm font-semibold text-destructive transition hover:bg-destructive/15 disabled:opacity-60"
+                                >
+                                  {submittingKey === denyKey ? <Loader2 className="h-4 w-4 animate-spin" /> : <X className="h-4 w-4" />}
+                                  Deny
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })
+                  )}
+                </div>
+              </div>
+
+              <div className="rounded-2xl border border-border bg-background p-4">
+                <div className="text-sm font-semibold text-foreground">Invite codes</div>
+                <div className="mt-4 space-y-4">
+                  {teamDetail.invites.length === 0 ? (
+                    <EmptyState title="No invites yet" helper="Create direct learner, coach, or admin access here." />
+                  ) : (
+                    teamDetail.invites.map((invite) => {
+                      const deleteKey = `delete-invite-${invite.id}`;
+                      return (
+                        <div key={invite.id} className="rounded-2xl border border-border bg-background p-4">
+                          <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                            <div className="min-w-0">
+                              <div className="font-semibold text-foreground">{invite.label}</div>
+                              <div className="mt-2 text-sm text-muted-foreground">{invite.email || 'No email attached'}</div>
+                              <div className="mt-3 flex flex-wrap gap-2">
+                                <StatusPill>{invite.code}</StatusPill>
+                                <StatusPill>{invite.role}</StatusPill>
+                                <StatusPill>{invite.useCount}/{invite.maxUses} used</StatusPill>
+                                <StatusPill>{invite.status}</StatusPill>
+                              </div>
+                            </div>
+                            <div className="flex flex-wrap gap-2">
+                              <button
+                                type="button"
+                                onClick={async () => {
+                                  const copied = await copyTextToClipboard(invite.code);
+                                  toast[copied ? 'success' : 'error'](copied ? 'Invite code copied.' : 'Could not copy invite code.');
+                                }}
+                                className="inline-flex h-10 items-center justify-center gap-2 rounded-2xl border border-border bg-card px-4 text-sm font-semibold text-foreground transition hover:bg-secondary"
+                              >
+                                <Copy className="h-4 w-4" />
+                                Copy
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => startInviteEdit(invite)}
+                                disabled={!canManageWorkspace || (currentRole === 'coach' && invite.role !== 'learner')}
+                                className="inline-flex h-10 items-center justify-center gap-2 rounded-2xl border border-border bg-card px-4 text-sm font-semibold text-foreground transition hover:bg-secondary disabled:opacity-60"
+                              >
+                                <Pencil className="h-4 w-4" />
+                                Edit
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteInvite(invite.id)}
+                                disabled={
+                                  !canManageWorkspace ||
+                                  submittingKey === deleteKey ||
+                                  (currentRole === 'coach' && invite.role !== 'learner')
+                                }
+                                className="inline-flex h-10 items-center justify-center gap-2 rounded-2xl border border-destructive/20 bg-destructive/10 px-4 text-sm font-semibold text-destructive transition hover:bg-destructive/15 disabled:opacity-60"
+                              >
+                                {submittingKey === deleteKey ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+                                Delete
+                              </button>
+                            </div>
                           </div>
                         </div>
-                        <div className="flex flex-wrap gap-2">
-                          <button
-                            type="button"
-                            onClick={async () => {
-                              const copied = await copyTextToClipboard(invite.code);
-                              toast[copied ? 'success' : 'error'](copied ? 'Invite code copied.' : 'Could not copy invite code.');
-                            }}
-                            className="inline-flex h-10 items-center justify-center gap-2 rounded-2xl border border-border bg-card px-4 text-sm font-semibold text-foreground transition hover:bg-secondary"
-                          >
-                            <Copy className="h-4 w-4" />
-                            Copy
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => startInviteEdit(invite)}
-                            disabled={!canManageWorkspace}
-                            className="inline-flex h-10 items-center justify-center gap-2 rounded-2xl border border-border bg-card px-4 text-sm font-semibold text-foreground transition hover:bg-secondary disabled:opacity-60"
-                          >
-                            <Pencil className="h-4 w-4" />
-                            Edit
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleDeleteInvite(invite.id)}
-                            disabled={!canManageWorkspace || submittingKey === deleteKey}
-                            className="inline-flex h-10 items-center justify-center gap-2 rounded-2xl border border-destructive/20 bg-destructive/10 px-4 text-sm font-semibold text-destructive transition hover:bg-destructive/15 disabled:opacity-60"
-                          >
-                            {submittingKey === deleteKey ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
-                            Delete
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })
-              )}
+                      );
+                    })
+                  )}
+                </div>
+              </div>
             </div>
           </div>
         </ModalShell>
@@ -1697,10 +2044,10 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
           <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
             <div className="rounded-2xl border border-border bg-background p-4">
               <div className="text-sm font-semibold text-foreground">Export reporting</div>
-              <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                <button
-                  type="button"
-                  onClick={() => handleExport('json')}
+                <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                  <button
+                    type="button"
+                    onClick={() => handleExport('json')}
                   disabled={!canManageWorkspace || submittingKey === 'export-json'}
                   className="inline-flex min-h-[112px] flex-col items-start justify-between rounded-2xl border border-border bg-card px-4 py-4 text-left transition hover:bg-secondary disabled:opacity-60"
                 >
@@ -1710,20 +2057,29 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
                     <div className="mt-2 text-sm text-foreground">Full team payload for reporting pipelines.</div>
                   </div>
                 </button>
-                <button
-                  type="button"
-                  onClick={() => handleExport('csv')}
-                  disabled={!canManageWorkspace || submittingKey === 'export-csv'}
-                  className="inline-flex min-h-[112px] flex-col items-start justify-between rounded-2xl border border-border bg-card px-4 py-4 text-left transition hover:bg-secondary disabled:opacity-60"
-                >
-                  <Download className="h-5 w-5 text-primary" />
-                  <div>
-                    <div className="text-sm font-semibold uppercase tracking-[0.16em] text-primary">CSV export</div>
-                    <div className="mt-2 text-sm text-foreground">Clean spreadsheet output for instructors and managers.</div>
+                  <button
+                    type="button"
+                    onClick={() => handleExport('csv')}
+                    disabled={!canManageWorkspace || !canAccessCsvExport || submittingKey === 'export-csv'}
+                    className="inline-flex min-h-[112px] flex-col items-start justify-between rounded-2xl border border-border bg-card px-4 py-4 text-left transition hover:bg-secondary disabled:opacity-60"
+                  >
+                    <Download className="h-5 w-5 text-primary" />
+                    <div>
+                      <div className="text-sm font-semibold uppercase tracking-[0.16em] text-primary">CSV export</div>
+                      <div className="mt-2 text-sm text-foreground">
+                        {canAccessCsvExport
+                          ? 'Clean spreadsheet output for instructors and managers.'
+                          : 'Unlock with Teams Growth or Custom.'}
+                      </div>
+                    </div>
+                  </button>
+                </div>
+                {!canAccessCsvExport ? (
+                  <div className="mt-4 rounded-2xl border border-border bg-card px-4 py-3 text-sm text-muted-foreground">
+                    JSON export is included here. CSV export unlocks with Teams Growth or Custom.
                   </div>
-                </button>
+                ) : null}
               </div>
-            </div>
 
             <div className="rounded-2xl border border-border bg-background p-4">
               <div className="text-sm font-semibold text-foreground">Public proof page</div>
@@ -1734,7 +2090,7 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
                 <button
                   type="button"
                   onClick={handleToggleSharing}
-                  disabled={!canManageWorkspace || submittingKey === 'share-team'}
+                  disabled={!canPublishProof || submittingKey === 'share-team'}
                   className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl bg-primary px-5 text-sm font-semibold text-primary-foreground transition hover:bg-primary/90 disabled:opacity-60"
                 >
                   {submittingKey === 'share-team' ? <Loader2 className="h-4 w-4 animate-spin" /> : <ExternalLink className="h-4 w-4" />}
@@ -1765,6 +2121,11 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
                   </>
                 ) : null}
               </div>
+              {!canPublishProof ? (
+                <div className="mt-4 rounded-2xl border border-border bg-card px-4 py-3 text-sm text-muted-foreground">
+                  Only owners and admins can publish or unpublish the public proof page.
+                </div>
+              ) : null}
             </div>
           </div>
         </ModalShell>
