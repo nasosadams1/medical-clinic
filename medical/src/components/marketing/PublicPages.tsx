@@ -133,21 +133,21 @@ const teamProblemCards = [
     description: 'You cannot coach well if you do not know current level.',
   },
   {
-    title: 'No workflow after assessment',
-    description: 'A score alone is not enough. Teams need next steps.',
+    title: 'No assignment and review flow',
+    description: 'A score alone is not enough. Teams need practice, review, and coaching after assessment.',
   },
   {
     title: 'No proof of improvement',
-    description: 'Managers and instructors need visible progress.',
+    description: 'Managers and instructors need visible progress by cohort, not scattered notes.',
   },
 ];
 
 const teamCapabilityCards = [
   'Create a team or cohort',
   'Invite learners, coaches, and admins',
-  'Assign benchmarks or roadmap work',
-  'Track completion, median score, and retake readiness',
-  'Review improvement leaders and attention queue',
+  'Assign benchmarks, roadmaps, and challenge work',
+  'Review submissions and score work with coaching notes',
+  'Track completion, score movement, and learners who need attention',
   'Publish a public proof page when ready',
 ];
 
@@ -156,8 +156,9 @@ const teamPricingPlanNames = new Set(['Teams', 'Teams Growth', 'Custom']);
 
 const teamUpgradeHighlights = [
   'Keep the same learner experience for individuals and cohorts',
-  'Track completion, score movement, and assignments in one place',
-  'Add dashboards only when a group needs structure',
+  'Add assignments, submission reviews, and coaching when a group needs structure',
+  'Track completion, score movement, and cohort outcomes in one place',
+  'Keep the team workflow in the background until you actually need it',
 ];
 
 const duelBenefits = [
@@ -938,7 +939,7 @@ export function HomePage({ openAuthModal }: PublicPageProps) {
             <SectionHeader
               eyebrow="Training For Teams"
               title="Codhak for teams stays in the background until you need it."
-              description="Use the same learner product, then add dashboards, assignments, and cohort visibility for groups."
+              description="Use the same learner product, then add assignments, review workflow, coaching notes, and cohort visibility for groups."
             />
             <div className="rounded-[1.75rem] border border-border bg-card p-6 shadow-card sm:p-8">
               <div className="space-y-3">
@@ -1251,7 +1252,8 @@ export function TeamsPage({ openAuthModal }: PublicPageProps) {
 
   usePageMetadata({
     title: 'Codhak Teams | Bring Codhak to a cohort or team',
-    description: 'Add team dashboards, assignments, and progress views on top of the Codhak learner experience.',
+    description:
+      'Add team dashboards, assignments, submission reviews, coaching notes, and cohort progress tracking on top of the Codhak learner experience.',
   });
   useTrackPage('team_page_viewed', { page: 'teams' });
 
@@ -1263,14 +1265,14 @@ export function TeamsPage({ openAuthModal }: PublicPageProps) {
             <SectionHeader
               eyebrow="Teams"
               title="Bring Codhak to a team."
-              description="Use the same lessons, practice, skill checks, and duels, then add team visibility on top."
+              description="Use the same lessons, practice, skill checks, and duels, then add assignments, reviews, coaching, and cohort tracking on top."
             />
             <div className="mt-8 grid gap-4 sm:grid-cols-2">
               {[
-                ['Bootcamps', 'Track readiness and assign follow-up work.', GraduationCap],
-                ['Universities', 'Keep classes engaged and visible.', Building2],
-                ['Coding clubs', 'Run competitions and scoreboards.', Users],
-                ['Upskilling teams', 'Train juniors with measurable progress.', Briefcase],
+                ['Bootcamps', 'Track readiness, assign follow-up work, and review submissions fast.', GraduationCap],
+                ['Universities', 'Assign practice by class and keep coaching visible.', Building2],
+                ['Coding clubs', 'Run competitions, challenge packs, and follow-up reviews.', Users],
+                ['Upskilling teams', 'Benchmark juniors and coach measurable progress.', Briefcase],
               ].map(([title, description, IconComponent]) => {
                 const Icon = IconComponent as typeof Users;
                 return (
@@ -1310,7 +1312,7 @@ export function TeamsPage({ openAuthModal }: PublicPageProps) {
             <SectionHeader
               eyebrow="Why Teams Upgrade"
               title="Add team structure without changing the learner product."
-              description="Codhak stays learner-first, then adds workflow for groups when you need it."
+              description="Codhak stays learner-first, then adds benchmarking, assignments, reviews, and coaching when a group needs structure."
             />
             <div className="grid gap-4">
               {teamProblemCards.map((item) => (
@@ -1328,8 +1330,8 @@ export function TeamsPage({ openAuthModal }: PublicPageProps) {
         <div className="container mx-auto px-5 sm:px-6 xl:px-8">
           <SectionHeader
             eyebrow="Admin Actions"
-            title="What a manager can do."
-            description="Team features layer on top of the same learner flow."
+            title="What a manager or coach can do."
+            description="Run the whole learner workflow from one team surface: assign work, review submissions, coach learners, and track outcomes."
           />
           <div className="mt-10 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
             {teamCapabilityCards.map((item) => (

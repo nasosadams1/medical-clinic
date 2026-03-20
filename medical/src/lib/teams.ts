@@ -8,6 +8,15 @@ export type TeamAssignmentLifecycleState = 'active' | 'past_due' | 'archived';
 export type BenchmarkLanguage = 'python' | 'javascript' | 'java' | 'cpp';
 export type TeamFeedbackStatus = 'draft' | 'shared' | 'resolved';
 export type TeamJoinMode = 'open_code' | 'code_domain' | 'code_approval' | 'invite_only';
+export type TeamSubmissionType = 'written' | 'code' | 'link';
+export type TeamSubmissionStatus = 'submitted' | 'reviewed' | 'needs_revision';
+
+export interface TeamRubricBreakdown {
+  correctness: number | null;
+  codeQuality: number | null;
+  problemSolving: number | null;
+  communication: number | null;
+}
 
 export interface TeamSummary {
   id: string;
@@ -70,15 +79,38 @@ export interface TeamFeedback {
   memberName: string;
   assignmentId: string | null;
   assignmentTitle: string | null;
+  submissionId: string | null;
   authorUserId: string | null;
   authorName: string;
   rubricScore: number | null;
+  rubricBreakdown: TeamRubricBreakdown | null;
   status: TeamFeedbackStatus;
   summary: string;
   strengths: string;
   focusAreas: string;
   coachNotes: string;
   sharedWithMember: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface TeamSubmission {
+  id: string;
+  memberUserId: string;
+  memberName: string;
+  assignmentId: string | null;
+  assignmentTitle: string | null;
+  submittedByUserId: string | null;
+  submittedByName: string | null;
+  submissionType: TeamSubmissionType;
+  title: string;
+  body: string;
+  preview: string;
+  externalUrl: string | null;
+  codeLanguage: BenchmarkLanguage | null;
+  status: TeamSubmissionStatus;
+  rubricScore: number | null;
+  attemptNumber: number;
   createdAt: string;
   updatedAt: string;
 }
@@ -135,6 +167,7 @@ export interface TeamWorkspaceDetail {
   members: TeamMember[];
   assignments: TeamAssignment[];
   invites: TeamInvite[];
+  submissions: TeamSubmission[];
   feedback: TeamFeedback[];
   joinRequests: TeamJoinRequest[];
 }
@@ -180,6 +213,12 @@ export interface TeamAnalytics {
     shared: number;
     resolved: number;
     drafts: number;
+  };
+  submissionStats?: {
+    total: number;
+    submitted: number;
+    reviewed: number;
+    needsRevision: number;
   };
 }
 
@@ -422,6 +461,21 @@ export const updateTeamAssignment = async (
   return payload.assignment;
 };
 
+export const bulkUpdateTeamAssignments = async (
+  teamId: string,
+  input: {
+    assignmentIds: string[];
+    action: 'archive' | 'restore' | 'set_due_date';
+    dueAt?: string | null;
+  }
+) => {
+  const payload = await teamsFetch<{ assignments: TeamAssignment[] }>(`/${teamId}/assignments/bulk`, {
+    method: 'PATCH',
+    body: JSON.stringify(input),
+  });
+  return payload.assignments || [];
+};
+
 export const deleteTeamAssignment = async (teamId: string, assignmentId: string) => {
   await teamsFetch<void>(`/${teamId}/assignments/${assignmentId}`, {
     method: 'DELETE',
@@ -484,7 +538,9 @@ export const createTeamFeedback = async (
   input: {
     memberUserId: string;
     assignmentId?: string | null;
+    submissionId?: string | null;
     rubricScore?: number | null;
+    rubricBreakdown?: TeamRubricBreakdown | null;
     status?: TeamFeedbackStatus;
     summary?: string;
     strengths?: string;
@@ -505,7 +561,9 @@ export const updateTeamFeedback = async (
   feedbackId: string,
   input: Partial<{
     assignmentId: string | null;
+    submissionId: string | null;
     rubricScore: number | null;
+    rubricBreakdown: TeamRubricBreakdown | null;
     status: TeamFeedbackStatus;
     summary: string;
     strengths: string;
@@ -523,6 +581,59 @@ export const updateTeamFeedback = async (
 
 export const deleteTeamFeedback = async (teamId: string, feedbackId: string) => {
   await teamsFetch<void>(`/${teamId}/feedback/${feedbackId}`, {
+    method: 'DELETE',
+  });
+};
+
+export const listTeamSubmissions = async (teamId: string) => {
+  const payload = await teamsFetch<{ submissions: TeamSubmission[] }>(`/${teamId}/submissions`);
+  return payload.submissions || [];
+};
+
+export const createTeamSubmission = async (
+  teamId: string,
+  input: {
+    memberUserId: string;
+    assignmentId?: string | null;
+    submissionType: TeamSubmissionType;
+    title: string;
+    body?: string;
+    externalUrl?: string | null;
+    codeLanguage?: BenchmarkLanguage | null;
+    status?: TeamSubmissionStatus;
+    rubricScore?: number | null;
+  }
+) => {
+  const payload = await teamsFetch<{ submission: TeamSubmission }>(`/${teamId}/submissions`, {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+  return payload.submission;
+};
+
+export const updateTeamSubmission = async (
+  teamId: string,
+  submissionId: string,
+  input: Partial<{
+    assignmentId: string | null;
+    submissionType: TeamSubmissionType;
+    title: string;
+    body: string;
+    externalUrl: string | null;
+    codeLanguage: BenchmarkLanguage | null;
+    status: TeamSubmissionStatus;
+    rubricScore: number | null;
+  }>
+) => {
+  const payload = await teamsFetch<{ submission: TeamSubmission }>(`/${teamId}/submissions/${submissionId}`, {
+    method: 'PATCH',
+    body: JSON.stringify(input),
+  });
+  return payload.submission;
+};
+
+export const deleteTeamSubmission = async (teamId: string, submissionId: string) => {
+  await teamsFetch<void>(`/${teamId}/submissions/${submissionId}`, {
     method: 'DELETE',
   });
 };

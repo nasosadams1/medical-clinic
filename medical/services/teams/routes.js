@@ -17,9 +17,18 @@ const TEAM_USE_CASES = ['bootcamps', 'universities', 'coding-clubs', 'upskilling
 const ASSIGNMENT_TYPES = ['benchmark', 'challenge_pack', 'roadmap'];
 const BENCHMARK_LANGUAGES = ['python', 'javascript', 'java', 'cpp'];
 const TEAM_FEEDBACK_STATUSES = ['draft', 'shared', 'resolved'];
+const TEAM_SUBMISSION_TYPES = ['written', 'code', 'link'];
+const TEAM_SUBMISSION_STATUSES = ['submitted', 'reviewed', 'needs_revision'];
 const TEAM_JOIN_MODES = ['open_code', 'code_domain', 'code_approval', 'invite_only'];
 const CHALLENGE_PACK_DEFAULT_COMPLETION_TARGET = 3;
 const MATCH_COMPLETION_STATUSES = new Set(['completed', 'ended', 'finished']);
+
+const RubricBreakdownSchema = z.object({
+  correctness: z.union([z.number().min(0).max(10), z.null()]).optional().default(null),
+  codeQuality: z.union([z.number().min(0).max(10), z.null()]).optional().default(null),
+  problemSolving: z.union([z.number().min(0).max(10), z.null()]).optional().default(null),
+  communication: z.union([z.number().min(0).max(10), z.null()]).optional().default(null),
+});
 
 const CreateTeamSchema = z.object({
   name: z.string().trim().min(2).max(80),
@@ -106,7 +115,9 @@ const UpdateMembershipSchema = z
 const CreateFeedbackSchema = z.object({
   memberUserId: z.string().uuid(),
   assignmentId: z.union([z.string().uuid(), z.null()]).optional().default(null),
+  submissionId: z.union([z.string().uuid(), z.null()]).optional().default(null),
   rubricScore: z.union([z.number().int().min(0).max(100), z.null()]).optional().default(null),
+  rubricBreakdown: z.union([RubricBreakdownSchema, z.null()]).optional().default(null),
   status: z.enum(TEAM_FEEDBACK_STATUSES).optional().default('draft'),
   summary: z.string().trim().max(800).optional().default(''),
   strengths: z.string().trim().max(800).optional().default(''),
@@ -118,7 +129,9 @@ const CreateFeedbackSchema = z.object({
 const UpdateFeedbackSchema = z
   .object({
     assignmentId: z.union([z.string().uuid(), z.null()]).optional(),
+    submissionId: z.union([z.string().uuid(), z.null()]).optional(),
     rubricScore: z.union([z.number().int().min(0).max(100), z.null()]).optional(),
+    rubricBreakdown: z.union([RubricBreakdownSchema, z.null()]).optional(),
     status: z.enum(TEAM_FEEDBACK_STATUSES).optional(),
     summary: z.string().trim().max(800).optional(),
     strengths: z.string().trim().max(800).optional(),
@@ -128,6 +141,73 @@ const UpdateFeedbackSchema = z
   })
   .refine((value) => Object.keys(value).length > 0, {
     message: 'Provide at least one feedback field to update.',
+  });
+
+const CreateSubmissionSchema = z
+  .object({
+    memberUserId: z.string().uuid(),
+    assignmentId: z.union([z.string().uuid(), z.null()]).optional().default(null),
+    submissionType: z.enum(TEAM_SUBMISSION_TYPES).optional().default('written'),
+    title: z.string().trim().min(2).max(160),
+    body: z.string().trim().max(20000).optional().default(''),
+    externalUrl: z
+      .union([z.string().trim().url(), z.literal(''), z.null()])
+      .optional()
+      .transform((value) => (value === '' ? null : value ?? null)),
+    codeLanguage: z.union([z.enum(BENCHMARK_LANGUAGES), z.null()]).optional().default(null),
+    status: z.enum(TEAM_SUBMISSION_STATUSES).optional().default('submitted'),
+    rubricScore: z.union([z.number().int().min(0).max(100), z.null()]).optional().default(null),
+  })
+  .superRefine((value, ctx) => {
+    if (value.submissionType === 'link' && !value.externalUrl) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['externalUrl'],
+        message: 'Link submissions require a valid URL.',
+      });
+    }
+
+    if ((value.submissionType === 'written' || value.submissionType === 'code') && !String(value.body || '').trim()) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['body'],
+        message: 'Written and code submissions require content.',
+      });
+    }
+  });
+
+const UpdateSubmissionSchema = z
+  .object({
+    assignmentId: z.union([z.string().uuid(), z.null()]).optional(),
+    submissionType: z.enum(TEAM_SUBMISSION_TYPES).optional(),
+    title: z.string().trim().min(2).max(160).optional(),
+    body: z.string().trim().max(20000).optional(),
+    externalUrl: z
+      .union([z.string().trim().url(), z.literal(''), z.null()])
+      .optional()
+      .transform((value) => (value === '' ? null : value ?? null)),
+    codeLanguage: z.union([z.enum(BENCHMARK_LANGUAGES), z.null()]).optional(),
+    status: z.enum(TEAM_SUBMISSION_STATUSES).optional(),
+    rubricScore: z.union([z.number().int().min(0).max(100), z.null()]).optional(),
+  })
+  .refine((value) => Object.keys(value).length > 0, {
+    message: 'Provide at least one submission field to update.',
+  });
+
+const BulkUpdateAssignmentsSchema = z
+  .object({
+    assignmentIds: z.array(z.string().uuid()).min(1).max(100),
+    action: z.enum(['archive', 'restore', 'set_due_date']),
+    dueAt: z.union([z.string().trim().min(1).max(80), z.null()]).optional().default(null),
+  })
+  .superRefine((value, ctx) => {
+    if (value.action === 'set_due_date' && value.dueAt !== null && !isValidDateInput(value.dueAt)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['dueAt'],
+        message: 'Bulk due date is invalid.',
+      });
+    }
   });
 
 const TeamRouteParamsSchema = z.object({
@@ -148,6 +228,10 @@ const TeamAssignmentRouteParamsSchema = TeamRouteParamsSchema.extend({
 
 const TeamFeedbackRouteParamsSchema = TeamRouteParamsSchema.extend({
   feedbackId: z.string().uuid(),
+});
+
+const TeamSubmissionRouteParamsSchema = TeamRouteParamsSchema.extend({
+  submissionId: z.string().uuid(),
 });
 
 const TeamJoinRequestRouteParamsSchema = TeamRouteParamsSchema.extend({
@@ -457,6 +541,49 @@ const loadTeamAssignment = async (supabaseAdmin, teamId, assignmentId) => {
   return data;
 };
 
+const loadTeamSubmission = async (supabaseAdmin, teamId, submissionId) => {
+  const { data, error } = await supabaseAdmin
+    .from('skill_team_submissions')
+    .select('*')
+    .eq('team_id', teamId)
+    .eq('id', submissionId)
+    .maybeSingle();
+
+  if (error) {
+    throw new Error(error.message || 'Could not load that submission.');
+  }
+
+  return data;
+};
+
+const buildSubmissionPreview = (submission) => {
+  const body = String(submission?.body || '').trim();
+  const externalUrl = String(submission?.external_url || '').trim();
+
+  if (submission?.submission_type === 'link' && externalUrl) {
+    return externalUrl;
+  }
+
+  if (!body) {
+    return submission?.submission_type === 'code' ? 'Code snapshot' : 'Submission snapshot';
+  }
+
+  return body.replace(/\s+/g, ' ').slice(0, 220);
+};
+
+const normalizeRubricBreakdown = (value) => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return null;
+  }
+
+  const parsed = RubricBreakdownSchema.safeParse(value);
+  if (!parsed.success) {
+    return null;
+  }
+
+  return parsed.data;
+};
+
 const getAssignmentLifecycleState = (assignment) => {
   if (assignment?.archived_at) {
     return 'archived';
@@ -497,6 +624,67 @@ const getAssignmentProgressDefinition = (assignment) => {
     lessonIds: [],
   };
 };
+
+const serializeAssignment = (assignment, learnerProgress) => {
+  const lifecycleState = getAssignmentLifecycleState(assignment);
+  const eligibleLearnerCount = learnerProgress.length;
+  const completedLearnerCount = learnerProgress.filter((entry) => entry.status === 'completed').length;
+  const inProgressLearnerCount = learnerProgress.filter((entry) => entry.status === 'in_progress').length;
+  const notStartedLearnerCount = learnerProgress.filter((entry) => entry.status === 'not_started').length;
+  const completionRate = eligibleLearnerCount > 0 ? Math.round((completedLearnerCount / eligibleLearnerCount) * 100) : 0;
+  const averageProgressPercent =
+    eligibleLearnerCount > 0
+      ? Math.round(learnerProgress.reduce((total, entry) => total + entry.progressPercent, 0) / eligibleLearnerCount)
+      : 0;
+  const progressDefinition = getAssignmentProgressDefinition(assignment);
+
+  return {
+    id: assignment.id,
+    title: assignment.title,
+    description: assignment.description,
+    assignmentType: assignment.assignment_type,
+    benchmarkLanguage: assignment.benchmark_language,
+    trackId: assignment.track_id,
+    dueAt: assignment.due_at,
+    createdAt: assignment.created_at,
+    updatedAt: assignment.updated_at || assignment.created_at,
+    lifecycleState,
+    archivedAt: assignment.archived_at || null,
+    archivedByUserId: assignment.archived_by || null,
+    eligibleLearnerCount,
+    completedLearnerCount,
+    inProgressLearnerCount,
+    notStartedLearnerCount,
+    completionRate,
+    averageProgressPercent,
+    requiredCompletionCount: progressDefinition.requiredCount,
+    progressUnitLabel: progressDefinition.unitLabel,
+    metadata: assignment.metadata || {},
+  };
+};
+
+const serializeSubmission = (submission, profileMap, assignmentMap) => ({
+  id: submission.id,
+  memberUserId: submission.member_user_id,
+  memberName: profileMap.get(submission.member_user_id)?.name || profileMap.get(submission.member_user_id)?.email || 'Learner',
+  assignmentId: submission.assignment_id || null,
+  assignmentTitle: submission.assignment_id ? assignmentMap.get(submission.assignment_id)?.title || null : null,
+  submittedByUserId: submission.submitted_by_user_id || null,
+  submittedByName: submission.submitted_by_user_id
+    ? profileMap.get(submission.submitted_by_user_id)?.name || profileMap.get(submission.submitted_by_user_id)?.email || 'Coach'
+    : null,
+  submissionType: submission.submission_type,
+  title: submission.title,
+  body: submission.body || '',
+  preview: buildSubmissionPreview(submission),
+  externalUrl: submission.external_url || null,
+  codeLanguage: submission.code_language || null,
+  status: submission.status,
+  rubricScore: submission.rubric_score,
+  attemptNumber: Number(submission.attempt_number || 1),
+  createdAt: submission.created_at,
+  updatedAt: submission.updated_at || submission.created_at,
+});
 
 const buildAssignmentProgressByUser = ({ assignment, learnerMembers, reports, lessonCompletionEvents, duelMatches }) => {
   const assignmentCreatedAt = new Date(assignment.created_at).getTime();
@@ -610,7 +798,7 @@ const buildAssignmentProgressByUser = ({ assignment, learnerMembers, reports, le
   });
 };
 
-const ensureFeedbackTargetsAreValid = async (supabaseAdmin, teamId, memberUserId, assignmentId = null) => {
+const ensureSubmissionTargetsAreValid = async (supabaseAdmin, teamId, memberUserId, assignmentId = null) => {
   const targetMembership = await loadMembership(supabaseAdmin, teamId, memberUserId);
 
   if (!targetMembership) {
@@ -626,6 +814,29 @@ const ensureFeedbackTargetsAreValid = async (supabaseAdmin, teamId, memberUserId
     if (!assignment) {
       throw new Error('The selected assignment does not belong to this team.');
     }
+  }
+
+  return targetMembership;
+};
+
+const ensureFeedbackTargetsAreValid = async (supabaseAdmin, teamId, memberUserId, assignmentId = null, submissionId = null) => {
+  const targetMembership = await ensureSubmissionTargetsAreValid(supabaseAdmin, teamId, memberUserId, assignmentId);
+
+  if (!submissionId) {
+    return targetMembership;
+  }
+
+  const submission = await loadTeamSubmission(supabaseAdmin, teamId, submissionId);
+  if (!submission) {
+    throw new Error('The selected submission does not belong to this team.');
+  }
+
+  if (submission.member_user_id !== memberUserId) {
+    throw new Error('Feedback submissions must belong to the selected learner.');
+  }
+
+  if (assignmentId && submission.assignment_id && submission.assignment_id !== assignmentId) {
+    throw new Error('The selected submission does not match the selected assignment.');
   }
 
   return targetMembership;
@@ -802,6 +1013,7 @@ const buildTeamDetail = ({
   reports,
   lessonCompletionEvents = [],
   duelMatches = [],
+  submissions = [],
   feedback = [],
   joinRequests = [],
   authActivityByUserId = new Map(),
@@ -885,7 +1097,6 @@ const buildTeamDetail = ({
 
   const learnerMembers = members.filter((member) => member.role === 'learner' && member.status === 'active');
   const serializedAssignments = assignments.map((assignment) => {
-    const lifecycleState = getAssignmentLifecycleState(assignment);
     const learnerProgress = buildAssignmentProgressByUser({
       assignment,
       learnerMembers,
@@ -894,40 +1105,7 @@ const buildTeamDetail = ({
       duelMatches,
     });
 
-    const eligibleLearnerCount = learnerProgress.length;
-    const completedLearnerCount = learnerProgress.filter((entry) => entry.status === 'completed').length;
-    const inProgressLearnerCount = learnerProgress.filter((entry) => entry.status === 'in_progress').length;
-    const notStartedLearnerCount = learnerProgress.filter((entry) => entry.status === 'not_started').length;
-    const completionRate = eligibleLearnerCount > 0 ? Math.round((completedLearnerCount / eligibleLearnerCount) * 100) : 0;
-    const averageProgressPercent =
-      eligibleLearnerCount > 0
-        ? Math.round(learnerProgress.reduce((total, entry) => total + entry.progressPercent, 0) / eligibleLearnerCount)
-        : 0;
-    const progressDefinition = getAssignmentProgressDefinition(assignment);
-
-    return {
-      id: assignment.id,
-      title: assignment.title,
-      description: assignment.description,
-      assignmentType: assignment.assignment_type,
-      benchmarkLanguage: assignment.benchmark_language,
-      trackId: assignment.track_id,
-      dueAt: assignment.due_at,
-      createdAt: assignment.created_at,
-      updatedAt: assignment.updated_at || assignment.created_at,
-      lifecycleState,
-      archivedAt: assignment.archived_at || null,
-      archivedByUserId: assignment.archived_by || null,
-      eligibleLearnerCount,
-      completedLearnerCount,
-      inProgressLearnerCount,
-      notStartedLearnerCount,
-      completionRate,
-      averageProgressPercent,
-      requiredCompletionCount: progressDefinition.requiredCount,
-      progressUnitLabel: progressDefinition.unitLabel,
-      metadata: assignment.metadata || {},
-    };
+    return serializeAssignment(assignment, learnerProgress);
   });
 
   return {
@@ -982,6 +1160,10 @@ const buildTeamDetail = ({
       status: invite.status,
       createdAt: invite.created_at,
     })),
+    submissions: submissions
+      .slice()
+      .sort((left, right) => new Date(right.updated_at || right.created_at).getTime() - new Date(left.updated_at || left.created_at).getTime())
+      .map((entry) => serializeSubmission(entry, profileMap, assignmentMap)),
     joinRequests: joinRequests
       .slice()
       .sort((left, right) => new Date(right.requested_at).getTime() - new Date(left.requested_at).getTime())
@@ -992,9 +1174,11 @@ const buildTeamDetail = ({
       memberName: profileMap.get(entry.member_user_id)?.name || profileMap.get(entry.member_user_id)?.email || 'Learner',
       assignmentId: entry.assignment_id,
       assignmentTitle: entry.assignment_id ? assignmentMap.get(entry.assignment_id)?.title || null : null,
+      submissionId: entry.submission_id || null,
       authorUserId: entry.author_user_id,
       authorName: profileMap.get(entry.author_user_id)?.name || profileMap.get(entry.author_user_id)?.email || 'Coach',
       rubricScore: entry.rubric_score,
+      rubricBreakdown: normalizeRubricBreakdown(entry.rubric_breakdown),
       status: entry.status,
       summary: entry.summary || '',
       strengths: entry.strengths || '',
@@ -1198,6 +1382,7 @@ const loadTeamWorkspaceResources = async (supabaseAdmin, teamId) => {
     { data: memberships, error: membershipsError },
     { data: assignments, error: assignmentsError },
     { data: invites, error: invitesError },
+    { data: submissions, error: submissionsError },
     { data: feedback, error: feedbackError },
     { data: joinRequests, error: joinRequestsError },
   ] = await Promise.all([
@@ -1205,11 +1390,13 @@ const loadTeamWorkspaceResources = async (supabaseAdmin, teamId) => {
     supabaseAdmin.from('skill_team_memberships').select('*').eq('team_id', teamId).order('joined_at', { ascending: true }),
     supabaseAdmin.from('skill_team_assignments').select('*').eq('team_id', teamId).order('created_at', { ascending: false }),
     supabaseAdmin.from('skill_team_invites').select('*').eq('team_id', teamId).order('created_at', { ascending: false }),
+    supabaseAdmin.from('skill_team_submissions').select('*').eq('team_id', teamId).order('updated_at', { ascending: false }),
     supabaseAdmin.from('skill_team_feedback').select('*').eq('team_id', teamId).order('updated_at', { ascending: false }),
     supabaseAdmin.from('skill_team_join_requests').select('*').eq('team_id', teamId).order('requested_at', { ascending: false }),
   ]);
 
-  const firstError = teamError || membershipsError || assignmentsError || invitesError || feedbackError || joinRequestsError;
+  const firstError =
+    teamError || membershipsError || assignmentsError || invitesError || submissionsError || feedbackError || joinRequestsError;
   if (firstError || !team) {
     throw new Error(firstError?.message || 'Could not load team workspace.');
   }
@@ -1218,6 +1405,7 @@ const loadTeamWorkspaceResources = async (supabaseAdmin, teamId) => {
     new Set(
       [
         ...(memberships || []).map((entry) => entry.user_id),
+        ...(submissions || []).flatMap((entry) => [entry.member_user_id, entry.submitted_by_user_id].filter(Boolean)),
         ...(feedback || []).flatMap((entry) => [entry.member_user_id, entry.author_user_id].filter(Boolean)),
         ...(joinRequests || []).flatMap((entry) => [entry.user_id, entry.reviewed_by_user_id].filter(Boolean)),
       ].filter(Boolean)
@@ -1303,6 +1491,7 @@ const loadTeamWorkspaceResources = async (supabaseAdmin, teamId) => {
     memberships: memberships || [],
     assignments: assignments || [],
     invites: invites || [],
+    submissions: submissions || [],
     joinRequests: joinRequests || [],
     feedback: feedback || [],
     profiles: profiles || [],
@@ -1410,6 +1599,12 @@ const buildTeamAnalytics = ({ detail }) => {
       resolved: detail.feedback.filter((entry) => entry.status === 'resolved').length,
       drafts: detail.feedback.filter((entry) => entry.status === 'draft').length,
     },
+    submissionStats: {
+      total: detail.submissions.length,
+      submitted: detail.submissions.filter((entry) => entry.status === 'submitted').length,
+      reviewed: detail.submissions.filter((entry) => entry.status === 'reviewed').length,
+      needsRevision: detail.submissions.filter((entry) => entry.status === 'needs_revision').length,
+    },
   };
 };
 
@@ -1421,6 +1616,7 @@ const buildTeamExportPayload = ({ detail, analytics }) => ({
   members: detail.members,
   assignments: detail.assignments,
   invites: detail.invites,
+  submissions: detail.submissions,
   feedback: detail.feedback,
 });
 
@@ -1477,14 +1673,44 @@ const buildTeamCsvExport = ({ detail, analytics }) =>
       ]),
     ]),
     createCsvSection('feedback', [
-      ['member', 'assignment', 'score', 'status', 'shared_with_member', 'summary'],
+      [
+        'member',
+        'assignment',
+        'submission_id',
+        'score',
+        'correctness',
+        'code_quality',
+        'problem_solving',
+        'communication',
+        'status',
+        'shared_with_member',
+        'summary',
+      ],
       ...detail.feedback.map((entry) => [
         entry.memberName,
         entry.assignmentTitle || '',
+        entry.submissionId || '',
         entry.rubricScore ?? '',
+        entry.rubricBreakdown?.correctness ?? '',
+        entry.rubricBreakdown?.codeQuality ?? '',
+        entry.rubricBreakdown?.problemSolving ?? '',
+        entry.rubricBreakdown?.communication ?? '',
         entry.status,
         entry.sharedWithMember ? 'yes' : 'no',
         entry.summary,
+      ]),
+    ]),
+    createCsvSection('submissions', [
+      ['member', 'assignment', 'title', 'type', 'status', 'attempt_number', 'score', 'updated_at'],
+      ...detail.submissions.map((entry) => [
+        entry.memberName,
+        entry.assignmentTitle || '',
+        entry.title,
+        entry.submissionType,
+        entry.status,
+        entry.attemptNumber,
+        entry.rubricScore ?? '',
+        entry.updatedAt,
       ]),
     ]),
     createCsvSection('analytics', [
@@ -1500,6 +1726,9 @@ const buildTeamCsvExport = ({ detail, analytics }) =>
       ['stale_benchmarks', analytics.recency.stale],
       ['missing_benchmarks', analytics.recency.missing],
       ['feedback_shared', analytics.feedbackStats.shared],
+      ['submissions_total', analytics.submissionStats.total],
+      ['submissions_reviewed', analytics.submissionStats.reviewed],
+      ['submissions_needs_revision', analytics.submissionStats.needsRevision],
     ]),
   ].join('\n');
 
@@ -2470,32 +2699,68 @@ export const createTeamsRouter = ({ supabaseAdmin }) => {
       }
 
       return res.status(201).json({
-        assignment: {
-          id: data.id,
-          title: data.title,
-          description: data.description,
-          assignmentType: data.assignment_type,
-          benchmarkLanguage: data.benchmark_language,
-          trackId: data.track_id,
-          dueAt: data.due_at,
-          createdAt: data.created_at,
-          updatedAt: data.updated_at || data.created_at,
-          lifecycleState: getAssignmentLifecycleState(data),
-          archivedAt: data.archived_at || null,
-          archivedByUserId: data.archived_by || null,
-          eligibleLearnerCount: 0,
-          completedLearnerCount: 0,
-          inProgressLearnerCount: 0,
-          notStartedLearnerCount: 0,
-          completionRate: 0,
-          averageProgressPercent: 0,
-          requiredCompletionCount: getAssignmentProgressDefinition(data).requiredCount,
-          progressUnitLabel: getAssignmentProgressDefinition(data).unitLabel,
-          metadata: data.metadata || {},
-        },
+        assignment: serializeAssignment(data, []),
       });
     } catch (error) {
       return res.status(400).json({ error: error.message || 'Could not create assignment.' });
+    }
+  });
+
+  router.patch('/:teamId/assignments/bulk', requireAuth, async (req, res) => {
+    try {
+      const { teamId } = TeamRouteParamsSchema.parse(req.params || {});
+      const membership = await getActorMembership(teamId, req);
+      ensureTeamRole(membership, ['owner', 'admin', 'coach']);
+      const parsed = BulkUpdateAssignmentsSchema.parse(req.body || {});
+      const assignmentIds = Array.from(new Set(parsed.assignmentIds));
+
+      const { data: existingAssignments, error: existingAssignmentsError } = await supabaseAdmin
+        .from('skill_team_assignments')
+        .select('*')
+        .eq('team_id', teamId)
+        .in('id', assignmentIds);
+
+      if (existingAssignmentsError) {
+        throw new Error(existingAssignmentsError.message || 'Could not load the selected assignments.');
+      }
+
+      if (!existingAssignments?.length) {
+        throw new Error('Could not find the selected assignments.');
+      }
+
+      const existingAssignmentIds = new Set(existingAssignments.map((entry) => entry.id));
+      if (assignmentIds.some((assignmentId) => !existingAssignmentIds.has(assignmentId))) {
+        throw new Error('One or more selected assignments do not belong to this team.');
+      }
+
+      const updatePayload = {};
+      if (parsed.action === 'archive') {
+        updatePayload.archived_at = new Date().toISOString();
+        updatePayload.archived_by = req.authenticatedUser.id;
+      } else if (parsed.action === 'restore') {
+        updatePayload.archived_at = null;
+        updatePayload.archived_by = null;
+      } else {
+        updatePayload.due_at = parsed.dueAt;
+      }
+
+      const { error } = await supabaseAdmin
+        .from('skill_team_assignments')
+        .update(updatePayload)
+        .eq('team_id', teamId)
+        .in('id', assignmentIds);
+
+      if (error) {
+        throw new Error(error.message || 'Could not update the selected assignments.');
+      }
+
+      const resources = await loadTeamWorkspaceResources(supabaseAdmin, teamId);
+      const detail = buildTeamDetail(resources);
+      return res.json({
+        assignments: detail.assignments.filter((assignment) => assignmentIds.includes(assignment.id)),
+      });
+    } catch (error) {
+      return res.status(400).json({ error: error.message || 'Could not update the selected assignments.' });
     }
   });
 
@@ -2544,29 +2809,7 @@ export const createTeamsRouter = ({ supabaseAdmin }) => {
       }
 
       return res.json({
-        assignment: {
-          id: data.id,
-          title: data.title,
-          description: data.description,
-          assignmentType: data.assignment_type,
-          benchmarkLanguage: data.benchmark_language,
-          trackId: data.track_id,
-          dueAt: data.due_at,
-          createdAt: data.created_at,
-          updatedAt: data.updated_at || data.created_at,
-          lifecycleState: getAssignmentLifecycleState(data),
-          archivedAt: data.archived_at || null,
-          archivedByUserId: data.archived_by || null,
-          eligibleLearnerCount: 0,
-          completedLearnerCount: 0,
-          inProgressLearnerCount: 0,
-          notStartedLearnerCount: 0,
-          completionRate: 0,
-          averageProgressPercent: 0,
-          requiredCompletionCount: getAssignmentProgressDefinition(data).requiredCount,
-          progressUnitLabel: getAssignmentProgressDefinition(data).unitLabel,
-          metadata: data.metadata || {},
-        },
+        assignment: serializeAssignment(data, []),
       });
     } catch (error) {
       return res.status(400).json({ error: error.message || 'Could not update assignment.' });
@@ -2830,6 +3073,147 @@ export const createTeamsRouter = ({ supabaseAdmin }) => {
     }
   });
 
+  router.get('/:teamId/submissions', requireAuth, async (req, res) => {
+    try {
+      const { teamId } = TeamRouteParamsSchema.parse(req.params || {});
+      const membership = await getActorMembership(teamId, req);
+      ensureTeamRole(membership, ['owner', 'admin', 'coach']);
+      const resources = await loadTeamWorkspaceResources(supabaseAdmin, teamId);
+      const detail = buildTeamDetail(resources);
+      return res.json({ submissions: detail.submissions });
+    } catch (error) {
+      return res.status(400).json({ error: error.message || 'Could not load team submissions.' });
+    }
+  });
+
+  router.post('/:teamId/submissions', requireAuth, async (req, res) => {
+    try {
+      const { teamId } = TeamRouteParamsSchema.parse(req.params || {});
+      const membership = await getActorMembership(teamId, req);
+      ensureTeamRole(membership, ['owner', 'admin', 'coach']);
+      const parsed = CreateSubmissionSchema.parse(req.body || {});
+      await ensureSubmissionTargetsAreValid(supabaseAdmin, teamId, parsed.memberUserId, parsed.assignmentId);
+
+      let submissionCountQuery = supabaseAdmin
+        .from('skill_team_submissions')
+        .select('id', { count: 'exact', head: true })
+        .eq('team_id', teamId)
+        .eq('member_user_id', parsed.memberUserId);
+
+      submissionCountQuery = parsed.assignmentId
+        ? submissionCountQuery.eq('assignment_id', parsed.assignmentId)
+        : submissionCountQuery.is('assignment_id', null);
+
+      const { count: existingCount, error: existingCountError } = await submissionCountQuery;
+
+      if (existingCountError) {
+        throw new Error(existingCountError.message || 'Could not calculate submission history.');
+      }
+
+      const { data, error } = await supabaseAdmin
+        .from('skill_team_submissions')
+        .insert({
+          team_id: teamId,
+          assignment_id: parsed.assignmentId,
+          member_user_id: parsed.memberUserId,
+          submitted_by_user_id: req.authenticatedUser.id,
+          submission_type: parsed.submissionType,
+          title: parsed.title,
+          body: parsed.body || '',
+          external_url: parsed.externalUrl,
+          code_language: parsed.codeLanguage,
+          status: parsed.status,
+          rubric_score: parsed.rubricScore,
+          attempt_number: Number(existingCount || 0) + 1,
+        })
+        .select('*')
+        .single();
+
+      if (error || !data) {
+        throw new Error(error?.message || 'Could not create submission.');
+      }
+
+      const resources = await loadTeamWorkspaceResources(supabaseAdmin, teamId);
+      const detail = buildTeamDetail(resources);
+      const submission = detail.submissions.find((entry) => entry.id === data.id);
+      return res.status(201).json({ submission });
+    } catch (error) {
+      return res.status(400).json({ error: error.message || 'Could not create submission.' });
+    }
+  });
+
+  router.patch('/:teamId/submissions/:submissionId', requireAuth, async (req, res) => {
+    try {
+      const { teamId, submissionId } = TeamSubmissionRouteParamsSchema.parse(req.params || {});
+      const membership = await getActorMembership(teamId, req);
+      ensureTeamRole(membership, ['owner', 'admin', 'coach']);
+      const parsed = UpdateSubmissionSchema.parse(req.body || {});
+      const existingSubmission = await loadTeamSubmission(supabaseAdmin, teamId, submissionId);
+
+      if (!existingSubmission) {
+        throw new Error('Could not find that submission.');
+      }
+
+      await ensureSubmissionTargetsAreValid(
+        supabaseAdmin,
+        teamId,
+        existingSubmission.member_user_id,
+        parsed.assignmentId !== undefined ? parsed.assignmentId : existingSubmission.assignment_id
+      );
+
+      const updatePayload = {};
+      if (parsed.assignmentId !== undefined) updatePayload.assignment_id = parsed.assignmentId;
+      if (parsed.submissionType !== undefined) updatePayload.submission_type = parsed.submissionType;
+      if (parsed.title !== undefined) updatePayload.title = parsed.title;
+      if (parsed.body !== undefined) updatePayload.body = parsed.body;
+      if (parsed.externalUrl !== undefined) updatePayload.external_url = parsed.externalUrl;
+      if (parsed.codeLanguage !== undefined) updatePayload.code_language = parsed.codeLanguage;
+      if (parsed.status !== undefined) updatePayload.status = parsed.status;
+      if (parsed.rubricScore !== undefined) updatePayload.rubric_score = parsed.rubricScore;
+
+      const { data, error } = await supabaseAdmin
+        .from('skill_team_submissions')
+        .update(updatePayload)
+        .eq('id', submissionId)
+        .eq('team_id', teamId)
+        .select('*')
+        .single();
+
+      if (error || !data) {
+        throw new Error(error?.message || 'Could not update submission.');
+      }
+
+      const resources = await loadTeamWorkspaceResources(supabaseAdmin, teamId);
+      const detail = buildTeamDetail(resources);
+      const submission = detail.submissions.find((entry) => entry.id === data.id);
+      return res.json({ submission });
+    } catch (error) {
+      return res.status(400).json({ error: error.message || 'Could not update submission.' });
+    }
+  });
+
+  router.delete('/:teamId/submissions/:submissionId', requireAuth, async (req, res) => {
+    try {
+      const { teamId, submissionId } = TeamSubmissionRouteParamsSchema.parse(req.params || {});
+      const membership = await getActorMembership(teamId, req);
+      ensureTeamRole(membership, ['owner', 'admin', 'coach']);
+
+      const { error } = await supabaseAdmin
+        .from('skill_team_submissions')
+        .delete()
+        .eq('id', submissionId)
+        .eq('team_id', teamId);
+
+      if (error) {
+        throw new Error(error.message || 'Could not delete submission.');
+      }
+
+      return res.status(204).send();
+    } catch (error) {
+      return res.status(400).json({ error: error.message || 'Could not delete submission.' });
+    }
+  });
+
   router.get('/:teamId/feedback', requireAuth, async (req, res) => {
     try {
       const { teamId } = TeamRouteParamsSchema.parse(req.params || {});
@@ -2849,7 +3233,7 @@ export const createTeamsRouter = ({ supabaseAdmin }) => {
       const membership = await getActorMembership(teamId, req);
       ensureTeamRole(membership, ['owner', 'admin', 'coach']);
       const parsed = CreateFeedbackSchema.parse(req.body || {});
-      await ensureFeedbackTargetsAreValid(supabaseAdmin, teamId, parsed.memberUserId, parsed.assignmentId);
+      await ensureFeedbackTargetsAreValid(supabaseAdmin, teamId, parsed.memberUserId, parsed.assignmentId, parsed.submissionId);
 
       const { data, error } = await supabaseAdmin
         .from('skill_team_feedback')
@@ -2857,8 +3241,10 @@ export const createTeamsRouter = ({ supabaseAdmin }) => {
           team_id: teamId,
           member_user_id: parsed.memberUserId,
           assignment_id: parsed.assignmentId,
+          submission_id: parsed.submissionId,
           author_user_id: req.authenticatedUser.id,
           rubric_score: parsed.rubricScore,
+          rubric_breakdown: parsed.rubricBreakdown,
           status: parsed.status,
           summary: parsed.summary,
           strengths: parsed.strengths,
@@ -2890,7 +3276,7 @@ export const createTeamsRouter = ({ supabaseAdmin }) => {
       const parsed = UpdateFeedbackSchema.parse(req.body || {});
       const { data: existingFeedback, error: existingFeedbackError } = await supabaseAdmin
         .from('skill_team_feedback')
-        .select('id, member_user_id, assignment_id')
+        .select('id, member_user_id, assignment_id, submission_id')
         .eq('id', feedbackId)
         .eq('team_id', teamId)
         .maybeSingle();
@@ -2907,12 +3293,15 @@ export const createTeamsRouter = ({ supabaseAdmin }) => {
         supabaseAdmin,
         teamId,
         existingFeedback.member_user_id,
-        parsed.assignmentId !== undefined ? parsed.assignmentId : existingFeedback.assignment_id
+        parsed.assignmentId !== undefined ? parsed.assignmentId : existingFeedback.assignment_id,
+        parsed.submissionId !== undefined ? parsed.submissionId : existingFeedback.submission_id
       );
 
       const updatePayload = {};
       if (parsed.assignmentId !== undefined) updatePayload.assignment_id = parsed.assignmentId;
+      if (parsed.submissionId !== undefined) updatePayload.submission_id = parsed.submissionId;
       if (parsed.rubricScore !== undefined) updatePayload.rubric_score = parsed.rubricScore;
+      if (parsed.rubricBreakdown !== undefined) updatePayload.rubric_breakdown = parsed.rubricBreakdown;
       if (parsed.status !== undefined) updatePayload.status = parsed.status;
       if (parsed.summary !== undefined) updatePayload.summary = parsed.summary;
       if (parsed.strengths !== undefined) updatePayload.strengths = parsed.strengths;

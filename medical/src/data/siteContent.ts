@@ -192,11 +192,11 @@ export const pricingPlans: PricingPlan[] = [
     description: 'Bring Codhak to a cohort of up to 25 learners.',
     features: [
       'Team dashboard',
-      'Assignments and challenge packs',
-      'Leaderboards',
-      'Skill-check analytics',
-      'Instructor views',
-      'Export-ready report placeholders',
+      'Assignments, review queue, and coaching notes',
+      'Leaderboards and cohort progress',
+      'Skill-check and assignment analytics',
+      'Instructor and coach views',
+      'Shareable proof page',
     ],
     ctaLabel: 'Start Teams',
     ctaKind: 'secondary',
@@ -209,7 +209,7 @@ export const pricingPlans: PricingPlan[] = [
     features: [
       'Everything in Teams',
       'Multi-cohort visibility',
-      'Expanded analytics',
+      'Expanded analytics and review visibility',
       'Progress-over-time reporting',
       'Priority onboarding',
     ],
@@ -252,7 +252,8 @@ export const faqItems: FaqItem[] = [
   },
   {
     question: 'Can teams or classes use this?',
-    answer: 'Yes. Codhak for Teams adds dashboards, assignments, and progress views on top of the learner product.',
+    answer:
+      'Yes. Codhak for Teams adds cohort dashboards, assignments, submission reviews, coaching notes, and progress tracking on top of the learner product.',
   },
   {
     question: 'How do you handle AI use and cheating?',
@@ -264,29 +265,29 @@ export const teamUseCases: TeamUseCase[] = [
   {
     slug: 'bootcamps',
     title: 'Bootcamp cohorts',
-    description: 'Benchmark learners and prove improvement.',
-    outcomes: ['Faster learner segmentation', 'Cohort leaderboards', 'Clear benchmark-to-placement story'],
+    description: 'Benchmark learners, assign follow-up practice, and coach work quickly.',
+    outcomes: ['Faster learner segmentation', 'Structured assignment follow-up', 'Clear benchmark-to-placement story'],
     primaryCta: 'Pilot with a bootcamp cohort',
   },
   {
     slug: 'universities',
     title: 'Universities and classrooms',
-    description: 'Benchmark classes and track progress.',
-    outcomes: ['Benchmark completion tracking', 'Progress over time', 'Top performer visibility'],
+    description: 'Assign practice by class, review submissions, and track progress by cohort.',
+    outcomes: ['Benchmark and assignment completion tracking', 'Submission review workflow', 'Progress over time'],
     primaryCta: 'Use Codhak in a class',
   },
   {
     slug: 'coding-clubs',
     title: 'Coding clubs and communities',
-    description: 'Run competitions and track practice.',
-    outcomes: ['Friendly competition', 'Challenge-based practice', 'Shareable progress and rankings'],
+    description: 'Run competitions, set challenge packs, and coach learners between rounds.',
+    outcomes: ['Friendly competition', 'Challenge-based practice', 'Coaching notes and shareable rankings'],
     primaryCta: 'Run a coding club season',
   },
   {
     slug: 'upskilling',
     title: 'Internal upskilling teams',
-    description: 'Benchmark juniors and track growth.',
-    outcomes: ['Skill-gap visibility', 'Role-based challenge packs', 'Progress snapshots for managers'],
+    description: 'Benchmark juniors, review work, and track growth across onboarding cohorts.',
+    outcomes: ['Skill-gap visibility', 'Review and coaching workflow', 'Progress snapshots for managers'],
     primaryCta: 'Benchmark an upskilling team',
   },
 ];
