@@ -263,6 +263,10 @@ export default function DuelsDashboard() {
     socket.on("server_identity", onServerIdentity);
     socket.on("server_error", onServerError);
 
+    if (!socket.connected) {
+      socket.connect();
+    }
+
     try {
       socket.emit("server_identity");
     } catch {
@@ -280,6 +284,7 @@ export default function DuelsDashboard() {
       socket.off("server_identity", onServerIdentity);
       socket.off("server_error", onServerError);
       resetSocketRegistration();
+      socket.disconnect();
       initializedRef.current = false;
     };
   }, [duelUser?.id, ensureSocketRegistered, resetSocketRegistration]);

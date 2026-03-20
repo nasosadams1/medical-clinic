@@ -866,7 +866,7 @@ function ModalShell({
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center bg-background/80 px-4 py-6 backdrop-blur sm:py-10">
       <div className="absolute inset-0" onClick={onClose} />
-      <div className="relative z-10 flex max-h-[calc(100dvh-2rem)] w-full max-w-5xl flex-col overflow-hidden rounded-[1.5rem] border border-border bg-card shadow-elevated">
+      <div className="relative z-10 flex max-h-[calc(100dvh-2rem)] w-full max-w-[min(98vw,1680px)] flex-col overflow-hidden rounded-[1.5rem] border border-border bg-card shadow-elevated">
         <div className="flex items-start justify-between gap-4 border-b border-border px-5 py-4 sm:px-6">
           <div>
             <div className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">{title}</div>
@@ -1013,7 +1013,7 @@ function MetricCard({
   return (
     <div className="rounded-2xl border border-border bg-background px-4 py-3">
       <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-primary">{label}</div>
-      <div className="mt-2 text-xl font-semibold text-foreground">{value}</div>
+      <div className="mt-2 break-words text-lg font-semibold leading-tight text-foreground sm:text-xl">{value}</div>
       {helper ? <div className="mt-1 text-xs text-muted-foreground">{helper}</div> : null}
     </div>
   );
@@ -1741,7 +1741,7 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
 
     const linkedExistingSubmission =
       submissionAttachmentMode === 'existing'
-        ? teamDetail?.submissions.find((entry) => entry.id === selectedSubmissionId) || null
+        ? (teamDetail?.submissions || []).find((entry) => entry.id === selectedSubmissionId) || null
         : null;
 
     let submissionIdToPersist: string | null =
@@ -1826,7 +1826,7 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
   };
 
   const startFeedbackEdit = (entry: TeamFeedback) => {
-    const linkedSubmission = teamDetail?.submissions.find((submission) => submission.id === entry.submissionId) || null;
+    const linkedSubmission = (teamDetail?.submissions || []).find((submission) => submission.id === entry.submissionId) || null;
     setFeedbackDraft({
       id: entry.id,
       memberUserId: entry.memberUserId,
@@ -2337,16 +2337,21 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
   const reviewQueueItems = useMemo<ReviewQueueItem[]>(() => {
     if (!teamDetail) return [];
 
-    const membersById = new Map(teamDetail.members.map((member) => [member.userId, member] as const));
-    const assignmentsById = new Map(teamDetail.assignments.map((assignment) => [assignment.id, assignment] as const));
+    const members = teamDetail.members || [];
+    const assignments = teamDetail.assignments || [];
+    const feedbackEntries = teamDetail.feedback || [];
+    const submissions = teamDetail.submissions || [];
+
+    const membersById = new Map(members.map((member) => [member.userId, member] as const));
+    const assignmentsById = new Map(assignments.map((assignment) => [assignment.id, assignment] as const));
     const feedbackBySubmissionId = new Map<string, TeamFeedback[]>();
 
-    teamDetail.feedback.forEach((entry) => {
+    feedbackEntries.forEach((entry) => {
       if (!entry.submissionId) return;
       feedbackBySubmissionId.set(entry.submissionId, [...(feedbackBySubmissionId.get(entry.submissionId) || []), entry]);
     });
 
-    const items: ReviewQueueItem[] = teamDetail.submissions
+    const items: ReviewQueueItem[] = submissions
       .slice()
       .sort((left, right) => new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime())
       .map((submission) => {
@@ -2383,7 +2388,7 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
         };
       });
 
-    const looseFeedbackItems = teamDetail.feedback
+    const looseFeedbackItems = feedbackEntries
       .filter((entry) => !entry.submissionId)
       .map((entry) => {
         const state: ReviewQueueState =
@@ -2721,11 +2726,11 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
       : '';
 
   const feedbackContextMember =
-    teamDetail?.members.find((member) => member.userId === feedbackContextMemberId) || null;
+    (teamDetail?.members || []).find((member) => member.userId === feedbackContextMemberId) || null;
   const feedbackContextAssignment =
-    teamDetail?.assignments.find((assignment) => assignment.id === feedbackContextAssignmentId) || null;
+    (teamDetail?.assignments || []).find((assignment) => assignment.id === feedbackContextAssignmentId) || null;
   const feedbackContextSubmission =
-    teamDetail?.submissions.find((submission) => submission.id === feedbackContextSubmissionId) || null;
+    (teamDetail?.submissions || []).find((submission) => submission.id === feedbackContextSubmissionId) || null;
 
   const eligibleExistingSubmissions = useMemo(() => {
     if (!feedbackContextMemberId) return [];
@@ -2841,6 +2846,11 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
       ? selectedAssignment.assignmentType === 'roadmap'
         ? trackTitleById.get(selectedAssignment.trackId || '') || 'Roadmap'
         : formatBenchmarkLanguageLabel(selectedAssignment.benchmarkLanguage)
+      : '';
+    const selectedAssignmentTargetUnit = selectedAssignment
+      ? selectedAssignment.requiredCompletionCount === 1 && selectedAssignment.progressUnitLabel.endsWith('s')
+        ? selectedAssignment.progressUnitLabel.slice(0, -1)
+        : selectedAssignment.progressUnitLabel
       : '';
 
     return (
@@ -3056,9 +3066,9 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
             </div>
           ) : null}
 
-          <div className="grid gap-5 xl:grid-cols-[minmax(0,1.35fr)_390px]">
+          <div className="grid gap-5 xl:grid-cols-[minmax(0,1.55fr)_400px] 2xl:grid-cols-[minmax(0,1.65fr)_420px]">
             <div className="rounded-2xl border border-border bg-background">
-              {teamDetail.assignments.length === 0 ? (
+              {(teamDetail.assignments || []).length === 0 ? (
                 <div className="p-4">
                   <EmptyState
                     title="No assignments yet"
@@ -3073,7 +3083,8 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
                   />
                 </div>
               ) : assignmentViewMode === 'board' ? (
-                <div className="grid max-h-[58vh] gap-3 overflow-y-auto p-4 xl:grid-cols-5">
+                <div className="max-h-[58vh] overflow-x-auto overflow-y-auto p-4">
+                  <div className="grid min-w-[1240px] grid-flow-col auto-cols-[240px] gap-3">
                   {(['Past due', 'Due soon', 'Live', 'Scheduled', 'Archived'] as const).map((column) => (
                     <div key={column} className="rounded-2xl border border-border bg-card/60 p-3">
                       <div className="flex items-center justify-between gap-3">
@@ -3102,7 +3113,10 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
                               >
                                 <div className="text-sm font-semibold text-foreground">{assignment.title}</div>
                                 <div className="mt-1 text-xs text-muted-foreground">
-                                  {assignment.completedLearnerCount}/{assignment.eligibleLearnerCount} complete
+                                  {formatAssignmentTypeLabel(assignment.assignmentType)} |{' '}
+                                  {assignment.assignmentType === 'roadmap'
+                                    ? trackTitleById.get(assignment.trackId || '') || 'Roadmap'
+                                    : formatBenchmarkLanguageLabel(assignment.benchmarkLanguage)}
                                 </div>
                                 <div className="mt-3">
                                   <ProgressStack
@@ -3111,6 +3125,9 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
                                     notStarted={assignment.notStartedLearnerCount}
                                   />
                                 </div>
+                                <div className="mt-2 text-xs text-muted-foreground">
+                                  {assignment.completedLearnerCount}/{assignment.eligibleLearnerCount} complete
+                                </div>
                               </button>
                             );
                           })
@@ -3118,6 +3135,7 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
                       </div>
                     </div>
                   ))}
+                  </div>
                 </div>
               ) : assignmentViewMode === 'calendar' ? (
                 <div className="space-y-4 p-4">
@@ -3242,7 +3260,7 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
                 </div>
               ) : (
                 <>
-                  <div className="hidden grid-cols-[36px_minmax(0,1.7fr)_150px_150px_170px] gap-4 border-b border-border px-4 py-3 text-[11px] font-semibold uppercase tracking-[0.16em] text-primary lg:grid">
+                  <div className="hidden grid-cols-[36px_minmax(0,1fr)] gap-4 border-b border-border px-4 py-3 text-[11px] font-semibold uppercase tracking-[0.16em] text-primary lg:grid">
                     <div>
                       <input
                         type="checkbox"
@@ -3251,10 +3269,11 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
                         className="h-4 w-4 rounded border-border bg-background"
                       />
                     </div>
-                    <div>Assignment</div>
-                    <div>State</div>
-                    <div>Due</div>
-                    <div>Progress</div>
+                    <div className="grid grid-cols-[minmax(0,2.1fr)_140px_180px] gap-4">
+                      <div>Assignment</div>
+                      <div>Due</div>
+                      <div>Progress</div>
+                    </div>
                   </div>
                   <div className="max-h-[58vh] divide-y divide-border overflow-y-auto">
                     {filteredAssignments.map((assignment) => {
@@ -3270,7 +3289,7 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
                       return (
                         <div
                           key={assignment.id}
-                          className={`grid gap-3 px-4 py-4 transition lg:grid-cols-[36px_minmax(0,1.7fr)_150px_150px_170px] lg:gap-4 ${
+                          className={`grid gap-3 px-4 py-4 transition lg:grid-cols-[36px_minmax(0,1fr)] lg:gap-4 ${
                             isSelected ? 'bg-primary/8' : 'hover:bg-card'
                           }`}
                         >
@@ -3288,27 +3307,27 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
                               setSelectedAssignmentId(assignment.id);
                               setAssignmentEditorOpen(false);
                             }}
-                            className="contents text-left"
+                            className="grid min-w-0 gap-3 text-left lg:grid-cols-[minmax(0,2.1fr)_140px_180px] lg:gap-4"
                           >
                             <div className="min-w-0">
                               <div className="truncate text-sm font-semibold text-foreground sm:text-base">{assignment.title}</div>
-                              <div className="mt-1 truncate text-sm text-muted-foreground">
-                                {formatAssignmentTypeLabel(assignment.assignmentType)} | {assignmentScope} | All learners
+                              <div className="mt-1 flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+                                <span>{formatAssignmentTypeLabel(assignment.assignmentType)}</span>
+                                <span>|</span>
+                                <span>{assignmentScope}</span>
+                                <span>|</span>
+                                <span>{workflowState.label}</span>
                               </div>
-                              <div className="mt-2 text-xs text-muted-foreground">
-                                {operationalMeta?.needsReviewCount || 0} awaiting review
-                                <span className="mx-2">|</span>
+                              <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                                <span>{operationalMeta?.needsReviewCount || 0} awaiting review</span>
+                                <span>|</span>
                                 {operationalMeta?.averageScore !== null && operationalMeta?.averageScore !== undefined
-                                  ? `Avg score ${operationalMeta.averageScore}`
-                                  : 'No scores yet'}
-                                <span className="mx-2">|</span>
-                                Updated {formatRelativeActivityLabel(operationalMeta?.lastActivityAt || assignment.updatedAt || assignment.createdAt)}
-                              </div>
-                            </div>
-                            <div className="flex items-start lg:items-center">
-                              <div>
-                                <div className="text-sm font-semibold text-foreground">{workflowState.label}</div>
-                                <div className="mt-1 text-xs text-muted-foreground">{workflowState.description}</div>
+                                  ? <span>{`Avg score ${operationalMeta.averageScore}`}</span>
+                                  : <span>No scores yet</span>}
+                                <span>|</span>
+                                <span>
+                                  Updated {formatRelativeActivityLabel(operationalMeta?.lastActivityAt || assignment.updatedAt || assignment.createdAt)}
+                                </span>
                               </div>
                             </div>
                             <div className="flex items-start lg:items-center">
@@ -3538,7 +3557,8 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
                       <MetricCard label="Avg progress" value={`${selectedAssignment.averageProgressPercent}%`} />
                       <MetricCard
                         label="Target"
-                        value={`${selectedAssignment.requiredCompletionCount} ${selectedAssignment.progressUnitLabel}`}
+                        value={String(selectedAssignment.requiredCompletionCount)}
+                        helper={selectedAssignmentTargetUnit ? `${selectedAssignmentTargetUnit} required` : undefined}
                       />
                     </div>
                   </div>
@@ -3764,7 +3784,7 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
             </div>
           </div>
 
-          <div className="grid gap-3 xl:grid-cols-[minmax(0,1.2fr)_180px_180px_180px]">
+          <div className="grid gap-3 xl:grid-cols-[minmax(0,1.3fr)_170px_170px_180px]">
             <div className="relative">
               <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <input
@@ -3842,14 +3862,14 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
             />
           </div>
 
-          <div className="grid gap-5 xl:grid-cols-[300px_minmax(0,1fr)_390px]">
+          <div className="grid gap-5 xl:grid-cols-[320px_minmax(0,1.08fr)_430px] 2xl:grid-cols-[340px_minmax(0,1.12fr)_460px]">
             <div className="rounded-2xl border border-border bg-background">
               {!hasReviewQueue ? (
                 <div className="p-4">
                   <EmptyState
                     title="No submissions or feedback yet"
                     helper={
-                      teamDetail.submissions.length > 0
+                      (teamDetail.submissions || []).length > 0
                         ? 'Learner work is available. Start the first review to turn submissions into scored feedback.'
                         : 'When learners submit work, the review queue will populate here.'
                     }
@@ -3930,7 +3950,7 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
                     </div>
                   </div>
 
-                  <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                  <div className="grid gap-3 sm:grid-cols-2 2xl:grid-cols-4">
                     <MetricCard label="Review state" value={selectedReviewState?.label || 'Needs review'} />
                     <MetricCard
                       label="Submission"
@@ -3998,7 +4018,7 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
                             {feedbackContextSubmission.submittedByName ? ` | Logged by ${feedbackContextSubmission.submittedByName}` : ''}
                           </div>
                         </div>
-                        <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_180px]">
+                        <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_200px]">
                           <div className="rounded-2xl border border-border bg-background px-4 py-3 text-sm text-muted-foreground">
                             {feedbackContextSubmission.preview}
                           </div>
@@ -4101,7 +4121,7 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
                     <div className="text-sm font-semibold text-foreground">Review history</div>
                     {!feedbackComposerOpen && selectedReviewFeedback ? (
                       <div className="mt-3 space-y-3">
-                        <div className="grid gap-3 sm:grid-cols-3">
+                        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
                           <MetricCard label="State" value={selectedFeedbackState?.label || 'Draft'} />
                           <MetricCard
                             label="Visibility"
@@ -4201,7 +4221,7 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
                         className="h-11 w-full rounded-2xl border border-border bg-card px-4 text-sm text-foreground outline-none transition focus:border-primary/40"
                       >
                         <option value="">General coaching note</option>
-                        {teamDetail.assignments.map((assignment) => (
+                        {(teamDetail.assignments || []).map((assignment) => (
                           <option key={assignment.id} value={assignment.id}>
                             {assignment.title}
                           </option>
@@ -4524,7 +4544,7 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
                     </div>
                   </div>
 
-                  <div className="grid gap-3 sm:grid-cols-4">
+                  <div className="grid gap-3 sm:grid-cols-2 2xl:grid-cols-4">
                     <MetricCard label="State" value={selectedFeedbackState?.label || 'Draft'} />
                     <MetricCard label="Visibility" value={selectedReviewFeedback.sharedWithMember ? 'Shared' : 'Private'} />
                     <MetricCard
@@ -4955,7 +4975,7 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
           onClose={() => setActiveModal(null)}
         >
           <div className="space-y-4">
-            {teamDetail.members.length === 0 ? (
+            {(teamDetail.members || []).length === 0 ? (
               <EmptyState title="No members yet" helper="Invite learners first, then promote members if needed." />
             ) : (
               <>
@@ -5284,10 +5304,10 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
               <div className="rounded-2xl border border-border bg-background p-4">
                 <div className="text-sm font-semibold text-foreground">Pending join requests</div>
                 <div className="mt-4 space-y-3">
-                  {teamDetail.joinRequests.filter((request) => request.status === 'pending').length === 0 ? (
+                  {(teamDetail.joinRequests || []).filter((request) => request.status === 'pending').length === 0 ? (
                     <EmptyState title="No requests yet" helper="Approval-mode requests show up here for owners and admins." />
                   ) : (
-                    teamDetail.joinRequests
+                    (teamDetail.joinRequests || [])
                       .filter((request) => request.status === 'pending')
                       .map((request) => {
                         const approveKey = `approved-join-request-${request.id}`;
@@ -5337,10 +5357,10 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
               <div className="rounded-2xl border border-border bg-background p-4">
                 <div className="text-sm font-semibold text-foreground">Invite codes</div>
                 <div className="mt-4 space-y-4">
-                  {teamDetail.invites.length === 0 ? (
+                  {(teamDetail.invites || []).length === 0 ? (
                     <EmptyState title="No invites yet" helper="Create learner invites here, then promote members after they join." />
                   ) : (
-                    teamDetail.invites.map((invite) => {
+                    (teamDetail.invites || []).map((invite) => {
                       const deleteKey = `delete-invite-${invite.id}`;
                       return (
                         <div key={invite.id} className="rounded-2xl border border-border bg-background p-4">
