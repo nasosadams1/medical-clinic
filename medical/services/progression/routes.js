@@ -2,6 +2,8 @@ import express from 'express';
 import { z } from 'zod';
 import { calculateLessonXp } from './lesson-catalog.js';
 import { checkAchievements } from './achievement-runtime.js';
+import { PYTHON_LESSON_EVALUATION_BANK } from './python-lesson-evaluation-bank.generated.js';
+import { LessonProgramJudgeService } from './lesson-program-judge.js';
 import { getAvatarById } from '../../shared/avatar-catalog.js';
 import { getBlockingSanction, formatSanctionMessage } from '../sanctions.js';
 
@@ -21,6 +23,13 @@ const ConsumeHeartSchema = z.object({
 const AvatarIdSchema = z.object({
   avatarId: z.string().trim().min(1).max(64),
 });
+
+const EvaluateLessonSchema = z.object({
+  lessonId: z.string().trim().min(1).max(160),
+  submittedCode: z.string().max(20_000),
+});
+
+const lessonProgramJudgeService = new LessonProgramJudgeService();
 
 const getBearerToken = (req) => {
   const authHeader = req.headers.authorization || '';
@@ -178,6 +187,36 @@ export const createProgressionRouter = ({ supabaseAdmin }) => {
       return res.json(buildProfilePayload(normalized));
     } catch (error) {
       return res.status(400).json({ error: error.message || 'Could not refresh progression state.' });
+    }
+  });
+
+  router.post('/lessons/evaluate', requireAuth, async (req, res) => {
+    try {
+      const parsed = EvaluateLessonSchema.parse(req.body || {});
+      const definition = PYTHON_LESSON_EVALUATION_BANK?.[parsed.lessonId];
+
+      if (!definition) {
+        return res.status(404).json({ error: 'This lesson does not support server-side practice evaluation.' });
+      }
+
+      const submittedCode = parsed.submittedCode.trim();
+      if (!submittedCode) {
+        return res.status(400).json({ error: 'Write code before checking your answer.' });
+      }
+
+      const evaluation = await lessonProgramJudgeService.executePythonLesson(submittedCode, definition);
+      return res.json(evaluation);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: error.issues?.[0]?.message || 'Invalid lesson evaluation payload.' });
+      }
+
+      const statusCode =
+        String(error?.message || '').includes('Isolated lesson execution')
+          ? 503
+          : 400;
+
+      return res.status(statusCode).json({ error: error.message || 'Could not evaluate lesson practice.' });
     }
   });
 

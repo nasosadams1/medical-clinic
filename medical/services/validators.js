@@ -187,10 +187,57 @@ function booleanValidator(actualStdout, inputJson) {
   return { ok: actual === expected, reason: actual === expected ? "OK" : "Boolean mismatch" };
 }
 
+function oneOfValidator(actualStdout, inputJson) {
+  const normalized = normalizeOutput(actualStdout);
+  const expected = Array.isArray(inputJson?.expected) ? inputJson.expected.map((item) => String(item).trim()) : [];
+  if (!expected.length) {
+    return { ok: false, reason: "Allowed outputs were not provided" };
+  }
+
+  return {
+    ok: expected.includes(normalized),
+    reason: expected.includes(normalized) ? "OK" : `Output must be one of: ${expected.join(', ')}`,
+  };
+}
+
+function containsAllTokensValidator(actualStdout, inputJson) {
+  const normalized = normalizeOutput(actualStdout).toLowerCase();
+  const expected = Array.isArray(inputJson?.expected) ? inputJson.expected.map((item) => String(item).trim().toLowerCase()) : [];
+  if (!expected.length) {
+    return { ok: false, reason: "Expected tokens were not provided" };
+  }
+
+  const missing = expected.filter((token) => !normalized.includes(token));
+  return {
+    ok: missing.length === 0,
+    reason: missing.length === 0 ? "OK" : `Missing output tokens: ${missing.join(', ')}`,
+  };
+}
+
+function numberSetValidator(actualStdout, inputJson) {
+  const actualMatches = normalizeOutput(actualStdout).match(/-?\d+(?:\.\d+)?/g) || [];
+  const actual = [...new Set(actualMatches.map((value) => Number(value)).filter((value) => Number.isFinite(value)))].sort((a, b) => a - b);
+  const expected = Array.isArray(inputJson?.expected)
+    ? [...new Set(inputJson.expected.map((value) => Number(value)).filter((value) => Number.isFinite(value)))].sort((a, b) => a - b)
+    : [];
+
+  if (!expected.length) {
+    return { ok: false, reason: "Expected number set was not provided" };
+  }
+
+  return {
+    ok: deepEqual(actual, expected),
+    reason: deepEqual(actual, expected) ? "OK" : "Printed set values do not match",
+  };
+}
+
 export const validators = {
   two_sum: twoSumValidator,
   unordered_array: unorderedArrayValidator,
   interval_set: intervalSetValidator,
   float: (actualStdout, inputJson) => floatValidator(actualStdout, inputJson),
   boolean: booleanValidator,
+  one_of: oneOfValidator,
+  contains_all_tokens: containsAllTokensValidator,
+  number_set: numberSetValidator,
 };

@@ -1,3 +1,42 @@
+export type LessonPracticeMode = 'none' | 'exact' | 'includes_all';
+export type LessonEvaluationMode = 'static' | 'execution';
+export type LessonTheoryStepKind = 'example' | 'context';
+export type LessonQuestionKind = 'predict-output' | 'common-mistake' | 'knowledge-check';
+
+export interface LessonTheoryStep {
+  title: string;
+  content: string;
+  code: string;
+  explanation: string;
+  type: 'theory';
+  stepKind?: LessonTheoryStepKind;
+  practiceMode?: LessonPracticeMode;
+  requiredSnippets?: string[];
+  starterCode?: string;
+}
+
+export interface LessonPracticeStep {
+  title: string;
+  content: string;
+  code: string;
+  explanation: string;
+  type: 'practice';
+  evaluationMode?: LessonEvaluationMode;
+  evaluationId?: string;
+  validationMode?: Exclude<LessonPracticeMode, 'none'>;
+  requiredSnippets?: string[];
+  starterCode?: string;
+}
+
+export interface LessonQuestionStep {
+  question: string;
+  options: string[];
+  correctAnswer: number;
+  explanation: string;
+  type: 'question';
+  questionKind?: LessonQuestionKind;
+}
+
 export interface Lesson {
   id: string;
   title: string;
@@ -10,19 +49,7 @@ export interface Lesson {
   isLocked: boolean;
   prerequisite?: string;
   content: {
-    steps: Array<{
-      title: string;
-      content: string;
-      code: string;
-      explanation: string;
-      type: 'theory';
-    } | {
-      question: string;
-      options: string[];
-      correctAnswer: number;
-      explanation: string;
-      type: 'question';
-    }>;
+    steps: Array<LessonTheoryStep | LessonPracticeStep | LessonQuestionStep>;
   };
 }
 

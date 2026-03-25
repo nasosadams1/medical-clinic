@@ -1,34 +1,50 @@
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { PYTHON_LESSON_META } from '../../shared/python-lesson-meta.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const lessonsSourcePath = path.resolve(__dirname, '../../src/data/lessons.ts');
 
-const LESSON_REGEX = /\{\s*id:\s*'([^']+)'[\s\S]*?difficulty:\s*'([^']+)'[\s\S]*?baseXP:\s*(\d+)[\s\S]*?baselineTime:\s*(\d+)[\s\S]*?language:\s*'([^']+)'/g;
+const LESSON_REGEX = /\{\s*id:\s*["']([^"']+)["'][\s\S]*?difficulty:\s*["']([^"']+)["'][\s\S]*?baseXP:\s*(\d+)[\s\S]*?baselineTime:\s*(\d+(?:\.\d+)?)[\s\S]*?language:\s*["']([^"']+)["']/g;
 
-const lessonSource = fs.readFileSync(lessonsSourcePath, 'utf8');
+const legacyLessonSource = fs.readFileSync(lessonsSourcePath, 'utf8');
+const javascriptStart = legacyLessonSource.indexOf('export const javascriptLessons');
+const lessonSource = javascriptStart >= 0 ? legacyLessonSource.slice(javascriptStart) : legacyLessonSource;
 const allLessons = [];
 const lessonsByLanguage = new Map();
 
-let match;
-while ((match = LESSON_REGEX.exec(lessonSource)) !== null) {
-  const [, id, difficulty, baseXP, baselineTime, language] = match;
-  const normalizedLanguage = String(language).trim();
-  const lesson = {
-    id,
-    difficulty: String(difficulty).trim(),
-    baseXP: Number(baseXP),
-    baselineTime: Number(baselineTime),
+const addLessonMeta = (lesson) => {
+  const normalizedLanguage = String(lesson.language).trim();
+  const normalizedLesson = {
+    id: lesson.id,
+    difficulty: String(lesson.difficulty).trim(),
+    baseXP: Number(lesson.baseXP),
+    baselineTime: Number(lesson.baselineTime),
     language: normalizedLanguage,
   };
 
   if (!lessonsByLanguage.has(normalizedLanguage)) {
     lessonsByLanguage.set(normalizedLanguage, []);
   }
-  lessonsByLanguage.get(normalizedLanguage).push(lesson);
-  allLessons.push(lesson);
+
+  lessonsByLanguage.get(normalizedLanguage).push(normalizedLesson);
+  allLessons.push(normalizedLesson);
+};
+
+PYTHON_LESSON_META.forEach(addLessonMeta);
+
+let match;
+while ((match = LESSON_REGEX.exec(lessonSource)) !== null) {
+  const [, id, difficulty, baseXP, baselineTime, language] = match;
+  addLessonMeta({
+    id,
+    difficulty,
+    baseXP,
+    baselineTime,
+    language,
+  });
 }
 
 for (const [language, lessons] of lessonsByLanguage.entries()) {

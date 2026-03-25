@@ -35,6 +35,17 @@ export interface CodeAssessmentResult {
   rubricScores: CodeAssessmentRubric;
   matchedSignals: string[];
   flaggedPatterns: string[];
+  evaluationSource?: 'static' | 'execution';
+  runtimeMs?: number;
+  stderr?: string;
+  testResults?: Array<{
+    label?: string;
+    passed: boolean;
+    reason: string;
+    hidden?: boolean;
+    actual?: string;
+    stderr?: string;
+  }>;
 }
 
 const normalizeLineEndings = (value: string) => value.replace(/\r\n?/g, '\n');
