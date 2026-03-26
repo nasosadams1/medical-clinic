@@ -229,6 +229,195 @@ const getQuestionWorkspaceGuide = (item: any) => {
   };
 };
 
+type LessonLayoutDensity = "compact" | "standard" | "expanded";
+type LessonLayoutTemplate = "worked-examples" | "practice" | "predict-output" | "common-mistake";
+type LessonCodeScale = "large" | "medium" | "compact";
+
+const countNonEmptyLines = (value?: string | null) =>
+  String(value || "")
+    .split("\n")
+    .filter((line) => line.trim().length > 0).length;
+
+const countWords = (value?: string | null) =>
+  String(value || "")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean).length;
+
+const getLongestLineLength = (value?: string | null) =>
+  String(value || "")
+    .split("\n")
+    .reduce((max, line) => Math.max(max, line.length), 0);
+
+const getLessonCodeScale = ({
+  code,
+  density,
+  preferLarge = false,
+}: {
+  code?: string | null;
+  density?: LessonLayoutDensity;
+  preferLarge?: boolean;
+}): LessonCodeScale => {
+  const lines = countNonEmptyLines(code);
+  const longestLine = getLongestLineLength(code);
+
+  if (!lines) return "medium";
+  if (lines <= 4 && longestLine <= 24) return "large";
+  if (lines <= 6 && longestLine <= 34 && density !== "expanded") return "large";
+  if (lines <= 8 && longestLine <= 50) return preferLarge ? "large" : "medium";
+  if (lines <= 12 && longestLine <= 68) return "medium";
+  return "compact";
+};
+
+const getLessonCodeClassName = (scale: LessonCodeScale) => {
+  if (scale === "large") return "text-[1.1rem] leading-9";
+  if (scale === "medium") return "text-[1rem] leading-8";
+  return "text-[0.95rem] leading-7";
+};
+
+const getLessonEditorTypography = (code?: string | null) => {
+  const scale = getLessonCodeScale({ code, preferLarge: true });
+  if (scale === "large") return { fontSize: 17, lineHeight: 28 };
+  if (scale === "medium") return { fontSize: 16, lineHeight: 26 };
+  return { fontSize: 15, lineHeight: 24 };
+};
+
+const looksLikeCodeSnippet = (value?: string | null) => {
+  const normalized = String(value || "").trim();
+  if (!normalized) return false;
+
+  const lines = normalized.split("\n").filter((line) => line.trim().length > 0);
+  if (!lines.length) return false;
+
+  const codeLikeLine = /[=(){}\[\]<>:+\-*/%]|^\s*(print|if|elif|else|for|while|return|input|len|class|def)\b/;
+  const proseEnding = /[.!?]$/;
+
+  return lines.every((line) => codeLikeLine.test(line) && !proseEnding.test(line.trim()));
+};
+
+const getQuestionFallbackHeading = (kind?: string | null) => {
+  if (kind === "predict-output") return "What does this print?";
+  if (kind === "common-mistake") return "What happens when this runs?";
+  return "Choose the best answer";
+};
+
+const getQuestionLayoutTemplate = (kind?: string | null): "predict-output" | "common-mistake" =>
+  kind === "common-mistake" ? "common-mistake" : "predict-output";
+
+const getDensityBucket = (score: number): LessonLayoutDensity => {
+  if (score <= 1) return "compact";
+  if (score >= 4) return "expanded";
+  return "standard";
+};
+
+const getQuestionLayoutDensity = ({
+  heading,
+  code,
+  optionCount,
+  hasExplanation,
+  inlineCodePrompt,
+}: {
+  heading?: string | null;
+  code?: string | null;
+  optionCount: number;
+  hasExplanation: boolean;
+  inlineCodePrompt: boolean;
+}): LessonLayoutDensity => {
+  let score = 0;
+  const headingWords = countWords(heading);
+  const codeLines = countNonEmptyLines(code);
+
+  if (headingWords > 8) score += 1;
+  if (codeLines >= 3) score += 1;
+  if (codeLines >= 7) score += 1;
+  if (optionCount > 4) score += 1;
+  if (hasExplanation) score += 1;
+  if (inlineCodePrompt) score -= 1;
+
+  return getDensityBucket(Math.max(0, score));
+};
+
+const getPracticeLayoutDensity = ({
+  heading,
+  helperCount,
+  outputLines,
+  coachNote,
+}: {
+  heading?: string | null;
+  helperCount: number;
+  outputLines: number;
+  coachNote?: string | null;
+}): LessonLayoutDensity => {
+  let score = 0;
+
+  if (countWords(heading) > 10) score += 1;
+  if (helperCount >= 3) score += 1;
+  if (helperCount >= 5) score += 1;
+  if (outputLines > 2) score += 1;
+  if (countWords(coachNote) > 20) score += 1;
+
+  return getDensityBucket(score);
+};
+
+const getTheoryLayoutDensity = ({
+  exampleCount,
+  maxCodeLines,
+  introCopy,
+}: {
+  exampleCount: number;
+  maxCodeLines: number;
+  introCopy?: string | null;
+}): LessonLayoutDensity => {
+  let score = 0;
+
+  if (exampleCount >= 3) score += 1;
+  if (exampleCount >= 5) score += 1;
+  if (maxCodeLines >= 6) score += 1;
+  if (countWords(introCopy) > 28) score += 1;
+
+  return getDensityBucket(score);
+};
+
+const getStageMinHeightClass = (template: LessonLayoutTemplate, density: LessonLayoutDensity) => {
+  if (template === "practice") {
+    return density === "expanded"
+      ? "min-h-[calc(100vh-7.25rem)]"
+      : density === "standard"
+      ? "min-h-[max(42rem,calc(100vh-10rem))]"
+      : "min-h-[max(38rem,calc(100vh-14rem))]";
+  }
+
+  if (template === "predict-output") {
+    return "min-h-0";
+  }
+
+  if (template === "common-mistake") {
+    return "min-h-0";
+  }
+
+  return density === "expanded" ? "min-h-[34rem]" : "min-h-0";
+};
+
+const getStagePaddingClass = (template: LessonLayoutTemplate, density: LessonLayoutDensity) => {
+  if (template === "predict-output" || template === "common-mistake") {
+    return density === "compact"
+      ? "px-1 py-2 sm:px-2 sm:py-3 lg:px-3 lg:py-4 xl:px-4 xl:py-5"
+      : density === "standard"
+      ? "px-1 py-2 sm:px-3 sm:py-4 lg:px-4 lg:py-5 xl:px-5 xl:py-6"
+      : "px-2 py-3 sm:px-4 sm:py-5 lg:px-5 lg:py-6 xl:px-6 xl:py-7";
+  }
+
+  if (template === "practice") {
+    return density === "compact"
+      ? "px-4 py-4 sm:px-6 sm:py-6 lg:px-7 lg:py-7 xl:px-8 xl:py-8"
+      : "px-5 py-5 sm:px-7 sm:py-7 lg:px-8 lg:py-8 xl:px-10 xl:py-9 2xl:px-12";
+  }
+
+  return density === "compact"
+    ? "px-4 py-4 sm:px-5 sm:py-5 lg:px-6 lg:py-6 xl:px-7 xl:py-7"
+    : "px-5 py-5 sm:px-6 sm:py-6 lg:px-7 lg:py-7 xl:px-8 xl:py-8";
+};
+
 const getTheoryStepHeading = (step: any) => {
   if (!step) return "";
   if (step?.stepKind === "context") return step?.title || step?.content || "";
@@ -598,6 +787,10 @@ const LessonModal: React.FC<LessonModalProps> = ({
       : groupedTheorySteps;
   const currentQuizItem = (content.quiz || [])[currentQuizIndex] ?? null;
   const currentQuizPromptParts = splitPromptAndCode(currentQuizItem?.question);
+  const currentQuizInlineCodePrompt =
+    !currentQuizPromptParts.code && looksLikeCodeSnippet(currentQuizPromptParts.prompt || currentQuizItem?.question);
+  const currentQuizDisplayCode =
+    currentQuizPromptParts.code || (currentQuizInlineCodePrompt ? currentQuizPromptParts.prompt : "");
   const currentQuizGuide = getQuestionWorkspaceGuide(currentQuizItem);
   const isCurrentStepQuestion = !isQuizMode && currentStepData?.type === "question" && Boolean(currentStepData?.question);
   const isTheoryCodeStep =
@@ -612,6 +805,10 @@ const LessonModal: React.FC<LessonModalProps> = ({
   const currentQuestionPrefix = getQuestionPrefix(currentStepData?.question);
   const currentQuestionPrompt = stripQuestionPrefix(currentStepData?.question);
   const currentQuestionPromptParts = splitPromptAndCode(currentQuestionPrompt);
+  const currentQuestionInlineCodePrompt =
+    !currentQuestionPromptParts.code && looksLikeCodeSnippet(currentQuestionPromptParts.prompt || currentQuestionPrompt);
+  const currentQuestionDisplayCode =
+    currentQuestionPromptParts.code || (currentQuestionInlineCodePrompt ? currentQuestionPromptParts.prompt : "");
   const currentQuestionGuide = getQuestionWorkspaceGuide(currentStepData);
   const currentTheoryHeading = getTheoryStepHeading(currentStepData);
   const currentPracticeBrief = currentStepData?.practiceBrief || null;
@@ -674,8 +871,118 @@ const LessonModal: React.FC<LessonModalProps> = ({
   const hasTheoryFocusRail = Boolean(!isPracticeStep && currentStepData?.content);
   const showsSupportRail =
     hasPracticeRequirements || hasPracticeOutput || hasPracticeInputs || hasPracticeCoachRail || hasTheoryFocusRail;
-  const editorHeight = isPracticeStep ? "54vh" : "420px";
-  const questionWorkspaceMinHeight = "xl:min-h-[36rem]";
+  const quizDensity = getQuestionLayoutDensity({
+    heading: currentQuizInlineCodePrompt
+      ? getQuestionFallbackHeading(currentQuizItem?.questionKind)
+      : currentQuizPromptParts.prompt || currentQuizItem?.question,
+    code: currentQuizDisplayCode,
+    optionCount: currentQuizItem?.options?.length ?? 0,
+    hasExplanation: Boolean(showQuizResult && currentQuizItem?.explanation),
+    inlineCodePrompt: currentQuizInlineCodePrompt,
+  });
+  const questionDensity = getQuestionLayoutDensity({
+    heading: currentQuestionInlineCodePrompt
+      ? getQuestionFallbackHeading(currentStepData?.questionKind)
+      : currentQuestionPromptParts.prompt || currentQuestionPrompt,
+    code: currentQuestionDisplayCode,
+    optionCount: (currentStepData?.options || currentStepData?.answers || []).length,
+    hasExplanation: Boolean(showQuizResult && currentStepData?.explanation),
+    inlineCodePrompt: currentQuestionInlineCodePrompt,
+  });
+  const practiceDensity = getPracticeLayoutDensity({
+    heading: currentPracticeHeading,
+    helperCount:
+      (hasPracticeRequirements ? currentPracticeBrief?.requirements?.length ?? 0 : 0) +
+      (hasPracticeOutput ? 1 : 0) +
+      (hasPracticeInputs ? currentPracticeBrief?.inputs?.length ?? 0 : 0) +
+      (hasPracticeCoachRail ? 1 : 0),
+    outputLines: currentPracticeBrief?.expectedOutput?.length ?? 0,
+    coachNote: currentPracticeCoachNote,
+  });
+  const theoryStepsForDensity = groupedTheoryExampleSteps.length ? groupedTheoryExampleSteps : groupedTheorySteps;
+  const theoryDensity = getTheoryLayoutDensity({
+    exampleCount: theoryStepsForDensity.length,
+    maxCodeLines: theoryStepsForDensity.reduce((max: number, step: any) => Math.max(max, countNonEmptyLines(step?.code)), 0),
+    introCopy: `${theoryIntroBody} ${theoryGroupNote}`,
+  });
+  const currentQuestionTemplate = getQuestionLayoutTemplate(
+    isQuizMode ? currentQuizItem?.questionKind : currentStepData?.questionKind
+  );
+  const activeTemplate: LessonLayoutTemplate = isQuizMode
+    ? currentQuestionTemplate
+    : isCurrentStepQuestion
+      ? currentQuestionTemplate
+      : showsCodePracticeEditor
+        ? "practice"
+        : "worked-examples";
+  const activeDensity: LessonLayoutDensity = isQuizMode
+    ? quizDensity
+    : isCurrentStepQuestion
+      ? questionDensity
+      : showsCodePracticeEditor
+        ? practiceDensity
+        : theoryDensity;
+  const stageMinHeightClass = getStageMinHeightClass(activeTemplate, activeDensity);
+  const stagePaddingClass = getStagePaddingClass(activeTemplate, activeDensity);
+  const workspaceMaxWidthClass =
+    activeTemplate === "predict-output" || activeTemplate === "common-mistake"
+      ? "max-w-[1900px]"
+      : activeTemplate === "practice"
+        ? "max-w-[1600px]"
+        : "max-w-[1660px]";
+  const workspaceFrameClass =
+    activeTemplate === "predict-output" || activeTemplate === "common-mistake"
+      ? "px-0 pb-0 pt-1 sm:px-0 sm:pb-1 sm:pt-1 lg:px-1 lg:pb-2"
+      : "px-3 pb-5 pt-3 sm:px-4 sm:pb-6 sm:pt-4 lg:px-5 lg:pb-8";
+  const editorHeight =
+    practiceDensity === "expanded" ? "58vh" : practiceDensity === "compact" ? "48vh" : "54vh";
+  const footerContainerClass =
+    activeTemplate === "practice"
+      ? "sticky bottom-4 z-10 mt-8 pt-4"
+      : activeTemplate === "predict-output" || activeTemplate === "common-mistake"
+        ? "mt-2 pt-0"
+        : "mt-6 pt-3";
+  const footerPanelClass =
+    activeDensity === "compact"
+      ? "lesson-panel border-white/10 bg-[linear-gradient(180deg,rgba(8,13,24,0.88),rgba(6,10,18,0.96))] px-4 py-3 shadow-[0_20px_38px_rgba(2,6,23,0.22)] sm:px-5"
+      : "lesson-panel border-white/12 bg-[linear-gradient(180deg,rgba(8,13,24,0.88),rgba(6,10,18,0.96))] px-4 py-4 shadow-[0_26px_48px_rgba(2,6,23,0.28)] sm:px-5";
+  const compactQuestionUsesLeftGuide =
+    (activeTemplate === "predict-output" || activeTemplate === "common-mistake") && activeDensity === "compact";
+  const questionGridClass =
+    activeDensity === "expanded"
+      ? "grid gap-4 xl:grid-cols-[minmax(0,1.22fr)_minmax(420px,0.78fr)] xl:items-start xl:gap-6"
+      : activeDensity === "standard"
+        ? "grid gap-4 xl:grid-cols-[minmax(0,1.18fr)_minmax(405px,0.8fr)] xl:items-start xl:gap-6"
+        : "grid gap-3 xl:grid-cols-[minmax(0,1.12fr)_minmax(385px,0.8fr)] xl:items-start xl:gap-4";
+  const quizHeading = currentQuizInlineCodePrompt
+    ? getQuestionFallbackHeading(currentQuizItem?.questionKind)
+    : currentQuizPromptParts.prompt || currentQuizItem?.question || "";
+  const midLessonQuestionHeading = currentQuestionInlineCodePrompt
+    ? getQuestionFallbackHeading(currentStepData?.questionKind)
+    : currentQuestionPromptParts.prompt || currentQuestionPrompt || "";
+  const questionPanelClass = "lesson-panel flex self-start flex-col p-4 sm:p-5";
+  const questionSupportPanelClass = "lesson-support-panel flex self-start flex-col p-4 sm:p-5";
+  const questionCodeSurfaceClass = "lesson-code-surface mt-3 overflow-x-auto p-4 sm:p-5";
+  const questionOptionsClass = "grid gap-3";
+  const questionCodePreClass =
+    "min-h-0";
+  const quizCodeTextClassName = getLessonCodeClassName(
+    getLessonCodeScale({ code: currentQuizDisplayCode, density: quizDensity, preferLarge: true })
+  );
+  const midLessonQuestionCodeTextClassName = getLessonCodeClassName(
+    getLessonCodeScale({ code: currentQuestionDisplayCode, density: questionDensity, preferLarge: true })
+  );
+  const practiceOutputCodeTextClassName = getLessonCodeClassName(
+    getLessonCodeScale({
+      code: currentPracticeBrief?.expectedOutput?.join("\n"),
+      density: practiceDensity,
+      preferLarge: true,
+    })
+  );
+  const practiceEditorTypography = getLessonEditorTypography(currentStepData?.starterCode || currentStepData?.code);
+  const compactLeftGuideClass =
+    "mt-4 rounded-[1.35rem] border border-white/10 bg-white/[0.03] px-4 py-4 text-slate-100";
+  const supportGuideClass = "mt-3 rounded-[1.35rem] border px-4 py-4";
   const footerHint = isQuizMode
     ? showQuizResult
       ? selectedAnswer === currentQuizItem?.correctAnswer
@@ -1108,7 +1415,7 @@ const LessonModal: React.FC<LessonModalProps> = ({
 
   const header = (
     <div className="sticky top-0 z-20 border-b border-white/8 bg-slate-950/92 px-3 py-3 backdrop-blur-xl sm:px-4 lg:px-5">
-      <div className="mx-auto max-w-[1600px]">
+      <div className={`mx-auto ${workspaceMaxWidthClass}`}>
         <div className="flex flex-wrap items-center justify-between gap-4 xl:gap-6">
           <div className="flex min-w-0 flex-1 items-center gap-3 sm:gap-4">
             <button
@@ -1149,8 +1456,8 @@ const LessonModal: React.FC<LessonModalProps> = ({
   );
 
   const footer = (
-    <div className="sticky bottom-4 z-10 mt-8 pt-4">
-      <div className="lesson-panel border-white/12 bg-[linear-gradient(180deg,rgba(8,13,24,0.88),rgba(6,10,18,0.96))] px-4 py-4 shadow-[0_26px_48px_rgba(2,6,23,0.28)] sm:px-5">
+    <div className={footerContainerClass}>
+      <div className={footerPanelClass}>
         <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <div className="min-w-0">
             <div className="lesson-section-label text-slate-300">
@@ -1206,24 +1513,26 @@ const LessonModal: React.FC<LessonModalProps> = ({
     >
       <div className="min-h-full">
         {header}
-        <div className="px-3 pb-5 pt-3 sm:px-4 sm:pb-6 sm:pt-4 lg:px-5 lg:pb-8">
-          <div className="mx-auto max-w-[1600px]">
-            <div className="lesson-stage min-h-[calc(100vh-7.25rem)] px-5 py-5 sm:px-7 sm:py-7 lg:px-8 lg:py-8 xl:px-10 xl:py-9 2xl:px-12">
+        <div className={workspaceFrameClass}>
+          <div className={`mx-auto ${workspaceMaxWidthClass}`}>
+            <div className={`lesson-stage ${stageMinHeightClass} ${stagePaddingClass} flex flex-col`}>
             {isQuizMode ? (
-              <div className={`grid gap-6 xl:grid-cols-[minmax(0,1.16fr)_minmax(390px,0.84fr)] xl:gap-8 ${questionWorkspaceMinHeight}`}>
-                <div className="lesson-panel flex h-full flex-col p-5 sm:p-6">
+              <div className={questionGridClass}>
+                <div className={questionPanelClass}>
                   <div className="max-w-4xl">
                     <div className="lesson-section-label">Final review</div>
                     <h3 className={`${modalQuestionHeadingClassName} mt-3`}>
-                      {renderWithNewlines(currentQuizPromptParts.prompt || currentQuizItem?.question)}
+                      {renderWithNewlines(quizHeading)}
                     </h3>
                   </div>
-                  {currentQuizPromptParts.code ? (
-                    <div className="lesson-code-surface mt-5 flex-1 overflow-x-auto p-5 sm:p-6">
+                  {currentQuizDisplayCode ? (
+                    <div className={questionCodeSurfaceClass}>
                       <div className="mb-4">
                         <span className="lesson-meta-pill lesson-meta-pill--accent">Review code</span>
                       </div>
-                      <pre className="lesson-code-text min-h-[18rem] font-mono text-sm leading-7 text-emerald-300">{currentQuizPromptParts.code}</pre>
+                      <pre className={`lesson-code-text font-mono text-emerald-300 ${quizCodeTextClassName} ${questionCodePreClass}`}>
+                        {currentQuizDisplayCode}
+                      </pre>
                     </div>
                   ) : (
                     <div className="lesson-panel-soft mt-5 border-white/8 bg-white/[0.02] p-4">
@@ -1231,13 +1540,27 @@ const LessonModal: React.FC<LessonModalProps> = ({
                       <div className="mt-3 type-body-md text-slate-200">{currentQuizGuide.items[0]}</div>
                     </div>
                   )}
+                  {compactQuestionUsesLeftGuide ? (
+                    <div className={`${compactLeftGuideClass} ${currentQuizGuide.accent}`}>
+                      <div className="lesson-section-label text-current/80">{currentQuizGuide.label}</div>
+                      <div className="mt-3 text-base font-semibold text-white">{currentQuizGuide.title}</div>
+                      <ul className="mt-3 space-y-2.5">
+                        {currentQuizGuide.items.map((item, index) => (
+                          <li key={`quiz-left-guide-${index}`} className="flex items-start gap-3 text-sm leading-6 text-slate-100">
+                            <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-current/70" />
+                            <span>{item}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : null}
                 </div>
-                <div className="lesson-support-panel flex h-full flex-col p-4 sm:p-5">
+                <div className={questionSupportPanelClass}>
                   <div className="mb-4 flex items-center justify-between gap-3">
                     <span className="lesson-meta-pill">Pick one answer</span>
                     <span className="type-body-sm text-slate-400">{currentQuizItem?.options?.length || 0} options</span>
                   </div>
-                  <div className="grid gap-3">
+                  <div className={questionOptionsClass}>
                     {currentQuizItem?.options?.map((option: string, index: number) => {
                       const isSelected = selectedAnswer === index;
                       const isCorrect = index === currentQuizItem.correctAnswer;
@@ -1284,23 +1607,25 @@ const LessonModal: React.FC<LessonModalProps> = ({
                       <p className="text-slate-200">{renderWithNewlines(currentQuizItem?.explanation)}</p>
                     </div>
                   ) : null}
-                  <div className={`mt-4 rounded-[1.35rem] border px-4 py-4 sm:mt-auto ${currentQuizGuide.accent}`}>
-                    <div className="lesson-section-label text-current/80">{currentQuizGuide.label}</div>
-                    <div className="mt-3 text-base font-semibold text-white">{currentQuizGuide.title}</div>
-                    <ul className="mt-3 space-y-2.5">
-                      {currentQuizGuide.items.map((item, index) => (
-                        <li key={`quiz-guide-${index}`} className="flex items-start gap-3 text-sm leading-6 text-slate-100">
-                          <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-current/70" />
-                          <span>{item}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
+                  {!compactQuestionUsesLeftGuide ? (
+                    <div className={`${supportGuideClass} ${currentQuizGuide.accent}`}>
+                      <div className="lesson-section-label text-current/80">{currentQuizGuide.label}</div>
+                      <div className="mt-3 text-base font-semibold text-white">{currentQuizGuide.title}</div>
+                      <ul className="mt-3 space-y-2.5">
+                        {currentQuizGuide.items.map((item, index) => (
+                          <li key={`quiz-guide-${index}`} className="flex items-start gap-3 text-sm leading-6 text-slate-100">
+                            <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-current/70" />
+                            <span>{item}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : null}
                 </div>
               </div>
             ) : isCurrentStepQuestion ? (
-              <div className={`grid gap-6 xl:grid-cols-[minmax(0,1.16fr)_minmax(390px,0.84fr)] xl:gap-8 ${questionWorkspaceMinHeight}`}>
-                <div className="lesson-panel flex h-full flex-col p-5 sm:p-6">
+              <div className={questionGridClass}>
+                <div className={questionPanelClass}>
                   <div className="max-w-4xl">
                     <div className="mb-3 flex flex-wrap items-center gap-2.5">
                       {currentQuestionPrefix.id ? (
@@ -1313,15 +1638,17 @@ const LessonModal: React.FC<LessonModalProps> = ({
                       </span>
                     </div>
                     <h3 className={modalQuestionHeadingClassName}>
-                      {renderWithNewlines(currentQuestionPromptParts.prompt || currentQuestionPrompt)}
+                      {renderWithNewlines(midLessonQuestionHeading)}
                     </h3>
                   </div>
-                  {currentQuestionPromptParts.code ? (
-                    <div className="lesson-code-surface mt-5 flex-1 overflow-x-auto p-5 sm:p-6">
+                  {currentQuestionDisplayCode ? (
+                    <div className={questionCodeSurfaceClass}>
                       <div className="mb-4">
                         <span className="lesson-meta-pill lesson-meta-pill--accent">Question code</span>
                       </div>
-                      <pre className="lesson-code-text min-h-[18rem] font-mono text-sm leading-7 text-emerald-300">{currentQuestionPromptParts.code}</pre>
+                      <pre className={`lesson-code-text font-mono text-emerald-300 ${midLessonQuestionCodeTextClassName} ${questionCodePreClass}`}>
+                        {currentQuestionDisplayCode}
+                      </pre>
                     </div>
                   ) : (
                     <div className="lesson-panel-soft mt-5 border-white/8 bg-white/[0.02] p-4">
@@ -1329,13 +1656,27 @@ const LessonModal: React.FC<LessonModalProps> = ({
                       <div className="mt-3 type-body-md text-slate-200">{currentQuestionGuide.items[0]}</div>
                     </div>
                   )}
+                  {compactQuestionUsesLeftGuide ? (
+                    <div className={`${compactLeftGuideClass} ${currentQuestionGuide.accent}`}>
+                      <div className="lesson-section-label text-current/80">{currentQuestionGuide.label}</div>
+                      <div className="mt-3 text-base font-semibold text-white">{currentQuestionGuide.title}</div>
+                      <ul className="mt-3 space-y-2.5">
+                        {currentQuestionGuide.items.map((item, index) => (
+                          <li key={`question-left-guide-${index}`} className="flex items-start gap-3 text-sm leading-6 text-slate-100">
+                            <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-current/70" />
+                            <span>{item}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : null}
                 </div>
-                <div className="lesson-support-panel flex h-full flex-col p-4 sm:p-5">
+                <div className={questionSupportPanelClass}>
                   <div className="mb-4 flex items-center justify-between gap-3">
                     <span className="lesson-meta-pill">Pick one answer</span>
                     <span className="type-body-sm text-slate-400">{(currentStepData?.options || currentStepData?.answers || []).length} options</span>
                   </div>
-                  <div className="grid gap-3">
+                  <div className={questionOptionsClass}>
                     {(currentStepData?.options || currentStepData?.answers || []).map((option: string, index: number) => {
                       const isSelected = selectedAnswer === index;
                       const isCorrect = index === currentStepData.correctAnswer;
@@ -1382,18 +1723,20 @@ const LessonModal: React.FC<LessonModalProps> = ({
                       <p className="text-slate-200">{renderWithNewlines(currentStepData?.explanation)}</p>
                     </div>
                   ) : null}
-                  <div className={`mt-4 rounded-[1.35rem] border px-4 py-4 sm:mt-auto ${currentQuestionGuide.accent}`}>
-                    <div className="lesson-section-label text-current/80">{currentQuestionGuide.label}</div>
-                    <div className="mt-3 text-base font-semibold text-white">{currentQuestionGuide.title}</div>
-                    <ul className="mt-3 space-y-2.5">
-                      {currentQuestionGuide.items.map((item, index) => (
-                        <li key={`question-guide-${index}`} className="flex items-start gap-3 text-sm leading-6 text-slate-100">
-                          <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-current/70" />
-                          <span>{item}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
+                  {!compactQuestionUsesLeftGuide ? (
+                    <div className={`${supportGuideClass} ${currentQuestionGuide.accent}`}>
+                      <div className="lesson-section-label text-current/80">{currentQuestionGuide.label}</div>
+                      <div className="mt-3 text-base font-semibold text-white">{currentQuestionGuide.title}</div>
+                      <ul className="mt-3 space-y-2.5">
+                        {currentQuestionGuide.items.map((item, index) => (
+                          <li key={`question-guide-${index}`} className="flex items-start gap-3 text-sm leading-6 text-slate-100">
+                            <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-current/70" />
+                            <span>{item}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : null}
                 </div>
               </div>
             ) : showsCodePracticeEditor ? (
@@ -1431,6 +1774,8 @@ const LessonModal: React.FC<LessonModalProps> = ({
                           setTheoryCodeResult(null);
                         }}
                         height={editorHeight}
+                        fontSize={practiceEditorTypography.fontSize}
+                        lineHeight={practiceEditorTypography.lineHeight}
                       />
                     </div>
 
@@ -1518,7 +1863,7 @@ const LessonModal: React.FC<LessonModalProps> = ({
                             </div>
                           ) : null}
                           {currentPracticeBrief.expectedOutput?.length ? (
-                            <div className="lesson-code-text mt-4 rounded-[1.2rem] border border-white/10 bg-slate-950/90 p-4 font-mono text-sm leading-7 text-emerald-300">
+                            <div className={`lesson-code-text mt-4 rounded-[1.2rem] border border-white/10 bg-slate-950/90 p-4 font-mono text-emerald-300 ${practiceOutputCodeTextClassName}`}>
                               {currentPracticeBrief.expectedOutput.map((item: string, index: number) => (
                                 <div key={`output-${index}`}>{item}</div>
                               ))}
@@ -1604,7 +1949,13 @@ const LessonModal: React.FC<LessonModalProps> = ({
                               <span className="lesson-meta-pill lesson-meta-pill--accent">{stepTitle}</span>
                               <span className="lesson-meta-pill">Example code</span>
                             </div>
-                            <pre className="lesson-code-text overflow-x-auto font-mono text-[0.95rem] leading-8 text-emerald-300">{step?.code}</pre>
+                            <pre
+                              className={`lesson-code-text overflow-x-auto font-mono text-emerald-300 ${getLessonCodeClassName(
+                                getLessonCodeScale({ code: step?.code, density: theoryDensity, preferLarge: true })
+                              )}`}
+                            >
+                              {step?.code}
+                            </pre>
                           </div>
                           <div className="pt-1">
                             <div className="lesson-section-label text-slate-400">What this teaches</div>

@@ -7,6 +7,8 @@ interface CodeTypingEditorProps {
   value: string;
   onChange: (value: string) => void;
   height?: string;
+  fontSize?: number;
+  lineHeight?: number;
 }
 
 const toMonacoLanguage = (language: LanguageSlug) => {
@@ -49,6 +51,8 @@ export default function CodeTypingEditor({
   value,
   onChange,
   height = '280px',
+  fontSize = 15,
+  lineHeight = 24,
 }: CodeTypingEditorProps) {
   const languageLabel = language === 'cpp' ? 'C++' : language === 'javascript' ? 'JavaScript' : language === 'java' ? 'Java' : 'Python';
 
@@ -76,10 +80,10 @@ export default function CodeTypingEditor({
         theme="lesson-code-dark"
         options={{
           minimap: { enabled: false },
-          fontSize: 15,
+          fontSize,
           fontFamily: 'JetBrains Mono, Fira Code, monospace',
           fontLigatures: false,
-          lineHeight: 24,
+          lineHeight,
           lineNumbers: 'on',
           scrollBeyondLastLine: false,
           automaticLayout: true,
