@@ -264,6 +264,14 @@ function checkRequiredSnippets(code, requiredSnippets = []) {
   return missing;
 }
 
+function inferRuntimeFeedbackKind(stderr = '') {
+  const normalized = String(stderr || '');
+  if (/SyntaxError|IndentationError|TabError/i.test(normalized)) {
+    return 'syntax_error';
+  }
+  return 'runtime_error';
+}
+
 export class LessonProgramJudgeService {
   async executePythonLesson(code, definition) {
     const startedAt = Date.now();
@@ -342,6 +350,15 @@ export class LessonProgramJudgeService {
     const passedAllTests = passed === testCases.length;
     const passedStructure = missingSnippets.length === 0;
     const passedOverall = passedAllTests && passedStructure;
+    const feedbackKind = passedOverall
+      ? 'passed'
+      : !passedAllTests
+      ? sawTimeout
+        ? 'timeout'
+        : sawRuntimeError
+        ? inferRuntimeFeedbackKind(stderr)
+        : 'wrong_output'
+      : 'structure_missing';
 
     const message = passedOverall
       ? 'The program produced the correct result and used the required lesson structure.'
@@ -351,11 +368,12 @@ export class LessonProgramJudgeService {
         : sawRuntimeError
         ? 'The program crashed during the lesson checks.'
         : 'The program did not produce the expected result for every lesson check.'
-      : `The output is correct, but the required lesson structure is still missing: ${missingSnippets.join(', ')}`;
+      : `One required lesson structure item is still missing: ${missingSnippets.join(', ')}`;
 
     return {
       passed: passedOverall,
       message,
+      feedbackKind,
       scorePercent: Math.round(finalScore * 100),
       rubricBreakdown: {
         correctness: Math.round(outputScore * 100),

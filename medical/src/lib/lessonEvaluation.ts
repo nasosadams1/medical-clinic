@@ -4,6 +4,7 @@ import { supabase } from './supabase';
 export interface LessonExecutionEvaluationResult {
   passed: boolean;
   message: string;
+  feedbackKind?: 'passed' | 'wrong_output' | 'structure_missing' | 'syntax_error' | 'runtime_error' | 'timeout';
   scorePercent: number;
   missingSnippets?: string[];
   rubricBreakdown: {

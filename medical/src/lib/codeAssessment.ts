@@ -31,6 +31,16 @@ export interface CodeAssessmentResult {
   passed: boolean;
   message: string;
   missingSnippets: string[];
+  feedbackKind?:
+    | 'passed'
+    | 'empty'
+    | 'starter'
+    | 'wrong_output'
+    | 'structure_missing'
+    | 'syntax_error'
+    | 'runtime_error'
+    | 'timeout'
+    | 'cleanup';
   scorePercent: number;
   rubricScores: CodeAssessmentRubric;
   matchedSignals: string[];
@@ -67,7 +77,12 @@ const clamp = (value: number, min: number, max: number) => Math.min(max, Math.ma
 const roundPercent = (value: number) => Math.round(clamp(value, 0, 1) * 100);
 
 const getSignalMatchRatio = (submission: string, signals: string[]) => {
-  if (signals.length === 0) return 1;
+  if (signals.length === 0) {
+    return {
+      matched: [] as string[],
+      ratio: 1,
+    };
+  }
   const matched = signals.filter((signal) => submission.includes(toCollapsedCode(signal)));
   return {
     matched,
@@ -87,6 +102,7 @@ export const validateCodeAssessment = (
       passed: false,
       message: 'Write code before checking your answer.',
       missingSnippets: [],
+      feedbackKind: 'empty',
       scorePercent: 0,
       rubricScores: {
         correctness: 0,
@@ -109,6 +125,7 @@ export const validateCodeAssessment = (
       passed: false,
       message: 'The starter scaffold is still unchanged. Finish the task before checking your answer.',
       missingSnippets: [],
+      feedbackKind: 'starter',
       scorePercent: 0,
       rubricScores: {
         correctness: 0,
@@ -142,6 +159,7 @@ export const validateCodeAssessment = (
         ? 'Code matches the lesson target.'
         : 'This checkpoint expects the lesson example or benchmark reference to be typed correctly.',
       missingSnippets: [],
+      feedbackKind: passed ? 'passed' : 'wrong_output',
       scorePercent: roundPercent(totalScore),
       rubricScores: {
         correctness: roundPercent(totalScore),
@@ -213,6 +231,7 @@ export const validateCodeAssessment = (
         ? 'Code covers the required logic with a benchmark-ready structure.'
         : notes.join(' '),
     missingSnippets,
+    feedbackKind: passed ? 'passed' : missingSnippets.length > 0 ? 'structure_missing' : 'cleanup',
     scorePercent: roundPercent(totalScore),
     rubricScores: {
       correctness: roundPercent(correctnessRatio),

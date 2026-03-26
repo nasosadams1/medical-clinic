@@ -188,6 +188,47 @@ const stripQuestionPrefix = (question?: string | null) =>
 const getQuestionKindLabel = (step: any) =>
   questionKindLabelMap[step?.questionKind || ""] || getQuestionPrefix(step?.question).label || "Question";
 
+const getQuestionWorkspaceGuide = (item: any) => {
+  const kind = item?.questionKind || "";
+
+  if (kind === "predict-output") {
+    return {
+      label: "Prediction checklist",
+      title: "Trace the code before you answer",
+      accent: "border-cyan-400/16 bg-cyan-400/[0.05] text-cyan-100",
+      items: [
+        "Read top to bottom and track the value of each variable.",
+        "Use the exact console output, not the code or a description.",
+        "Watch quotes, spacing, and line order before you submit.",
+      ],
+    };
+  }
+
+  if (kind === "common-mistake") {
+    return {
+      label: "What to watch",
+      title: "Look for the failure point",
+      accent: "border-amber-300/16 bg-amber-300/[0.05] text-amber-100",
+      items: [
+        "Check whether the code would run before judging the result.",
+        "Look for missing quotes, type mismatches, and name errors.",
+        "Pick the answer that matches Python behavior exactly.",
+      ],
+    };
+  }
+
+  return {
+    label: "Answer strategy",
+    title: "Choose the strongest answer",
+    accent: "border-violet-400/16 bg-violet-400/[0.05] text-violet-100",
+    items: [
+      "Read the prompt once for meaning and once for details.",
+      "Eliminate answers that are partially true but incomplete.",
+      "Select the answer that best matches the lesson rule.",
+    ],
+  };
+};
+
 const getTheoryStepHeading = (step: any) => {
   if (!step) return "";
   if (step?.stepKind === "context") return step?.title || step?.content || "";
@@ -209,6 +250,7 @@ const toExecutionAssessmentResult = (
   passed: result.passed,
   message: result.message,
   missingSnippets: result.missingSnippets ?? [],
+  feedbackKind: result.feedbackKind,
   scorePercent: result.scorePercent,
   rubricScores: result.rubricBreakdown,
   matchedSignals: [],
@@ -218,6 +260,180 @@ const toExecutionAssessmentResult = (
   stderr: result.stderr,
   testResults: result.testResults ?? [],
 });
+
+const buildCodeFeedback = (result: CodeAssessmentResult | null) => {
+  if (!result) return null;
+
+  const missingSnippets = result.missingSnippets ?? [];
+  const flaggedPatterns = result.flaggedPatterns ?? [];
+  const visibleTests = (result.testResults ?? []).filter((test) => !test.hidden);
+  const failingVisibleTest = visibleTests.find((test) => !test.passed) || null;
+  const publicOutputPassed = visibleTests.length > 0 && !failingVisibleTest;
+  const hasStructureIssue = missingSnippets.length > 0 || flaggedPatterns.length > 0;
+  const hasHiddenOrRuleIssue = !result.passed && publicOutputPassed && !hasStructureIssue;
+  const hasUnstructuredExecutionFailure =
+    result.evaluationSource === "execution" &&
+    !result.passed &&
+    !visibleTests.length &&
+    !hasStructureIssue &&
+    !result.stderr;
+  const feedbackKind =
+    result.feedbackKind ||
+    (result.passed
+      ? 'passed'
+      : failingVisibleTest
+      ? 'wrong_output'
+      : missingSnippets.length > 0
+      ? 'structure_missing'
+      : flaggedPatterns.length > 0
+      ? 'cleanup'
+      : hasHiddenOrRuleIssue
+      ? 'structure_missing'
+      : 'wrong_output');
+
+  let tone: "success" | "warning" | "error" = "warning";
+  let title = "Keep refining";
+  let summary = result.message;
+  let nextAction = "Update the solution and check again.";
+
+  if (feedbackKind === 'passed') {
+    tone = "success";
+    title = "Ready to continue";
+    summary = "Output and structure checks both passed.";
+    nextAction = "Move to the next step.";
+  } else if (feedbackKind === 'empty') {
+    tone = "warning";
+    title = "Start with code";
+    summary = "There is nothing to check yet.";
+    nextAction = "Write the solution, then run the check.";
+  } else if (feedbackKind === 'starter') {
+    tone = "warning";
+    title = "Starter code unchanged";
+    summary = "The editor still contains the untouched scaffold.";
+    nextAction = "Finish the task, then run the check again.";
+  } else if (feedbackKind === 'syntax_error') {
+    tone = "error";
+    title = "Fix the syntax";
+    summary = result.stderr || failingVisibleTest?.stderr || "Python found a syntax problem before the program could run.";
+    nextAction = "Fix the syntax error, then run the check again.";
+  } else if (feedbackKind === 'runtime_error') {
+    tone = "error";
+    title = "Program crashed";
+    summary = result.stderr || failingVisibleTest?.stderr || "The code ran, but crashed during the lesson checks.";
+    nextAction = "Fix the runtime error, then run the check again.";
+  } else if (feedbackKind === 'timeout') {
+    tone = "error";
+    title = "Program timed out";
+    summary = "The solution did not finish within the lesson time limit.";
+    nextAction = "Simplify the logic and run the check again.";
+  } else if (feedbackKind === 'wrong_output' || failingVisibleTest) {
+    tone = "error";
+    title = hasUnstructuredExecutionFailure ? "Check unavailable" : "Output needs work";
+    summary =
+      failingVisibleTest?.reason ||
+      result.message ||
+      (hasUnstructuredExecutionFailure
+        ? "The lesson runner could not complete this check right now."
+        : "The public output check still fails.");
+    nextAction = hasUnstructuredExecutionFailure
+      ? "Try the check again in a moment."
+      : "Match the target output, then run the check again.";
+  } else if (feedbackKind === 'structure_missing' || missingSnippets.length > 0) {
+    tone = "warning";
+    title = publicOutputPassed ? "Output is correct, structure is not" : "Structure requirement not met";
+    summary = publicOutputPassed
+      ? "The result is correct, but the lesson still requires one specific piece of code structure."
+      : "Your solution is close, but one required piece of logic is still missing.";
+    nextAction = "Keep the output, add the missing requirement, then check again.";
+  } else if (feedbackKind === 'cleanup' || flaggedPatterns.length > 0) {
+    tone = "warning";
+    title = "Clean up the solution";
+    summary = "The checker found a pattern that does not meet the lesson requirement.";
+    nextAction = "Simplify the code and run the check again.";
+  } else if (hasHiddenOrRuleIssue) {
+    tone = "warning";
+    title = "Almost there";
+    summary = "The public check passes, but one additional case or rule still fails.";
+    nextAction = "Handle the missing case and check again.";
+  }
+
+  const items: Array<{ label: string; state: "success" | "warning" | "error" | "neutral"; detail: string }> = [];
+
+  const isTechnicalFailure =
+    feedbackKind === 'syntax_error' || feedbackKind === 'runtime_error' || feedbackKind === 'timeout';
+
+  if (visibleTests.length > 0 && !isTechnicalFailure) {
+    const outputDetail = publicOutputPassed
+      ? `${visibleTests.length} public check${visibleTests.length > 1 ? "s" : ""} passed.`
+      : failingVisibleTest?.actual
+      ? `${failingVisibleTest.reason} Received: ${failingVisibleTest.actual}`
+      : failingVisibleTest?.reason || result.message || "A public output check failed.";
+    items.push({
+      label: "Output",
+      state: publicOutputPassed ? "success" : "error",
+      detail: outputDetail,
+    });
+  }
+
+  if (missingSnippets.length > 0) {
+    items.push({
+      label: "Structure",
+      state: "warning",
+      detail: `Still missing: ${missingSnippets.join(", ")}`,
+    });
+  } else if (hasHiddenOrRuleIssue) {
+    items.push({
+      label: "Structure",
+      state: "warning",
+      detail: "The solution still misses one hidden case or lesson rule.",
+    });
+  }
+
+  if (flaggedPatterns.length > 0) {
+    items.push({
+      label: "Cleanup",
+      state: "warning",
+      detail: `Avoid: ${flaggedPatterns.join(", ")}`,
+    });
+  }
+
+  if (hasUnstructuredExecutionFailure && !items.length) {
+    items.push({
+      label: "Runner",
+      state: "error",
+      detail: result.message || "The lesson runner rejected this check.",
+    });
+  }
+
+  if (isTechnicalFailure) {
+    items.unshift({
+      label: feedbackKind === 'syntax_error' ? "Syntax" : feedbackKind === 'runtime_error' ? "Runtime" : "Time limit",
+      state: "error",
+      detail:
+        feedbackKind === 'timeout'
+          ? "The program did not finish before the lesson time limit."
+          : (result.stderr || failingVisibleTest?.stderr || result.message),
+    });
+  }
+
+  if (result.runtimeMs && feedbackKind !== 'runtime_error' && feedbackKind !== 'timeout') {
+    items.push({
+      label: "Runtime",
+      state: "neutral",
+      detail: `${result.runtimeMs}ms`,
+    });
+  }
+
+  if (result.stderr) {
+    items.push({
+      label: "Runner",
+      state: "error",
+      detail: result.stderr,
+    });
+  }
+
+  return { tone, title, summary, nextAction, items };
+};
 
 const renderOverlay = (node: React.ReactNode) =>
   typeof document !== "undefined" ? createPortal(node, document.body) : node;
@@ -382,6 +598,7 @@ const LessonModal: React.FC<LessonModalProps> = ({
       : groupedTheorySteps;
   const currentQuizItem = (content.quiz || [])[currentQuizIndex] ?? null;
   const currentQuizPromptParts = splitPromptAndCode(currentQuizItem?.question);
+  const currentQuizGuide = getQuestionWorkspaceGuide(currentQuizItem);
   const isCurrentStepQuestion = !isQuizMode && currentStepData?.type === "question" && Boolean(currentStepData?.question);
   const isTheoryCodeStep =
     !isQuizMode &&
@@ -395,6 +612,7 @@ const LessonModal: React.FC<LessonModalProps> = ({
   const currentQuestionPrefix = getQuestionPrefix(currentStepData?.question);
   const currentQuestionPrompt = stripQuestionPrefix(currentStepData?.question);
   const currentQuestionPromptParts = splitPromptAndCode(currentQuestionPrompt);
+  const currentQuestionGuide = getQuestionWorkspaceGuide(currentStepData);
   const currentTheoryHeading = getTheoryStepHeading(currentStepData);
   const currentPracticeBrief = currentStepData?.practiceBrief || null;
   const currentPracticeHeading = currentPracticeBrief?.task || currentStepData?.content || currentStepData?.title || "";
@@ -404,6 +622,16 @@ const LessonModal: React.FC<LessonModalProps> = ({
   const currentPracticeCoachNote = currentPracticeBrief?.coachNote || currentStepData?.explanation || "";
   const isProjectLesson = resolvedLesson?.category === "Projects";
   const lessonLanguageLabel = lessonLanguageLabelMap[lessonLanguage];
+  const lessonTitle =
+    resolvedLesson?.title || lessonCatalogEntry?.title || lesson?.title || `${lessonLanguageLabel} lesson`;
+  const headerEyebrow = isQuizMode ? `${lessonLanguageLabel} review` : `${lessonLanguageLabel} workspace`;
+  const headerContextLabel = isQuizMode
+    ? `${lessonTitle} · final review`
+    : showsCodePracticeEditor
+      ? `${lessonTitle} · ${isPracticeStep ? "practice" : "guided code"}`
+      : isCurrentStepQuestion
+        ? `${lessonTitle} · ${getQuestionKindLabel(currentStepData).toLowerCase()}`
+        : `${lessonTitle} · lesson flow`;
   const shouldRenderCurrentExplanation =
     !isPracticeStep &&
     Boolean(currentStepData?.explanation) &&
@@ -431,11 +659,40 @@ const LessonModal: React.FC<LessonModalProps> = ({
   const usePremiumHeroTextTreatment = isFirstOutputHeroExample(resolvedLesson?.id, currentStepData);
   const theoryHeadingClassName = usePremiumHeroTextTreatment
     ? "lesson-headline-premium"
-    : "type-display-section max-w-3xl text-white";
-  const practiceHeadingClassName = "lesson-practice-heading max-w-3xl text-white";
-  const modalQuestionHeadingClassName = "type-headline max-w-2xl text-white";
+    : "type-display-section max-w-4xl text-white";
+  const practiceHeadingClassName = "lesson-practice-heading max-w-4xl text-white";
+  const modalQuestionHeadingClassName = "type-headline max-w-3xl text-white";
   const theoryDisplaySteps = groupedTheoryExampleSteps.length ? groupedTheoryExampleSteps : groupedTheorySteps;
   const showsLowHeartNote = !isUnlimitedHeartsActive() && (user?.hearts ?? 0) <= 2;
+  const codeFeedback = buildCodeFeedback(theoryCodeResult);
+  const hasPracticeRequirements = Boolean(isPracticeStep && currentPracticeBrief?.requirements?.length);
+  const hasPracticeOutput = Boolean(
+    isPracticeStep && (currentPracticeBrief?.expectedOutput?.length || currentPracticeBrief?.outputDescription)
+  );
+  const hasPracticeInputs = Boolean(isPracticeStep && currentPracticeBrief?.inputs?.length);
+  const hasPracticeCoachRail = Boolean(shouldRenderPracticeCoachNote);
+  const hasTheoryFocusRail = Boolean(!isPracticeStep && currentStepData?.content);
+  const showsSupportRail =
+    hasPracticeRequirements || hasPracticeOutput || hasPracticeInputs || hasPracticeCoachRail || hasTheoryFocusRail;
+  const editorHeight = isPracticeStep ? "54vh" : "420px";
+  const questionWorkspaceMinHeight = "xl:min-h-[36rem]";
+  const footerHint = isQuizMode
+    ? showQuizResult
+      ? selectedAnswer === currentQuizItem?.correctAnswer
+        ? "Answer locked in. Continue when you are ready."
+        : "This answer failed. Review the feedback and restart the lesson to continue."
+      : "Choose the strongest answer, then check it."
+    : showsCodePracticeEditor
+      ? theoryCodeResult?.passed
+        ? "Your solution passed. Continue when you are ready."
+        : "Use the checker when the solution matches the brief."
+      : isCurrentStepQuestion
+        ? showQuizResult
+          ? selectedAnswer === currentStepData?.correctAnswer
+            ? "Correct answer locked in. Continue when you are ready."
+            : "This answer failed. Review the explanation and restart the lesson to continue."
+          : "Read the prompt, choose one answer, then check it."
+        : "Review the example, then continue when the rule is clear.";
   const primaryActionLabel = isCheckingCode
     ? "Checking code"
     : isQuizMode
@@ -572,12 +829,24 @@ const LessonModal: React.FC<LessonModalProps> = ({
       };
     }
 
+    const preflightAssessment = validateCodeAssessment(
+      typedTheoryCode,
+      getAssessmentDefinition(currentStepData, lessonLanguage)
+    );
+
     if (
       isPracticeStep &&
       currentStepData?.evaluationMode === "execution" &&
       currentStepData?.evaluationId &&
       lessonLanguage === "python"
     ) {
+      if (preflightAssessment.feedbackKind === "empty" || preflightAssessment.feedbackKind === "starter") {
+        return {
+          ...preflightAssessment,
+          evaluationSource: "static",
+        };
+      }
+
       const result = await evaluateLessonPractice({
         lessonId: currentStepData.evaluationId,
         submittedCode: typedTheoryCode,
@@ -586,7 +855,7 @@ const LessonModal: React.FC<LessonModalProps> = ({
     }
 
     return {
-      ...validateCodeAssessment(typedTheoryCode, getAssessmentDefinition(currentStepData, lessonLanguage)),
+      ...preflightAssessment,
       evaluationSource: "static",
     };
   };
@@ -838,10 +1107,10 @@ const LessonModal: React.FC<LessonModalProps> = ({
   };
 
   const header = (
-    <div className="sticky top-0 z-20 border-b border-white/8 bg-slate-950/96 px-4 py-4 backdrop-blur-sm lg:px-8">
-      <div className="mx-auto max-w-6xl">
-        <div className="flex flex-wrap items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
+    <div className="sticky top-0 z-20 border-b border-white/8 bg-slate-950/92 px-3 py-3 backdrop-blur-xl sm:px-4 lg:px-5">
+      <div className="mx-auto max-w-[1600px]">
+        <div className="flex flex-wrap items-center justify-between gap-4 xl:gap-6">
+          <div className="flex min-w-0 flex-1 items-center gap-3 sm:gap-4">
             <button
               type="button"
               onClick={onClose}
@@ -850,15 +1119,13 @@ const LessonModal: React.FC<LessonModalProps> = ({
               <X className="h-5 w-5" />
             </button>
             <div className="min-w-0">
-              <div className="lesson-section-label">
-                {isQuizMode ? "Final review" : `${lessonLanguageLabel} lesson`}
-              </div>
-              <div className="mt-1 text-sm text-slate-400">
-                {isQuizMode ? resolvedLesson?.title : resolvedLesson?.category || "Practice path"}
+              <div className="lesson-section-label">{headerEyebrow}</div>
+              <div className="mt-1 text-sm leading-6 text-slate-300 sm:text-[0.95rem]">
+                {headerContextLabel}
               </div>
             </div>
           </div>
-          <div className="w-full max-w-[18rem] sm:w-auto sm:min-w-[17rem]">
+          <div className="w-full max-w-[24rem] sm:w-auto sm:min-w-[20rem]">
             <div className="mb-2 flex items-center justify-between gap-4 text-[0.72rem] font-medium uppercase tracking-[0.14em] text-slate-400">
               <span>
                 {isQuizMode
@@ -882,196 +1149,256 @@ const LessonModal: React.FC<LessonModalProps> = ({
   );
 
   const footer = (
-    <div className="sticky bottom-0 mt-8 border-t border-white/8 bg-slate-950/90 px-1 py-5 backdrop-blur-sm">
-      <div className="flex items-center justify-between gap-4">
-        <button
-          type="button"
-          onClick={() => {
-            if (isQuizMode) {
-              setIsQuizMode(false);
-              setCurrentQuizIndex(0);
-              resetStepInteractionState();
-              return;
-            }
-            if (currentVisibleStepIndex > 0) {
-              goToVisibleStep(currentVisibleStepIndex - 1);
-            }
-          }}
-          disabled={!isQuizMode && currentVisibleStepIndex <= 0}
-          className={`${secondaryButton} disabled:cursor-not-allowed disabled:opacity-50`}
-        >
-          <ArrowLeft className="h-4 w-4" />
-          <span>Previous</span>
-        </button>
-        <button
-          type="button"
-          onClick={isQuizMode ? handleQuizSubmit : handleStepSubmit}
-          disabled={
-            isCheckingCode ||
-            (isQuizMode && selectedAnswer === null) ||
-            (!isQuizMode && isCurrentStepQuestion && selectedAnswer === null && !showQuizResult) ||
-            (!isQuizMode && showQuizResult && selectedAnswer !== currentStepData?.correctAnswer)
-          }
-          className={primaryButton}
-        >
-          <span>{primaryActionLabel}</span>
-          <ArrowRight className="h-4 w-4" />
-        </button>
+    <div className="sticky bottom-4 z-10 mt-8 pt-4">
+      <div className="lesson-panel border-white/12 bg-[linear-gradient(180deg,rgba(8,13,24,0.88),rgba(6,10,18,0.96))] px-4 py-4 shadow-[0_26px_48px_rgba(2,6,23,0.28)] sm:px-5">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+          <div className="min-w-0">
+            <div className="lesson-section-label text-slate-300">
+              {isQuizMode ? "Review action" : showsCodePracticeEditor ? "Workspace action" : "Lesson action"}
+            </div>
+            <div className="mt-2 max-w-2xl text-sm leading-6 text-slate-300">{footerHint}</div>
+          </div>
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-end">
+            <button
+              type="button"
+              onClick={() => {
+                if (isQuizMode) {
+                  setIsQuizMode(false);
+                  setCurrentQuizIndex(0);
+                  resetStepInteractionState();
+                  return;
+                }
+                if (currentVisibleStepIndex > 0) {
+                  goToVisibleStep(currentVisibleStepIndex - 1);
+                }
+              }}
+              disabled={!isQuizMode && currentVisibleStepIndex <= 0}
+              className={`${secondaryButton} disabled:cursor-not-allowed disabled:opacity-50`}
+            >
+              <ArrowLeft className="h-4 w-4" />
+              <span>Previous</span>
+            </button>
+            <button
+              type="button"
+              onClick={isQuizMode ? handleQuizSubmit : handleStepSubmit}
+              disabled={
+                isCheckingCode ||
+                (isQuizMode && selectedAnswer === null) ||
+                (!isQuizMode && isCurrentStepQuestion && selectedAnswer === null && !showQuizResult) ||
+                (!isQuizMode && showQuizResult && selectedAnswer !== currentStepData?.correctAnswer)
+              }
+              className={primaryButton}
+            >
+              <span>{primaryActionLabel}</span>
+              <ArrowRight className="h-4 w-4" />
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   );
 
   return renderOverlay(
     <div
-      className="fixed inset-0 z-[100] overflow-y-auto bg-slate-950"
+      className="fixed inset-0 z-[100] overflow-y-auto bg-[radial-gradient(circle_at_top,rgba(8,145,178,0.18),transparent_32%),linear-gradient(180deg,#020617_0%,#04101d_100%)]"
       role="dialog"
       aria-modal="true"
     >
       <div className="min-h-full">
         {header}
-        <div className="px-4 py-6 lg:px-8">
-          <div className="mx-auto max-w-[1180px]">
-            <div className="lesson-stage px-5 py-5 sm:px-7 sm:py-7 lg:px-8 lg:py-8">
+        <div className="px-3 pb-5 pt-3 sm:px-4 sm:pb-6 sm:pt-4 lg:px-5 lg:pb-8">
+          <div className="mx-auto max-w-[1600px]">
+            <div className="lesson-stage min-h-[calc(100vh-7.25rem)] px-5 py-5 sm:px-7 sm:py-7 lg:px-8 lg:py-8 xl:px-10 xl:py-9 2xl:px-12">
             {isQuizMode ? (
-              <div className="space-y-6">
-                <div className="max-w-3xl">
-                  <div className="lesson-section-label">Final review</div>
-                  <h3 className={`${modalQuestionHeadingClassName} mt-3`}>
-                    {renderWithNewlines(currentQuizPromptParts.prompt || currentQuizItem?.question)}
-                  </h3>
-                </div>
-                {currentQuizPromptParts.code ? (
-                  <div className="lesson-code-surface overflow-x-auto p-5 sm:p-6">
-                    <div className="mb-4">
-                      <span className="lesson-meta-pill lesson-meta-pill--accent">Review code</span>
+              <div className={`grid gap-6 xl:grid-cols-[minmax(0,1.16fr)_minmax(390px,0.84fr)] xl:gap-8 ${questionWorkspaceMinHeight}`}>
+                <div className="lesson-panel flex h-full flex-col p-5 sm:p-6">
+                  <div className="max-w-4xl">
+                    <div className="lesson-section-label">Final review</div>
+                    <h3 className={`${modalQuestionHeadingClassName} mt-3`}>
+                      {renderWithNewlines(currentQuizPromptParts.prompt || currentQuizItem?.question)}
+                    </h3>
+                  </div>
+                  {currentQuizPromptParts.code ? (
+                    <div className="lesson-code-surface mt-5 flex-1 overflow-x-auto p-5 sm:p-6">
+                      <div className="mb-4">
+                        <span className="lesson-meta-pill lesson-meta-pill--accent">Review code</span>
+                      </div>
+                      <pre className="lesson-code-text min-h-[18rem] font-mono text-sm leading-7 text-emerald-300">{currentQuizPromptParts.code}</pre>
                     </div>
-                    <pre className="font-mono text-sm leading-7 text-emerald-300">{currentQuizPromptParts.code}</pre>
-                  </div>
-                ) : null}
-                <div className="grid gap-3">
-                  {currentQuizItem?.options?.map((option: string, index: number) => {
-                    const isSelected = selectedAnswer === index;
-                    const isCorrect = index === currentQuizItem.correctAnswer;
-                    const tone = showQuizResult
-                      ? isSelected
-                        ? isCorrect
-                          ? "border-emerald-400/40 bg-emerald-500/10 text-emerald-100"
-                          : "border-rose-400/40 bg-rose-500/10 text-rose-100"
-                        : isCorrect
-                          ? "border-emerald-400/30 bg-emerald-500/[0.06] text-emerald-100"
-                          : "border-white/8 bg-white/[0.02] text-slate-300"
-                      : isSelected
-                        ? "border-cyan-400/45 bg-cyan-400/[0.08] text-white"
-                        : "border-white/8 bg-white/[0.02] text-slate-300 hover:border-white/16 hover:bg-white/[0.04] hover:text-white";
-                    return (
-                      <button
-                        key={index}
-                        type="button"
-                        onClick={() => setSelectedAnswer(index)}
-                        disabled={showQuizResult}
-                        className={`w-full rounded-[1.35rem] border p-4 text-left transition ${tone}`}
-                      >
-                        <div className="flex items-start gap-3">
-                          <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-white/10 bg-white/[0.04] text-xs font-semibold text-slate-300">
-                            {String.fromCharCode(65 + index)}
-                          </div>
-                          <span className="pt-0.5 text-sm font-medium leading-6">{renderWithNewlines(option)}</span>
-                        </div>
-                      </button>
-                    );
-                  })}
+                  ) : (
+                    <div className="lesson-panel-soft mt-5 border-white/8 bg-white/[0.02] p-4">
+                      <div className="lesson-section-label text-slate-300">Review focus</div>
+                      <div className="mt-3 type-body-md text-slate-200">{currentQuizGuide.items[0]}</div>
+                    </div>
+                  )}
                 </div>
-                {showQuizResult ? (
-                  <div
-                    className={`rounded-[1.5rem] border px-5 py-4 text-sm leading-6 ${
-                      selectedAnswer === currentQuizItem?.correctAnswer
-                        ? "border-emerald-400/20 bg-emerald-500/10 text-emerald-100"
-                        : "border-rose-400/20 bg-rose-500/10 text-rose-100"
-                    }`}
-                  >
-                    <p className="mb-2 text-base font-semibold">
-                      {selectedAnswer === currentQuizItem?.correctAnswer ? "Correct answer" : "Incorrect answer"}
-                    </p>
-                    <p className="text-slate-200">{renderWithNewlines(currentQuizItem?.explanation)}</p>
+                <div className="lesson-support-panel flex h-full flex-col p-4 sm:p-5">
+                  <div className="mb-4 flex items-center justify-between gap-3">
+                    <span className="lesson-meta-pill">Pick one answer</span>
+                    <span className="type-body-sm text-slate-400">{currentQuizItem?.options?.length || 0} options</span>
                   </div>
-                ) : null}
+                  <div className="grid gap-3">
+                    {currentQuizItem?.options?.map((option: string, index: number) => {
+                      const isSelected = selectedAnswer === index;
+                      const isCorrect = index === currentQuizItem.correctAnswer;
+                      const tone = showQuizResult
+                        ? isSelected
+                          ? isCorrect
+                            ? "border-emerald-400/40 bg-emerald-500/10 text-emerald-100"
+                            : "border-rose-400/40 bg-rose-500/10 text-rose-100"
+                          : isCorrect
+                            ? "border-emerald-400/30 bg-emerald-500/[0.06] text-emerald-100"
+                            : "border-white/8 bg-white/[0.02] text-slate-300"
+                        : isSelected
+                          ? "border-cyan-400/45 bg-cyan-400/[0.08] text-white"
+                          : "border-white/8 bg-white/[0.02] text-slate-300 hover:border-white/16 hover:bg-white/[0.04] hover:text-white";
+                      return (
+                        <button
+                          key={index}
+                          type="button"
+                          onClick={() => setSelectedAnswer(index)}
+                          disabled={showQuizResult}
+                          className={`w-full rounded-[1.2rem] border p-3 text-left transition sm:p-3.5 ${tone}`}
+                        >
+                          <div className="flex items-start gap-3">
+                            <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-white/10 bg-white/[0.04] text-[0.68rem] font-semibold text-slate-300">
+                              {String.fromCharCode(65 + index)}
+                            </div>
+                            <span className="pt-0.5 text-[0.95rem] font-medium leading-6">{renderWithNewlines(option)}</span>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                  {showQuizResult ? (
+                    <div
+                      className={`mt-4 rounded-[1.5rem] border px-5 py-4 text-sm leading-6 ${
+                        selectedAnswer === currentQuizItem?.correctAnswer
+                          ? "border-emerald-400/20 bg-emerald-500/10 text-emerald-100"
+                          : "border-rose-400/20 bg-rose-500/10 text-rose-100"
+                      }`}
+                    >
+                      <p className="mb-2 text-base font-semibold">
+                        {selectedAnswer === currentQuizItem?.correctAnswer ? "Correct answer" : "Incorrect answer"}
+                      </p>
+                      <p className="text-slate-200">{renderWithNewlines(currentQuizItem?.explanation)}</p>
+                    </div>
+                  ) : null}
+                  <div className={`mt-4 rounded-[1.35rem] border px-4 py-4 sm:mt-auto ${currentQuizGuide.accent}`}>
+                    <div className="lesson-section-label text-current/80">{currentQuizGuide.label}</div>
+                    <div className="mt-3 text-base font-semibold text-white">{currentQuizGuide.title}</div>
+                    <ul className="mt-3 space-y-2.5">
+                      {currentQuizGuide.items.map((item, index) => (
+                        <li key={`quiz-guide-${index}`} className="flex items-start gap-3 text-sm leading-6 text-slate-100">
+                          <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-current/70" />
+                          <span>{item}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                </div>
               </div>
             ) : isCurrentStepQuestion ? (
-              <div className="space-y-6">
-                <div className="max-w-3xl">
-                  <div className="mb-3 flex flex-wrap items-center gap-2.5">
-                    {currentQuestionPrefix.id ? (
-                      <span className="lesson-meta-pill border-violet-400/20 bg-violet-400/[0.08] text-violet-200">
-                        {currentQuestionPrefix.id}
+              <div className={`grid gap-6 xl:grid-cols-[minmax(0,1.16fr)_minmax(390px,0.84fr)] xl:gap-8 ${questionWorkspaceMinHeight}`}>
+                <div className="lesson-panel flex h-full flex-col p-5 sm:p-6">
+                  <div className="max-w-4xl">
+                    <div className="mb-3 flex flex-wrap items-center gap-2.5">
+                      {currentQuestionPrefix.id ? (
+                        <span className="lesson-meta-pill border-violet-400/20 bg-violet-400/[0.08] text-violet-200">
+                          {currentQuestionPrefix.id}
+                        </span>
+                      ) : null}
+                      <span className="lesson-meta-pill">
+                        {getQuestionKindLabel(currentStepData)}
                       </span>
-                    ) : null}
-                    <span className="lesson-meta-pill">
-                      {getQuestionKindLabel(currentStepData)}
-                    </span>
-                  </div>
-                  <h3 className={modalQuestionHeadingClassName}>
-                    {renderWithNewlines(currentQuestionPromptParts.prompt || currentQuestionPrompt)}
-                  </h3>
-                </div>
-                {currentQuestionPromptParts.code ? (
-                  <div className="lesson-code-surface overflow-x-auto p-5 sm:p-6">
-                    <div className="mb-4">
-                      <span className="lesson-meta-pill lesson-meta-pill--accent">Question code</span>
                     </div>
-                    <pre className="font-mono text-sm leading-7 text-emerald-300">{currentQuestionPromptParts.code}</pre>
+                    <h3 className={modalQuestionHeadingClassName}>
+                      {renderWithNewlines(currentQuestionPromptParts.prompt || currentQuestionPrompt)}
+                    </h3>
                   </div>
-                ) : null}
-                <div className="grid gap-3">
-                  {(currentStepData?.options || currentStepData?.answers || []).map((option: string, index: number) => {
-                    const isSelected = selectedAnswer === index;
-                    const isCorrect = index === currentStepData.correctAnswer;
-                    const tone = showQuizResult
-                      ? isSelected
-                        ? isCorrect
-                          ? "border-emerald-400/40 bg-emerald-500/10 text-emerald-100"
-                          : "border-rose-400/40 bg-rose-500/10 text-rose-100"
-                        : isCorrect
-                          ? "border-emerald-400/30 bg-emerald-500/[0.06] text-emerald-100"
-                          : "border-white/8 bg-white/[0.02] text-slate-300"
-                      : isSelected
-                        ? "border-cyan-400/45 bg-cyan-400/[0.08] text-white"
-                        : "border-white/8 bg-white/[0.02] text-slate-300 hover:border-white/16 hover:bg-white/[0.04] hover:text-white";
-                    return (
-                      <button
-                        key={index}
-                        type="button"
-                        onClick={() => setSelectedAnswer(index)}
-                        disabled={showQuizResult}
-                        className={`w-full rounded-[1.35rem] border p-4 text-left transition ${tone}`}
-                      >
-                        <div className="flex items-start gap-3">
-                          <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-white/10 bg-white/[0.04] text-xs font-semibold text-slate-300">
-                            {String.fromCharCode(65 + index)}
-                          </div>
-                          <span className="pt-0.5 text-sm font-medium leading-6">{renderWithNewlines(option)}</span>
-                        </div>
-                      </button>
-                    );
-                  })}
+                  {currentQuestionPromptParts.code ? (
+                    <div className="lesson-code-surface mt-5 flex-1 overflow-x-auto p-5 sm:p-6">
+                      <div className="mb-4">
+                        <span className="lesson-meta-pill lesson-meta-pill--accent">Question code</span>
+                      </div>
+                      <pre className="lesson-code-text min-h-[18rem] font-mono text-sm leading-7 text-emerald-300">{currentQuestionPromptParts.code}</pre>
+                    </div>
+                  ) : (
+                    <div className="lesson-panel-soft mt-5 border-white/8 bg-white/[0.02] p-4">
+                      <div className="lesson-section-label text-slate-300">Question focus</div>
+                      <div className="mt-3 type-body-md text-slate-200">{currentQuestionGuide.items[0]}</div>
+                    </div>
+                  )}
                 </div>
-                {showQuizResult ? (
-                  <div
-                    className={`rounded-[1.5rem] border px-5 py-4 text-sm leading-6 ${
-                      selectedAnswer === currentStepData?.correctAnswer
-                        ? "border-emerald-400/20 bg-emerald-500/10 text-emerald-100"
-                        : "border-rose-400/20 bg-rose-500/10 text-rose-100"
-                    }`}
-                  >
-                    <p className="mb-2 text-base font-semibold">
-                      {selectedAnswer === currentStepData?.correctAnswer ? "Correct answer" : "Incorrect answer"}
-                    </p>
-                    <p className="text-slate-200">{renderWithNewlines(currentStepData?.explanation)}</p>
+                <div className="lesson-support-panel flex h-full flex-col p-4 sm:p-5">
+                  <div className="mb-4 flex items-center justify-between gap-3">
+                    <span className="lesson-meta-pill">Pick one answer</span>
+                    <span className="type-body-sm text-slate-400">{(currentStepData?.options || currentStepData?.answers || []).length} options</span>
                   </div>
-                ) : null}
+                  <div className="grid gap-3">
+                    {(currentStepData?.options || currentStepData?.answers || []).map((option: string, index: number) => {
+                      const isSelected = selectedAnswer === index;
+                      const isCorrect = index === currentStepData.correctAnswer;
+                      const tone = showQuizResult
+                        ? isSelected
+                          ? isCorrect
+                            ? "border-emerald-400/40 bg-emerald-500/10 text-emerald-100"
+                            : "border-rose-400/40 bg-rose-500/10 text-rose-100"
+                          : isCorrect
+                            ? "border-emerald-400/30 bg-emerald-500/[0.06] text-emerald-100"
+                            : "border-white/8 bg-white/[0.02] text-slate-300"
+                        : isSelected
+                          ? "border-cyan-400/45 bg-cyan-400/[0.08] text-white"
+                          : "border-white/8 bg-white/[0.02] text-slate-300 hover:border-white/16 hover:bg-white/[0.04] hover:text-white";
+                      return (
+                        <button
+                          key={index}
+                          type="button"
+                          onClick={() => setSelectedAnswer(index)}
+                          disabled={showQuizResult}
+                          className={`w-full rounded-[1.2rem] border p-3 text-left transition sm:p-3.5 ${tone}`}
+                        >
+                          <div className="flex items-start gap-3">
+                            <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-white/10 bg-white/[0.04] text-[0.68rem] font-semibold text-slate-300">
+                              {String.fromCharCode(65 + index)}
+                            </div>
+                            <span className="pt-0.5 text-[0.95rem] font-medium leading-6">{renderWithNewlines(option)}</span>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                  {showQuizResult ? (
+                    <div
+                      className={`mt-4 rounded-[1.5rem] border px-5 py-4 text-sm leading-6 ${
+                        selectedAnswer === currentStepData?.correctAnswer
+                          ? "border-emerald-400/20 bg-emerald-500/10 text-emerald-100"
+                          : "border-rose-400/20 bg-rose-500/10 text-rose-100"
+                      }`}
+                    >
+                      <p className="mb-2 text-base font-semibold">
+                        {selectedAnswer === currentStepData?.correctAnswer ? "Correct answer" : "Incorrect answer"}
+                      </p>
+                      <p className="text-slate-200">{renderWithNewlines(currentStepData?.explanation)}</p>
+                    </div>
+                  ) : null}
+                  <div className={`mt-4 rounded-[1.35rem] border px-4 py-4 sm:mt-auto ${currentQuestionGuide.accent}`}>
+                    <div className="lesson-section-label text-current/80">{currentQuestionGuide.label}</div>
+                    <div className="mt-3 text-base font-semibold text-white">{currentQuestionGuide.title}</div>
+                    <ul className="mt-3 space-y-2.5">
+                      {currentQuestionGuide.items.map((item, index) => (
+                        <li key={`question-guide-${index}`} className="flex items-start gap-3 text-sm leading-6 text-slate-100">
+                          <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-current/70" />
+                          <span>{item}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                </div>
               </div>
             ) : showsCodePracticeEditor ? (
-              <div className="space-y-6">
-                <div className="max-w-3xl">
+              <div className="space-y-7">
+                <div className="max-w-4xl">
                   <div className="mb-3 flex flex-wrap items-center gap-2.5">
                     <span className="lesson-meta-pill lesson-meta-pill--accent">
                       {isProjectLesson ? "Capstone" : isPracticeStep ? "Practice" : "Try it"}
@@ -1087,8 +1414,8 @@ const LessonModal: React.FC<LessonModalProps> = ({
                   ) : null}
                 </div>
 
-                <div className="grid gap-6 xl:grid-cols-[minmax(0,1.48fr)_minmax(300px,0.82fr)] xl:items-start">
-                  <div className="space-y-4">
+                <div className="grid gap-6 xl:grid-cols-[minmax(0,1.72fr)_minmax(320px,0.78fr)] xl:items-start xl:gap-8 2xl:grid-cols-[minmax(0,1.84fr)_360px]">
+                  <div className="space-y-5">
                     <div className="lesson-code-surface p-5 sm:p-6">
                       <div className="mb-4">
                         <span className="lesson-meta-pill lesson-meta-pill--accent">Your Solution</span>
@@ -1103,127 +1430,155 @@ const LessonModal: React.FC<LessonModalProps> = ({
                           setTypedTheoryCode(value);
                           setTheoryCodeResult(null);
                         }}
-                        height="360px"
+                        height={editorHeight}
                       />
                     </div>
 
-                    {theoryCodeResult ? (
+                    {codeFeedback ? (
                       <div
-                        className={`rounded-[1.5rem] border px-4 py-4 text-sm leading-6 ${
-                          theoryCodeResult.passed
-                            ? "border-emerald-400/20 bg-emerald-500/10 text-emerald-100"
-                            : "border-amber-400/20 bg-amber-400/10 text-amber-100"
+                        className={`lesson-panel-soft p-5 ${
+                          codeFeedback.tone === "success"
+                            ? "border-emerald-400/18 bg-emerald-500/[0.08]"
+                            : codeFeedback.tone === "error"
+                            ? "border-rose-400/18 bg-rose-500/[0.08]"
+                            : "border-amber-300/18 bg-amber-300/[0.08]"
                         }`}
                       >
-                        <div className="font-semibold">{theoryCodeResult.passed ? "Check passed" : "Check failed"}</div>
-                        <div className="mt-1 text-slate-200">{theoryCodeResult.message}</div>
-                        {theoryCodeResult.testResults?.length ? (
-                          <div className="mt-3 space-y-2">
-                            {theoryCodeResult.testResults
-                              .filter((result) => !result.hidden)
-                              .map((result, index) => (
-                                <div
-                                  key={`${result.label || "test"}-${index}`}
-                                  className={`rounded-2xl border px-3 py-2 ${
-                                    result.passed
-                                      ? "border-emerald-400/20 bg-emerald-500/5 text-emerald-100"
-                                      : "border-white/10 bg-slate-950/40 text-slate-200"
-                                  }`}
-                                >
-                                  <div className="flex items-center justify-between gap-3 text-xs font-semibold uppercase tracking-[0.16em]">
-                                    <span>{result.label || "Test"}</span>
-                                    <span>{result.passed ? "Passed" : result.reason}</span>
-                                  </div>
-                                  {!result.passed && result.actual ? (
-                                    <div className="mt-2 text-xs leading-5 text-slate-300">Output: {result.actual}</div>
-                                  ) : null}
-                                </div>
-                              ))}
+                        <div className="flex flex-wrap items-start justify-between gap-3">
+                          <div>
+                            <div className="type-title-sm text-white">{codeFeedback.title}</div>
+                            <div className="mt-1 type-body-sm max-w-2xl text-slate-200">{codeFeedback.summary}</div>
                           </div>
-                        ) : null}
-                        {theoryCodeResult.runtimeMs ? (
-                          <div className="mt-2 text-xs text-slate-300">Runtime: {theoryCodeResult.runtimeMs}ms</div>
-                        ) : null}
-                      </div>
-                    ) : null}
-                  </div>
+                          <span
+                            className={`lesson-meta-pill ${
+                              codeFeedback.tone === "success"
+                                ? "border-emerald-400/20 bg-emerald-500/[0.12] text-emerald-100"
+                                : codeFeedback.tone === "error"
+                                ? "border-rose-400/20 bg-rose-500/[0.12] text-rose-100"
+                                : "border-amber-300/20 bg-amber-300/[0.12] text-amber-100"
+                            }`}
+                          >
+                            {codeFeedback.tone === "success"
+                              ? "Passed"
+                              : codeFeedback.tone === "error"
+                              ? "Fix output"
+                              : "Revise"}
+                          </span>
+                        </div>
 
-                  <div className="space-y-4">
-                    {isPracticeStep && currentPracticeBrief?.inputs?.length ? (
-                      <div className="lesson-panel-soft border-cyan-400/15 bg-cyan-400/[0.05] p-5">
-                        <div className="lesson-section-label text-cyan-200">Input</div>
-                        <ul className="mt-4 space-y-3">
-                          {currentPracticeBrief.inputs.map((item: string, index: number) => (
-                            <li key={`input-${index}`} className="flex items-start gap-3 text-slate-100">
-                              <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-cyan-300" />
-                              <span className="type-body-md text-slate-100">{renderPracticeCopy(item)}</span>
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    ) : null}
-
-                    {isPracticeStep && currentPracticeBrief?.requirements?.length ? (
-                      <div className="lesson-panel-soft p-5">
-                        <div className="lesson-section-label text-slate-300">Requirements</div>
-                        <ul className="mt-4 space-y-3">
-                          {currentPracticeBrief.requirements.map((item: string, index: number) => (
-                            <li key={`requirement-${index}`} className="flex items-start gap-3 text-slate-100">
-                              <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-white/40" />
-                              <span className="type-body-md text-slate-100">{renderPracticeCopy(item, "muted")}</span>
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    ) : null}
-
-                    {isPracticeStep && (currentPracticeBrief?.expectedOutput?.length || currentPracticeBrief?.outputDescription) ? (
-                      <div className="lesson-panel-soft border-emerald-400/15 bg-emerald-500/[0.05] p-5">
-                        <div className="lesson-section-label text-emerald-300">Target Output</div>
-                        {currentPracticeBrief.outputDescription ? (
-                          <div className="type-body-md mt-3 text-slate-200">
-                            {renderPracticeCopy(currentPracticeBrief.outputDescription, "muted")}
-                          </div>
-                        ) : null}
-                        {currentPracticeBrief.expectedOutput?.length ? (
-                          <div className="mt-4 rounded-[1.2rem] border border-white/10 bg-slate-950/90 p-4 font-mono text-sm leading-7 text-emerald-300">
-                            {currentPracticeBrief.expectedOutput.map((item: string, index: number) => (
-                              <div key={`output-${index}`}>{item}</div>
+                        {codeFeedback.items.length ? (
+                          <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                            {codeFeedback.items.map((item, index) => (
+                              <div
+                                key={`${item.label}-${index}`}
+                                className={`rounded-[1.2rem] border px-3 py-3 ${
+                                  item.state === "success"
+                                    ? "border-emerald-400/18 bg-emerald-500/[0.07]"
+                                    : item.state === "error"
+                                    ? "border-rose-400/18 bg-rose-500/[0.07]"
+                                    : item.state === "warning"
+                                    ? "border-amber-300/18 bg-amber-300/[0.07]"
+                                    : "border-white/10 bg-slate-950/35"
+                                }`}
+                              >
+                                <div className="lesson-section-label text-slate-300">{item.label}</div>
+                                <div className="mt-2 text-sm leading-6 text-slate-100">{item.detail}</div>
+                              </div>
                             ))}
                           </div>
                         ) : null}
-                      </div>
-                    ) : null}
 
-                    {shouldRenderPracticeCoachNote ? (
-                      <div className="lesson-panel-soft border-amber-300/15 bg-amber-300/[0.06] p-5">
-                        <div className="lesson-section-label text-amber-200">Coach Note</div>
-                        <div className="type-body-md mt-3 text-slate-100">
-                          {renderPracticeCopy(currentPracticeCoachNote, "muted")}
-                        </div>
-                      </div>
-                    ) : null}
-
-                    {!isPracticeStep && currentStepData?.content ? (
-                      <div className="lesson-panel-soft border-cyan-400/12 bg-cyan-400/[0.05] p-5">
-                        <div className="lesson-section-label text-cyan-200">What to focus on</div>
-                        <div className="type-body-md mt-3 text-slate-100">{renderWithNewlines(currentStepData.content)}</div>
+                        <div className="mt-4 type-body-sm text-slate-300">{codeFeedback.nextAction}</div>
                       </div>
                     ) : null}
                   </div>
+
+                  {showsSupportRail ? (
+                    <aside className="lesson-support-panel overflow-hidden xl:sticky xl:top-24">
+                      {hasPracticeRequirements ? (
+                        <div className="px-5 py-5 sm:px-6">
+                          <div className="lesson-section-label text-slate-300">Requirements</div>
+                          <ul className="mt-4 space-y-3">
+                            {currentPracticeBrief.requirements.map((item: string, index: number) => (
+                              <li key={`requirement-${index}`} className="flex items-start gap-3 text-slate-100">
+                                <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-white/40" />
+                                <span className="type-body-md text-slate-100">{renderPracticeCopy(item, "muted")}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      ) : null}
+
+                      {hasPracticeOutput ? (
+                        <div className={`${hasPracticeRequirements ? "border-t border-white/8 " : ""}bg-emerald-500/[0.04] px-5 py-5 sm:px-6`}>
+                          <div className="lesson-section-label text-emerald-300">Target Output</div>
+                          {currentPracticeBrief.outputDescription ? (
+                            <div className="type-body-md mt-3 text-slate-200">
+                              {renderPracticeCopy(currentPracticeBrief.outputDescription, "muted")}
+                            </div>
+                          ) : null}
+                          {currentPracticeBrief.expectedOutput?.length ? (
+                            <div className="lesson-code-text mt-4 rounded-[1.2rem] border border-white/10 bg-slate-950/90 p-4 font-mono text-sm leading-7 text-emerald-300">
+                              {currentPracticeBrief.expectedOutput.map((item: string, index: number) => (
+                                <div key={`output-${index}`}>{item}</div>
+                              ))}
+                            </div>
+                          ) : null}
+                        </div>
+                      ) : null}
+
+                      {hasPracticeInputs ? (
+                        <div
+                          className={`${
+                            hasPracticeRequirements || hasPracticeOutput ? "border-t border-white/8 " : ""
+                          }bg-cyan-400/[0.04] px-5 py-5 sm:px-6`}
+                        >
+                          <div className="lesson-section-label text-cyan-200">Input</div>
+                          <ul className="mt-4 space-y-3">
+                            {currentPracticeBrief.inputs.map((item: string, index: number) => (
+                              <li key={`input-${index}`} className="flex items-start gap-3 text-slate-100">
+                                <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-cyan-300" />
+                                <span className="type-body-md text-slate-100">{renderPracticeCopy(item)}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      ) : null}
+
+                      {hasPracticeCoachRail ? (
+                        <div
+                          className={`${
+                            hasPracticeRequirements || hasPracticeOutput || hasPracticeInputs ? "border-t border-white/8 " : ""
+                          }bg-amber-300/[0.05] px-5 py-5 sm:px-6`}
+                        >
+                          <div className="lesson-section-label text-amber-200">Coach Note</div>
+                          <div className="type-body-md mt-3 text-slate-100">
+                            {renderPracticeCopy(currentPracticeCoachNote, "muted")}
+                          </div>
+                        </div>
+                      ) : null}
+
+                      {hasTheoryFocusRail ? (
+                        <div className="bg-cyan-400/[0.04] px-5 py-5 sm:px-6">
+                          <div className="lesson-section-label text-cyan-200">What to focus on</div>
+                          <div className="type-body-md mt-3 text-slate-100">{renderWithNewlines(currentStepData.content)}</div>
+                        </div>
+                      ) : null}
+                    </aside>
+                  ) : null}
                 </div>
               </div>
             ) : (
               <div className="space-y-6">
-                <div className="max-w-3xl">
+                <div className="max-w-4xl">
                   <div className="lesson-section-label">
                     {isProjectLesson ? "Capstone concept" : groupedTheoryContextStep?.stepKind === "context" ? "Concept" : "Worked examples"}
                   </div>
-                  <h3 className="type-display-section mt-3 max-w-2xl text-white">
+                  <h3 className="type-display-section mt-3 max-w-3xl text-white">
                     {renderWithNewlines(theoryIntroHeading)}
                   </h3>
                   {theoryIntroBody ? (
-                    <div className="mt-4 max-w-2xl type-body-lg text-slate-300">
+                    <div className="mt-4 max-w-3xl type-body-lg text-slate-300">
                       {renderWithNewlines(theoryIntroBody)}
                     </div>
                   ) : null}
@@ -1243,13 +1598,13 @@ const LessonModal: React.FC<LessonModalProps> = ({
 
                     return (
                       <section key={`${stepTitle}-${index}`} className="lesson-panel p-5 sm:p-6">
-                        <div className="grid gap-5 xl:grid-cols-[minmax(340px,1.18fr)_minmax(260px,0.82fr)] xl:items-start">
+                        <div className="grid gap-5 xl:grid-cols-[minmax(400px,1.26fr)_minmax(320px,0.84fr)] xl:items-start xl:gap-7">
                           <div className="lesson-code-surface p-5">
                             <div className="mb-4 flex flex-wrap items-center gap-3">
                               <span className="lesson-meta-pill lesson-meta-pill--accent">{stepTitle}</span>
                               <span className="lesson-meta-pill">Example code</span>
                             </div>
-                            <pre className="overflow-x-auto font-mono text-[0.95rem] leading-8 text-emerald-300">{step?.code}</pre>
+                            <pre className="lesson-code-text overflow-x-auto font-mono text-[0.95rem] leading-8 text-emerald-300">{step?.code}</pre>
                           </div>
                           <div className="pt-1">
                             <div className="lesson-section-label text-slate-400">What this teaches</div>
@@ -1257,7 +1612,10 @@ const LessonModal: React.FC<LessonModalProps> = ({
                               {renderWithNewlines(step?.content)}
                             </h4>
                             {showStepExplanation ? (
-                              <div className="mt-4 max-w-xl type-body-md text-slate-300">{renderWithNewlines(step?.explanation)}</div>
+                              <div className="lesson-panel-soft mt-4 max-w-xl border-white/8 bg-white/[0.02] p-4">
+                                <div className="lesson-section-label text-slate-300">Why it matters</div>
+                                <div className="mt-3 type-body-md text-slate-300">{renderWithNewlines(step?.explanation)}</div>
+                              </div>
                             ) : null}
                           </div>
                         </div>

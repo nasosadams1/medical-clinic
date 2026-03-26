@@ -50,8 +50,23 @@ export default function CodeTypingEditor({
   onChange,
   height = '280px',
 }: CodeTypingEditorProps) {
+  const languageLabel = language === 'cpp' ? 'C++' : language === 'javascript' ? 'JavaScript' : language === 'java' ? 'Java' : 'Python';
+
   return (
     <div className="lesson-code-surface overflow-hidden">
+      <div className="flex items-center justify-between border-b border-white/8 bg-white/[0.02] px-4 py-3">
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-1.5">
+            <span className="h-2.5 w-2.5 rounded-full bg-rose-300/70" />
+            <span className="h-2.5 w-2.5 rounded-full bg-amber-300/70" />
+            <span className="h-2.5 w-2.5 rounded-full bg-emerald-300/70" />
+          </div>
+          <span className="text-[0.72rem] font-semibold uppercase tracking-[0.16em] text-slate-300">
+            {languageLabel} workspace
+          </span>
+        </div>
+        <span className="text-[0.68rem] font-medium uppercase tracking-[0.14em] text-slate-500">Live checker</span>
+      </div>
       <Editor
         height={height}
         language={toMonacoLanguage(language)}
@@ -63,6 +78,7 @@ export default function CodeTypingEditor({
           minimap: { enabled: false },
           fontSize: 15,
           fontFamily: 'JetBrains Mono, Fira Code, monospace',
+          fontLigatures: false,
           lineHeight: 24,
           lineNumbers: 'on',
           scrollBeyondLastLine: false,
@@ -72,7 +88,19 @@ export default function CodeTypingEditor({
           guides: { indentation: true },
           smoothScrolling: true,
           renderWhitespace: 'selection',
-          fixedOverflowWidgets: true,
+          fixedOverflowWidgets: false,
+          quickSuggestions: false,
+          suggestOnTriggerCharacters: false,
+          inlineSuggest: { enabled: false },
+          hover: { enabled: false },
+          parameterHints: { enabled: false },
+          lightbulb: { enabled: 'off' },
+          codeLens: false,
+          acceptSuggestionOnEnter: 'off',
+          overviewRulerLanes: 0,
+          overviewRulerBorder: false,
+          selectionHighlight: false,
+          occurrencesHighlight: 'off',
           tabSize: language === 'python' ? 4 : 2,
           padding: { top: 16, bottom: 18 },
         }}
