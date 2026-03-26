@@ -1470,14 +1470,14 @@ export default function BenchmarkExperience({
   const historyPreview = (canViewReportHistory ? reportHistory : reportHistory.slice(0, 1)).slice(0, 3);
   const headerCard = (
     <div className={surfaceCardClassName}>
-      <div className="inline-flex items-center gap-2 rounded-full border border-primary/25 bg-primary/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-primary">
+      <div className="inline-flex items-center gap-2 rounded-full border border-primary/25 bg-primary/10 px-3 py-1 type-kicker text-primary">
         <Sparkles className="h-3.5 w-3.5" />
         <span>{mode === 'public' ? 'Free coding skill benchmark' : 'Benchmark workspace'}</span>
       </div>
-      <h1 className="mt-5 max-w-4xl text-3xl font-semibold tracking-tight text-foreground sm:text-4xl">
+      <h1 className="type-display-section mt-5 max-w-4xl text-foreground">
         Measure real coding skill in a short, structured benchmark.
       </h1>
-      <p className="mt-4 max-w-3xl text-base leading-7 text-muted-foreground">
+      <p className="type-body-md mt-4 max-w-3xl text-muted-foreground">
         Pick a goal, language, and level. Get a score and next step.
       </p>
       <div className="mt-6 grid gap-4 sm:grid-cols-3">

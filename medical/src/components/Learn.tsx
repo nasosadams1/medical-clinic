@@ -26,6 +26,7 @@ import {
 } from '../data/lessonCatalog';
 import { loadLessonsModule } from '../data/lessonsLoader';
 import { STARTER_PATH_LANGUAGE, STARTER_PATH_LESSON_LIMIT } from '../lib/planAccess';
+import { forceUnlockAllLessons } from '../lib/lessonAccess';
 
 type Language = LessonLanguage;
 type DifficultyTier = 'Beginner' | 'Intermediate' | 'Advanced';
@@ -176,7 +177,7 @@ const Learn: React.FC<LearnProps> = ({ setCurrentSection, openAuthModal, isAuthe
   }, [lessonsModule, selectedLanguage]);
 
   useEffect(() => {
-    if (!canAccessPracticeLanguage(selectedLanguage)) {
+    if (!forceUnlockAllLessons && !canAccessPracticeLanguage(selectedLanguage)) {
       setSelectedLanguage(STARTER_PATH_LANGUAGE);
     }
   }, [canAccessPracticeLanguage, selectedLanguage]);
@@ -256,14 +257,14 @@ const Learn: React.FC<LearnProps> = ({ setCurrentSection, openAuthModal, isAuthe
       return;
     }
 
-    if (!canAccessPracticeLesson(lesson.language, lesson.languageIndex)) {
+    if (!forceUnlockAllLessons && !canAccessPracticeLesson(lesson.language, lesson.languageIndex)) {
       toast.error('Upgrade to unlock the full practice library.');
       navigate('/pricing?intent=pro');
       return;
     }
 
     const lessonTier = lesson.tier;
-    if (!difficultyUnlocks[lessonTier]) {
+    if (!forceUnlockAllLessons && !difficultyUnlocks[lessonTier]) {
       const requiredTier: 'Beginner' | 'Intermediate' = lessonTier === 'Intermediate' ? 'Beginner' : 'Intermediate';
       const progress = difficultyUnlocks.progress[requiredTier];
       const neededCompleted = Math.ceil((progress?.total ?? 0) * 0.7);
@@ -281,12 +282,12 @@ const Learn: React.FC<LearnProps> = ({ setCurrentSection, openAuthModal, isAuthe
     <div className="space-y-8 p-4 lg:p-8">
       <div className="flex flex-col gap-4">
         <div>
-          <h1 className="text-2xl font-bold font-display text-foreground">Practice Lessons</h1>
-          <p className="mt-1 text-muted-foreground">Choose a language path, unlock harder tiers, and move through the lesson library.</p>
+          <h1 className="type-headline text-foreground">Practice Lessons</h1>
+          <p className="type-body-sm mt-1 max-w-3xl text-muted-foreground">Choose a language path, unlock harder tiers, and move through the lesson library.</p>
         </div>
       </div>
 
-      {!hasPaidLearnerAccess ? (
+      {!hasPaidLearnerAccess && !forceUnlockAllLessons ? (
         <div className="rounded-2xl border border-primary/20 bg-primary/10 px-4 py-4 text-sm leading-6 text-foreground">
           <div className="font-semibold text-primary">Free plan access</div>
           <div className="mt-1">
@@ -296,11 +297,11 @@ const Learn: React.FC<LearnProps> = ({ setCurrentSection, openAuthModal, isAuthe
       ) : null}
 
       <div className="rounded-2xl border border-border bg-card p-6 shadow-card">
-        <div className={`inline-flex rounded-full bg-gradient-to-r px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-white ${selectedTrack.gradient}`}>
+        <div className={`type-kicker inline-flex rounded-full bg-gradient-to-r px-3 py-1 text-white ${selectedTrack.gradient}`}>
           {selectedTrack.name} path
         </div>
-        <h2 className="mt-4 text-2xl font-bold font-display text-foreground">Lessons first. Everything here should help you learn by doing.</h2>
-        <p className="mt-3 max-w-3xl text-sm leading-7 text-muted-foreground">{selectedTrack.description}</p>
+        <h2 className="type-display-section mt-4 max-w-4xl text-foreground">Lessons first. Everything here should help you learn by doing.</h2>
+        <p className="type-body-md mt-3 max-w-3xl text-muted-foreground">{selectedTrack.description}</p>
 
         <div className="mt-6 rounded-2xl border border-border bg-secondary/35 p-5">
           <div className="flex items-center justify-between text-sm">
@@ -349,7 +350,7 @@ const Learn: React.FC<LearnProps> = ({ setCurrentSection, openAuthModal, isAuthe
         {languageStats.map((language) => {
           const Icon = language.icon;
           const isActive = selectedLanguage === language.id;
-          const isLocked = !canAccessPracticeLanguage(language.id);
+          const isLocked = !forceUnlockAllLessons && !canAccessPracticeLanguage(language.id);
           const progressPercent = Math.round((language.completedCount / Math.max(1, language.totalLessons)) * 100);
 
           return (
@@ -377,7 +378,7 @@ const Learn: React.FC<LearnProps> = ({ setCurrentSection, openAuthModal, isAuthe
                 </div>
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">
-                    <div className={cx('text-lg font-bold font-display', isActive ? 'text-white' : 'text-foreground')}>{language.name}</div>
+                    <div className={cx('type-title-sm', isActive ? 'text-white' : 'text-foreground')}>{language.name}</div>
                     {isLocked ? (
                       <span className={cx('rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em]', isActive ? 'bg-white/15 text-white' : 'bg-primary/10 text-primary')}>
                         Pro
@@ -387,7 +388,7 @@ const Learn: React.FC<LearnProps> = ({ setCurrentSection, openAuthModal, isAuthe
                   <p className={cx('mt-1 text-sm leading-6', isActive ? 'text-white/80' : 'text-muted-foreground')}>{language.description}</p>
                 </div>
               </div>
-              <div className={cx('mt-4 flex items-center justify-between text-xs uppercase tracking-[0.18em]', isActive ? 'text-white/80' : 'text-muted-foreground')}>
+              <div className={cx('type-label mt-4 flex items-center justify-between', isActive ? 'text-white/80' : 'text-muted-foreground')}>
                 <span>Progress</span>
                 <span>{language.completedCount}/{language.totalLessons}</span>
               </div>
@@ -445,13 +446,16 @@ const Learn: React.FC<LearnProps> = ({ setCurrentSection, openAuthModal, isAuthe
             )
             : filteredLessons.map((lesson) => {
               const isCompleted = user.completedLessons.includes(lesson.id);
-              const isDifficultyLocked = !difficultyUnlocks[lesson.tier];
-              const isPlanLocked = !canAccessPracticeLesson(lesson.language, lesson.languageIndex);
-              const canStartLesson = isAuthenticated && !isDifficultyLocked && !isPlanLocked && (user.hearts > 0 || isUnlimitedHeartsActive());
+              const isSystemLocked = !forceUnlockAllLessons && lesson.isLocked;
+              const isDifficultyLocked = !forceUnlockAllLessons && !difficultyUnlocks[lesson.tier];
+              const isPlanLocked = !forceUnlockAllLessons && !canAccessPracticeLesson(lesson.language, lesson.languageIndex);
+              const canStartLesson = isAuthenticated && !isSystemLocked && !isDifficultyLocked && !isPlanLocked && (user.hearts > 0 || isUnlimitedHeartsActive());
               const disabledReason = !isAuthenticated
                 ? null
                 : isPlanLocked
                 ? 'Upgrade required'
+                : isSystemLocked
+                ? 'Locked'
                 : isDifficultyLocked
                 ? 'Tier locked'
                 : !canStartLesson
@@ -463,13 +467,13 @@ const Learn: React.FC<LearnProps> = ({ setCurrentSection, openAuthModal, isAuthe
                   key={`${lesson.id}-${selectedLanguage}`}
                   className={cx(
                     'relative overflow-hidden rounded-2xl border bg-card p-5 shadow-card transition-all duration-300',
-                    isDifficultyLocked || isPlanLocked
+                    isSystemLocked || isDifficultyLocked || isPlanLocked
                       ? 'border-border/70 opacity-85'
                       : 'border-border hover:-translate-y-1 hover:border-primary/30 hover:shadow-elevated'
                   )}
                 >
                   <div className="absolute inset-0 opacity-0 transition-opacity duration-300 hover:opacity-100" style={{ background: 'var(--gradient-card-glow)' }} />
-                  {isDifficultyLocked || isPlanLocked ? <div className="pointer-events-none absolute inset-0 rounded-2xl border-2 border-dashed border-border" /> : null}
+                  {isSystemLocked || isDifficultyLocked || isPlanLocked ? <div className="pointer-events-none absolute inset-0 rounded-2xl border-2 border-dashed border-border" /> : null}
 
                   <div className="relative">
                     <div className="mb-4 flex items-start justify-between gap-3">
@@ -487,10 +491,10 @@ const Learn: React.FC<LearnProps> = ({ setCurrentSection, openAuthModal, isAuthe
                       </div>
                     </div>
 
-                    <h3 className="line-clamp-2 text-lg font-bold font-display text-foreground">
+                    <h3 className="type-title-sm line-clamp-2 text-foreground">
                       {getVisibleLessonTitle(lesson)}
                     </h3>
-                    <p className="mt-2 line-clamp-3 text-sm leading-7 text-muted-foreground">{lesson.description}</p>
+                    <p className="type-body-sm mt-2 line-clamp-3 text-muted-foreground">{lesson.description}</p>
 
                     <div className="mt-4 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                       <span className="rounded-full bg-secondary px-3 py-1">{lesson.category}</span>
@@ -523,7 +527,7 @@ const Learn: React.FC<LearnProps> = ({ setCurrentSection, openAuthModal, isAuthe
                           <CheckCircle2 className="h-4 w-4" />
                           Completed
                         </div>
-                      ) : lesson.isLocked || isDifficultyLocked || isPlanLocked ? (
+                      ) : isSystemLocked || isDifficultyLocked || isPlanLocked ? (
                         <button
                           type="button"
                           onClick={() => {
@@ -531,7 +535,7 @@ const Learn: React.FC<LearnProps> = ({ setCurrentSection, openAuthModal, isAuthe
                               navigate('/pricing?intent=pro');
                             }
                           }}
-                          disabled={lesson.isLocked || isDifficultyLocked}
+                          disabled={isSystemLocked || isDifficultyLocked}
                           className="inline-flex items-center justify-center gap-2 rounded-xl border border-border bg-secondary px-4 py-2.5 text-sm font-semibold text-muted-foreground disabled:cursor-not-allowed"
                         >
                           {isPlanLocked ? <Lock className="h-4 w-4" /> : isDifficultyLocked ? <Link2 className="h-4 w-4" /> : <Lock className="h-4 w-4" />}

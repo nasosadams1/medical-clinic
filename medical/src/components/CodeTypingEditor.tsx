@@ -14,6 +14,36 @@ const toMonacoLanguage = (language: LanguageSlug) => {
   return language;
 };
 
+const configureLessonEditorTheme = (monaco: any) => {
+  monaco.editor.defineTheme('lesson-code-dark', {
+    base: 'vs-dark',
+    inherit: true,
+    rules: [
+      { token: 'comment', foreground: '5f718c', fontStyle: 'italic' },
+      { token: 'keyword', foreground: '7dd3fc' },
+      { token: 'string', foreground: '86efac' },
+      { token: 'number', foreground: 'f9a8d4' },
+      { token: 'delimiter', foreground: 'cbd5e1' },
+    ],
+    colors: {
+      'editor.background': '#081321',
+      'editor.foreground': '#E2E8F0',
+      'editorLineNumber.foreground': '#4B5C77',
+      'editorLineNumber.activeForeground': '#9FB3D1',
+      'editorCursor.foreground': '#7DD3FC',
+      'editor.selectionBackground': '#16304E',
+      'editor.inactiveSelectionBackground': '#12243A',
+      'editor.lineHighlightBackground': '#0D1B2D',
+      'editorIndentGuide.background1': '#14263C',
+      'editorIndentGuide.activeBackground1': '#26496E',
+      'editorWhitespace.foreground': '#20324A',
+      'editorBracketMatch.background': '#11253E',
+      'editorBracketMatch.border': '#4DA6D1',
+      'editorGutter.background': '#081321',
+    },
+  });
+};
+
 export default function CodeTypingEditor({
   language,
   value,
@@ -21,17 +51,19 @@ export default function CodeTypingEditor({
   height = '280px',
 }: CodeTypingEditorProps) {
   return (
-    <div className="overflow-hidden rounded-[1.5rem] border border-white/10 bg-slate-950/90">
+    <div className="lesson-code-surface overflow-hidden">
       <Editor
         height={height}
         language={toMonacoLanguage(language)}
         value={value}
         onChange={(nextValue) => onChange(nextValue || '')}
-        theme="vs-dark"
+        beforeMount={configureLessonEditorTheme}
+        theme="lesson-code-dark"
         options={{
           minimap: { enabled: false },
-          fontSize: 14,
+          fontSize: 15,
           fontFamily: 'JetBrains Mono, Fira Code, monospace',
+          lineHeight: 24,
           lineNumbers: 'on',
           scrollBeyondLastLine: false,
           automaticLayout: true,
@@ -42,7 +74,7 @@ export default function CodeTypingEditor({
           renderWhitespace: 'selection',
           fixedOverflowWidgets: true,
           tabSize: language === 'python' ? 4 : 2,
-          padding: { top: 14, bottom: 14 },
+          padding: { top: 16, bottom: 18 },
         }}
       />
     </div>

@@ -638,15 +638,15 @@ export function HomePage({ openAuthModal }: PublicPageProps) {
           <div className="max-w-3xl animate-slide-up">
             <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-primary/30 bg-primary/10 px-4 py-1.5">
               <Sparkles className="h-3.5 w-3.5 text-primary" />
-              <span className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">
+              <span className="type-kicker text-primary">
                 Built for ambitious learners
               </span>
             </div>
 
-            <h1 className="text-4xl font-bold font-display leading-tight text-foreground sm:text-5xl lg:text-6xl">
+            <h1 className="type-display-hero max-w-[11ch] text-foreground">
               Learn programming by <span className="text-gradient-primary">coding every day</span>.
             </h1>
-            <p className="mt-6 max-w-2xl text-lg leading-8 text-muted-foreground">
+            <p className="type-body-lg mt-6 max-w-2xl text-muted-foreground">
               Lessons, hands-on practice, duels, and visible progress that keep you improving.
             </p>
 
@@ -667,8 +667,8 @@ export function HomePage({ openAuthModal }: PublicPageProps) {
             <div className="flex items-center gap-3">
               <img src={mascot} alt="Codhak mascot" className="h-12 w-12 animate-float" />
               <div>
-                <div className="text-xs font-semibold uppercase tracking-[0.2em] text-primary">What new visitors should do first</div>
-                <div className="mt-1 text-2xl font-bold font-display text-foreground">Pick a path and start coding</div>
+                <div className="type-kicker text-primary">What new visitors should do first</div>
+                <div className="type-headline mt-1 text-foreground">Pick a path and start coding</div>
               </div>
             </div>
 

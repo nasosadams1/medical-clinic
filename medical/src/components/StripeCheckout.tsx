@@ -281,7 +281,7 @@ const CheckoutForm: React.FC<StripeCheckoutProps> = ({
       <div className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-2xl border border-border bg-card shadow-elevated">
         <div className="border-b border-border p-4 sm:p-6">
           <div className="flex items-start justify-between gap-3">
-            <h3 className="flex items-center text-lg font-bold font-display text-foreground sm:text-xl">
+            <h3 className="type-title-md flex items-center text-foreground">
               <Shield className="mr-2 h-6 w-6 text-xp" />
               Secure Payment
             </h3>
@@ -295,9 +295,9 @@ const CheckoutForm: React.FC<StripeCheckoutProps> = ({
           <div className="mb-6">
             <div className="mb-2 flex items-center justify-between gap-3">
               <span className="text-muted-foreground">Total Amount</span>
-              <span className="text-xl font-bold font-display text-foreground sm:text-2xl">USD {(amount / 100).toFixed(2)}</span>
+              <span className="type-title-md text-foreground sm:text-2xl">USD {(amount / 100).toFixed(2)}</span>
             </div>
-            <p className="text-sm leading-7 text-muted-foreground">{description}</p>
+            <p className="type-body-sm text-muted-foreground">{description}</p>
             {coins ? (
               <div className="mt-2 rounded-lg bg-coins/10 p-3">
                 <p className="text-sm font-medium text-coins">You will receive {coins.toLocaleString()} coins</p>

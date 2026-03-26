@@ -33,17 +33,17 @@ export default function SectionMascotHero({
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(255,255,255,0.18),transparent_34%),radial-gradient(circle_at_bottom_right,rgba(125,211,252,0.2),transparent_24%)]" />
       <div className="relative grid gap-6 lg:grid-cols-[1.1fr_0.9fr] lg:items-center">
         <div>
-          <span className="inline-flex rounded-full border border-white/20 bg-white/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.24em] text-white/80">
+          <span className="type-kicker inline-flex rounded-full border border-white/20 bg-white/10 px-3 py-1 text-white/80">
             {eyebrow}
           </span>
-          <h1 className="mt-4 max-w-2xl text-3xl font-bold tracking-tight sm:text-4xl">{title}</h1>
-          <p className="mt-3 max-w-2xl text-sm text-white/80 sm:text-base">{description}</p>
+          <h1 className="type-display-section mt-4 max-w-2xl text-white">{title}</h1>
+          <p className="type-body-md mt-3 max-w-2xl text-white/80">{description}</p>
           {metrics.length > 0 && (
             <div className="mt-6 grid gap-3 sm:grid-cols-3">
               {metrics.map((metric) => (
                 <div key={metric.label} className="rounded-2xl border border-white/15 bg-white/10 px-4 py-3 backdrop-blur">
-                  <div className="text-lg font-bold text-white sm:text-xl">{metric.value}</div>
-                  <div className="text-xs uppercase tracking-[0.18em] text-white/65">{metric.label}</div>
+                  <div className="type-title-md text-white sm:text-xl">{metric.value}</div>
+                  <div className="type-label text-white/65">{metric.label}</div>
                 </div>
               ))}
             </div>

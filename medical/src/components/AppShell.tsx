@@ -294,7 +294,7 @@ export default function AppShell({ openAuthModal }: AppShellProps) {
             </button>
             <div className="flex items-center gap-2">
               <img src={mascot} alt="" className="h-6 w-6" />
-              <span className="font-bold font-display text-foreground">Codhak</span>
+              <span className="type-brand text-foreground">Codhak</span>
             </div>
           </div>
           <div className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">

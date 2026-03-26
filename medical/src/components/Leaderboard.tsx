@@ -643,8 +643,8 @@ export default function RealTimeLeaderboard({ currentUserId }: { currentUserId?:
         <div className="mx-auto h-24 w-24 sm:h-28 sm:w-28">
           <MascotIcon mascot="leaderboard" className="h-full w-full" imageClassName="drop-shadow-md" />
         </div>
-        <h1 className="mt-4 text-3xl font-bold font-display text-foreground">Leaderboard</h1>
-        <p className="mx-auto mt-3 max-w-2xl text-sm leading-7 text-muted-foreground">
+        <h1 className="type-display-section mt-4 text-foreground">Leaderboard</h1>
+        <p className="type-body-md mx-auto mt-3 max-w-2xl text-muted-foreground">
           Ranked ELO, XP, and lesson completion now sit inside the same dark competitive dashboard language as the rest of Codhak.
         </p>
       </div>

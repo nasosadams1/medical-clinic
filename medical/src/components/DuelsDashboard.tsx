@@ -333,28 +333,28 @@ export default function DuelsDashboard() {
     return (
       <div className="flex min-h-full flex-col p-4 lg:p-8">
         <div className="mx-auto max-w-4xl rounded-2xl border border-border bg-card p-8 shadow-card">
-          <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-primary/30 bg-primary/10 px-4 py-1.5 text-xs font-semibold uppercase tracking-[0.18em] text-primary">
+          <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-primary/30 bg-primary/10 px-4 py-1.5 type-kicker text-primary">
             <div className="h-7 w-7">
               <MascotIcon mascot="duel" className="h-full w-full" imageClassName="drop-shadow-sm" />
             </div>
             <span>1v1 Duels</span>
           </div>
-          <h1 className="text-3xl font-bold font-display text-foreground">Enter the duel lobby with an account</h1>
-          <p className="mt-3 max-w-2xl text-base leading-8 text-muted-foreground">
+          <h1 className="type-display-section max-w-4xl text-foreground">Enter the duel lobby with an account</h1>
+          <p className="type-body-md mt-3 max-w-2xl text-muted-foreground">
             Ranked matchmaking is only available for signed-in players. You can still use the benchmark, open practice paths, and review pricing before you log in.
           </p>
           <div className="mt-8 grid gap-4 sm:grid-cols-3">
             <div className="rounded-2xl border border-border bg-secondary/35 p-4">
-              <div className="text-sm font-semibold text-foreground">Ranked 1v1</div>
-              <div className="mt-1 text-sm leading-7 text-muted-foreground">Compete live and win by passing all test cases first.</div>
+              <div className="type-title-sm text-foreground">Ranked 1v1</div>
+              <div className="type-body-sm mt-1 text-muted-foreground">Compete live and win by passing all test cases first.</div>
             </div>
             <div className="rounded-2xl border border-border bg-secondary/35 p-4">
-              <div className="text-sm font-semibold text-foreground">Persistent rating</div>
-              <div className="mt-1 text-sm leading-7 text-muted-foreground">Your duel profile and rating are tied to your account.</div>
+              <div className="type-title-sm text-foreground">Persistent rating</div>
+              <div className="type-body-sm mt-1 text-muted-foreground">Your duel profile and rating are tied to your account.</div>
             </div>
             <div className="rounded-2xl border border-border bg-secondary/35 p-4">
-              <div className="text-sm font-semibold text-foreground">How to join</div>
-              <div className="mt-1 text-sm leading-7 text-muted-foreground">Use the Sign In / Sign Up button in the sidebar to unlock matchmaking.</div>
+              <div className="type-title-sm text-foreground">How to join</div>
+              <div className="type-body-sm mt-1 text-muted-foreground">Use the Sign In / Sign Up button in the sidebar to unlock matchmaking.</div>
             </div>
           </div>
           <div className="mt-8 rounded-2xl border border-dashed border-border bg-secondary/35 p-5 text-sm text-muted-foreground">

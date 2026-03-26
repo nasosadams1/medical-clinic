@@ -155,22 +155,33 @@ export const PYTHON_LESSON_EVALUATION_BANK = {
   "python-calculator-basics": {
     "language": "python",
     "requiredSnippets": [
-      "input(",
-      "int(",
-      "print(",
-      "+"
+      "int(input())",
+      "if",
+      "print(\"Larger:\""
     ],
     "testCases": [
       {
-        "label": "Public sum",
-        "stdin_text": "2\n3\n",
-        "expected_output": "5",
+        "label": "Public calculator",
+        "stdin_text": "7\n5\n",
+        "expected_output": "Sum: 12\r\nDifference: 2\r\nProduct: 35\r\nLarger: 7",
         "hidden": false
       },
       {
-        "label": "Hidden negative value",
+        "label": "Hidden negative input",
         "stdin_text": "10\n-4\n",
-        "expected_output": "6",
+        "expected_output": "Sum: 6\r\nDifference: 14\r\nProduct: -40\r\nLarger: 10",
+        "hidden": true
+      },
+      {
+        "label": "Hidden equal values",
+        "stdin_text": "9\n9\n",
+        "expected_output": "Sum: 18\r\nDifference: 0\r\nProduct: 81\r\nLarger: equal",
+        "hidden": true
+      },
+      {
+        "label": "Hidden zero values",
+        "stdin_text": "0\n0\n",
+        "expected_output": "Sum: 0\r\nDifference: 0\r\nProduct: 0\r\nLarger: equal",
         "hidden": true
       }
     ]
@@ -277,30 +288,35 @@ export const PYTHON_LESSON_EVALUATION_BANK = {
   "python-nested-loops": {
     "language": "python",
     "requiredSnippets": [
-      "for",
-      "print("
+      "for i in range",
+      "for j in range"
     ],
     "testCases": [
       {
-        "label": "Expected output",
-        "stdin_text": "",
+        "label": "Public grid",
+        "stdin_text": "2\n",
         "expected_output": "0 0\r\n0 1\r\n1 0\r\n1 1",
         "hidden": false
+      },
+      {
+        "label": "Hidden grid",
+        "stdin_text": "1\n",
+        "expected_output": "0 0",
+        "hidden": true
       }
     ]
   },
   "python-functions": {
     "language": "python",
     "requiredSnippets": [
-      "def say_hi",
-      "print(",
-      "say_hi()"
+      "def show_greeting",
+      "show_greeting()"
     ],
     "testCases": [
       {
-        "label": "Expected output",
+        "label": "Public function",
         "stdin_text": "",
-        "expected_output": "Hi",
+        "expected_output": "Welcome to practice",
         "hidden": false
       }
     ]
@@ -308,256 +324,333 @@ export const PYTHON_LESSON_EVALUATION_BANK = {
   "python-parameters": {
     "language": "python",
     "requiredSnippets": [
-      "def square",
-      "print(",
-      "*"
+      "def announce(name)",
+      "announce(name)"
     ],
     "testCases": [
       {
-        "label": "Expected output",
-        "stdin_text": "",
-        "expected_output": "16",
+        "label": "Public parameter",
+        "stdin_text": "Alex\n",
+        "expected_output": "Hello Alex",
         "hidden": false
+      },
+      {
+        "label": "Hidden parameter",
+        "stdin_text": "Mia\n",
+        "expected_output": "Hello Mia",
+        "hidden": true
       }
     ]
   },
   "python-return": {
     "language": "python",
     "requiredSnippets": [
-      "def double",
+      "def total",
+      "def average",
+      "def status",
       "return",
-      "print(",
-      "double(5)"
+      "if"
     ],
     "testCases": [
       {
-        "label": "Expected output",
-        "stdin_text": "",
-        "expected_output": "10",
+        "label": "Public scoreboard",
+        "stdin_text": "70\n80\n90\n",
+        "expected_output": "Total: 240\r\nAverage: 80.0\r\nStatus: Pass",
         "hidden": false
+      },
+      {
+        "label": "Hidden passing edge",
+        "stdin_text": "60\n60\n60\n",
+        "expected_output": "Total: 180\r\nAverage: 60.0\r\nStatus: Pass",
+        "hidden": true
+      },
+      {
+        "label": "Hidden needs practice",
+        "stdin_text": "20\n30\n40\n",
+        "expected_output": "Total: 90\r\nAverage: 30.0\r\nStatus: Needs practice",
+        "hidden": true
+      },
+      {
+        "label": "Hidden near-threshold miss",
+        "stdin_text": "59\n60\n60\n",
+        "expected_output": "Total: 179\r\nAverage: 59.666666666666664\r\nStatus: Needs practice",
+        "hidden": true
       }
     ]
   },
   "python-string-methods": {
     "language": "python",
     "requiredSnippets": [
-      "text =",
-      "\"python\"",
-      "print(",
-      "upper("
+      "strip(",
+      "title("
     ],
     "testCases": [
       {
-        "label": "Expected output",
-        "stdin_text": "",
-        "expected_output": "PYTHON",
+        "label": "Public clean text",
+        "stdin_text": "  alex rio  \n",
+        "expected_output": "Alex Rio",
         "hidden": false
+      },
+      {
+        "label": "Hidden clean text",
+        "stdin_text": "  python basics  \n",
+        "expected_output": "Python Basics",
+        "hidden": true
       }
     ]
   },
   "python-string-operations": {
     "language": "python",
     "requiredSnippets": [
-      "text =",
-      "-",
-      "\"a-b-c\"",
-      "print(",
-      "split(",
-      "\"-\""
+      "split(\"-\")"
     ],
     "testCases": [
       {
-        "label": "Expected output",
-        "stdin_text": "",
+        "label": "Public split",
+        "stdin_text": "a-b-c\n",
         "expected_output": "['a', 'b', 'c']",
         "hidden": false
+      },
+      {
+        "label": "Hidden split",
+        "stdin_text": "red-blue-green\n",
+        "expected_output": "['red', 'blue', 'green']",
+        "hidden": true
       }
     ]
   },
   "python-list-methods": {
     "language": "python",
     "requiredSnippets": [
-      "nums =",
-      "append(",
-      "print("
+      "append("
     ],
     "testCases": [
       {
-        "label": "Expected output",
-        "stdin_text": "",
-        "expected_output": "[1, 2, 3]",
+        "label": "Public append",
+        "stdin_text": "Loops\n",
+        "expected_output": "['Warmup', 'Arrays', 'Loops']",
         "hidden": false
+      },
+      {
+        "label": "Hidden append",
+        "stdin_text": "Functions\n",
+        "expected_output": "['Warmup', 'Arrays', 'Functions']",
+        "hidden": true
       }
     ]
   },
   "python-nested-structures": {
     "language": "python",
-    "requiredSnippets": [
-      "matrix =",
-      "print("
-    ],
+    "requiredSnippets": [],
     "testCases": [
       {
-        "label": "Expected output",
-        "stdin_text": "",
+        "label": "Public nested list",
+        "stdin_text": "1\n0\n",
         "expected_output": "30",
         "hidden": false
+      },
+      {
+        "label": "Hidden nested list",
+        "stdin_text": "0\n1\n",
+        "expected_output": "20",
+        "hidden": true
       }
     ]
   },
   "python-built-in-functions": {
     "language": "python",
-    "requiredSnippets": [
-      "nums =",
-      "print("
-    ],
+    "requiredSnippets": [],
     "testCases": [
       {
-        "label": "Expected output",
-        "stdin_text": "",
-        "expected_output": "8",
+        "label": "Public summary",
+        "stdin_text": "4 8 2\n",
+        "expected_output": "Sum: 14\r\nMax: 8\r\nCount: 3",
         "hidden": false
+      },
+      {
+        "label": "Hidden summary",
+        "stdin_text": "10 3 6 1\n",
+        "expected_output": "Sum: 20\r\nMax: 10\r\nCount: 4",
+        "hidden": true
       }
     ]
   },
   "python-dictionaries": {
     "language": "python",
     "requiredSnippets": [
-      "\"name\"",
-      "print(",
-      "{"
+      "{\"name\":",
+      "profile[\"name\"]"
     ],
     "testCases": [
       {
-        "label": "Expected output",
-        "stdin_text": "",
+        "label": "Public dictionary",
+        "stdin_text": "Alex\n",
         "expected_output": "Alex",
         "hidden": false
+      },
+      {
+        "label": "Hidden dictionary",
+        "stdin_text": "Rio\n",
+        "expected_output": "Rio",
+        "hidden": true
       }
     ]
   },
   "python-dict-methods": {
     "language": "python",
     "requiredSnippets": [
-      "d =",
-      "\"x\"",
-      "\"y\"",
-      "print("
+      "get("
     ],
     "testCases": [
       {
-        "label": "Expected output",
-        "stdin_text": "",
-        "expected_json": [
-          "x",
-          "y"
-        ],
-        "compare_mode": "contains_all_tokens",
+        "label": "Public lookup",
+        "stdin_text": "theme\n",
+        "expected_output": "dark",
         "hidden": false
+      },
+      {
+        "label": "Hidden lookup",
+        "stdin_text": "mode\n",
+        "expected_output": "missing",
+        "hidden": true
       }
     ]
   },
   "python-sets": {
     "language": "python",
     "requiredSnippets": [
-      "s =",
-      "print("
+      "set(",
+      "len("
     ],
     "testCases": [
       {
-        "label": "Expected output",
-        "stdin_text": "",
-        "expected_json": [
-          1,
-          2,
-          3
-        ],
-        "compare_mode": "number_set",
+        "label": "Public unique words",
+        "stdin_text": "python python loops\n",
+        "expected_output": "2",
         "hidden": false
+      },
+      {
+        "label": "Hidden unique words",
+        "stdin_text": "ship build ship learn\n",
+        "expected_output": "3",
+        "hidden": true
       }
     ]
   },
   "python-nested-data": {
     "language": "python",
-    "requiredSnippets": [
-      "data =",
-      "\"nums\"",
-      "print("
-    ],
+    "requiredSnippets": [],
     "testCases": [
       {
-        "label": "Expected output",
-        "stdin_text": "",
-        "expected_output": "20",
+        "label": "Public nested record",
+        "stdin_text": "1\n",
+        "expected_output": "Rio",
         "hidden": false
+      },
+      {
+        "label": "Hidden nested record",
+        "stdin_text": "0\n",
+        "expected_output": "Mia",
+        "hidden": true
       }
     ]
   },
   "python-text-analyzer-basics": {
     "language": "python",
     "requiredSnippets": [
-      "text =",
-      "\"banana\"",
-      "print(",
-      "count(",
-      "\"a\""
+      "split(",
+      "set(",
+      "for",
+      "len("
     ],
     "testCases": [
       {
-        "label": "Expected output",
-        "stdin_text": "",
-        "expected_output": "3",
+        "label": "Public text analyzer",
+        "stdin_text": "Python Python loops\n",
+        "expected_output": "Words: 3\r\nUnique words: 2\r\nHas python: True\r\nLongest word: python",
         "hidden": false
+      },
+      {
+        "label": "Hidden mixed case",
+        "stdin_text": "  PYTHON   projects build  \n",
+        "expected_output": "Words: 3\r\nUnique words: 3\r\nHas python: True\r\nLongest word: projects",
+        "hidden": true
+      },
+      {
+        "label": "Hidden no keyword",
+        "stdin_text": "Build ship learn\n",
+        "expected_output": "Words: 3\r\nUnique words: 3\r\nHas python: False\r\nLongest word: build",
+        "hidden": true
+      },
+      {
+        "label": "Hidden longest-word tie",
+        "stdin_text": "build learn ship\n",
+        "expected_output": "Words: 3\r\nUnique words: 3\r\nHas python: False\r\nLongest word: build",
+        "hidden": true
       }
     ]
   },
   "python-functions-advanced": {
     "language": "python",
     "requiredSnippets": [
-      "def triple",
-      "return",
-      "*",
-      "print("
+      "def clean",
+      "def word_count",
+      "return"
     ],
     "testCases": [
       {
-        "label": "Expected output",
-        "stdin_text": "",
-        "expected_output": "12",
+        "label": "Public composition",
+        "stdin_text": "  Ship Build  \n",
+        "expected_output": "2",
         "hidden": false
+      },
+      {
+        "label": "Hidden composition",
+        "stdin_text": "  Python practice rocks  \n",
+        "expected_output": "3",
+        "hidden": true
       }
     ]
   },
   "python-scope": {
     "language": "python",
     "requiredSnippets": [
-      "x =",
-      "def show_x",
-      "print("
+      "tax = 5",
+      "def add_tax"
     ],
     "testCases": [
       {
-        "label": "Expected output",
-        "stdin_text": "",
-        "expected_output": "7",
+        "label": "Public scope",
+        "stdin_text": "20\n",
+        "expected_output": "25",
         "hidden": false
+      },
+      {
+        "label": "Hidden scope",
+        "stdin_text": "7\n",
+        "expected_output": "12",
+        "hidden": true
       }
     ]
   },
   "python-recursion-intro": {
     "language": "python",
     "requiredSnippets": [
-      "def",
-      "if",
-      "print(",
-      "n - 1"
+      "def countdown",
+      "countdown(n - 1)"
     ],
     "testCases": [
       {
-        "label": "Expected output",
-        "stdin_text": "",
-        "expected_output": "3\r\n2\r\n1",
+        "label": "Public countdown",
+        "stdin_text": "4\n",
+        "expected_output": "4\r\n3\r\n2\r\n1",
         "hidden": false
+      },
+      {
+        "label": "Hidden countdown",
+        "stdin_text": "2\n",
+        "expected_output": "2\r\n1",
+        "hidden": true
       }
     ]
   },
@@ -565,112 +658,162 @@ export const PYTHON_LESSON_EVALUATION_BANK = {
     "language": "python",
     "requiredSnippets": [
       "def fact",
-      "return",
       "fact(n - 1)"
     ],
     "testCases": [
       {
-        "label": "Expected output",
-        "stdin_text": "",
+        "label": "Public factorial",
+        "stdin_text": "4\n",
         "expected_output": "24",
         "hidden": false
+      },
+      {
+        "label": "Hidden zero",
+        "stdin_text": "0\n",
+        "expected_output": "1",
+        "hidden": true
+      },
+      {
+        "label": "Hidden larger value",
+        "stdin_text": "5\n",
+        "expected_output": "120",
+        "hidden": true
       }
     ]
   },
   "python-linear-search": {
     "language": "python",
-    "requiredSnippets": [
-      "nums =",
-      "for",
-      "if",
-      "print(",
-      "\"Found\""
-    ],
+    "requiredSnippets": [],
     "testCases": [
       {
-        "label": "Expected output",
-        "stdin_text": "",
+        "label": "Public found",
+        "stdin_text": "Rio\n",
         "expected_output": "Found",
         "hidden": false
+      },
+      {
+        "label": "Hidden missing",
+        "stdin_text": "Ada\n",
+        "expected_output": "Missing",
+        "hidden": true
       }
     ]
   },
   "python-sorting": {
     "language": "python",
-    "requiredSnippets": [
-      "nums =",
-      "sort(",
-      "print("
-    ],
+    "requiredSnippets": [],
     "testCases": [
       {
-        "label": "Expected output",
-        "stdin_text": "",
+        "label": "Public sort",
+        "stdin_text": "4 1 3 2\n",
         "expected_output": "[1, 2, 3, 4]",
         "hidden": false
+      },
+      {
+        "label": "Hidden sort",
+        "stdin_text": "9 5 7\n",
+        "expected_output": "[5, 7, 9]",
+        "hidden": true
       }
     ]
   },
   "python-complexity-basics": {
     "language": "python",
-    "requiredSnippets": [
-      "for",
-      "print("
-    ],
+    "requiredSnippets": [],
     "testCases": [
       {
-        "label": "Expected output",
-        "stdin_text": "",
-        "expected_output": "1\r\n2\r\n3\r\n4",
+        "label": "Public total",
+        "stdin_text": "1 2 3 4\n",
+        "expected_output": "10",
         "hidden": false
+      },
+      {
+        "label": "Hidden total",
+        "stdin_text": "5 10\n",
+        "expected_output": "15",
+        "hidden": true
       }
     ]
   },
   "python-two-pointers": {
     "language": "python",
     "requiredSnippets": [
-      "nums =",
-      "l =",
-      "r =",
-      "print("
+      "while l < r",
+      "l += 1",
+      "r -= 1"
     ],
     "testCases": [
       {
-        "label": "Expected output",
-        "stdin_text": "",
-        "expected_output": "1 4",
+        "label": "Public pair",
+        "stdin_text": "12\n",
+        "expected_output": "Found",
         "hidden": false
+      },
+      {
+        "label": "Hidden pair",
+        "stdin_text": "10\n",
+        "expected_output": "Found",
+        "hidden": true
+      },
+      {
+        "label": "Hidden no pair",
+        "stdin_text": "19\n",
+        "expected_output": "No pair",
+        "hidden": true
       }
     ]
   },
   "python-mixed-problems": {
     "language": "python",
-    "requiredSnippets": [
-      "nums =",
-      "print("
-    ],
+    "requiredSnippets": [],
     "testCases": [
       {
-        "label": "Expected output",
-        "stdin_text": "",
-        "expected_output": "2",
+        "label": "Public stats",
+        "stdin_text": "7 2 9\n",
+        "expected_output": "2\r\n9",
         "hidden": false
+      },
+      {
+        "label": "Hidden stats",
+        "stdin_text": "8 1 4\n",
+        "expected_output": "1\r\n8",
+        "hidden": true
       }
     ]
   },
   "python-data-processor": {
     "language": "python",
     "requiredSnippets": [
-      "nums =",
-      "print(",
-      "/"
+      "sorted(",
+      "sum(",
+      "len(",
+      "max(",
+      "min("
     ],
     "testCases": [
       {
-        "label": "Expected output",
-        "stdin_text": "",
-        "expected_output": "5.0",
+        "label": "Public report",
+        "stdin_text": "2 4 6 8\n",
+        "expected_output": "Sorted: [2, 4, 6, 8]\r\nTotal: 20\r\nAverage: 5.0\r\nRange: 6",
         "hidden": false
+      },
+      {
+        "label": "Hidden unsorted report",
+        "stdin_text": "3 1 2\n",
+        "expected_output": "Sorted: [1, 2, 3]\r\nTotal: 6\r\nAverage: 2.0\r\nRange: 2",
+        "hidden": true
+      },
+      {
+        "label": "Hidden negative values",
+        "stdin_text": "-5 10 0\n",
+        "expected_output": "Sorted: [-5, 0, 10]\r\nTotal: 5\r\nAverage: 1.6666666666666667\r\nRange: 15",
+        "hidden": true
+      },
+      {
+        "label": "Hidden single value",
+        "stdin_text": "5\n",
+        "expected_output": "Sorted: [5]\r\nTotal: 5\r\nAverage: 5.0\r\nRange: 0",
+        "hidden": true
       }
     ]
   },
@@ -678,45 +821,54 @@ export const PYTHON_LESSON_EVALUATION_BANK = {
     "language": "python",
     "requiredSnippets": [
       "try:",
-      "except",
-      "10 / 0",
-      "Cannot divide"
+      "except ZeroDivisionError"
     ],
     "testCases": [
       {
-        "label": "Expected output",
-        "stdin_text": "",
-        "expected_output": "Cannot divide",
+        "label": "Public divide",
+        "stdin_text": "2\n",
+        "expected_output": "5.0",
         "hidden": false
+      },
+      {
+        "label": "Hidden divide by zero",
+        "stdin_text": "0\n",
+        "expected_output": "Cannot divide",
+        "hidden": true
       }
     ]
   },
   "python-modules": {
     "language": "python",
     "requiredSnippets": [
-      "print("
+      "import math",
+      "math.sqrt"
     ],
     "testCases": [
       {
-        "label": "Expected output",
-        "stdin_text": "",
+        "label": "Public import",
+        "stdin_text": "25\n",
         "expected_output": "5.0",
         "hidden": false
+      },
+      {
+        "label": "Hidden import",
+        "stdin_text": "81\n",
+        "expected_output": "9.0",
+        "hidden": true
       }
     ]
   },
   "python-libraries": {
     "language": "python",
     "requiredSnippets": [
-      "print(",
-      "\"A\"",
-      "\"B\"",
-      "\"C\""
+      "import random",
+      "random.choice"
     ],
     "testCases": [
       {
-        "label": "Expected output",
-        "stdin_text": "",
+        "label": "Public choice",
+        "stdin_text": "A B C\n",
         "expected_json": [
           "A",
           "B",
@@ -724,95 +876,137 @@ export const PYTHON_LESSON_EVALUATION_BANK = {
         ],
         "compare_mode": "one_of",
         "hidden": false
+      },
+      {
+        "label": "Hidden choice",
+        "stdin_text": "Loop Build Ship\n",
+        "expected_json": [
+          "Loop",
+          "Build",
+          "Ship"
+        ],
+        "compare_mode": "one_of",
+        "hidden": true
       }
     ]
   },
   "python-classes-intro": {
     "language": "python",
     "requiredSnippets": [
-      "class Dog",
-      "name =",
-      "\"Rex\"",
-      "dog =",
-      "print("
+      "class Badge",
+      "badge = Badge()",
+      "badge.name"
     ],
     "testCases": [
       {
-        "label": "Expected output",
-        "stdin_text": "",
-        "expected_output": "Rex",
+        "label": "Public class",
+        "stdin_text": "Starter\n",
+        "expected_output": "Starter",
         "hidden": false
+      },
+      {
+        "label": "Hidden class",
+        "stdin_text": "Champion\n",
+        "expected_output": "Champion",
+        "hidden": true
       }
     ]
   },
   "python-constructor": {
     "language": "python",
     "requiredSnippets": [
-      "class Student",
       "def __init__",
-      "student =",
-      "\"Sam\"",
-      "print("
+      "self.name = name"
     ],
     "testCases": [
       {
-        "label": "Expected output",
-        "stdin_text": "",
+        "label": "Public constructor",
+        "stdin_text": "Sam\n",
         "expected_output": "Sam",
         "hidden": false
+      },
+      {
+        "label": "Hidden constructor",
+        "stdin_text": "Rio\n",
+        "expected_output": "Rio",
+        "hidden": true
       }
     ]
   },
   "python-methods": {
     "language": "python",
     "requiredSnippets": [
-      "class Greeter",
-      "def say",
-      "print(",
-      "\"Hello\""
+      "def say(self, name)",
+      ".say("
     ],
     "testCases": [
       {
-        "label": "Expected output",
-        "stdin_text": "",
-        "expected_output": "Hello",
+        "label": "Public method",
+        "stdin_text": "Alex\n",
+        "expected_output": "Hello Alex",
         "hidden": false
+      },
+      {
+        "label": "Hidden method",
+        "stdin_text": "Mia\n",
+        "expected_output": "Hello Mia",
+        "hidden": true
       }
     ]
   },
   "python-attributes-methods": {
     "language": "python",
     "requiredSnippets": [
-      "class Person",
-      "def __init__",
-      "person =",
-      "\"Alex\"",
-      "print("
+      "self.score = score",
+      "def passed"
     ],
     "testCases": [
       {
-        "label": "Expected output",
-        "stdin_text": "",
-        "expected_output": "Alex 21",
+        "label": "Public state",
+        "stdin_text": "75\n",
+        "expected_output": "True",
         "hidden": false
+      },
+      {
+        "label": "Hidden state",
+        "stdin_text": "40\n",
+        "expected_output": "False",
+        "hidden": true
       }
     ]
   },
   "python-full-class-pattern": {
     "language": "python",
     "requiredSnippets": [
-      "class Counter",
-      "def __init__",
-      "def inc",
-      "self.value",
-      "print("
+      "self.goal = goal",
+      "self.completed = 0",
+      "if self.completed < self.goal",
+      "def status(self)"
     ],
     "testCases": [
       {
-        "label": "Expected output",
-        "stdin_text": "",
-        "expected_output": "1",
+        "label": "Public tracker",
+        "stdin_text": "5\n3\n",
+        "expected_output": "3/5 complete",
         "hidden": false
+      },
+      {
+        "label": "Hidden capped tracker",
+        "stdin_text": "2\n5\n",
+        "expected_output": "2/2 complete",
+        "hidden": true
+      },
+      {
+        "label": "Hidden zero progress",
+        "stdin_text": "4\n0\n",
+        "expected_output": "0/4 complete",
+        "hidden": true
+      },
+      {
+        "label": "Hidden zero goal",
+        "stdin_text": "0\n3\n",
+        "expected_output": "0/0 complete",
+        "hidden": true
       }
     ]
   }

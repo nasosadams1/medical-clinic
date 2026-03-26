@@ -94,6 +94,8 @@
       radial-gradient(circle at top, hsl(217 91% 60% / 0.12), transparent 34%),
       radial-gradient(circle at 80% 20%, hsl(192 91% 52% / 0.08), transparent 24%),
       linear-gradient(180deg, hsl(var(--background)), hsl(222 47% 5%));
+    font-kerning: normal;
+    text-rendering: optimizeLegibility;
     min-height: 100vh;
     min-height: 100dvh;
     overflow-x: clip;
@@ -174,6 +176,273 @@
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     background-clip: text;
+  }
+
+  .type-brand {
+    font-family: "Space Grotesk", "Inter", system-ui, sans-serif;
+    font-weight: 700;
+    line-height: 0.96;
+    letter-spacing: -0.045em;
+    font-kerning: normal;
+    font-feature-settings: "kern" 1, "liga" 1, "calt" 1;
+    font-synthesis: none;
+    text-rendering: optimizeLegibility;
+  }
+
+  .type-kicker {
+    font-size: 0.75rem;
+    font-weight: 600;
+    line-height: 1.1;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+  }
+
+  .type-display-hero {
+    font-family: "Space Grotesk", "Inter", system-ui, sans-serif;
+    font-size: clamp(2.85rem, 6vw, 5.1rem);
+    font-weight: 600;
+    line-height: 0.94;
+    letter-spacing: -0.058em;
+    text-wrap: balance;
+    font-kerning: normal;
+    font-feature-settings: "kern" 1, "liga" 1, "calt" 1;
+    font-synthesis: none;
+    text-rendering: optimizeLegibility;
+  }
+
+  .type-display-section {
+    font-family: "Space Grotesk", "Inter", system-ui, sans-serif;
+    font-size: clamp(2rem, 3vw, 3.25rem);
+    font-weight: 600;
+    line-height: 0.98;
+    letter-spacing: -0.05em;
+    text-wrap: balance;
+    font-kerning: normal;
+    font-feature-settings: "kern" 1, "liga" 1, "calt" 1;
+    font-synthesis: none;
+    text-rendering: optimizeLegibility;
+  }
+
+  .type-headline {
+    font-family: "Space Grotesk", "Inter", system-ui, sans-serif;
+    font-size: clamp(1.55rem, 2.2vw, 2.3rem);
+    font-weight: 600;
+    line-height: 1.02;
+    letter-spacing: -0.04em;
+    text-wrap: balance;
+    font-kerning: normal;
+    font-feature-settings: "kern" 1, "liga" 1, "calt" 1;
+    font-synthesis: none;
+    text-rendering: optimizeLegibility;
+  }
+
+  .type-body-lg {
+    font-size: 1.125rem;
+    font-weight: 500;
+    line-height: 1.75;
+    letter-spacing: -0.016em;
+  }
+
+  .type-body-md {
+    font-size: 1rem;
+    font-weight: 500;
+    line-height: 1.72;
+    letter-spacing: -0.012em;
+  }
+
+  .type-body-sm {
+    font-size: 0.9375rem;
+    font-weight: 500;
+    line-height: 1.68;
+    letter-spacing: -0.01em;
+  }
+
+  .type-label {
+    font-size: 0.75rem;
+    font-weight: 600;
+    line-height: 1.15;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+  }
+
+  .type-label-tight {
+    font-size: 0.6875rem;
+    font-weight: 600;
+    line-height: 1.1;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+  }
+
+  .type-title-md {
+    font-family: "Space Grotesk", "Inter", system-ui, sans-serif;
+    font-size: 1.5rem;
+    font-weight: 600;
+    line-height: 1.02;
+    letter-spacing: -0.035em;
+    font-kerning: normal;
+    font-feature-settings: "kern" 1, "liga" 1, "calt" 1;
+    font-synthesis: none;
+    text-rendering: optimizeLegibility;
+  }
+
+  .type-title-sm {
+    font-family: "Space Grotesk", "Inter", system-ui, sans-serif;
+    font-size: 1.125rem;
+    font-weight: 600;
+    line-height: 1.08;
+    letter-spacing: -0.03em;
+    font-kerning: normal;
+    font-feature-settings: "kern" 1, "liga" 1, "calt" 1;
+    font-synthesis: none;
+    text-rendering: optimizeLegibility;
+  }
+
+  .type-stat {
+    font-family: "Space Grotesk", "Inter", system-ui, sans-serif;
+    font-size: clamp(1.5rem, 2vw, 2.25rem);
+    font-weight: 700;
+    line-height: 0.96;
+    letter-spacing: -0.04em;
+    font-kerning: normal;
+    font-feature-settings: "kern" 1, "liga" 1, "calt" 1;
+    font-synthesis: none;
+    text-rendering: optimizeLegibility;
+  }
+
+  .lesson-headline-premium {
+    max-width: 14ch;
+    color: rgba(248, 250, 252, 0.96);
+    font-family: "Space Grotesk", "Inter", system-ui, sans-serif;
+    font-size: clamp(2.15rem, 4.7vw, 4.5rem);
+    font-style: normal;
+    font-weight: 600;
+    line-height: 0.96;
+    letter-spacing: -0.06em;
+    text-wrap: balance;
+    font-kerning: normal;
+    font-feature-settings: "kern" 1, "liga" 1, "calt" 1;
+    font-synthesis: none;
+    text-rendering: optimizeLegibility;
+    text-shadow: 0 10px 30px rgba(2, 6, 23, 0.32);
+  }
+
+  .lesson-copy-premium {
+    max-width: 62ch;
+    color: rgba(255, 255, 255, 0.72);
+    font-size: 1rem;
+    font-style: normal;
+    font-weight: 500;
+    line-height: 1.72;
+    letter-spacing: -0.012em;
+  }
+
+  .lesson-practice-heading {
+    max-width: 16ch;
+    font-family: "Space Grotesk", "Inter", system-ui, sans-serif;
+    font-size: clamp(1.95rem, 3.4vw, 3.35rem);
+    font-style: normal;
+    font-weight: 600;
+    line-height: 1.01;
+    letter-spacing: -0.05em;
+    text-wrap: balance;
+    font-kerning: normal;
+    font-feature-settings: "kern" 1, "liga" 1, "calt" 1;
+    font-synthesis: none;
+    text-rendering: optimizeLegibility;
+  }
+
+  .lesson-stage {
+    border-radius: 2rem;
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    background:
+      radial-gradient(circle at top, rgba(125, 211, 252, 0.07), transparent 26%),
+      linear-gradient(180deg, rgba(15, 23, 42, 0.48), rgba(8, 13, 24, 0.84));
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.04),
+      0 28px 70px rgba(2, 6, 23, 0.46);
+    backdrop-filter: blur(14px);
+  }
+
+  .lesson-panel {
+    border-radius: 1.6rem;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: rgba(255, 255, 255, 0.03);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+  }
+
+  .lesson-panel-soft {
+    border-radius: 1.45rem;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: rgba(255, 255, 255, 0.025);
+  }
+
+  .lesson-code-surface {
+    border-radius: 1.65rem;
+    border: 1px solid rgba(125, 211, 252, 0.18);
+    background:
+      linear-gradient(180deg, rgba(5, 10, 20, 0.96), rgba(7, 19, 33, 0.98));
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.04),
+      0 24px 60px rgba(2, 6, 23, 0.4);
+  }
+
+  .lesson-meta-pill {
+    display: inline-flex;
+    align-items: center;
+    border-radius: 9999px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    background: rgba(255, 255, 255, 0.04);
+    padding: 0.42rem 0.8rem;
+    font-size: 0.74rem;
+    font-weight: 600;
+    line-height: 1;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: rgba(226, 232, 240, 0.92);
+  }
+
+  .lesson-meta-pill--accent {
+    border-color: rgba(125, 211, 252, 0.22);
+    background: rgba(125, 211, 252, 0.1);
+    color: rgba(186, 230, 253, 0.96);
+  }
+
+  .lesson-section-label {
+    font-size: 0.78rem;
+    font-weight: 700;
+    line-height: 1;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: rgba(203, 213, 225, 0.84);
+  }
+
+  .inline-code-token {
+    display: inline-block;
+    white-space: nowrap;
+    vertical-align: 0.02em;
+    border-radius: 0.35em;
+    border: 1px solid rgba(103, 232, 249, 0.18);
+    background: rgba(2, 6, 23, 0.55);
+    color: rgb(207, 250, 254);
+    font-family: "JetBrains Mono", monospace;
+    font-style: normal;
+    font-weight: 600;
+    letter-spacing: -0.03em;
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.08),
+      0 10px 28px rgba(34, 211, 238, 0.08);
+  }
+
+  .inline-code-token--heading {
+    margin: 0 0.08em;
+    padding: 0.08em 0.26em;
+    font-size: 0.62em;
+  }
+
+  .inline-code-token--body {
+    margin: 0 0.06em;
+    padding: 0.05em 0.28em;
+    font-size: 0.92em;
   }
 
   .glow-primary {

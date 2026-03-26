@@ -54,8 +54,8 @@ export default function MatchResults({ matchData, userId, onClose, onViewReplay 
             <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-white/15 backdrop-blur-sm">
               <Trophy className="h-9 w-9" />
             </div>
-            <h2 className="text-3xl font-bold font-display sm:text-4xl">{bannerTitle}</h2>
-            <p className="mx-auto mt-3 max-w-xl text-sm leading-7 text-white/85 sm:text-base">{bannerCopy}</p>
+            <h2 className="type-display-section text-white">{bannerTitle}</h2>
+            <p className="type-body-md mx-auto mt-3 max-w-xl text-white/85">{bannerCopy}</p>
           </div>
         </div>
 
@@ -63,7 +63,7 @@ export default function MatchResults({ matchData, userId, onClose, onViewReplay 
           <div className="grid gap-6 lg:grid-cols-[0.95fr_1.05fr]">
             <div className="space-y-6">
               <section className="rounded-2xl border border-border bg-secondary/35 p-5">
-                <div className="text-sm font-semibold uppercase tracking-[0.18em] text-primary">Match summary</div>
+                <div className="type-label text-primary">Match summary</div>
                 <div className="mt-4 space-y-3">
                   <div className="flex items-center justify-between gap-3 rounded-xl border border-border bg-card px-4 py-3">
                     <span className="text-sm text-muted-foreground">Difficulty</span>
@@ -87,7 +87,7 @@ export default function MatchResults({ matchData, userId, onClose, onViewReplay 
 
               {isRankedMatch ? (
                 <section className="rounded-2xl border border-border bg-secondary/35 p-5">
-                  <div className="text-sm font-semibold uppercase tracking-[0.18em] text-primary">Rating changes</div>
+                  <div className="type-label text-primary">Rating changes</div>
                   <div className="mt-4 grid gap-4 md:grid-cols-2">
                     {[
                       {
@@ -104,9 +104,9 @@ export default function MatchResults({ matchData, userId, onClose, onViewReplay 
                       <div key={entry.label} className={cx('rounded-xl border p-4', entry.tone)}>
                         <div className="text-sm text-muted-foreground">{entry.label}</div>
                         <div className="mt-3 flex items-center justify-between gap-3">
-                          <span className="text-2xl font-bold font-display text-foreground">{entry.data.ratingBefore}</span>
+                          <span className="type-stat text-foreground">{entry.data.ratingBefore}</span>
                           <ArrowRight className="h-5 w-5 text-muted-foreground" />
-                          <span className="text-2xl font-bold font-display text-foreground">{entry.data.ratingAfter}</span>
+                          <span className="type-stat text-foreground">{entry.data.ratingAfter}</span>
                         </div>
                         <div className="mt-3 flex items-center gap-2">
                           {getRatingChangeIcon(entry.data.ratingChange)}
@@ -123,11 +123,11 @@ export default function MatchResults({ matchData, userId, onClose, onViewReplay 
 
             <div className="space-y-6">
               <section className="rounded-2xl border border-border bg-secondary/35 p-5">
-                <div className="text-sm font-semibold uppercase tracking-[0.18em] text-primary">Performance</div>
+                <div className="type-label text-primary">Performance</div>
                 <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-1">
                   <div className="rounded-xl border border-border bg-card p-4">
                     <div className="text-sm text-muted-foreground">Your duel score</div>
-                    <div className="mt-2 text-4xl font-bold font-display text-primary">
+                    <div className="type-stat mt-2 text-primary">
                       {Number(playerData.matchScore ?? playerData.submission?.matchScore ?? 0).toFixed(1)}
                     </div>
                     <div className="mt-1 text-sm text-muted-foreground">
@@ -136,7 +136,7 @@ export default function MatchResults({ matchData, userId, onClose, onViewReplay 
                   </div>
                   <div className="rounded-xl border border-border bg-card p-4">
                     <div className="text-sm text-muted-foreground">Opponent duel score</div>
-                    <div className="mt-2 text-4xl font-bold font-display text-foreground">
+                    <div className="type-stat mt-2 text-foreground">
                       {Number(opponentData.matchScore ?? opponentData.submission?.matchScore ?? 0).toFixed(1)}
                     </div>
                     <div className="mt-1 text-sm text-muted-foreground">
@@ -147,8 +147,8 @@ export default function MatchResults({ matchData, userId, onClose, onViewReplay 
               </section>
 
               <section className="rounded-2xl border border-border bg-secondary/35 p-5">
-                <div className="text-sm font-semibold uppercase tracking-[0.18em] text-primary">Next move</div>
-                <p className="mt-3 text-sm leading-7 text-muted-foreground">
+                <div className="type-label text-primary">Next move</div>
+                <p className="type-body-sm mt-3 text-muted-foreground">
                   {isWinner
                     ? 'Queue again while momentum is high or move back into practice to consolidate the win.'
                     : 'Review the outcome, sharpen the weak area in practice, and run another duel for a cleaner signal.'}

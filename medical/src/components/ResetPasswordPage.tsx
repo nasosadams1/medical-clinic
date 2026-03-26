@@ -147,14 +147,14 @@ const ResetPasswordPage: React.FC = () => {
               titleClassName="text-white"
               subtitleClassName="text-slate-300"
             />
-            <div className="mt-6 inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/5 px-3 py-1 text-xs font-medium uppercase tracking-[0.2em] text-slate-200">
+            <div className="type-kicker mt-6 inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/5 px-3 py-1 text-slate-200">
               <ShieldCheck className="h-4 w-4" />
               Account Recovery
             </div>
-            <h1 className="mt-6 text-3xl font-semibold leading-tight sm:text-4xl">
+            <h1 className="type-display-section mt-6 text-white">
               Reset your password securely.
             </h1>
-            <p className="mt-4 max-w-md text-sm leading-6 text-slate-300 sm:text-base">
+            <p className="type-body-md mt-4 max-w-md text-slate-300">
               This page completes the recovery flow from your email. Reset links are single-use and should only be opened by the account owner.
             </p>
 
@@ -167,7 +167,7 @@ const ResetPasswordPage: React.FC = () => {
           </div>
 
           <div className="px-8 py-10 sm:px-10 sm:py-12">
-            <div className={`inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] ${
+            <div className={`type-label inline-flex items-center gap-2 rounded-full px-3 py-1 ${
               status === 'error'
                 ? 'bg-amber-100 text-amber-700'
                 : status === 'success'
@@ -184,8 +184,8 @@ const ResetPasswordPage: React.FC = () => {
               {status === 'error' && <AlertTriangle className="h-8 w-8 text-amber-600" />}
             </div>
 
-            <h2 className="mt-6 text-3xl font-semibold text-slate-900">{title}</h2>
-            <p className="mt-3 text-sm leading-6 text-slate-600 sm:text-base">{message}</p>
+            <h2 className="type-display-section mt-6 text-slate-900">{title}</h2>
+            <p className="type-body-md mt-3 text-slate-600">{message}</p>
 
             {status === 'ready' && (
               <form className="mt-8 space-y-4" onSubmit={handleSubmit}>
@@ -264,4 +264,3 @@ const ResetPasswordPage: React.FC = () => {
 };
 
 export default ResetPasswordPage;
-

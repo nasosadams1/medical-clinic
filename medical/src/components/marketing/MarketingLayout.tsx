@@ -31,8 +31,8 @@ export default function MarketingLayout({ children, openAuthModal, isAuthenticat
           <Link to="/" className="flex items-center gap-2.5">
             <img src={mascot} alt="Codhak" className="h-8 w-8" />
             <div>
-              <div className="text-xl font-bold font-display text-foreground">Codhak</div>
-              <div className="text-[10px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">
+              <div className="type-brand text-xl text-foreground">Codhak</div>
+              <div className="type-kicker text-[10px] text-muted-foreground">
                 Lessons, practice, duels, progress
               </div>
             </div>

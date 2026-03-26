@@ -3,6 +3,22 @@ export type LessonEvaluationMode = 'static' | 'execution';
 export type LessonTheoryStepKind = 'example' | 'context';
 export type LessonQuestionKind = 'predict-output' | 'common-mistake' | 'knowledge-check';
 
+export interface LessonPracticeBrief {
+  task: string;
+  inputs?: string[];
+  requirements?: string[];
+  expectedOutput?: string[];
+  outputDescription?: string;
+  coachNote?: string;
+}
+
+export interface LessonProjectBrief {
+  goal: string;
+  inputs: string[];
+  outputs: string[];
+  skills: string[];
+}
+
 export interface LessonTheoryStep {
   title: string;
   content: string;
@@ -21,6 +37,7 @@ export interface LessonPracticeStep {
   code: string;
   explanation: string;
   type: 'practice';
+  practiceBrief?: LessonPracticeBrief;
   evaluationMode?: LessonEvaluationMode;
   evaluationId?: string;
   validationMode?: Exclude<LessonPracticeMode, 'none'>;
@@ -48,6 +65,7 @@ export interface Lesson {
   category: string;
   isLocked: boolean;
   prerequisite?: string;
+  projectBrief?: LessonProjectBrief;
   content: {
     steps: Array<LessonTheoryStep | LessonPracticeStep | LessonQuestionStep>;
   };

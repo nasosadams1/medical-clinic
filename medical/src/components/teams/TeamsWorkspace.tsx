@@ -4739,19 +4739,19 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
             <Users className="h-10 w-10" />
           </div>
 
-          <div className="inline-flex items-center rounded-full border border-xp/20 bg-xp/10 px-4 py-1.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-xp">
+          <div className="inline-flex items-center rounded-full border border-xp/20 bg-xp/10 px-4 py-1.5 type-kicker text-xp">
             Live team workspace
           </div>
 
-          <h1 className="mx-auto mt-5 max-w-3xl text-3xl font-bold font-display text-foreground sm:text-4xl">
+          <h1 className="type-display-section mx-auto mt-5 max-w-3xl text-foreground">
             Benchmark a cohort. Track proof of progress.
           </h1>
-          <p className="mx-auto mt-3 max-w-2xl text-sm leading-7 text-muted-foreground sm:text-base">
+          <p className="type-body-md mx-auto mt-3 max-w-2xl text-muted-foreground">
             Create a pilot team, assign benchmark-first practice, and use benchmark history to see who is improving.
           </p>
 
           <div className="mx-auto mt-6 w-full max-w-sm text-left">
-            <div className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">Workspace view</div>
+            <div className="type-kicker text-muted-foreground">Workspace view</div>
             <div className="relative mt-3">
               <select
                 value={teamSelectorValue}

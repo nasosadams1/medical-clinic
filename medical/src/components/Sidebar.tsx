@@ -161,7 +161,7 @@ export default function Sidebar({
       <div className="flex h-16 items-center justify-between border-b border-sidebar-border px-5">
         <div className="flex items-center gap-2.5">
           <img src={mascot} alt="Codhak" className="h-7 w-7" />
-          <span className="text-lg font-bold font-display text-sidebar-accent-foreground">Codhak</span>
+          <span className="type-brand text-lg text-sidebar-accent-foreground">Codhak</span>
         </div>
         <button
           type="button"

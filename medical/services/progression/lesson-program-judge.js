@@ -1,6 +1,6 @@
 import { exec } from 'node:child_process';
 import { promisify } from 'node:util';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import crypto from 'node:crypto';
@@ -119,7 +119,17 @@ async function resolveLocalPythonCommand() {
   return localPythonCommandPromise;
 }
 
-async function runInLocalPythonProgram({ userCode, stdinText, timeLimitMs = 2000 }) {
+async function writeSupportFiles(baseDir, files = []) {
+  for (const file of files) {
+    const relativePath = String(file?.path || '').trim();
+    if (!relativePath) continue;
+    const targetPath = path.resolve(baseDir, relativePath);
+    await mkdir(path.dirname(targetPath), { recursive: true });
+    await writeFile(targetPath, String(file?.contents || ''), 'utf8');
+  }
+}
+
+async function runInLocalPythonProgram({ userCode, stdinText, timeLimitMs = 2000, files = [] }) {
   const python = await resolveLocalPythonCommand();
   if (!python) {
     return {
@@ -133,6 +143,7 @@ async function runInLocalPythonProgram({ userCode, stdinText, timeLimitMs = 2000
   const tempDir = await mkdtemp(path.join(os.tmpdir(), 'codhak-lesson-judge-'));
   try {
     await writeFile(path.join(tempDir, 'user.py'), userCode, 'utf8');
+    await writeSupportFiles(tempDir, files);
 
     return await spawnProcess({
       command: python.command,
@@ -146,63 +157,54 @@ async function runInLocalPythonProgram({ userCode, stdinText, timeLimitMs = 2000
   }
 }
 
-async function runInDockerPythonProgram({ userCode, stdinText, timeLimitMs = 2000, memoryMb = 256, cpuLimit = 0.5, pidsLimit = 64 }) {
+async function runInDockerPythonProgram({
+  userCode,
+  stdinText,
+  timeLimitMs = 2000,
+  memoryMb = 256,
+  cpuLimit = 0.5,
+  pidsLimit = 64,
+  files = [],
+}) {
   const id = crypto.randomBytes(8).toString('hex');
   const containerName = `lesson-judge-${id}`;
-  const userB64 = Buffer.from(userCode, 'utf8').toString('base64');
-  const stdinB64 = Buffer.from(stdinText || '', 'utf8').toString('base64');
-
-  const dockerCmd = `docker run --rm --name ${containerName} \
-    --memory=${memoryMb}m \
-    --cpus=${cpuLimit} \
-    --pids-limit=${pidsLimit} \
-    --network=none \
-    --read-only \
-    --tmpfs /tmp:rw,noexec,nosuid,size=10m \
-    python:3.11-slim \
-    bash -c "echo '${userB64}' | base64 -d > /tmp/user.py && \
-             cd /tmp && \
-             echo '${stdinB64}' | base64 -d | timeout ${Math.ceil(timeLimitMs / 1000)}s python user.py"`;
-
-  let stdout = '';
-  let stderr = '';
-  let exitCode = 0;
-  let timeout = false;
-
-  const timeoutHandle = setTimeout(async () => {
-    timeout = true;
-    try {
-      await execAsync(`docker kill ${containerName}`);
-    } catch {
-      // ignore
-    }
-  }, timeLimitMs + 1000);
-
+  const tempDir = await mkdtemp(path.join(os.tmpdir(), 'codhak-lesson-docker-'));
   try {
-    const { stdout: out, stderr: err } = await execAsync(dockerCmd, {
-      maxBuffer: 10 * 1024 * 1024,
-      timeout: timeLimitMs + 2000,
-    });
-    stdout = out;
-    stderr = err;
-  } catch (error) {
-    clearTimeout(timeoutHandle);
+    await writeFile(path.join(tempDir, 'user.py'), userCode, 'utf8');
+    await writeSupportFiles(tempDir, files);
 
-    if (error.killed || error.signal === 'SIGTERM') {
-      timeout = true;
-      stderr = 'Time Limit Exceeded';
-      exitCode = 124;
-    } else {
-      stdout = error.stdout || '';
-      stderr = error.stderr || error.message || '';
-      exitCode = error.code || 1;
+    const result = await spawnProcess({
+      command: 'docker',
+      args: [
+        'run',
+        '--rm',
+        '--name',
+        containerName,
+        `--memory=${memoryMb}m`,
+        `--cpus=${cpuLimit}`,
+        `--pids-limit=${pidsLimit}`,
+        '--network=none',
+        '-i',
+        '-v',
+        `${tempDir}:/workspace`,
+        '-w',
+        '/workspace',
+        'python:3.11-slim',
+        'python',
+        'user.py',
+      ],
+      stdin: stdinText,
+      timeLimitMs,
+    });
+
+    if (result.timeout) {
+      await execAsync(`docker kill ${containerName}`).catch(() => {});
     }
 
-    return { stdout, stderr, exitCode, timeout };
+    return result;
+  } finally {
+    await rm(tempDir, { recursive: true, force: true }).catch(() => {});
   }
-
-  clearTimeout(timeoutHandle);
-  return { stdout, stderr, exitCode, timeout };
 }
 
 function compareProgramOutput({ actualRaw, expectedJson, expectedOutput, compareMode }) {
@@ -286,11 +288,13 @@ export class LessonProgramJudgeService {
             userCode: code,
             stdinText: testCase.stdin_text || '',
             timeLimitMs: testCase.time_limit_ms || 2000,
+            files: testCase.files || [],
           })
         : await runInLocalPythonProgram({
             userCode: code,
             stdinText: testCase.stdin_text || '',
             timeLimitMs: testCase.time_limit_ms || 2000,
+            files: testCase.files || [],
           });
 
       let ok = false;

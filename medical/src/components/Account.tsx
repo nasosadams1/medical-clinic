@@ -324,21 +324,21 @@ const Account: React.FC = () => {
         <div className="mb-4 rounded-3xl border border-slate-200 bg-white p-6 shadow-[0_20px_60px_rgba(15,23,42,0.08)] sm:p-8">
           <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
             <div className="max-w-2xl">
-              <h1 className="text-3xl font-semibold text-slate-900 sm:text-4xl">Account management</h1>
-              <p className="mt-3 text-sm leading-6 text-slate-600 sm:text-base">
+              <h1 className="type-display-section text-slate-900">Account management</h1>
+              <p className="type-body-md mt-3 text-slate-600">
                 Manage your identity, email ownership, and account recovery from one place.
               </p>
             </div>
 
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
-                <div className="text-xs uppercase tracking-[0.18em] text-slate-400">Email status</div>
+                <div className="type-label text-slate-400">Email status</div>
                 <div className={`mt-1 text-sm font-semibold ${isEmailVerified ? 'text-emerald-600' : 'text-amber-600'}`}>
                   {isEmailVerified ? 'Verified' : 'Verification pending'}
                 </div>
               </div>
               <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
-                <div className="text-xs uppercase tracking-[0.18em] text-slate-400">Last sign-in</div>
+                <div className="type-label text-slate-400">Last sign-in</div>
                 <div className="mt-1 text-sm font-semibold text-slate-900">{lastSignIn}</div>
               </div>
             </div>
@@ -352,8 +352,8 @@ const Account: React.FC = () => {
                 <UserRound className="h-6 w-6" />
               </div>
               <div>
-                <h2 className="text-xl font-semibold text-slate-900">Identity</h2>
-                <p className="mt-1 text-sm text-slate-600">
+                <h2 className="type-title-md text-slate-900">Identity</h2>
+                <p className="type-body-sm mt-1 text-slate-600">
                   This is the name shown across lessons, rankings, and profile surfaces.
                 </p>
               </div>
@@ -417,8 +417,8 @@ const Account: React.FC = () => {
                 <Mail className="h-6 w-6" />
               </div>
               <div>
-                <h2 className="text-xl font-semibold text-slate-900">Email and password</h2>
-                <p className="mt-1 text-sm text-slate-600">
+                <h2 className="type-title-md text-slate-900">Email and password</h2>
+                <p className="type-body-sm mt-1 text-slate-600">
                   Change your email address and start password recovery from the same place.
                 </p>
               </div>

@@ -192,8 +192,8 @@ function StoreStat({
       <div className="relative flex items-start gap-3">
         <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg ${iconTone}`}>{icon}</div>
         <div className="min-w-0">
-          <div className="text-xs font-medium uppercase tracking-[0.16em] text-muted-foreground">{label}</div>
-          <div className="text-2xl font-bold font-display text-foreground">{value}</div>
+          <div className="type-label text-muted-foreground">{label}</div>
+          <div className="type-stat text-foreground">{value}</div>
           <div className="mt-0.5 text-xs text-muted-foreground">{subtitle}</div>
         </div>
       </div>
@@ -244,30 +244,30 @@ function StoreCard({
               {item.icon}
             </div>
             <div className="min-w-0">
-              <div className="text-lg font-semibold font-display text-foreground">{item.name}</div>
-              <p className="mt-2 min-h-[48px] text-sm leading-7 text-muted-foreground">{item.description}</p>
+              <div className="type-title-sm text-foreground">{item.name}</div>
+              <p className="type-body-sm mt-2 min-h-[48px] text-muted-foreground">{item.description}</p>
             </div>
           </div>
           <div className="shrink-0 text-right">
-            <div className="text-xl font-semibold font-display text-foreground">{valueLabel}</div>
-            <div className="mt-1 text-xs uppercase tracking-[0.18em] text-muted-foreground">{metaLabel}</div>
+            <div className="type-title-md text-foreground">{valueLabel}</div>
+            <div className="type-label mt-1 text-muted-foreground">{metaLabel}</div>
           </div>
         </div>
 
         {(item.popular || item.bestValue || (item.bonusPercent || 0) > 0) ? (
           <div className="mt-4 flex flex-wrap gap-2">
             {item.popular ? (
-              <span className="rounded-full border border-destructive/20 bg-destructive/10 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.18em] text-destructive">
+              <span className="type-label-tight rounded-full border border-destructive/20 bg-destructive/10 px-3 py-1 text-destructive">
                 Popular
               </span>
             ) : null}
             {item.bestValue ? (
-              <span className="rounded-full border border-xp/20 bg-xp/10 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.18em] text-xp">
+              <span className="type-label-tight rounded-full border border-xp/20 bg-xp/10 px-3 py-1 text-xp">
                 Best value
               </span>
             ) : null}
             {(item.bonusPercent || 0) > 0 ? (
-              <span className="rounded-full border border-coins/20 bg-coins/10 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.18em] text-coins">
+              <span className="type-label-tight rounded-full border border-coins/20 bg-coins/10 px-3 py-1 text-coins">
                 +{item.bonusPercent}%
               </span>
             ) : null}
@@ -276,13 +276,13 @@ function StoreCard({
 
         <div className="mt-5 flex items-end justify-between gap-4 rounded-2xl border border-border bg-background/70 px-4 py-3">
           <div>
-            <div className="text-xl font-semibold font-display text-foreground">{item.priceLabel}</div>
-            <div className="mt-1 text-xs uppercase tracking-[0.18em] text-muted-foreground">
+            <div className="type-title-md text-foreground">{item.priceLabel}</div>
+            <div className="type-label mt-1 text-muted-foreground">
               {item.source === 'coins' ? 'Use balance' : 'Secure checkout'}
             </div>
           </div>
           {item.source === 'coins' && item.durationHours ? (
-            <div className="text-right text-xs uppercase tracking-[0.18em] text-muted-foreground">{item.durationHours} hour duration</div>
+            <div className="type-label text-right text-muted-foreground">{item.durationHours} hour duration</div>
           ) : null}
         </div>
 
@@ -348,7 +348,7 @@ function PlanCard({
     >
       {plan.badge ? (
         <div className="absolute -top-3 left-1/2 -translate-x-1/2">
-          <span className="rounded-full border border-primary/20 bg-primary/10 px-4 py-1 text-xs font-bold uppercase tracking-[0.18em] text-primary">
+          <span className="type-label rounded-full border border-primary/20 bg-primary/10 px-4 py-1 text-primary">
             {plan.badge}
           </span>
         </div>
@@ -356,14 +356,14 @@ function PlanCard({
 
       <div className="space-y-2">
         <div className="flex items-center justify-between gap-3">
-          <div className="text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground">{plan.name}</div>
+          <div className="type-label text-muted-foreground">{plan.name}</div>
           {isTeamPlan ? <Users className="h-4 w-4 text-primary" /> : null}
         </div>
         <div className="flex items-end gap-2">
-          <span className="text-4xl font-bold font-display text-foreground">{plan.price}</span>
-          <span className="pb-1 text-sm text-muted-foreground">{plan.cadence}</span>
+          <span className="type-stat text-foreground">{plan.price}</span>
+          <span className="type-body-sm pb-1 text-muted-foreground">{plan.cadence}</span>
         </div>
-        <p className="text-sm leading-7 text-muted-foreground">{plan.description}</p>
+        <p className="type-body-sm text-muted-foreground">{plan.description}</p>
       </div>
 
       <ul className="my-6 flex-1 space-y-3">
@@ -642,9 +642,9 @@ const Store: React.FC = () => {
               <MascotIcon mascot="store" className="h-full w-full" imageClassName="drop-shadow-md" />
             </div>
             <div>
-              <div className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">Pricing sync</div>
-              <div className="mt-2 text-3xl font-bold font-display text-foreground">One billing surface</div>
-              <p className="mt-3 text-sm leading-7 text-muted-foreground">
+              <div className="type-kicker text-primary">Pricing sync</div>
+              <div className="type-display-section mt-2 max-w-[10ch] text-foreground">One billing surface</div>
+              <p className="type-body-md mt-3 text-muted-foreground">
                 Plans and add-ons live here.
               </p>
               <div className="mt-4 rounded-2xl border border-border bg-background/70 px-4 py-4 text-sm text-muted-foreground">
@@ -708,8 +708,8 @@ const Store: React.FC = () => {
       <section className="space-y-3">
         <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
           <div>
-            <div className="text-sm font-semibold uppercase tracking-[0.18em] text-primary">Plans and subscriptions</div>
-            <p className="mt-2 max-w-3xl text-sm leading-7 text-muted-foreground">
+            <div className="type-label text-primary">Plans and subscriptions</div>
+            <p className="type-body-sm mt-2 max-w-3xl text-muted-foreground">
               Pick a plan, then add extras if needed.
             </p>
           </div>

@@ -94,14 +94,14 @@ const ForgotPasswordForm: React.FC<ForgotPasswordFormProps> = ({ onBack, onMessa
           <div className="mx-auto mb-6 flex h-20 w-20 items-center justify-center rounded-[1.75rem] border border-emerald-400/25 bg-emerald-500/10 text-emerald-200 shadow-[0_0_28px_rgba(16,185,129,0.16)]">
             <CheckCircle className="h-10 w-10" />
           </div>
-          <h1 className="text-3xl font-semibold text-white">Check your email</h1>
-          <p className="mt-2 text-sm text-slate-300">We sent a password reset link to</p>
+          <h1 className="type-display-section text-white">Check your email</h1>
+          <p className="type-body-sm mt-2 text-slate-300">We sent a password reset link to</p>
           <p className="mt-1 font-semibold text-white">{email}</p>
         </div>
 
         <div className="space-y-4">
           <div className="rounded-[1.5rem] border border-white/10 bg-white/5 p-5 text-left">
-            <h3 className="font-semibold text-white">Next steps</h3>
+            <h3 className="type-title-sm text-white">Next steps</h3>
             <ol className="mt-3 space-y-2 text-sm leading-6 text-slate-300">
               <li>1. Open the reset email from Codhak.</li>
               <li>2. Use the link to choose a new password.</li>
@@ -154,8 +154,8 @@ const ForgotPasswordForm: React.FC<ForgotPasswordFormProps> = ({ onBack, onMessa
         <div className="mx-auto mb-6 flex h-20 w-20 items-center justify-center rounded-[1.75rem] border border-cyan-400/20 bg-cyan-400/10 text-cyan-200 shadow-[0_0_28px_rgba(34,211,238,0.16)]">
           <Mail className="h-10 w-10" />
         </div>
-        <h1 className="text-3xl font-semibold text-white">Reset password</h1>
-        <p className="mt-2 text-sm leading-6 text-slate-300">
+        <h1 className="type-display-section text-white">Reset password</h1>
+        <p className="type-body-sm mt-2 text-slate-300">
           Enter your email and we will send you a secure link to reset your password.
         </p>
       </motion.div>

@@ -16,7 +16,7 @@ export const pythonLessons: Lesson[] = [
       "steps": [
         {
           "title": "Example 1",
-          "content": "Displays text on the screen.",
+          "content": "Use print() to send text to the console.",
           "code": "print(\"Hello from Alex\")",
           "explanation": "Use print() when you want Python to show text in the console.",
           "type": "theory",
@@ -25,34 +25,34 @@ export const pythonLessons: Lesson[] = [
         },
         {
           "title": "Example 2",
-          "content": "print() displays a string.",
+          "content": "print() sends the string to the console exactly as written.",
           "code": "print(\"Welcome, Sam!\")",
-          "explanation": "print() displays a string.",
+          "explanation": "print() sends the string to the console exactly as written.",
           "type": "theory",
           "practiceMode": "none",
           "stepKind": "example"
         },
         {
           "title": "Example 3",
-          "content": "Prints a variable.",
+          "content": "print(message) shows the value stored in message.",
           "code": "message = \"Rio is learning Python\"\nprint(message)",
-          "explanation": "Prints a variable.",
+          "explanation": "print(message) shows the value stored in message.",
           "type": "theory",
           "practiceMode": "none",
           "stepKind": "example"
         },
         {
           "title": "Example 4",
-          "content": "Concatenates strings.",
+          "content": "The + operator joins strings into one result.",
           "code": "day = \"Friday\"\nprint(\"Today is \" + day)",
-          "explanation": "Concatenates strings.",
+          "explanation": "The + operator joins strings into one result.",
           "type": "theory",
           "practiceMode": "none",
           "stepKind": "example"
         },
         {
           "title": "Q1",
-          "content": "Write a program that displays:\nHello World",
+          "content": "Print exactly: Hello World",
           "code": "print(\"Hello World\")",
           "explanation": "The target output is a single line: Hello World.",
           "type": "practice",
@@ -62,6 +62,18 @@ export const pythonLessons: Lesson[] = [
             "\"Hello World\""
           ],
           "starterCode": "",
+          "practiceBrief": {
+            "task": "Print exactly: Hello World",
+            "inputs": [],
+            "requirements": [
+              "Use print() to produce the exact text shown."
+            ],
+            "expectedOutput": [
+              "Hello World"
+            ],
+            "outputDescription": "",
+            "coachNote": "The target output is a single line: Hello World."
+          },
           "evaluationMode": "execution",
           "evaluationId": "python-first-output"
         },
@@ -108,43 +120,43 @@ export const pythonLessons: Lesson[] = [
       "steps": [
         {
           "title": "Example 1",
-          "content": "Stores a number.",
+          "content": "This stores a number in a variable so you can reuse it later.",
           "code": "x = 5\nprint(x)",
-          "explanation": "Stores a number.",
+          "explanation": "This stores a number in a variable so you can reuse it later.",
           "type": "theory",
           "practiceMode": "none",
           "stepKind": "example"
         },
         {
           "title": "Example 2",
-          "content": "Float.",
+          "content": "2.5 is a float, so Python keeps the decimal part.",
           "code": "y = 2.5\nprint(y)",
-          "explanation": "Float.",
+          "explanation": "2.5 is a float, so Python keeps the decimal part.",
           "type": "theory",
           "practiceMode": "none",
           "stepKind": "example"
         },
         {
           "title": "Example 3",
-          "content": "String.",
+          "content": "\"Sam\" is a string value.",
           "code": "name = \"Sam\"\nprint(name)",
-          "explanation": "String.",
+          "explanation": "\"Sam\" is a string value.",
           "type": "theory",
           "practiceMode": "none",
           "stepKind": "example"
         },
         {
           "title": "Example 4",
-          "content": "Convert to string.",
+          "content": "Use str() to convert the number into a string before printing it.",
           "code": "n = 2\nprint(str(n))",
-          "explanation": "Convert to string.",
+          "explanation": "Use str() to convert the number into a string before printing it.",
           "type": "theory",
           "practiceMode": "none",
           "stepKind": "example"
         },
         {
           "title": "Q1",
-          "content": "Create variable age = 20 and display it.",
+          "content": "Create the variable age = 20 and print it",
           "code": "age = 20\nprint(age)",
           "explanation": "Define the variable first, then print its value.",
           "type": "practice",
@@ -154,6 +166,16 @@ export const pythonLessons: Lesson[] = [
             "print("
           ],
           "starterCode": "",
+          "practiceBrief": {
+            "task": "Create the variable age = 20 and print it",
+            "inputs": [],
+            "requirements": [],
+            "expectedOutput": [
+              "20"
+            ],
+            "outputDescription": "",
+            "coachNote": "Define the variable first, then print its value."
+          },
           "evaluationMode": "execution",
           "evaluationId": "python-variables"
         },
@@ -200,45 +222,45 @@ export const pythonLessons: Lesson[] = [
       "steps": [
         {
           "title": "Example 1",
-          "content": "Addition.",
+          "content": "The + operator adds the two numbers.",
           "code": "print(2 + 3)",
-          "explanation": "Addition.",
+          "explanation": "The + operator adds the two numbers.",
           "type": "theory",
           "practiceMode": "none",
           "stepKind": "example"
         },
         {
           "title": "Example 2",
-          "content": "Subtraction.",
+          "content": "The - operator subtracts the second number from the first.",
           "code": "print(5 - 2)",
-          "explanation": "Subtraction.",
+          "explanation": "The - operator subtracts the second number from the first.",
           "type": "theory",
           "practiceMode": "none",
           "stepKind": "example"
         },
         {
           "title": "Example 3",
-          "content": "Multiplication.",
+          "content": "The * operator multiplies the two numbers.",
           "code": "print(3 * 2)",
-          "explanation": "Multiplication.",
+          "explanation": "The * operator multiplies the two numbers.",
           "type": "theory",
           "practiceMode": "none",
           "stepKind": "example"
         },
         {
           "title": "Example 4",
-          "content": "Float result.",
+          "content": "The / operator returns a float result in Python.",
           "code": "print(5 / 2)",
-          "explanation": "Float result.",
+          "explanation": "The / operator returns a float result in Python.",
           "type": "theory",
           "practiceMode": "none",
           "stepKind": "example"
         },
         {
           "title": "Q1",
-          "content": "Calculate and display the result of 7 + 5.",
+          "content": "Calculate and print the result of 7 + 5",
           "code": "print(7 + 5)",
-          "explanation": "This checkpoint expects the expression 7 + 5 to be printed directly.",
+          "explanation": "Start by the expression 7 + 5 to be printed directly.",
           "type": "practice",
           "validationMode": "includes_all",
           "requiredSnippets": [
@@ -246,6 +268,16 @@ export const pythonLessons: Lesson[] = [
             "+"
           ],
           "starterCode": "",
+          "practiceBrief": {
+            "task": "Calculate and print the result of 7 + 5",
+            "inputs": [],
+            "requirements": [],
+            "expectedOutput": [
+              "12"
+            ],
+            "outputDescription": "",
+            "coachNote": "Start by the expression 7 + 5 to be printed directly."
+          },
           "evaluationMode": "execution",
           "evaluationId": "python-arithmetic"
         },
@@ -292,43 +324,43 @@ export const pythonLessons: Lesson[] = [
       "steps": [
         {
           "title": "Example 1",
-          "content": "Concatenation of strings.",
+          "content": "The + operator joins strings into one result.",
           "code": "print(\"Hi\" + \"Alex\")",
-          "explanation": "Concatenation of strings.",
+          "explanation": "The + operator joins strings into one result.",
           "type": "theory",
           "practiceMode": "none",
           "stepKind": "example"
         },
         {
           "title": "Example 2",
-          "content": "Combination.",
+          "content": "The printed result combines fixed text with another value.",
           "code": "name = \"Sam\"\nprint(\"Hi \" + name)",
-          "explanation": "Combination.",
+          "explanation": "The printed result combines fixed text with another value.",
           "type": "theory",
           "practiceMode": "none",
           "stepKind": "example"
         },
         {
           "title": "Example 3",
-          "content": "Space.",
+          "content": "The space inside the string is printed exactly as written.",
           "code": "print(\"A B\")",
-          "explanation": "Space.",
+          "explanation": "The space inside the string is printed exactly as written.",
           "type": "theory",
           "practiceMode": "none",
           "stepKind": "example"
         },
         {
           "title": "Example 4",
-          "content": "It remains a string.",
+          "content": "Joining with \"1\" keeps the final value as a string.",
           "code": "print(\"Level\" + \"1\")",
-          "explanation": "It remains a string.",
+          "explanation": "Joining with \"1\" keeps the final value as a string.",
           "type": "theory",
           "practiceMode": "none",
           "stepKind": "example"
         },
         {
           "title": "Q1",
-          "content": "Join \"Hello \" and \"World\".",
+          "content": "Join \"Hello \" and \"World\"",
           "code": "print(\"Hello \" + \"World\")",
           "explanation": "String concatenation uses the + operator.",
           "type": "practice",
@@ -340,6 +372,16 @@ export const pythonLessons: Lesson[] = [
             "\"World\""
           ],
           "starterCode": "",
+          "practiceBrief": {
+            "task": "Join \"Hello \" and \"World\"",
+            "inputs": [],
+            "requirements": [],
+            "expectedOutput": [
+              "Hello World"
+            ],
+            "outputDescription": "",
+            "coachNote": "String concatenation uses the + operator."
+          },
           "evaluationMode": "execution",
           "evaluationId": "python-strings"
         },
@@ -386,43 +428,43 @@ export const pythonLessons: Lesson[] = [
       "steps": [
         {
           "title": "Example 1",
-          "content": "Input is a string.",
+          "content": "input() returns text, so the value starts as a string.",
           "code": "x = input()\nprint(x)",
-          "explanation": "Input is a string.",
+          "explanation": "input() returns text, so the value starts as a string.",
           "type": "theory",
           "practiceMode": "none",
           "stepKind": "example"
         },
         {
           "title": "Example 2",
-          "content": "Combination.",
+          "content": "The printed result combines fixed text with another value.",
           "code": "name = input()\nprint(\"Hi \" + name)",
-          "explanation": "Combination.",
+          "explanation": "The printed result combines fixed text with another value.",
           "type": "theory",
           "practiceMode": "none",
           "stepKind": "example"
         },
         {
           "title": "Example 3",
-          "content": "String concat.",
+          "content": "Without conversion, + joins the input strings together.",
           "code": "x = input()\ny = input()\nprint(x + y)",
-          "explanation": "String concat.",
+          "explanation": "Without conversion, + joins the input strings together.",
           "type": "theory",
           "practiceMode": "none",
           "stepKind": "example"
         },
         {
           "title": "Example 4",
-          "content": "Convert to int.",
+          "content": "Use int() when you need numeric input for arithmetic.",
           "code": "x = int(input())\nprint(x)",
-          "explanation": "Convert to int.",
+          "explanation": "Use int() when you need numeric input for arithmetic.",
           "type": "theory",
           "practiceMode": "none",
           "stepKind": "example"
         },
         {
           "title": "Q1",
-          "content": "Ask for name and display: Hello <name>",
+          "content": "Read name and print: Hello <name>",
           "code": "name = input()\nprint(\"Hello \" + name)",
           "explanation": "input() returns a string, so direct string concatenation works here.",
           "type": "practice",
@@ -435,6 +477,20 @@ export const pythonLessons: Lesson[] = [
             "\"Hello \""
           ],
           "starterCode": "",
+          "practiceBrief": {
+            "task": "Read name and print: Hello <name>",
+            "inputs": [
+              "Read the required value or values from standard input."
+            ],
+            "requirements": [
+              "Read the input before building the result."
+            ],
+            "expectedOutput": [
+              "Hello Alex"
+            ],
+            "outputDescription": "",
+            "coachNote": "input() returns a string, so direct string concatenation works here."
+          },
           "evaluationMode": "execution",
           "evaluationId": "python-input"
         },
@@ -481,43 +537,43 @@ export const pythonLessons: Lesson[] = [
       "steps": [
         {
           "title": "Example 1",
-          "content": "Returns True.",
+          "content": "The comparison evaluates to True.",
           "code": "print(5 > 3)",
-          "explanation": "Returns True.",
+          "explanation": "The comparison evaluates to True.",
           "type": "theory",
           "practiceMode": "none",
           "stepKind": "example"
         },
         {
           "title": "Example 2",
-          "content": "Checks if two values are equal.",
+          "content": "== compares two values for equality.",
           "code": "print(2 == 4)",
-          "explanation": "Checks if two values are equal.",
+          "explanation": "== compares two values for equality.",
           "type": "theory",
           "practiceMode": "none",
           "stepKind": "example"
         },
         {
           "title": "Example 3",
-          "content": "Checks if two values are different.",
+          "content": "!= compares two values and returns True when they differ.",
           "code": "print(7 != 1)",
-          "explanation": "Checks if two values are different.",
+          "explanation": "!= compares two values and returns True when they differ.",
           "type": "theory",
           "practiceMode": "none",
           "stepKind": "example"
         },
         {
           "title": "Example 4",
-          "content": "Boolean variable.",
+          "content": "Booleans store True or False directly in a variable.",
           "code": "flag = False\nprint(flag)",
-          "explanation": "Boolean variable.",
+          "explanation": "Booleans store True or False directly in a variable.",
           "type": "theory",
           "practiceMode": "none",
           "stepKind": "example"
         },
         {
           "title": "Q1",
-          "content": "Write a program that checks if 10 > 5 and displays the result.",
+          "content": "Evaluate 10 > 5 and print the result",
           "code": "print(10 > 5)",
           "explanation": "The comparison itself evaluates to True, and print() shows that result.",
           "type": "practice",
@@ -526,6 +582,16 @@ export const pythonLessons: Lesson[] = [
             "print("
           ],
           "starterCode": "",
+          "practiceBrief": {
+            "task": "Evaluate 10 > 5 and print the result",
+            "inputs": [],
+            "requirements": [],
+            "expectedOutput": [
+              "True"
+            ],
+            "outputDescription": "",
+            "coachNote": "The comparison itself evaluates to True, and print() shows that result."
+          },
           "evaluationMode": "execution",
           "evaluationId": "python-booleans"
         },
@@ -572,43 +638,43 @@ export const pythonLessons: Lesson[] = [
       "steps": [
         {
           "title": "Example 1",
-          "content": "Executed only if the condition is True.",
+          "content": "The indented block runs only when the condition is True.",
           "code": "if 5 > 3:\n    print(\"Yes\")",
-          "explanation": "Executed only if the condition is True.",
+          "explanation": "The indented block runs only when the condition is True.",
           "type": "theory",
           "practiceMode": "none",
           "stepKind": "example"
         },
         {
           "title": "Example 2",
-          "content": "Checks for equality.",
+          "content": "This condition compares the current value to the expected one.",
           "code": "x = 2\nif x == 2:\n    print(\"Match\")",
-          "explanation": "Checks for equality.",
+          "explanation": "This condition compares the current value to the expected one.",
           "type": "theory",
           "practiceMode": "none",
           "stepKind": "example"
         },
         {
           "title": "Example 3",
-          "content": "We can compare strings.",
+          "content": "if statements can compare strings, not just numbers.",
           "code": "name = \"Alex\"\nif name == \"Alex\":\n    print(\"Hello\")",
-          "explanation": "We can compare strings.",
+          "explanation": "if statements can compare strings, not just numbers.",
           "type": "theory",
           "practiceMode": "none",
           "stepKind": "example"
         },
         {
           "title": "Example 4",
-          "content": "True activates the block.",
+          "content": "A True boolean value runs the if block.",
           "code": "ready = True\nif ready:\n    print(\"Go\")",
-          "explanation": "True activates the block.",
+          "explanation": "A True boolean value runs the if block.",
           "type": "theory",
           "practiceMode": "none",
           "stepKind": "example"
         },
         {
           "title": "Q1",
-          "content": "Write a program that stores the number 12 in the variable x and displays \"Big\" if x > 10.",
+          "content": "Stores the number 12 in the variable x and print \"Big\" if x > 10",
           "code": "x = 12\nif x > 10:\n    print(\"Big\")",
           "explanation": "Store the number first, then use an if statement with the proper indentation.",
           "type": "practice",
@@ -620,6 +686,16 @@ export const pythonLessons: Lesson[] = [
             "\"Big\""
           ],
           "starterCode": "",
+          "practiceBrief": {
+            "task": "Stores the number 12 in the variable x and print \"Big\" if x > 10",
+            "inputs": [],
+            "requirements": [],
+            "expectedOutput": [
+              "Big"
+            ],
+            "outputDescription": "",
+            "coachNote": "Store the number first, then use an if statement with the proper indentation."
+          },
           "evaluationMode": "execution",
           "evaluationId": "python-if"
         },
@@ -666,43 +742,43 @@ export const pythonLessons: Lesson[] = [
       "steps": [
         {
           "title": "Example 1",
-          "content": "else is executed when the condition is False.",
+          "content": "The else block runs when the condition is False.",
           "code": "if 2 > 3:\n    print(\"A\")\nelse:\n    print(\"B\")",
-          "explanation": "else is executed when the condition is False.",
+          "explanation": "The else block runs when the condition is False.",
           "type": "theory",
           "practiceMode": "none",
           "stepKind": "example"
         },
         {
           "title": "Example 2",
-          "content": "Two different branches.",
+          "content": "if / else gives the program two possible paths.",
           "code": "age = 20\nif age >= 18:\n    print(\"Adult\")\nelse:\n    print(\"Minor\")",
-          "explanation": "Two different branches.",
+          "explanation": "if / else gives the program two possible paths.",
           "type": "theory",
           "practiceMode": "none",
           "stepKind": "example"
         },
         {
           "title": "Example 3",
-          "content": "Choice based on the value.",
+          "content": "The program chooses a branch based on the current value.",
           "code": "x = 1\nif x == 2:\n    print(\"Yes\")\nelse:\n    print(\"No\")",
-          "explanation": "Choice based on the value.",
+          "explanation": "The program chooses a branch based on the current value.",
           "type": "theory",
           "practiceMode": "none",
           "stepKind": "example"
         },
         {
           "title": "Example 4",
-          "content": "The boolean specifies the result.",
+          "content": "The boolean decides which branch runs.",
           "code": "flag = False\nif flag:\n    print(\"On\")\nelse:\n    print(\"Off\")",
-          "explanation": "The boolean specifies the result.",
+          "explanation": "The boolean decides which branch runs.",
           "type": "theory",
           "practiceMode": "none",
           "stepKind": "example"
         },
         {
           "title": "Q1",
-          "content": "Write a program that stores the value 15 in the variable age and displays \"Adult\" if age >= 18, otherwise \"Minor\".",
+          "content": "Store the value 15 in age and print \"Adult\" if age >= 18, otherwise print \"Minor\".",
           "code": "age = 15\nif age >= 18:\n    print(\"Adult\")\nelse:\n    print(\"Minor\")",
           "explanation": "Since 15 is below 18, this solution should print Minor.",
           "type": "practice",
@@ -716,6 +792,19 @@ export const pythonLessons: Lesson[] = [
             "\"Minor\""
           ],
           "starterCode": "",
+          "practiceBrief": {
+            "task": "Store the value 15 in age and print \"Adult\" if age >= 18, otherwise print \"Minor\".",
+            "inputs": [],
+            "requirements": [
+              "Handle both branches of the condition.",
+              "Use the variable name age."
+            ],
+            "expectedOutput": [
+              "Minor"
+            ],
+            "outputDescription": "",
+            "coachNote": "Since 15 is below 18, this solution should print Minor."
+          },
           "evaluationMode": "execution",
           "evaluationId": "python-if-else"
         },
@@ -762,43 +851,43 @@ export const pythonLessons: Lesson[] = [
       "steps": [
         {
           "title": "Example 1",
-          "content": "Correct code.",
+          "content": "This version is syntactically correct and runs as expected.",
           "code": "print(\"Hello\")",
-          "explanation": "Correct code.",
+          "explanation": "This version is syntactically correct and runs as expected.",
           "type": "theory",
           "practiceMode": "none",
           "stepKind": "example"
         },
         {
           "title": "Example 2",
-          "content": "The variable must be defined before it can be used.",
+          "content": "Define the variable before you try to print or use it.",
           "code": "x = 5\nprint(x)",
-          "explanation": "The variable must be defined before it can be used.",
+          "explanation": "Define the variable before you try to print or use it.",
           "type": "theory",
           "practiceMode": "none",
           "stepKind": "example"
         },
         {
           "title": "Example 3",
-          "content": "Correct concatenation strings.",
+          "content": "Both values are strings, so concatenation works correctly.",
           "code": "print(\"A\" + \"B\")",
-          "explanation": "Correct concatenation strings.",
+          "explanation": "Both values are strings, so concatenation works correctly.",
           "type": "theory",
           "practiceMode": "none",
           "stepKind": "example"
         },
         {
           "title": "Example 4",
-          "content": "Indentation is required.",
+          "content": "Python requires indentation after the colon to define the block.",
           "code": "if 3 > 1:\n    print(\"OK\")",
-          "explanation": "Indentation is required.",
+          "explanation": "Python requires indentation after the colon to define the block.",
           "type": "theory",
           "practiceMode": "none",
           "stepKind": "example"
         },
         {
           "title": "Q1",
-          "content": "Fix the code so it prints Hello correctly.",
+          "content": "Fixed the following code to print Hello correctly:. print(\"Hello\"",
           "code": "print(\"Hello\")",
           "explanation": "Close the missing parenthesis so Python can parse the line.",
           "type": "practice",
@@ -808,6 +897,16 @@ export const pythonLessons: Lesson[] = [
             "\"Hello\""
           ],
           "starterCode": "",
+          "practiceBrief": {
+            "task": "Fixed the following code to print Hello correctly:. print(\"Hello\"",
+            "inputs": [],
+            "requirements": [],
+            "expectedOutput": [
+              "Hello"
+            ],
+            "outputDescription": "",
+            "coachNote": "Close the missing parenthesis so Python can parse the line."
+          },
           "evaluationMode": "execution",
           "evaluationId": "python-debugging-basics"
         },
@@ -842,79 +941,113 @@ export const pythonLessons: Lesson[] = [
   },
   {
     "id": "python-calculator-basics",
-    "title": "Calculator Basics",
-    "description": "Combine arithmetic, variables, and numeric input to build simple calculators.",
+    "title": "Project: Starter Calculator",
+    "description": "Combine input, arithmetic, and conditionals to build a small calculator report.",
     "difficulty": "Beginner",
     "baseXP": 50,
-    "baselineTime": 1,
+    "baselineTime": 4,
     "language": "python",
-    "category": "Fundamentals",
+    "category": "Projects",
     "isLocked": false,
+    "projectBrief": {
+      "goal": "Build a two-number calculator that prints a small decision-making report.",
+      "inputs": [
+        "Two integers from standard input"
+      ],
+      "outputs": [
+        "Sum",
+        "Difference",
+        "Product",
+        "Larger value or equal"
+      ],
+      "skills": [
+        "input conversion",
+        "arithmetic",
+        "multi-line output",
+        "if / elif / else"
+      ]
+    },
     "content": {
       "steps": [
         {
-          "title": "Example 1",
-          "content": "Addition.",
-          "code": "print(2 + 3)",
-          "explanation": "Addition.",
+          "title": "Why this matters",
+          "content": "This first capstone should feel like a tiny command-line tool, not a one-line exercise. It should read real input, produce a multi-line report, and make one simple decision from the numbers it receives.",
+          "code": "",
+          "explanation": "This first capstone should feel like a tiny command-line tool, not a one-line exercise. It should read real input, produce a multi-line report, and make one simple decision from the numbers it receives.",
+          "type": "theory",
+          "practiceMode": "none",
+          "stepKind": "context"
+        },
+        {
+          "title": "Read values",
+          "content": "Turn user input into integers before doing arithmetic.",
+          "code": "a = int(input())\nb = int(input())\nprint(a + b)",
+          "explanation": "Without int(...), input values stay as strings.",
           "type": "theory",
           "practiceMode": "none",
           "stepKind": "example"
         },
         {
-          "title": "Example 2",
-          "content": "Subtraction.",
-          "code": "print(8 - 2)",
-          "explanation": "Subtraction.",
+          "title": "Build a report",
+          "content": "Useful tools usually print more than one line of output.",
+          "code": "a = 7\nb = 5\nprint(\"Sum:\", a + b)\nprint(\"Difference:\", a - b)\nprint(\"Product:\", a * b)",
+          "explanation": "One pair of inputs can drive a whole mini report.",
           "type": "theory",
           "practiceMode": "none",
           "stepKind": "example"
         },
         {
-          "title": "Example 3",
-          "content": "Using variables in operations.",
-          "code": "a = 4\nb = 5\nprint(a + b)",
-          "explanation": "Using variables in operations.",
-          "type": "theory",
-          "practiceMode": "none",
-          "stepKind": "example"
-        },
-        {
-          "title": "Example 4",
-          "content": "Input and calculation.",
-          "code": "x = int(input())\ny = int(input())\nprint(x + y)",
-          "explanation": "Input and calculation.",
+          "title": "Choose the larger value",
+          "content": "Conditionals make the tool describe the input, not just calculate with it.",
+          "code": "a = 7\nb = 5\n\nif a > b:\n    print(\"Larger:\", a)\nelif b > a:\n    print(\"Larger:\", b)\nelse:\n    print(\"Larger: equal\")",
+          "explanation": "The equal case matters. Without it, tied inputs produce the wrong message.",
           "type": "theory",
           "practiceMode": "none",
           "stepKind": "example"
         },
         {
           "title": "Q1",
-          "content": "Write a program that asks the user for two numbers and prints their sum.",
-          "code": "x = int(input())\ny = int(input())\nprint(x + y)",
-          "explanation": "Convert both inputs to integers before adding them.",
+          "content": "Read two integers from input and print a four-line calculator report.",
+          "code": "a = int(input())\nb = int(input())\nprint(\"Sum:\", a + b)\nprint(\"Difference:\", a - b)\nprint(\"Product:\", a * b)\n\nif a > b:\n    print(\"Larger:\", a)\nelif b > a:\n    print(\"Larger:\", b)\nelse:\n    print(\"Larger: equal\")",
+          "explanation": "Convert both inputs to integers, print the arithmetic summary, then use a conditional to report the larger value or equal.",
           "type": "practice",
+          "evaluationMode": "execution",
           "validationMode": "includes_all",
           "requiredSnippets": [
-            "input(",
-            "int(",
-            "print(",
-            "+"
+            "int(input())",
+            "if",
+            "print(\"Larger:\""
           ],
-          "starterCode": "",
-          "evaluationMode": "execution",
-          "evaluationId": "python-calculator-basics"
+          "evaluationId": "python-calculator-basics",
+          "practiceBrief": {
+            "task": "Read two integers from input and print a four-line calculator report.",
+            "inputs": [
+              "Two integers from standard input"
+            ],
+            "requirements": [
+              "Keep the labels, order, and spacing exactly as shown.",
+              "Read the input before building the result."
+            ],
+            "expectedOutput": [
+              "Sum: <sum>",
+              "Difference: <difference>",
+              "Product: <product>",
+              "Larger: <larger value or equal>"
+            ],
+            "outputDescription": "",
+            "coachNote": "Convert both inputs to integers, print the arithmetic summary, then use a conditional to report the larger value or equal."
+          }
         },
         {
-          "question": "Q2 (Predict Output)\n\nprint(4 * 3)",
+          "question": "Q2 (Predict Output)\n\na = 4\nb = 4\nprint(\"Sum:\", a + b)\nprint(\"Difference:\", a - b)\nprint(\"Product:\", a * b)\nif a > b:\n    print(\"Larger:\", a)\nelif b > a:\n    print(\"Larger:\", b)\nelse:\n    print(\"Larger: equal\")",
           "options": [
-            "7",
-            "12",
-            "43",
-            "Error"
+            "Sum: 8 / Difference: 0 / Product: 16 / Larger: equal",
+            "Sum: 8 / Difference: 0 / Product: 16 / Larger: 4",
+            "Sum: 44 / Difference: 0 / Product: 16 / Larger: equal",
+            "TypeError"
           ],
-          "correctAnswer": 1,
-          "explanation": "4 multiplied by 3 equals 12.",
+          "correctAnswer": 0,
+          "explanation": "The numbers are equal, so the arithmetic report ends with Larger: equal.",
           "type": "question",
           "questionKind": "predict-output"
         },
@@ -924,10 +1057,10 @@ export const pythonLessons: Lesson[] = [
             "5",
             "23",
             "TypeError",
-            "6"
+            "ValueError"
           ],
           "correctAnswer": 1,
-          "explanation": "Without int(), both inputs stay strings and concatenate into 23.",
+          "explanation": "input() returns strings. If the user enters 2 and 3, a + b becomes \"23\".",
           "type": "question",
           "questionKind": "common-mistake"
         }
@@ -948,27 +1081,27 @@ export const pythonLessons: Lesson[] = [
       "steps": [
         {
           "title": "Example 1",
-          "content": "List of numbers.",
+          "content": "A list can store several numbers in one variable.",
           "code": "nums = [1, 2, 3]\nprint(nums)",
-          "explanation": "List of numbers.",
+          "explanation": "A list can store several numbers in one variable.",
           "type": "theory",
           "practiceMode": "none",
           "stepKind": "example"
         },
         {
           "title": "Example 2",
-          "content": "List of strings.",
+          "content": "A list can store text values as separate items.",
           "code": "names = [\"Alex\", \"Sam\"]\nprint(names)",
-          "explanation": "List of strings.",
+          "explanation": "A list can store text values as separate items.",
           "type": "theory",
           "practiceMode": "none",
           "stepKind": "example"
         },
         {
           "title": "Example 3",
-          "content": "A list can have different types.",
+          "content": "Lists can hold mixed types, though consistent types are easier to work with.",
           "code": "data = [1, \"A\", 2.5]\nprint(data)",
-          "explanation": "A list can have different types.",
+          "explanation": "Lists can hold mixed types, though consistent types are easier to work with.",
           "type": "theory",
           "practiceMode": "none",
           "stepKind": "example"
@@ -984,7 +1117,7 @@ export const pythonLessons: Lesson[] = [
         },
         {
           "title": "Q1",
-          "content": "Create a list of 10, 20, 30 items and display it.",
+          "content": "Create a list of 10, 20, 30 items and print it",
           "code": "nums = [10, 20, 30]\nprint(nums)",
           "explanation": "Create the list first, then print the entire list object.",
           "type": "practice",
@@ -994,6 +1127,16 @@ export const pythonLessons: Lesson[] = [
             "print("
           ],
           "starterCode": "",
+          "practiceBrief": {
+            "task": "Create a list of 10, 20, 30 items and print it",
+            "inputs": [],
+            "requirements": [],
+            "expectedOutput": [
+              "[10, 20, 30]"
+            ],
+            "outputDescription": "",
+            "coachNote": "Create the list first, then print the entire list object."
+          },
           "evaluationMode": "execution",
           "evaluationId": "python-lists"
         },
@@ -1076,7 +1219,7 @@ export const pythonLessons: Lesson[] = [
         },
         {
           "title": "Q1",
-          "content": "Create list [\"red\", \"blue\", \"green\"] and display its second element.",
+          "content": "Create the list [\"red\", \"blue\", \"green\"] and print its second element",
           "code": "colors = [\"red\", \"blue\", \"green\"]\nprint(colors[1])",
           "explanation": "List indexes start at 0, so index 1 is the second item.",
           "type": "practice",
@@ -1089,6 +1232,16 @@ export const pythonLessons: Lesson[] = [
             "print("
           ],
           "starterCode": "",
+          "practiceBrief": {
+            "task": "Create the list [\"red\", \"blue\", \"green\"] and print its second element",
+            "inputs": [],
+            "requirements": [],
+            "expectedOutput": [
+              "blue"
+            ],
+            "outputDescription": "",
+            "coachNote": "List indexes start at 0, so index 1 is the second item."
+          },
           "evaluationMode": "execution",
           "evaluationId": "python-list-access"
         },
@@ -1171,7 +1324,7 @@ export const pythonLessons: Lesson[] = [
         },
         {
           "title": "Q1",
-          "content": "Use a for loop to display the elements of the list [10, 20, 30] one by one.",
+          "content": "Use a for loop to print the elements of the list [10, 20, 30] one by one",
           "code": "for n in [10, 20, 30]:\n    print(n)",
           "explanation": "A for loop pulls one value at a time from the list and prints it.",
           "type": "practice",
@@ -1182,6 +1335,20 @@ export const pythonLessons: Lesson[] = [
             "print("
           ],
           "starterCode": "",
+          "practiceBrief": {
+            "task": "Use a for loop to print the elements of the list [10, 20, 30] one by one",
+            "inputs": [],
+            "requirements": [
+              "Use a loop instead of repeating the operation manually."
+            ],
+            "expectedOutput": [
+              "10",
+              "20",
+              "30"
+            ],
+            "outputDescription": "",
+            "coachNote": "A for loop pulls one value at a time from the list and prints it."
+          },
           "evaluationMode": "execution",
           "evaluationId": "python-for-loops"
         },
@@ -1264,7 +1431,7 @@ export const pythonLessons: Lesson[] = [
         },
         {
           "title": "Q1",
-          "content": "Write a while loop that displays the numbers from 1 to 5.",
+          "content": "Write a while loop that prints the numbers from 1 to 5",
           "code": "x = 1\nwhile x <= 5:\n    print(x)\n    x += 1",
           "explanation": "Update the counter inside the loop so the condition eventually becomes False.",
           "type": "practice",
@@ -1275,6 +1442,22 @@ export const pythonLessons: Lesson[] = [
             "+= 1"
           ],
           "starterCode": "",
+          "practiceBrief": {
+            "task": "Write a while loop that prints the numbers from 1 to 5",
+            "inputs": [],
+            "requirements": [
+              "Use a while loop to control repetition."
+            ],
+            "expectedOutput": [
+              "1",
+              "2",
+              "3",
+              "4",
+              "5"
+            ],
+            "outputDescription": "",
+            "coachNote": "Update the counter inside the loop so the condition eventually becomes False."
+          },
           "evaluationMode": "execution",
           "evaluationId": "python-while-loops"
         },
@@ -1357,7 +1540,7 @@ export const pythonLessons: Lesson[] = [
         },
         {
           "title": "Q1",
-          "content": "Write a program that calculates and displays the sum of the list [2, 4, 6].",
+          "content": "Calculate and print the sum of the list [2, 4, 6]",
           "code": "total = 0\nfor x in [2, 4, 6]:\n    total += x\nprint(total)",
           "explanation": "Initialize a running total, add each item, then print the result.",
           "type": "practice",
@@ -1369,6 +1552,18 @@ export const pythonLessons: Lesson[] = [
             "print("
           ],
           "starterCode": "",
+          "practiceBrief": {
+            "task": "Calculate and print the sum of the list [2, 4, 6]",
+            "inputs": [],
+            "requirements": [
+              "Use a loop instead of repeating the operation manually."
+            ],
+            "expectedOutput": [
+              "12"
+            ],
+            "outputDescription": "",
+            "coachNote": "Initialize a running total, add each item, then print the result."
+          },
           "evaluationMode": "execution",
           "evaluationId": "python-loop-patterns"
         },
@@ -1405,7 +1600,7 @@ export const pythonLessons: Lesson[] = [
     "id": "python-break-continue",
     "title": "Break & Continue",
     "description": "Control loop flow with break to stop and continue to skip one iteration.",
-    "difficulty": "Beginner",
+    "difficulty": "Intermediate",
     "baseXP": 50,
     "baselineTime": 1,
     "language": "python",
@@ -1451,7 +1646,7 @@ export const pythonLessons: Lesson[] = [
         },
         {
           "title": "Q1",
-          "content": "Write a loop that displays the numbers 1 through 5, but stops when it reaches 4.",
+          "content": "Use a loop to print the numbers 1 through 5, but stop when it reaches 4",
           "code": "for n in range(1, 6):\n    if n == 4:\n        break\n    print(n)",
           "explanation": "The loop prints 1, 2, and 3, then stops before printing 4.",
           "type": "practice",
@@ -1463,6 +1658,20 @@ export const pythonLessons: Lesson[] = [
             "print("
           ],
           "starterCode": "",
+          "practiceBrief": {
+            "task": "Use a loop to print the numbers 1 through 5, but stop when it reaches 4",
+            "inputs": [],
+            "requirements": [
+              "Use a loop instead of repeating the operation manually."
+            ],
+            "expectedOutput": [
+              "1",
+              "2",
+              "3"
+            ],
+            "outputDescription": "",
+            "coachNote": "The loop prints 1, 2, and 3, then stops before printing 4."
+          },
           "evaluationMode": "execution",
           "evaluationId": "python-break-continue"
         },
@@ -1497,90 +1706,97 @@ export const pythonLessons: Lesson[] = [
   },
   {
     "id": "python-nested-loops",
-    "title": "Nested Loops",
-    "description": "Combine loops inside loops and track how the inner loop runs for each outer value.",
-    "difficulty": "Beginner",
+    "title": "Generate Every Pair",
+    "description": "Use nested loops to generate grids, coordinate pairs, and every combination of two small ranges.",
+    "difficulty": "Intermediate",
     "baseXP": 50,
-    "baselineTime": 1,
+    "baselineTime": 2,
     "language": "python",
     "category": "Loops",
     "isLocked": false,
     "content": {
       "steps": [
         {
-          "title": "Example 1",
-          "content": "Loop within a loop.",
+          "title": "Why this matters",
+          "content": "Nested loops matter when you need every combination, not just every item. They show up in grid problems, pair comparisons, and matrix-style processing.",
+          "code": "",
+          "explanation": "Nested loops matter when you need every combination, not just every item. They show up in grid problems, pair comparisons, and matrix-style processing.",
+          "type": "theory",
+          "practiceMode": "none",
+          "stepKind": "context"
+        },
+        {
+          "title": "Coordinate grid",
+          "content": "The outer loop chooses the row and the inner loop chooses the column.",
           "code": "for i in range(2):\n    for j in range(2):\n        print(i, j)",
-          "explanation": "Loop within a loop.",
+          "explanation": "This prints four coordinate pairs: (0,0), (0,1), (1,0), and (1,1).",
           "type": "theory",
           "practiceMode": "none",
           "stepKind": "example"
         },
         {
-          "title": "Example 2",
-          "content": "Combining values.",
-          "code": "for x in [1, 2]:\n    for y in [3]:\n        print(x + y)",
-          "explanation": "Combining values.",
-          "type": "theory",
-          "practiceMode": "none",
-          "stepKind": "example"
-        },
-        {
-          "title": "Example 3",
-          "content": "The inner loop runs completely every time.",
-          "code": "for i in range(2):\n    print(i)\n    for j in range(2):\n        print(j)",
-          "explanation": "The inner loop runs completely every time.",
-          "type": "theory",
-          "practiceMode": "none",
-          "stepKind": "example"
-        },
-        {
-          "title": "Example 4",
-          "content": "Simple nested pattern.",
-          "code": "for a in [1]:\n    for b in [2]:\n        print(a * b)",
-          "explanation": "Simple nested pattern.",
+          "title": "Multiplication pairs",
+          "content": "The inner loop runs fully for each outer-loop value.",
+          "code": "for left in [1, 2]:\n    for right in [3, 4]:\n        print(left * right)",
+          "explanation": "The products are generated for every left/right pair.",
           "type": "theory",
           "practiceMode": "none",
           "stepKind": "example"
         },
         {
           "title": "Q1",
-          "content": "Write nested loop that displays all pairs (i, j) for i and j from 0 to 1.",
-          "code": "for i in range(2):\n    for j in range(2):\n        print(i, j)",
-          "explanation": "Use one loop for i and a second inner loop for j.",
+          "content": "Use nested loops to print every pair i j for i and j from 0 to n - 1, one pair per line",
+          "code": "n = int(input())\n\nfor i in range(n):\n    for j in range(n):\n        print(i, j)",
+          "explanation": "The outer loop handles i and the inner loop handles j. Both should run from 0 up to n - 1.",
           "type": "practice",
+          "evaluationMode": "execution",
           "validationMode": "includes_all",
           "requiredSnippets": [
-            "for",
-            "print("
+            "for i in range",
+            "for j in range"
           ],
-          "starterCode": "",
-          "evaluationMode": "execution",
-          "evaluationId": "python-nested-loops"
+          "evaluationId": "python-nested-loops",
+          "practiceBrief": {
+            "task": "Use nested loops to print every pair i j for i and j from 0 to n - 1, one pair per line",
+            "inputs": [
+              "Read an integer n from input."
+            ],
+            "requirements": [
+              "Use a loop instead of repeating the operation manually."
+            ],
+            "expectedOutput": [
+              "0 0",
+              "0 1",
+              "1 0",
+              "1 1"
+            ],
+            "outputDescription": "",
+            "coachNote": "The outer loop handles i and the inner loop handles j. Both should run from 0 up to n - 1."
+          }
         },
         {
           "question": "Q2 (Predict Output)\n\nfor i in range(2):\n    for j in range(1):\n        print(i, j)",
           "options": [
-            "0 0 and 1 0",
-            "0 1 and 1 1",
+            "0 0 then 1 0",
+            "0 1 then 1 1",
             "0 0 only",
-            "Error"
+            "IndentationError"
           ],
           "correctAnswer": 0,
-          "explanation": "range(1) gives only j = 0, so the output is 0 0 and 1 0.",
+          "explanation": "range(2) gives 0 and 1, while range(1) gives only 0, so the pairs are 0 0 and 1 0.",
           "type": "question",
           "questionKind": "predict-output"
         },
         {
           "question": "Q3 (Common Mistake)\n\nfor i in range(2):\nprint(i)",
           "options": [
-            "It will display 0 and 1",
-            "It will only show 0",
+            "0 then 1",
+            "0 only",
             "IndentationError",
-            "Nothing"
+            "SyntaxError"
           ],
           "correctAnswer": 2,
-          "explanation": "The print line must be indented under the for loop, so Python raises an IndentationError.",
+          "explanation": "The loop body must be indented. Without indentation, Python raises IndentationError.",
           "type": "question",
           "questionKind": "common-mistake"
         }
@@ -1589,88 +1805,90 @@ export const pythonLessons: Lesson[] = [
   },
   {
     "id": "python-functions",
-    "title": "Functions",
-    "description": "Define reusable blocks of code and call them when needed.",
+    "title": "Wrap Repeated Work in a Function",
+    "description": "Turn repeated code into named reusable actions.",
     "difficulty": "Intermediate",
     "baseXP": 50,
-    "baselineTime": 1,
+    "baselineTime": 2,
     "language": "python",
     "category": "Functions",
     "isLocked": false,
     "content": {
       "steps": [
         {
-          "title": "Example 1",
-          "content": "Create and call function.",
-          "code": "def greet():\n    print(\"Hi\")\n\ngreet()",
-          "explanation": "Create and call function.",
+          "title": "Why this matters",
+          "content": "Functions reduce repetition and make code easier to read. Instead of copying logic, you give that logic a name and call it when you need it.",
+          "code": "",
+          "explanation": "Functions reduce repetition and make code easier to read. Instead of copying logic, you give that logic a name and call it when you need it.",
+          "type": "theory",
+          "practiceMode": "none",
+          "stepKind": "context"
+        },
+        {
+          "title": "Define and call",
+          "content": "A function does nothing until you call it.",
+          "code": "def show_banner():\n    print(\"Welcome\")\n\nshow_banner()\nshow_banner()",
+          "explanation": "The same function can run multiple times without rewriting the body.",
           "type": "theory",
           "practiceMode": "none",
           "stepKind": "example"
         },
         {
-          "title": "Example 2",
-          "content": "The function can display values.",
-          "code": "def show():\n    print(5)\n\nshow()",
-          "explanation": "The function can display values.",
-          "type": "theory",
-          "practiceMode": "none",
-          "stepKind": "example"
-        },
-        {
-          "title": "Example 3",
-          "content": "Reusable code.",
-          "code": "def hello():\n    print(\"Hello\")\n\nhello()",
-          "explanation": "Reusable code.",
-          "type": "theory",
-          "practiceMode": "none",
-          "stepKind": "example"
-        },
-        {
-          "title": "Example 4",
-          "content": "The function is executed only when it is called.",
-          "code": "def test():\n    print(\"Run\")\n\ntest()",
-          "explanation": "The function is executed only when it is called.",
+          "title": "One job, clear name",
+          "content": "Good function names describe what the function does.",
+          "code": "def show_ready():\n    print(\"Ready\")\n\nshow_ready()",
+          "explanation": "The name makes the program easier to read than raw repeated print lines.",
           "type": "theory",
           "practiceMode": "none",
           "stepKind": "example"
         },
         {
           "title": "Q1",
-          "content": "Write a function named say_hi that displays Hi, then call it.",
-          "code": "def say_hi():\n    print(\"Hi\")\n\nsay_hi()",
-          "explanation": "Define the function first, then call it on a new line.",
+          "content": "Define function show_greeting() that prints Welcome to practice. Call it once",
+          "code": "def show_greeting():\n    print(\"Welcome to practice\")\n\nshow_greeting()",
+          "explanation": "Define the function first, then call it by name.",
           "type": "practice",
+          "evaluationMode": "execution",
           "validationMode": "includes_all",
           "requiredSnippets": [
-            "def say_hi",
-            "print(",
-            "say_hi()"
+            "def show_greeting",
+            "show_greeting()"
           ],
-          "starterCode": "",
-          "evaluationMode": "execution",
-          "evaluationId": "python-functions"
+          "evaluationId": "python-functions",
+          "practiceBrief": {
+            "task": "Define function show_greeting() that prints Welcome to practice. Call it once",
+            "inputs": [],
+            "requirements": [
+              "Define the required function before calling it.",
+              "Use the function name show_greeting."
+            ],
+            "expectedOutput": [
+              "Welcome to practice"
+            ],
+            "outputDescription": "",
+            "coachNote": "Define the function first, then call it by name."
+          }
         },
         {
-          "question": "Q2 (Predict Output)\n\ndef f():\n    print(\"A\")\n\nf()",
+          "question": "Q2 (Predict Output)\n\ndef show_ready():\n    print(\"Ready\")\n\nshow_ready()",
           "options": [
-            "A",
-            "f",
+            "Ready",
+            "show_ready",
             "Nothing",
-            "Error"
+            "TypeError"
           ],
           "correctAnswer": 0,
-          "explanation": "Calling f() runs the print statement inside the function.",
+          "explanation": "The function is defined and then called, so it prints Ready.",
           "type": "question",
           "questionKind": "predict-output"
         },
         {
           "question": "Q3 (Common Mistake)\n\ndef hello():\n    print(\"Hi\")",
           "options": [
-            "It will display Hi",
+            "Hi",
             "Nothing",
             "hello",
-            "TypeError"
+            "NameError"
           ],
           "correctAnswer": 1,
           "explanation": "Defining a function does not run it. You must call hello() to print Hi.",
@@ -1682,78 +1900,82 @@ export const pythonLessons: Lesson[] = [
   },
   {
     "id": "python-parameters",
-    "title": "Parameters",
-    "description": "Pass input into functions and understand why required arguments matter.",
+    "title": "Pass Values into Functions",
+    "description": "Use parameters so one function can handle many different inputs.",
     "difficulty": "Intermediate",
     "baseXP": 50,
-    "baselineTime": 1,
+    "baselineTime": 2,
     "language": "python",
     "category": "Functions",
     "isLocked": false,
     "content": {
       "steps": [
         {
-          "title": "Example 1",
-          "content": "The function accepts a value via parameter.",
-          "code": "def greet(name):\n    print(name)\n\ngreet(\"Alex\")",
-          "explanation": "The function accepts a value via parameter.",
+          "title": "Why this matters",
+          "content": "Parameters make a function reusable. Instead of hardcoding one value, the function accepts input and works with whatever you pass in.",
+          "code": "",
+          "explanation": "Parameters make a function reusable. Instead of hardcoding one value, the function accepts input and works with whatever you pass in.",
+          "type": "theory",
+          "practiceMode": "none",
+          "stepKind": "context"
+        },
+        {
+          "title": "Greet one person",
+          "content": "The parameter becomes a variable inside the function.",
+          "code": "def greet(name):\n    print(\"Hello \" + name)\n\ngreet(\"Alex\")",
+          "explanation": "name receives the value \"Alex\" for that function call.",
           "type": "theory",
           "practiceMode": "none",
           "stepKind": "example"
         },
         {
-          "title": "Example 2",
-          "content": "Use parameter in calculation.",
-          "code": "def double(x):\n    print(x * 2)\n\ndouble(3)",
-          "explanation": "Use parameter in calculation.",
-          "type": "theory",
-          "practiceMode": "none",
-          "stepKind": "example"
-        },
-        {
-          "title": "Example 3",
-          "content": "Multiple parameters.",
-          "code": "def add(a, b):\n    print(a + b)\n\nadd(2, 3)",
-          "explanation": "Multiple parameters.",
-          "type": "theory",
-          "practiceMode": "none",
-          "stepKind": "example"
-        },
-        {
-          "title": "Example 4",
-          "content": "The argument is passed to the function.",
-          "code": "def show(x):\n    print(x)\n\nshow(5)",
-          "explanation": "The argument is passed to the function.",
+          "title": "Use parameters in a calculation",
+          "content": "Parameters work for numbers too, not just strings.",
+          "code": "def area(width, height):\n    print(width * height)\n\narea(3, 4)",
+          "explanation": "The function multiplies the two values it receives.",
           "type": "theory",
           "practiceMode": "none",
           "stepKind": "example"
         },
         {
           "title": "Q1",
-          "content": "Write a function square(x) that prints the square of x, then call it with 4.",
-          "code": "def square(x):\n    print(x * x)\n\nsquare(4)",
-          "explanation": "Use the parameter inside the function body, then call the function with 4.",
+          "content": "Define function announce(name) that prints Hello <name>. Call announce(name)",
+          "code": "def announce(name):\n    print(\"Hello \" + name)\n\nname = input().strip()\nannounce(name)",
+          "explanation": "Define the function with one parameter, then pass the input value into it.",
           "type": "practice",
+          "evaluationMode": "execution",
           "validationMode": "includes_all",
           "requiredSnippets": [
-            "def square",
-            "print(",
-            "*"
+            "def announce(name)",
+            "announce(name)"
           ],
-          "starterCode": "",
-          "evaluationMode": "execution",
-          "evaluationId": "python-parameters"
+          "evaluationId": "python-parameters",
+          "practiceBrief": {
+            "task": "Define function announce(name) that prints Hello <name>. Call announce(name)",
+            "inputs": [
+              "Read a name from input."
+            ],
+            "requirements": [
+              "Define the required function before calling it.",
+              "Use the function name announce."
+            ],
+            "expectedOutput": [
+              "Hello Alex"
+            ],
+            "outputDescription": "",
+            "coachNote": "Define the function with one parameter, then pass the input value into it."
+          }
         },
         {
-          "question": "Q2 (Predict Output)\n\ndef show(n):\n    print(n)\n\nshow(3)",
+          "question": "Q2 (Predict Output)\n\ndef double(x):\n    print(x * 2)\n\ndouble(5)",
           "options": [
-            "n",
-            "3",
-            "\"3\"",
-            "Error"
+            "5",
+            "10",
+            "55",
+            "TypeError"
           ],
           "correctAnswer": 1,
-          "explanation": "show(3) passes 3 into the parameter n, so 3 is printed.",
+          "explanation": "The parameter x receives 5, so the function prints 10.",
           "type": "question",
           "questionKind": "predict-output"
         },
@@ -1763,7 +1985,7 @@ export const pythonLessons: Lesson[] = [
             "Nothing",
             "greet",
             "TypeError",
-            "name"
+            "NameError"
           ],
           "correctAnswer": 2,
           "explanation": "greet() is missing the required name argument, so Python raises a TypeError.",
@@ -1775,88 +1997,123 @@ export const pythonLessons: Lesson[] = [
   },
   {
     "id": "python-return",
-    "title": "Return",
-    "description": "Return values from functions and distinguish returning from printing.",
+    "title": "Project: Function Scoreboard",
+    "description": "Use helper functions and return values to build a scored report with a final status.",
     "difficulty": "Intermediate",
     "baseXP": 50,
-    "baselineTime": 1,
+    "baselineTime": 5,
     "language": "python",
-    "category": "Functions",
+    "category": "Projects",
     "isLocked": false,
+    "projectBrief": {
+      "goal": "Turn three scores into a reusable function-driven report with a final pass status.",
+      "inputs": [
+        "Three integer scores"
+      ],
+      "outputs": [
+        "Total",
+        "Average",
+        "Status"
+      ],
+      "skills": [
+        "helper functions",
+        "return values",
+        "function reuse",
+        "conditionals"
+      ]
+    },
     "content": {
       "steps": [
         {
-          "title": "Example 1",
-          "content": "return returns a result.",
-          "code": "def add(a, b):\n    return a + b\n\nprint(add(2, 3))",
-          "explanation": "return returns a result.",
+          "title": "Why this matters",
+          "content": "This capstone is where functions start behaving like parts of a real program. One helper computes a total, another computes an average, and another decides whether the result is strong enough.",
+          "code": "",
+          "explanation": "This capstone is where functions start behaving like parts of a real program. One helper computes a total, another computes an average, and another decides whether the result is strong enough.",
+          "type": "theory",
+          "practiceMode": "none",
+          "stepKind": "context"
+        },
+        {
+          "title": "Return a total",
+          "content": "A return statement gives the caller a reusable result.",
+          "code": "def total(a, b, c):\n    return a + b + c\n\nprint(total(4, 5, 6))",
+          "explanation": "The caller receives the computed value and can print or reuse it.",
           "type": "theory",
           "practiceMode": "none",
           "stepKind": "example"
         },
         {
-          "title": "Example 2",
-          "content": "Return calculation.",
-          "code": "def square(x):\n    return x * x\n\nprint(square(4))",
-          "explanation": "Return calculation.",
+          "title": "Build an average from total",
+          "content": "One helper can reuse another instead of repeating the formula.",
+          "code": "def total(a, b, c):\n    return a + b + c\n\ndef average(a, b, c):\n    return total(a, b, c) / 3\n\nprint(average(4, 5, 6))",
+          "explanation": "average() reuses total() and divides the result by 3.",
           "type": "theory",
           "practiceMode": "none",
           "stepKind": "example"
         },
         {
-          "title": "Example 3",
-          "content": "We can return a constant value.",
-          "code": "def f():\n    return 5\n\nprint(f())",
-          "explanation": "We can return a constant value.",
-          "type": "theory",
-          "practiceMode": "none",
-          "stepKind": "example"
-        },
-        {
-          "title": "Example 4",
-          "content": "Store returned value.",
-          "code": "def val():\n    return 10\n\nx = val()\nprint(x)",
-          "explanation": "Store returned value.",
+          "title": "Decide the final status",
+          "content": "A report often needs a decision, not just a number.",
+          "code": "def status(a, b, c):\n    if average(a, b, c) >= 60:\n        return \"Pass\"\n    return \"Needs practice\"",
+          "explanation": "The score report becomes more useful when it turns the average into a clear outcome.",
           "type": "theory",
           "practiceMode": "none",
           "stepKind": "example"
         },
         {
           "title": "Q1",
-          "content": "Write a function double(x) that returns x * 2, then print the result for 5.",
-          "code": "def double(x):\n    return x * 2\n\nprint(double(5))",
-          "explanation": "return sends the result back; print() shows it.",
+          "content": "Read three scores, compute the summary helpers, and print the final score report.",
+          "code": "def total(a, b, c):\n    return a + b + c\n\ndef average(a, b, c):\n    return total(a, b, c) / 3\n\ndef status(a, b, c):\n    if average(a, b, c) >= 60:\n        return \"Pass\"\n    return \"Needs practice\"\n\na = int(input())\nb = int(input())\nc = int(input())\nprint(\"Total:\", total(a, b, c))\nprint(\"Average:\", average(a, b, c))\nprint(\"Status:\", status(a, b, c))",
+          "explanation": "Use return in every helper, then print the final report from the main flow.",
           "type": "practice",
+          "evaluationMode": "execution",
           "validationMode": "includes_all",
           "requiredSnippets": [
-            "def double",
+            "def total",
+            "def average",
+            "def status",
             "return",
-            "print(",
-            "double(5)"
+            "if"
           ],
-          "starterCode": "",
-          "evaluationMode": "execution",
-          "evaluationId": "python-return"
+          "evaluationId": "python-return",
+          "practiceBrief": {
+            "task": "Read three scores, compute the summary helpers, and print the final score report.",
+            "inputs": [
+              "Three integer scores"
+            ],
+            "requirements": [
+              "Define the required function before calling it.",
+              "Return the result from the helper instead of printing inside it.",
+              "Handle both branches of the condition."
+            ],
+            "expectedOutput": [
+              "Total: 240",
+              "Average: 80.0",
+              "Status: Pass"
+            ],
+            "outputDescription": "",
+            "coachNote": "Use return in every helper, then print the final report from the main flow."
+          }
         },
         {
-          "question": "Q2 (Predict Output)\n\ndef f():\n    return 7\n\nprint(f())",
+          "question": "Q2 (Predict Output)\n\ndef total(a, b, c):\n    return a + b + c\n\ndef average(a, b, c):\n    return total(a, b, c) / 3\n\ndef status(a, b, c):\n    if average(a, b, c) >= 60:\n        return \"Pass\"\n    return \"Needs practice\"\n\nprint(\"Total:\", total(70, 80, 90))\nprint(\"Average:\", average(70, 80, 90))\nprint(\"Status:\", status(70, 80, 90))",
           "options": [
-            "f",
-            "7",
-            "return 7",
-            "Error"
+            "Total: 240 / Average: 80.0 / Status: Pass",
+            "Total: 240 / Average: 80 / Status: Pass",
+            "Total: 708090 / Average: 80.0 / Status: Pass",
+            "TypeError"
           ],
-          "correctAnswer": 1,
-          "explanation": "f() returns 7, and print() displays that value.",
+          "correctAnswer": 0,
+          "explanation": "The total is 240, the average is 80.0, and the threshold makes the final status Pass.",
           "type": "question",
           "questionKind": "predict-output"
         },
         {
-          "question": "Q3 (Common Mistake)\n\ndef f():\n    print(3)\n\nprint(f())",
+          "question": "Q3 (Common Mistake)\n\ndef average(a, b, c):\n    print((a + b + c) / 3)\n\nprint(\"Average:\", average(60, 60, 60))",
           "options": [
-            "3",
-            "None",
-            "3 and then None",
+            "Average: 60.0",
+            "Average: None",
+            "60.0 then Average: None",
             "TypeError"
           ],
           "correctAnswer": 2,
@@ -1869,79 +2126,79 @@ export const pythonLessons: Lesson[] = [
   },
   {
     "id": "python-string-methods",
-    "title": "String Methods",
-    "description": "Use built-in string methods and understand when you are calling a method versus referencing it.",
+    "title": "Clean and Normalize Text",
+    "description": "Use string methods to clean user input and convert text into consistent formats.",
     "difficulty": "Intermediate",
     "baseXP": 50,
-    "baselineTime": 1,
+    "baselineTime": 2,
     "language": "python",
     "category": "Strings",
     "isLocked": false,
     "content": {
       "steps": [
         {
-          "title": "Example 1",
-          "content": "Converts all letters to uppercase.",
-          "code": "text = \"hello\"\nprint(text.upper())",
-          "explanation": "Converts all letters to uppercase.",
+          "title": "Why this matters",
+          "content": "String methods are practical when input is messy. Real user text often has extra spaces, inconsistent casing, or formatting that needs cleanup before you use it.",
+          "code": "",
+          "explanation": "String methods are practical when input is messy. Real user text often has extra spaces, inconsistent casing, or formatting that needs cleanup before you use it.",
+          "type": "theory",
+          "practiceMode": "none",
+          "stepKind": "context"
+        },
+        {
+          "title": "Strip extra spaces",
+          "content": "strip() removes spaces from the start and end of a string.",
+          "code": "name = \"  alex  \"\nprint(name.strip())",
+          "explanation": "This produces alex without the outer spaces.",
           "type": "theory",
           "practiceMode": "none",
           "stepKind": "example"
         },
         {
-          "title": "Example 2",
-          "content": "Converts all letters to lowercase.",
-          "code": "word = \"PYTHON\"\nprint(word.lower())",
-          "explanation": "Converts all letters to lowercase.",
-          "type": "theory",
-          "practiceMode": "none",
-          "stepKind": "example"
-        },
-        {
-          "title": "Example 3",
-          "content": "Capitalizes only the first letter.",
-          "code": "name = \"alex\"\nprint(name.capitalize())",
-          "explanation": "Capitalizes only the first letter.",
-          "type": "theory",
-          "practiceMode": "none",
-          "stepKind": "example"
-        },
-        {
-          "title": "Example 4",
-          "content": "Capitalizes the first letter of each word.",
-          "code": "msg = \"hello world\"\nprint(msg.title())",
-          "explanation": "Capitalizes the first letter of each word.",
+          "title": "Normalize casing",
+          "content": "lower(), upper(), and title() create predictable formats.",
+          "code": "text = \"pYtHoN basics\"\nprint(text.lower())\nprint(text.title())",
+          "explanation": "lower() makes comparisons easier and title() formats headings.",
           "type": "theory",
           "practiceMode": "none",
           "stepKind": "example"
         },
         {
           "title": "Q1",
-          "content": "Create string \"python\" and display it in uppercase.",
-          "code": "text = \"python\"\nprint(text.upper())",
-          "explanation": "upper() returns a new uppercase string.",
+          "content": "Remove outer spaces, convert it to title case, and print the result",
+          "code": "name = input()\nprint(name.strip().title())",
+          "explanation": "Use strip() first, then title() on the cleaned text.",
           "type": "practice",
+          "evaluationMode": "execution",
           "validationMode": "includes_all",
           "requiredSnippets": [
-            "text =",
-            "\"python\"",
-            "print(",
-            "upper("
+            "strip(",
+            "title("
           ],
-          "starterCode": "",
-          "evaluationMode": "execution",
-          "evaluationId": "python-string-methods"
+          "evaluationId": "python-string-methods",
+          "practiceBrief": {
+            "task": "Remove outer spaces, convert it to title case, and print the result",
+            "inputs": [
+              "Read a name from input."
+            ],
+            "requirements": [],
+            "expectedOutput": [
+              "Alex Rio"
+            ],
+            "outputDescription": "",
+            "coachNote": "Use strip() first, then title() on the cleaned text."
+          }
         },
         {
-          "question": "Q2 (Predict Output)\n\nprint(\"hi\".upper())",
+          "question": "Q2 (Predict Output)\n\ntext = \"python\"\nprint(text.upper())",
           "options": [
-            "hi",
-            "HI",
-            "Hi",
-            "Error"
+            "python",
+            "PYTHON",
+            "Python",
+            "AttributeError"
           ],
           "correctAnswer": 1,
-          "explanation": "upper() converts every letter to uppercase, producing HI.",
+          "explanation": "upper() returns the uppercase version of the string.",
           "type": "question",
           "questionKind": "predict-output"
         },
@@ -1950,11 +2207,11 @@ export const pythonLessons: Lesson[] = [
           "options": [
             "HELLO",
             "hello",
-            "Function reference",
+            "function reference",
             "TypeError"
           ],
           "correctAnswer": 2,
-          "explanation": "Without (), Python shows the method itself instead of calling it.",
+          "explanation": "Without parentheses, upper is a method reference, not a method call.",
           "type": "question",
           "questionKind": "common-mistake"
         }
@@ -1963,94 +2220,93 @@ export const pythonLessons: Lesson[] = [
   },
   {
     "id": "python-string-operations",
-    "title": "String Operations",
-    "description": "Measure, split, replace, and join strings as part of real text processing.",
+    "title": "Split, Join, and Reshape Text",
+    "description": "Break text apart and rebuild it into a more useful format.",
     "difficulty": "Intermediate",
     "baseXP": 50,
-    "baselineTime": 1,
+    "baselineTime": 2,
     "language": "python",
     "category": "Strings",
     "isLocked": false,
     "content": {
       "steps": [
         {
-          "title": "Example 1",
-          "content": "Finds the string length.",
-          "code": "print(len(\"abc\"))",
-          "explanation": "Finds the string length.",
+          "title": "Why this matters",
+          "content": "String operations matter when text carries structure. A comma-separated tag list, a hyphenated code, or a phrase with multiple words often needs to be split, counted, or joined into a new shape.",
+          "code": "",
+          "explanation": "String operations matter when text carries structure. A comma-separated tag list, a hyphenated code, or a phrase with multiple words often needs to be split, counted, or joined into a new shape.",
+          "type": "theory",
+          "practiceMode": "none",
+          "stepKind": "context"
+        },
+        {
+          "title": "Split structured text",
+          "content": "split() turns one string into multiple parts.",
+          "code": "tags = \"python,loops,debug\"\nprint(tags.split(\",\"))",
+          "explanation": "The result is a list of the tag pieces.",
           "type": "theory",
           "practiceMode": "none",
           "stepKind": "example"
         },
         {
-          "title": "Example 2",
-          "content": "Replaces part of the string.",
-          "code": "msg = \"hello world\"\nprint(msg.replace(\"world\", \"Python\"))",
-          "explanation": "Replaces part of the string.",
-          "type": "theory",
-          "practiceMode": "none",
-          "stepKind": "example"
-        },
-        {
-          "title": "Example 3",
-          "content": "Splits a string into a list.",
-          "code": "data = \"a,b,c\"\nprint(data.split(\",\"))",
-          "explanation": "Splits a string into a list.",
-          "type": "theory",
-          "practiceMode": "none",
-          "stepKind": "example"
-        },
-        {
-          "title": "Example 4",
-          "content": "Concatenates list of strings into one string.",
-          "code": "words = [\"Hi\", \"there\"]\nprint(\" \".join(words))",
-          "explanation": "Concatenates list of strings into one string.",
+          "title": "Join pieces again",
+          "content": "join() builds one string from a list of strings.",
+          "code": "parts = [\"ship\", \"build\", \"learn\"]\nprint(\" | \".join(parts))",
+          "explanation": "join() controls the separator between the pieces.",
           "type": "theory",
           "practiceMode": "none",
           "stepKind": "example"
         },
         {
           "title": "Q1",
-          "content": "Create the string \"a-b-c\" and split it with split(\"-\"), then print the result.",
-          "code": "text = \"a-b-c\"\nprint(text.split(\"-\"))",
-          "explanation": "split(\"-\") breaks the string at each hyphen and returns a list.",
+          "content": "Split it with \"-\" and print the resulting list",
+          "code": "text = input().strip()\nprint(text.split(\"-\"))",
+          "explanation": "Read the input, then call split(\"-\") on it.",
           "type": "practice",
+          "evaluationMode": "execution",
           "validationMode": "includes_all",
           "requiredSnippets": [
-            "text =",
-            "-",
-            "\"a-b-c\"",
-            "print(",
-            "split(",
-            "\"-\""
+            "split(\"-\")"
           ],
-          "starterCode": "",
-          "evaluationMode": "execution",
-          "evaluationId": "python-string-operations"
+          "evaluationId": "python-string-operations",
+          "practiceBrief": {
+            "task": "Split it with \"-\" and print the resulting list",
+            "inputs": [
+              "Read a string like a-b-c from input."
+            ],
+            "requirements": [
+              "Split the input into separate values before processing it."
+            ],
+            "expectedOutput": [
+              "['a', 'b', 'c']"
+            ],
+            "outputDescription": "",
+            "coachNote": "Read the input, then call split(\"-\") on it."
+          }
         },
         {
-          "question": "Q2 (Predict Output)\n\nprint(len(\"abc\"))",
+          "question": "Q2 (Predict Output)\n\nwords = [\"Hi\", \"there\"]\nprint(\" \".join(words))",
           "options": [
-            "2",
-            "3",
-            "abc",
-            "Error"
+            "Hithere",
+            "Hi there",
+            "['Hi', 'there']",
+            "TypeError"
           ],
           "correctAnswer": 1,
-          "explanation": "The string abc has three characters, so len(\"abc\") is 3.",
+          "explanation": "join() combines the list items with one space between them.",
           "type": "question",
           "questionKind": "predict-output"
         },
         {
-          "question": "Q3 (Common Mistake)\n\nprint(\"a,b\".split)",
+          "question": "Q3 (Common Mistake)\n\ntext = \"a,b\"\nprint(text.split)",
           "options": [
-            "['a', 'b']",
+            "[\"a\", \"b\"]",
             "a,b",
-            "Function reference",
-            "TypeError"
+            "function reference",
+            "AttributeError"
           ],
           "correctAnswer": 2,
-          "explanation": "Without (), you are referencing the split method instead of calling it.",
+          "explanation": "Without parentheses, split is a method reference, not the result of calling split().",
           "type": "question",
           "questionKind": "common-mistake"
         }
@@ -2059,78 +2315,80 @@ export const pythonLessons: Lesson[] = [
   },
   {
     "id": "python-list-methods",
-    "title": "List Methods",
-    "description": "Use append, pop, sort, and extend while understanding in-place list behavior.",
+    "title": "Manage a List in Place",
+    "description": "Use append, pop, extend, and sort to treat a list like a live data structure.",
     "difficulty": "Intermediate",
     "baseXP": 50,
-    "baselineTime": 1,
+    "baselineTime": 2,
     "language": "python",
     "category": "Lists",
     "isLocked": false,
     "content": {
       "steps": [
         {
-          "title": "Example 1",
-          "content": "Adds element to the end.",
-          "code": "nums = [1, 2]\nnums.append(3)\nprint(nums)",
-          "explanation": "Adds element to the end.",
+          "title": "Why this matters",
+          "content": "Lists become useful when they change over time. Instead of only reading fixed lists, you start adding items, removing items, and reshaping the list in place.",
+          "code": "",
+          "explanation": "Lists become useful when they change over time. Instead of only reading fixed lists, you start adding items, removing items, and reshaping the list in place.",
+          "type": "theory",
+          "practiceMode": "none",
+          "stepKind": "context"
+        },
+        {
+          "title": "Append one new task",
+          "content": "append() adds one item to the end of the list.",
+          "code": "tasks = [\"Warmup\", \"Arrays\"]\ntasks.append(\"Loops\")\nprint(tasks)",
+          "explanation": "Loops becomes the new last item.",
           "type": "theory",
           "practiceMode": "none",
           "stepKind": "example"
         },
         {
-          "title": "Example 2",
-          "content": "Removes the last item.",
-          "code": "nums = [1, 2, 3]\nnums.pop()\nprint(nums)",
-          "explanation": "Removes the last item.",
-          "type": "theory",
-          "practiceMode": "none",
-          "stepKind": "example"
-        },
-        {
-          "title": "Example 3",
-          "content": "Sorts the list.",
-          "code": "nums = [3, 1, 2]\nnums.sort()\nprint(nums)",
-          "explanation": "Sorts the list.",
-          "type": "theory",
-          "practiceMode": "none",
-          "stepKind": "example"
-        },
-        {
-          "title": "Example 4",
-          "content": "It adds a lot of elements.",
-          "code": "nums = [1, 2]\nnums.extend([3, 4])\nprint(nums)",
-          "explanation": "It adds a lot of elements.",
+          "title": "Extend with multiple items",
+          "content": "extend() adds several items from another list.",
+          "code": "tasks = [\"Warmup\"]\ntasks.extend([\"Arrays\", \"Loops\"])\nprint(tasks)",
+          "explanation": "Both new items are added to the existing list.",
           "type": "theory",
           "practiceMode": "none",
           "stepKind": "example"
         },
         {
           "title": "Q1",
-          "content": "Create list [1, 2], append 3 with append(), and display the list.",
-          "code": "nums = [1, 2]\nnums.append(3)\nprint(nums)",
-          "explanation": "append() mutates the list, then print() shows the updated result.",
+          "content": "Start with tasks = [\"Warmup\", \"Arrays\"]. Append it to the list, and print the final list",
+          "code": "tasks = [\"Warmup\", \"Arrays\"]\ntask = input().strip()\ntasks.append(task)\nprint(tasks)",
+          "explanation": "Read the task name, append it, then print the updated list.",
           "type": "practice",
+          "evaluationMode": "execution",
           "validationMode": "includes_all",
           "requiredSnippets": [
-            "nums =",
-            "append(",
-            "print("
+            "append("
           ],
-          "starterCode": "",
-          "evaluationMode": "execution",
-          "evaluationId": "python-list-methods"
+          "evaluationId": "python-list-methods",
+          "practiceBrief": {
+            "task": "Start with tasks = [\"Warmup\", \"Arrays\"]. Append it to the list, and print the final list",
+            "inputs": [
+              "Read one task name from input."
+            ],
+            "requirements": [
+              "Update the list with append() before printing it."
+            ],
+            "expectedOutput": [
+              "['Warmup', 'Arrays', 'Loops']"
+            ],
+            "outputDescription": "",
+            "coachNote": "Read the task name, append it, then print the updated list."
+          }
         },
         {
-          "question": "Q2 (Predict Output)\n\nnums = [1]\nnums.append(2)\nprint(nums)",
+          "question": "Q2 (Predict Output)\n\nnums = [1, 2, 3]\nnums.pop()\nprint(nums)",
           "options": [
-            "[1]",
-            "[2]",
             "[1, 2]",
-            "Error"
+            "[1, 2, 3]",
+            "3",
+            "TypeError"
           ],
-          "correctAnswer": 2,
-          "explanation": "append(2) adds 2 to the end of the list, so it becomes [1, 2].",
+          "correctAnswer": 0,
+          "explanation": "pop() removes the last item, so the list becomes [1, 2].",
           "type": "question",
           "questionKind": "predict-output"
         },
@@ -2143,7 +2401,7 @@ export const pythonLessons: Lesson[] = [
             "TypeError"
           ],
           "correctAnswer": 2,
-          "explanation": "append() changes the list in place and returns None.",
+          "explanation": "append() mutates the list in place and returns None.",
           "type": "question",
           "questionKind": "common-mistake"
         }
@@ -2152,66 +2410,65 @@ export const pythonLessons: Lesson[] = [
   },
   {
     "id": "python-nested-structures",
-    "title": "Nested Structures",
-    "description": "Access values inside nested lists and dictionaries without losing track of levels.",
+    "title": "Access Data Inside Data",
+    "description": "Navigate lists inside lists and dictionaries inside dictionaries without losing track of the path.",
     "difficulty": "Intermediate",
     "baseXP": 50,
-    "baselineTime": 1,
+    "baselineTime": 2,
     "language": "python",
     "category": "Data Structures",
     "isLocked": false,
     "content": {
       "steps": [
         {
-          "title": "Example 1",
-          "content": "Nested list.",
-          "code": "matrix = [[1, 2], [3, 4]]\nprint(matrix)",
-          "explanation": "Nested list.",
+          "title": "Why this matters",
+          "content": "Nested structures show up any time one piece of data contains another. The key skill is reading the path clearly: outer container first, then the inner part you want.",
+          "code": "",
+          "explanation": "Nested structures show up any time one piece of data contains another. The key skill is reading the path clearly: outer container first, then the inner part you want.",
+          "type": "theory",
+          "practiceMode": "none",
+          "stepKind": "context"
+        },
+        {
+          "title": "Nested list",
+          "content": "A list can contain more lists.",
+          "code": "board = [[10, 20], [30, 40]]\nprint(board[1][0])",
+          "explanation": "board[1] selects [30, 40], and [0] selects 30.",
           "type": "theory",
           "practiceMode": "none",
           "stepKind": "example"
         },
         {
-          "title": "Example 2",
-          "content": "Access to internal list.",
-          "code": "matrix = [[1, 2], [3, 4]]\nprint(matrix[0])",
-          "explanation": "Access to internal list.",
-          "type": "theory",
-          "practiceMode": "none",
-          "stepKind": "example"
-        },
-        {
-          "title": "Example 3",
-          "content": "Access a specific internal element.",
-          "code": "matrix = [[1, 2], [3, 4]]\nprint(matrix[1][0])",
-          "explanation": "Access a specific internal element.",
-          "type": "theory",
-          "practiceMode": "none",
-          "stepKind": "example"
-        },
-        {
-          "title": "Example 4",
-          "content": "Nested dictionary.",
-          "code": "d = {\"a\": {\"b\": 2}}\nprint(d[\"a\"][\"b\"])",
-          "explanation": "Nested dictionary.",
+          "title": "Nested dictionary",
+          "content": "A dictionary value can be another dictionary.",
+          "code": "profile = {\"user\": {\"name\": \"Mia\"}}\nprint(profile[\"user\"][\"name\"])",
+          "explanation": "Each bracket step goes one level deeper.",
           "type": "theory",
           "practiceMode": "none",
           "stepKind": "example"
         },
         {
           "title": "Q1",
-          "content": "Create nested list [[10, 20], [30, 40]] and display 30.",
-          "code": "matrix = [[10, 20], [30, 40]]\nprint(matrix[1][0])",
-          "explanation": "Access the outer list first, then the inner list item.",
+          "content": "Use matrix = [[10, 20], [30, 40]]. Then print matrix[row][col]",
+          "code": "matrix = [[10, 20], [30, 40]]\nrow = int(input())\ncol = int(input())\nprint(matrix[row][col])",
+          "explanation": "Read the row and column separately, then use them as indexes into the nested list.",
           "type": "practice",
-          "validationMode": "includes_all",
-          "requiredSnippets": [
-            "matrix =",
-            "print("
-          ],
-          "starterCode": "",
           "evaluationMode": "execution",
-          "evaluationId": "python-nested-structures"
+          "validationMode": "includes_all",
+          "requiredSnippets": [],
+          "evaluationId": "python-nested-structures",
+          "practiceBrief": {
+            "task": "Use matrix = [[10, 20], [30, 40]]. Then print matrix[row][col]",
+            "inputs": [
+              "Read two integers row and col from input."
+            ],
+            "requirements": [],
+            "expectedOutput": [
+              "30"
+            ],
+            "outputDescription": "",
+            "coachNote": "Read the row and column separately, then use them as indexes into the nested list."
+          }
         },
         {
           "question": "Q2 (Predict Output)\n\nm = [[1, 2], [3, 4]]\nprint(m[0][1])",
@@ -2219,10 +2476,10 @@ export const pythonLessons: Lesson[] = [
             "1",
             "2",
             "3",
-            "4"
+            "IndexError"
           ],
           "correctAnswer": 1,
-          "explanation": "m[0] is [1, 2], and index 1 inside that list is 2.",
+          "explanation": "m[0] is [1, 2], and m[0][1] is 2.",
           "type": "question",
           "questionKind": "predict-output"
         },
@@ -2235,7 +2492,7 @@ export const pythonLessons: Lesson[] = [
             "IndexError"
           ],
           "correctAnswer": 3,
-          "explanation": "Index 1 does not exist in this nested list, so Python raises an IndexError.",
+          "explanation": "The list has only one item at index 0, so m[1] raises IndexError.",
           "type": "question",
           "questionKind": "common-mistake"
         }
@@ -2244,77 +2501,80 @@ export const pythonLessons: Lesson[] = [
   },
   {
     "id": "python-built-in-functions",
-    "title": "Built-in Functions",
-    "description": "Use sum, max, count, and membership checks to answer common list questions quickly.",
+    "title": "Summarize Data Fast",
+    "description": "Use built-in helpers to answer common data questions without writing extra loops.",
     "difficulty": "Intermediate",
     "baseXP": 50,
-    "baselineTime": 1,
+    "baselineTime": 2,
     "language": "python",
     "category": "Data Structures",
     "isLocked": false,
     "content": {
       "steps": [
         {
-          "title": "Example 1",
-          "content": "Calculates the sum.",
-          "code": "nums = [1, 2, 3]\nprint(sum(nums))",
-          "explanation": "Calculates the sum.",
+          "title": "Why this matters",
+          "content": "Built-in functions matter because they compress common tasks into clear, reliable tools. Instead of writing extra loops for simple summaries, you can use the standard helpers directly.",
+          "code": "",
+          "explanation": "Built-in functions matter because they compress common tasks into clear, reliable tools. Instead of writing extra loops for simple summaries, you can use the standard helpers directly.",
+          "type": "theory",
+          "practiceMode": "none",
+          "stepKind": "context"
+        },
+        {
+          "title": "Quick totals",
+          "content": "sum() and len() answer two common questions immediately.",
+          "code": "nums = [4, 8, 2]\nprint(sum(nums))\nprint(len(nums))",
+          "explanation": "sum(nums) returns the total and len(nums) returns the item count.",
           "type": "theory",
           "practiceMode": "none",
           "stepKind": "example"
         },
         {
-          "title": "Example 2",
-          "content": "Finds the maximum.",
-          "code": "nums = [1, 2, 3]\nprint(max(nums))",
-          "explanation": "Finds the maximum.",
-          "type": "theory",
-          "practiceMode": "none",
-          "stepKind": "example"
-        },
-        {
-          "title": "Example 3",
-          "content": "Counts how many times a value appears.",
-          "code": "nums = [1, 2, 2]\nprint(nums.count(2))",
-          "explanation": "Counts how many times a value appears.",
-          "type": "theory",
-          "practiceMode": "none",
-          "stepKind": "example"
-        },
-        {
-          "title": "Example 4",
-          "content": "Checks if an element exists in the list.",
-          "code": "nums = [1, 2, 3]\nprint(2 in nums)",
-          "explanation": "Checks if an element exists in the list.",
+          "title": "Find extremes",
+          "content": "max() and min() show the edges of the dataset.",
+          "code": "nums = [4, 8, 2]\nprint(max(nums))\nprint(min(nums))",
+          "explanation": "These helpers return the largest and smallest values.",
           "type": "theory",
           "practiceMode": "none",
           "stepKind": "example"
         },
         {
           "title": "Q1",
-          "content": "Create list [4, 8, 2] and display its maximum element.",
-          "code": "nums = [4, 8, 2]\nprint(max(nums))",
-          "explanation": "max() returns the largest value in the list.",
+          "content": "Read space-separated integers and print a three-line summary with sum, max, and count.",
+          "code": "nums = list(map(int, input().split()))\nprint(\"Sum:\", sum(nums))\nprint(\"Max:\", max(nums))\nprint(\"Count:\", len(nums))",
+          "explanation": "Use built-in helpers directly instead of writing loops for these three summary values.",
           "type": "practice",
-          "validationMode": "includes_all",
-          "requiredSnippets": [
-            "nums =",
-            "print("
-          ],
-          "starterCode": "",
           "evaluationMode": "execution",
-          "evaluationId": "python-built-in-functions"
+          "validationMode": "includes_all",
+          "requiredSnippets": [],
+          "evaluationId": "python-built-in-functions",
+          "practiceBrief": {
+            "task": "Read space-separated integers and print a three-line summary with sum, max, and count.",
+            "inputs": [
+              "Read space-separated integers from input."
+            ],
+            "requirements": [
+              "Keep the labels, order, and spacing exactly as shown."
+            ],
+            "expectedOutput": [
+              "Sum: <sum>",
+              "Max: <max>",
+              "Count: <count>"
+            ],
+            "outputDescription": "",
+            "coachNote": "Use built-in helpers directly instead of writing loops for these three summary values."
+          }
         },
         {
-          "question": "Q2 (Predict Output)\n\nnums = [1, 2, 3]\nprint(2 in nums)",
+          "question": "Q2 (Predict Output)\n\nnums = [4, 8, 2]\nprint(2 in nums)",
           "options": [
             "True",
             "False",
             "2",
-            "Error"
+            "TypeError"
           ],
           "correctAnswer": 0,
-          "explanation": "2 is present in the list, so the membership test returns True.",
+          "explanation": "2 is present in the list, so the membership check returns True.",
           "type": "question",
           "questionKind": "predict-output"
         },
@@ -2324,10 +2584,10 @@ export const pythonLessons: Lesson[] = [
             "0",
             "None",
             "ValueError",
-            "[]"
+            "IndexError"
           ],
           "correctAnswer": 2,
-          "explanation": "max() cannot work on an empty list, so Python raises a ValueError.",
+          "explanation": "max() cannot choose a value from an empty list, so Python raises ValueError.",
           "type": "question",
           "questionKind": "common-mistake"
         }
@@ -2336,67 +2596,68 @@ export const pythonLessons: Lesson[] = [
   },
   {
     "id": "python-dictionaries",
-    "title": "Dictionaries",
-    "description": "Create dictionaries, read by key, and understand when missing keys fail.",
+    "title": "Store Data by Name",
+    "description": "Use dictionaries to store labeled values and retrieve them by key.",
     "difficulty": "Intermediate",
     "baseXP": 50,
-    "baselineTime": 1,
+    "baselineTime": 2,
     "language": "python",
     "category": "Dictionaries",
     "isLocked": false,
     "content": {
       "steps": [
         {
-          "title": "Example 1",
-          "content": "Dictionary with key-value pairs.",
-          "code": "d = {\"a\": 1}\nprint(d)",
-          "explanation": "Dictionary with key-value pairs.",
+          "title": "Why this matters",
+          "content": "Dictionaries are useful when values need labels instead of positions. A name like \"score\" or \"level\" is often easier to reason about than a numeric index.",
+          "code": "",
+          "explanation": "Dictionaries are useful when values need labels instead of positions. A name like \"score\" or \"level\" is often easier to reason about than a numeric index.",
+          "type": "theory",
+          "practiceMode": "none",
+          "stepKind": "context"
+        },
+        {
+          "title": "Create a record",
+          "content": "A dictionary stores labeled values as key/value pairs.",
+          "code": "profile = {\"name\": \"Alex\", \"level\": \"starter\"}\nprint(profile)",
+          "explanation": "The keys describe what each stored value means.",
           "type": "theory",
           "practiceMode": "none",
           "stepKind": "example"
         },
         {
-          "title": "Example 2",
-          "content": "Key access.",
-          "code": "d = {\"a\": 1}\nprint(d[\"a\"])",
-          "explanation": "Key access.",
-          "type": "theory",
-          "practiceMode": "none",
-          "stepKind": "example"
-        },
-        {
-          "title": "Example 3",
-          "content": "Secure access.",
-          "code": "d = {\"a\": 1}\nprint(d.get(\"a\"))",
-          "explanation": "Secure access.",
-          "type": "theory",
-          "practiceMode": "none",
-          "stepKind": "example"
-        },
-        {
-          "title": "Example 4",
-          "content": "Add new key.",
-          "code": "d = {\"a\": 1}\nd[\"b\"] = 2\nprint(d)",
-          "explanation": "Add new key.",
+          "title": "Read one field",
+          "content": "Use the key to get the value you want.",
+          "code": "profile = {\"name\": \"Alex\", \"level\": \"starter\"}\nprint(profile[\"name\"])",
+          "explanation": "The key \"name\" returns the stored name value.",
           "type": "theory",
           "practiceMode": "none",
           "stepKind": "example"
         },
         {
           "title": "Q1",
-          "content": "Create dictionary with key \"name\" and value \"Alex\", and display the value of the key.",
-          "code": "d = {\"name\": \"Alex\"}\nprint(d[\"name\"])",
-          "explanation": "The key \"name\" stores the string Alex, which you can access with square brackets.",
+          "content": "Create profile = {\"name\": <input>, \"level\": \"starter\"} and print profile[\"name\"]",
+          "code": "name = input().strip()\nprofile = {\"name\": name, \"level\": \"starter\"}\nprint(profile[\"name\"])",
+          "explanation": "Build the dictionary with the input value, then retrieve the name field by key.",
           "type": "practice",
+          "evaluationMode": "execution",
           "validationMode": "includes_all",
           "requiredSnippets": [
-            "\"name\"",
-            "print(",
-            "{"
+            "{\"name\":",
+            "profile[\"name\"]"
           ],
-          "starterCode": "",
-          "evaluationMode": "execution",
-          "evaluationId": "python-dictionaries"
+          "evaluationId": "python-dictionaries",
+          "practiceBrief": {
+            "task": "Create profile = {\"name\": <input>, \"level\": \"starter\"} and print profile[\"name\"]",
+            "inputs": [
+              "Read a name from input."
+            ],
+            "requirements": [],
+            "expectedOutput": [
+              "Alex"
+            ],
+            "outputDescription": "",
+            "coachNote": "Build the dictionary with the input value, then retrieve the name field by key."
+          }
         },
         {
           "question": "Q2 (Predict Output)\n\nd = {\"x\": 1}\nprint(d[\"x\"])",
@@ -2404,10 +2665,10 @@ export const pythonLessons: Lesson[] = [
             "x",
             "1",
             "\"1\"",
-            "Error"
+            "KeyError"
           ],
           "correctAnswer": 1,
-          "explanation": "The value stored under key \"x\" is the integer 1.",
+          "explanation": "The key \"x\" maps to the value 1.",
           "type": "question",
           "questionKind": "predict-output"
         },
@@ -2420,7 +2681,7 @@ export const pythonLessons: Lesson[] = [
             "KeyError"
           ],
           "correctAnswer": 3,
-          "explanation": "The key \"b\" does not exist, so direct dictionary access raises a KeyError.",
+          "explanation": "The key \"b\" is missing, so direct lookup raises KeyError.",
           "type": "question",
           "questionKind": "common-mistake"
         }
@@ -2429,68 +2690,67 @@ export const pythonLessons: Lesson[] = [
   },
   {
     "id": "python-dict-methods",
-    "title": "Dict Methods",
-    "description": "Inspect dictionary keys, values, and safe lookups with get().",
+    "title": "Use Safe Dictionary Lookups",
+    "description": "Use get, keys, values, and items to inspect and access dictionaries more safely.",
     "difficulty": "Intermediate",
     "baseXP": 50,
-    "baselineTime": 1,
+    "baselineTime": 2,
     "language": "python",
     "category": "Dictionaries",
     "isLocked": false,
     "content": {
       "steps": [
         {
-          "title": "Example 1",
-          "content": "Returns all keys.",
-          "code": "d = {\"a\": 1, \"b\": 2}\nprint(d.keys())",
-          "explanation": "Returns all keys.",
+          "title": "Why this matters",
+          "content": "Dictionary methods are useful when you need to inspect available keys or access values without crashing the program on a missing field.",
+          "code": "",
+          "explanation": "Dictionary methods are useful when you need to inspect available keys or access values without crashing the program on a missing field.",
+          "type": "theory",
+          "practiceMode": "none",
+          "stepKind": "context"
+        },
+        {
+          "title": "Safe lookup",
+          "content": "get() returns None or a fallback instead of raising a KeyError.",
+          "code": "settings = {\"theme\": \"dark\"}\nprint(settings.get(\"theme\"))\nprint(settings.get(\"mode\", \"missing\"))",
+          "explanation": "get(\"mode\", \"missing\") returns the fallback because mode is not in the dictionary.",
           "type": "theory",
           "practiceMode": "none",
           "stepKind": "example"
         },
         {
-          "title": "Example 2",
-          "content": "Returns all values.",
-          "code": "d = {\"a\": 1, \"b\": 2}\nprint(d.values())",
-          "explanation": "Returns all values.",
-          "type": "theory",
-          "practiceMode": "none",
-          "stepKind": "example"
-        },
-        {
-          "title": "Example 3",
-          "content": "Returns key-value pairs.",
-          "code": "d = {\"a\": 1, \"b\": 2}\nprint(d.items())",
-          "explanation": "Returns key-value pairs.",
-          "type": "theory",
-          "practiceMode": "none",
-          "stepKind": "example"
-        },
-        {
-          "title": "Example 4",
-          "content": "Update existing key.",
-          "code": "d = {\"a\": 1}\nd[\"a\"] = 5\nprint(d)",
-          "explanation": "Update existing key.",
+          "title": "Inspect the shape",
+          "content": "keys(), values(), and items() help you explore what the dictionary contains.",
+          "code": "settings = {\"theme\": \"dark\", \"level\": 3}\nprint(settings.keys())\nprint(settings.values())\nprint(settings.items())",
+          "explanation": "These methods reveal the dictionary structure without needing a hardcoded key.",
           "type": "theory",
           "practiceMode": "none",
           "stepKind": "example"
         },
         {
           "title": "Q1",
-          "content": "Create the dictionary {\"x\": 10, \"y\": 20} and print its keys.",
-          "code": "d = {\"x\": 10, \"y\": 20}\nprint(d.keys())",
-          "explanation": "keys() returns a view of all dictionary keys.",
+          "content": "Use settings = {\"theme\": \"dark\", \"level\": \"starter\"}. Print settings.get(key, \"missing\")",
+          "code": "settings = {\"theme\": \"dark\", \"level\": \"starter\"}\nkey = input().strip()\nprint(settings.get(key, \"missing\"))",
+          "explanation": "Read the requested key, then use get() with a fallback of \"missing\".",
           "type": "practice",
+          "evaluationMode": "execution",
           "validationMode": "includes_all",
           "requiredSnippets": [
-            "d =",
-            "\"x\"",
-            "\"y\"",
-            "print("
+            "get("
           ],
-          "starterCode": "",
-          "evaluationMode": "execution",
-          "evaluationId": "python-dict-methods"
+          "evaluationId": "python-dict-methods",
+          "practiceBrief": {
+            "task": "Use settings = {\"theme\": \"dark\", \"level\": \"starter\"}. Print settings.get(key, \"missing\")",
+            "inputs": [
+              "Read a key from input."
+            ],
+            "requirements": [],
+            "expectedOutput": [
+              "dark"
+            ],
+            "outputDescription": "",
+            "coachNote": "Read the requested key, then use get() with a fallback of \"missing\"."
+          }
         },
         {
           "question": "Q2 (Predict Output)\n\nd = {\"a\": 1}\nprint(d.get(\"a\"))",
@@ -2498,23 +2758,23 @@ export const pythonLessons: Lesson[] = [
             "a",
             "1",
             "None",
-            "Error"
+            "KeyError"
           ],
           "correctAnswer": 1,
-          "explanation": "get(\"a\") returns the value stored under key \"a\", which is 1.",
+          "explanation": "get(\"a\") returns the stored value 1.",
           "type": "question",
           "questionKind": "predict-output"
         },
         {
-          "question": "Q3 (Common Mistake)\n\nd = {\"a\": 1}\nprint(d.get(\"x\"))",
+          "question": "Q3 (Common Mistake)\n\nsettings = {\"theme\": \"dark\"}\nprint(settings[\"mode\"])",
           "options": [
-            "x",
-            "0",
+            "dark",
+            "missing",
             "None",
             "KeyError"
           ],
-          "correctAnswer": 2,
-          "explanation": "get() returns None by default when the key is missing.",
+          "correctAnswer": 3,
+          "explanation": "Direct lookup on a missing key raises KeyError.",
           "type": "question",
           "questionKind": "common-mistake"
         }
@@ -2523,77 +2783,79 @@ export const pythonLessons: Lesson[] = [
   },
   {
     "id": "python-sets",
-    "title": "Sets",
-    "description": "Use sets for unique values and avoid treating them like indexed lists.",
+    "title": "Keep Only Unique Values",
+    "description": "Use sets to remove duplicates and test membership without relying on positions.",
     "difficulty": "Intermediate",
     "baseXP": 50,
-    "baselineTime": 1,
+    "baselineTime": 2,
     "language": "python",
     "category": "Data Structures",
     "isLocked": false,
     "content": {
       "steps": [
         {
-          "title": "Example 1",
-          "content": "Set with unique elements.",
-          "code": "s = {1, 2, 3}\nprint(s)",
-          "explanation": "Set with unique elements.",
+          "title": "Why this matters",
+          "content": "Sets are useful when uniqueness matters more than order. They are a natural fit for tags, visited items, unique words, and quick membership checks.",
+          "code": "",
+          "explanation": "Sets are useful when uniqueness matters more than order. They are a natural fit for tags, visited items, unique words, and quick membership checks.",
+          "type": "theory",
+          "practiceMode": "none",
+          "stepKind": "context"
+        },
+        {
+          "title": "Duplicates disappear",
+          "content": "A set stores each value only once.",
+          "code": "tags = {\"python\", \"python\", \"loops\"}\nprint(tags)",
+          "explanation": "The repeated \"python\" value only appears once in the final set.",
           "type": "theory",
           "practiceMode": "none",
           "stepKind": "example"
         },
         {
-          "title": "Example 2",
-          "content": "Duplicates are removed.",
-          "code": "s = {1, 1, 2}\nprint(s)",
-          "explanation": "Duplicates are removed.",
-          "type": "theory",
-          "practiceMode": "none",
-          "stepKind": "example"
-        },
-        {
-          "title": "Example 3",
-          "content": "Add item.",
-          "code": "s = {1, 2}\ns.add(3)\nprint(s)",
-          "explanation": "Add item.",
-          "type": "theory",
-          "practiceMode": "none",
-          "stepKind": "example"
-        },
-        {
-          "title": "Example 4",
-          "content": "Remove item.",
-          "code": "s = {1, 2, 3}\ns.remove(2)\nprint(s)",
-          "explanation": "Remove item.",
+          "title": "Membership is the common question",
+          "content": "You usually ask whether a value is present, not what index it has.",
+          "code": "tags = {\"python\", \"loops\", \"debug\"}\nprint(\"loops\" in tags)",
+          "explanation": "Membership works, but indexing does not.",
           "type": "theory",
           "practiceMode": "none",
           "stepKind": "example"
         },
         {
           "title": "Q1",
-          "content": "Create the set {1, 1, 2, 3} and print the final set contents.",
-          "code": "s = {1, 1, 2, 3}\nprint(s)",
-          "explanation": "Sets keep only unique values, so the duplicate 1 appears once.",
+          "content": "Create a set from them, and print the number of unique words",
+          "code": "words = input().split()\nunique_words = set(words)\nprint(len(unique_words))",
+          "explanation": "Convert the list of words into a set, then print the set size.",
           "type": "practice",
+          "evaluationMode": "execution",
           "validationMode": "includes_all",
           "requiredSnippets": [
-            "s =",
-            "print("
+            "set(",
+            "len("
           ],
-          "starterCode": "",
-          "evaluationMode": "execution",
-          "evaluationId": "python-sets"
+          "evaluationId": "python-sets",
+          "practiceBrief": {
+            "task": "Create a set from them, and print the number of unique words",
+            "inputs": [
+              "Read space-separated words from input."
+            ],
+            "requirements": [],
+            "expectedOutput": [
+              "2"
+            ],
+            "outputDescription": "",
+            "coachNote": "Convert the list of words into a set, then print the set size."
+          }
         },
         {
-          "question": "Q2 (Predict Output)\n\ns = {1, 1}\nprint(s)",
+          "question": "Q2 (Predict Output)\n\ns = {1, 1, 2}\nprint(s)",
           "options": [
-            "{1, 1}",
-            "{1}",
-            "[1, 1]",
-            "Error"
+            "{1, 1, 2}",
+            "{1, 2}",
+            "[1, 2]",
+            "TypeError"
           ],
           "correctAnswer": 1,
-          "explanation": "Sets remove duplicates automatically, leaving only {1}.",
+          "explanation": "The duplicate 1 is removed, so the set contains only 1 and 2.",
           "type": "question",
           "questionKind": "predict-output"
         },
@@ -2606,7 +2868,7 @@ export const pythonLessons: Lesson[] = [
             "TypeError"
           ],
           "correctAnswer": 3,
-          "explanation": "Sets are not subscriptable, so Python raises a TypeError.",
+          "explanation": "Sets are unordered and not subscriptable, so s[0] raises TypeError.",
           "type": "question",
           "questionKind": "common-mistake"
         }
@@ -2615,67 +2877,65 @@ export const pythonLessons: Lesson[] = [
   },
   {
     "id": "python-nested-data",
-    "title": "Nested Data",
-    "description": "Traverse mixed nested lists and dictionaries without losing the correct access path.",
+    "title": "Traverse Nested Records",
+    "description": "Read values from lists of dictionaries and dictionaries of lists without losing track of the path.",
     "difficulty": "Intermediate",
     "baseXP": 50,
-    "baselineTime": 1,
+    "baselineTime": 2,
     "language": "python",
     "category": "Data Structures",
     "isLocked": false,
     "content": {
       "steps": [
         {
-          "title": "Example 1",
-          "content": "Dictionary with list.",
-          "code": "d = {\"a\": [1, 2]}\nprint(d[\"a\"][0])",
-          "explanation": "Dictionary with list.",
+          "title": "Why this matters",
+          "content": "Nested data is what real program data often looks like: users with fields, lists of records, or dictionaries that contain lists. The core skill is following the path cleanly.",
+          "code": "",
+          "explanation": "Nested data is what real program data often looks like: users with fields, lists of records, or dictionaries that contain lists. The core skill is following the path cleanly.",
+          "type": "theory",
+          "practiceMode": "none",
+          "stepKind": "context"
+        },
+        {
+          "title": "List of records",
+          "content": "One list can hold multiple dictionaries.",
+          "code": "users = [{\"name\": \"Mia\", \"score\": 80}, {\"name\": \"Rio\", \"score\": 95}]\nprint(users[1][\"name\"])",
+          "explanation": "The path is users -> second item -> name.",
           "type": "theory",
           "practiceMode": "none",
           "stepKind": "example"
         },
         {
-          "title": "Example 2",
-          "content": "List of dictionaries.",
-          "code": "users = [{\"name\": \"A\"}]\nprint(users[0][\"name\"])",
-          "explanation": "List of dictionaries.",
-          "type": "theory",
-          "practiceMode": "none",
-          "stepKind": "example"
-        },
-        {
-          "title": "Example 3",
-          "content": "Nested dictionary access.",
-          "code": "d = {\"a\": {\"b\": 2}}\nprint(d[\"a\"][\"b\"])",
-          "explanation": "Nested dictionary access.",
-          "type": "theory",
-          "practiceMode": "none",
-          "stepKind": "example"
-        },
-        {
-          "title": "Example 4",
-          "content": "Nested list access.",
-          "code": "lst = [[1, 2], [3, 4]]\nprint(lst[1][1])",
-          "explanation": "Nested list access.",
+          "title": "Dictionary of lists",
+          "content": "A dictionary can group a list under one key.",
+          "code": "report = {\"scores\": [80, 95, 88]}\nprint(report[\"scores\"][0])",
+          "explanation": "The path is report -> scores -> first item.",
           "type": "theory",
           "practiceMode": "none",
           "stepKind": "example"
         },
         {
           "title": "Q1",
-          "content": "Create dictionary {\"nums\": [10, 20, 30]} and display 20.",
-          "code": "data = {\"nums\": [10, 20, 30]}\nprint(data[\"nums\"][1])",
-          "explanation": "Access the list under key \"nums\", then read the second item.",
+          "content": "Use users = [{\"name\": \"Mia\", \"score\": 80}, {\"name\": \"Rio\", \"score\": 95}]. Print users[index][\"name\"]",
+          "code": "users = [{\"name\": \"Mia\", \"score\": 80}, {\"name\": \"Rio\", \"score\": 95}]\nindex = int(input())\nprint(users[index][\"name\"])",
+          "explanation": "Read the index, then use it to select the correct record before reading the name key.",
           "type": "practice",
-          "validationMode": "includes_all",
-          "requiredSnippets": [
-            "data =",
-            "\"nums\"",
-            "print("
-          ],
-          "starterCode": "",
           "evaluationMode": "execution",
-          "evaluationId": "python-nested-data"
+          "validationMode": "includes_all",
+          "requiredSnippets": [],
+          "evaluationId": "python-nested-data",
+          "practiceBrief": {
+            "task": "Use users = [{\"name\": \"Mia\", \"score\": 80}, {\"name\": \"Rio\", \"score\": 95}]. Print users[index][\"name\"]",
+            "inputs": [
+              "Read an index from input."
+            ],
+            "requirements": [],
+            "expectedOutput": [
+              "Rio"
+            ],
+            "outputDescription": "",
+            "coachNote": "Read the index, then use it to select the correct record before reading the name key."
+          }
         },
         {
           "question": "Q2 (Predict Output)\n\ndata = {\"x\": [5, 6]}\nprint(data[\"x\"][1])",
@@ -2683,10 +2943,10 @@ export const pythonLessons: Lesson[] = [
             "5",
             "6",
             "[5, 6]",
-            "Error"
+            "KeyError"
           ],
           "correctAnswer": 1,
-          "explanation": "The second item in the list [5, 6] is 6.",
+          "explanation": "data[\"x\"] gives the list [5, 6], and index 1 selects 6.",
           "type": "question",
           "questionKind": "predict-output"
         },
@@ -2699,7 +2959,7 @@ export const pythonLessons: Lesson[] = [
             "IndexError"
           ],
           "correctAnswer": 3,
-          "explanation": "users[1] is out of range, so Python raises an IndexError before key access happens.",
+          "explanation": "There is only one record at index 0, so users[1] raises IndexError.",
           "type": "question",
           "questionKind": "common-mistake"
         }
@@ -2708,93 +2968,129 @@ export const pythonLessons: Lesson[] = [
   },
   {
     "id": "python-text-analyzer-basics",
-    "title": "Text Analyzer Basics",
-    "description": "Count characters, search text, and split words in simple analyzer-style tasks.",
+    "title": "Project: Text Analyzer",
+    "description": "Normalize text, count words, track unique terms, and find the longest word in a small report.",
     "difficulty": "Intermediate",
     "baseXP": 50,
-    "baselineTime": 1,
+    "baselineTime": 5,
     "language": "python",
-    "category": "Strings",
+    "category": "Projects",
     "isLocked": false,
+    "projectBrief": {
+      "goal": "Analyze one input line and turn it into a clean text summary.",
+      "inputs": [
+        "One line of text from input"
+      ],
+      "outputs": [
+        "Word count",
+        "Unique word count",
+        "Keyword check",
+        "Longest word"
+      ],
+      "skills": [
+        "lower()",
+        "split()",
+        "set()",
+        "loops",
+        "membership checks"
+      ]
+    },
     "content": {
       "steps": [
         {
-          "title": "Example 1",
-          "content": "Text length.",
-          "code": "text = \"hello\"\nprint(len(text))",
-          "explanation": "Text length.",
+          "title": "Why this matters",
+          "content": "This capstone should feel like a real text utility. It should normalize messy input, count useful signals, and surface one concrete insight instead of stopping at one string method.",
+          "code": "",
+          "explanation": "This capstone should feel like a real text utility. It should normalize messy input, count useful signals, and surface one concrete insight instead of stopping at one string method.",
+          "type": "theory",
+          "practiceMode": "none",
+          "stepKind": "context"
+        },
+        {
+          "title": "Normalize and count",
+          "content": "Lowercasing first makes later checks more reliable.",
+          "code": "text = \"Python makes practice fun\"\nwords = text.lower().split()\nprint(\"Words:\", len(words))\nprint(\"Unique words:\", len(set(words)))\nprint(\"Has python:\", \"python\" in words)",
+          "explanation": "One normalized list of words can drive multiple report values.",
           "type": "theory",
           "practiceMode": "none",
           "stepKind": "example"
         },
         {
-          "title": "Example 2",
-          "content": "Counts character appearances.",
-          "code": "text = \"hello\"\nprint(text.count(\"l\"))",
-          "explanation": "Counts character appearances.",
+          "title": "Track the longest word",
+          "content": "A loop can keep the best candidate seen so far.",
+          "code": "words = \"python practice wins\".split()\nlongest = \"\"\n\nfor word in words:\n    if len(word) > len(longest):\n        longest = word\n\nprint(longest)",
+          "explanation": "longest changes only when a bigger word appears.",
           "type": "theory",
           "practiceMode": "none",
           "stepKind": "example"
         },
         {
-          "title": "Example 3",
-          "content": "Breaks into words.",
-          "code": "text = \"hello world\"\nprint(text.split())",
-          "explanation": "Breaks into words.",
-          "type": "theory",
-          "practiceMode": "none",
-          "stepKind": "example"
-        },
-        {
-          "title": "Example 4",
-          "content": "Checks if a substring exists in the string.",
-          "code": "text = \"hello\"\nprint(\"he\" in text)",
-          "explanation": "Checks if a substring exists in the string.",
+          "title": "Keep the first longest word",
+          "content": "Using > instead of >= keeps the first matching longest word in a tie.",
+          "code": "words = \"build ship learn\".split()\nlongest = \"\"\n\nfor word in words:\n    if len(word) > len(longest):\n        longest = word\n\nprint(longest)",
+          "explanation": "build stays the answer because learn is not longer, only tied.",
           "type": "theory",
           "practiceMode": "none",
           "stepKind": "example"
         },
         {
           "title": "Q1",
-          "content": "Create string \"banana\" and display how many times the letter \"a\" occurs.",
-          "code": "text = \"banana\"\nprint(text.count(\"a\"))",
-          "explanation": "count(\"a\") returns how many times the letter a appears.",
+          "content": "Read one line of text, analyze it, and print the requested summary report.",
+          "code": "text = input()\nwords = text.lower().split()\nlongest = \"\"\n\nfor word in words:\n    if len(word) > len(longest):\n        longest = word\n\nprint(\"Words:\", len(words))\nprint(\"Unique words:\", len(set(words)))\nprint(\"Has python:\", \"python\" in words)\nprint(\"Longest word:\", longest)",
+          "explanation": "Normalize the input once, then reuse that word list for counting, membership, uniqueness, and longest-word tracking.",
           "type": "practice",
+          "evaluationMode": "execution",
           "validationMode": "includes_all",
           "requiredSnippets": [
-            "text =",
-            "\"banana\"",
-            "print(",
-            "count(",
-            "\"a\""
+            "split(",
+            "set(",
+            "for",
+            "len("
           ],
-          "starterCode": "",
-          "evaluationMode": "execution",
-          "evaluationId": "python-text-analyzer-basics"
+          "evaluationId": "python-text-analyzer-basics",
+          "practiceBrief": {
+            "task": "Read one line of text, analyze it, and print the requested summary report.",
+            "inputs": [
+              "One line of text from input"
+            ],
+            "requirements": [
+              "Keep the labels, order, and spacing exactly as shown.",
+              "Split the input into separate values before processing it.",
+              "Use a loop instead of repeating the operation manually."
+            ],
+            "expectedOutput": [
+              "Words: <word count>",
+              "Unique words: <unique count>",
+              "Has python: <True/False>",
+              "Longest word: <word>"
+            ],
+            "outputDescription": "",
+            "coachNote": "Normalize the input once, then reuse that word list for counting, membership, uniqueness, and longest-word tracking."
+          }
         },
         {
-          "question": "Q2 (Predict Output)\n\ntext = \"hello\"\nprint(text.count(\"l\"))",
+          "question": "Q2 (Predict Output)\n\ntext = \"Python practice practice wins\"\nwords = text.lower().split()\nlongest = \"\"\n\nfor word in words:\n    if len(word) > len(longest):\n        longest = word\n\nprint(\"Words:\", len(words))\nprint(\"Unique words:\", len(set(words)))\nprint(\"Has python:\", \"python\" in words)\nprint(\"Longest word:\", longest)",
           "options": [
-            "1",
-            "2",
-            "3",
-            "Error"
+            "Words: 4 / Unique words: 3 / Has python: True / Longest word: practice",
+            "Words: 3 / Unique words: 3 / Has python: True / Longest word: wins",
+            "Words: 4 / Unique words: 4 / Has python: False / Longest word: practice",
+            "IndexError"
           ],
-          "correctAnswer": 1,
-          "explanation": "The letter l appears twice in hello.",
+          "correctAnswer": 0,
+          "explanation": "There are 4 words, 3 unique lowered words, python is present, and practice is the first longest word.",
           "type": "question",
           "questionKind": "predict-output"
         },
         {
-          "question": "Q3 (Common Mistake)\n\ntext = \"hi\"\nprint(text[5])",
+          "question": "Q3 (Common Mistake)\n\ntext = \"Python practice\"\nprint(\"python\" in text)",
           "options": [
-            "i",
-            "h",
-            "None",
-            "IndexError"
+            "True",
+            "False",
+            "NameError",
+            "AttributeError"
           ],
-          "correctAnswer": 3,
-          "explanation": "Index 5 is outside the string bounds, so Python raises an IndexError.",
+          "correctAnswer": 1,
+          "explanation": "The check is case-sensitive. \"python\" is not found inside \"Python practice\" until the text is normalized.",
           "type": "question",
           "questionKind": "common-mistake"
         }
@@ -2803,92 +3099,96 @@ export const pythonLessons: Lesson[] = [
   },
   {
     "id": "python-functions-advanced",
-    "title": "Functions Advanced",
-    "description": "Compose functions, return values cleanly, and reason about nested calls.",
+    "title": "Compose Small Functions",
+    "description": "Chain helper functions together so each one does one small job well.",
     "difficulty": "Intermediate",
     "baseXP": 50,
-    "baselineTime": 1,
+    "baselineTime": 3,
     "language": "python",
     "category": "Functions",
     "isLocked": false,
     "content": {
       "steps": [
         {
-          "title": "Example 1",
-          "content": "Function that returns a result.",
-          "code": "def add(a, b):\n    return a + b\n\nprint(add(2, 3))",
-          "explanation": "Function that returns a result.",
+          "title": "Why this matters",
+          "content": "Advanced function use is not about obscure syntax. It is about composition: one small function cleans the data, another counts or computes from that cleaned result.",
+          "code": "",
+          "explanation": "Advanced function use is not about obscure syntax. It is about composition: one small function cleans the data, another counts or computes from that cleaned result.",
+          "type": "theory",
+          "practiceMode": "none",
+          "stepKind": "context"
+        },
+        {
+          "title": "One helper feeds another",
+          "content": "The second function can call the first instead of repeating its logic.",
+          "code": "def clean(text):\n    return text.strip().lower()\n\ndef word_count(text):\n    return len(clean(text).split())\n\nprint(word_count(\"  Build Ship Learn  \"))",
+          "explanation": "word_count() reuses clean() before splitting the text.",
           "type": "theory",
           "practiceMode": "none",
           "stepKind": "example"
         },
         {
-          "title": "Example 2",
-          "content": "Function with calculation.",
-          "code": "def square(x):\n    return x * x\n\nprint(square(4))",
-          "explanation": "Function with calculation.",
-          "type": "theory",
-          "practiceMode": "none",
-          "stepKind": "example"
-        },
-        {
-          "title": "Example 3",
-          "content": "Combining values.",
-          "code": "def combine(a, b):\n    return str(a) + str(b)\n\nprint(combine(1, 2))",
-          "explanation": "Combining values.",
-          "type": "theory",
-          "practiceMode": "none",
-          "stepKind": "example"
-        },
-        {
-          "title": "Example 4",
-          "content": "Nested function calls.",
-          "code": "def double(x):\n    return x * 2\n\nprint(double(double(2)))",
-          "explanation": "Nested function calls.",
+          "title": "Return, then reuse",
+          "content": "Functions become more powerful when they return values that other functions can use.",
+          "code": "def double(x):\n    return x * 2\n\ndef triple_double(x):\n    return double(x) * 3\n\nprint(triple_double(2))",
+          "explanation": "The second function builds on the first function's returned value.",
           "type": "theory",
           "practiceMode": "none",
           "stepKind": "example"
         },
         {
           "title": "Q1",
-          "content": "Write function triple(x) that returns three times x, and display the result for 4.",
-          "code": "def triple(x):\n    return x * 3\n\nprint(triple(4))",
-          "explanation": "Return the computed result, then print the function call.",
+          "content": "Write two functions:. clean(text) that returns text.strip().lower(). word_count(text) that returns the number of words in clean(text). Print word_count(text)",
+          "code": "def clean(text):\n    return text.strip().lower()\n\ndef word_count(text):\n    return len(clean(text).split())\n\ntext = input()\nprint(word_count(text))",
+          "explanation": "Return the cleaned text from clean(), then reuse that return value inside word_count().",
           "type": "practice",
+          "evaluationMode": "execution",
           "validationMode": "includes_all",
           "requiredSnippets": [
-            "def triple",
-            "return",
-            "*",
-            "print("
+            "def clean",
+            "def word_count",
+            "return"
           ],
-          "starterCode": "",
-          "evaluationMode": "execution",
-          "evaluationId": "python-functions-advanced"
+          "evaluationId": "python-functions-advanced",
+          "practiceBrief": {
+            "task": "Write two functions:. clean(text) that returns text.strip().lower(). word_count(text) that returns the number of words in clean(text). Print word_count(text)",
+            "inputs": [
+              "Read one line of text from input."
+            ],
+            "requirements": [
+              "Define the required function before calling it.",
+              "Return the result from the helper instead of printing inside it."
+            ],
+            "expectedOutput": [
+              "2"
+            ],
+            "outputDescription": "",
+            "coachNote": "Return the cleaned text from clean(), then reuse that return value inside word_count()."
+          }
         },
         {
-          "question": "Q2 (Predict Output)\n\ndef f(x):\n    return x + 1\n\nprint(f(2))",
+          "question": "Q2 (Predict Output)\n\ndef clean(text):\n    return text.strip().lower()\n\ndef word_count(text):\n    return len(clean(text).split())\n\nprint(word_count(\"  Ship Build  \"))",
           "options": [
+            "1",
             "2",
             "3",
-            "x + 1",
-            "Error"
+            "TypeError"
           ],
           "correctAnswer": 1,
-          "explanation": "f(2) returns 3 because 1 is added to 2.",
+          "explanation": "After strip() and split(), the text contains the two words Ship and Build.",
           "type": "question",
           "questionKind": "predict-output"
         },
         {
-          "question": "Q3 (Common Mistake)\n\ndef f(x):\n    print(x)\n\nprint(f(3))",
+          "question": "Q3 (Common Mistake)\n\ndef clean(text):\n    print(text.strip().lower())\n\nprint(clean(\"  Hi  \"))",
           "options": [
-            "3",
+            "hi",
             "None",
-            "3 and then None",
+            "hi then None",
             "TypeError"
           ],
           "correctAnswer": 2,
-          "explanation": "The function prints 3 but returns None, so print(f(3)) shows None next.",
+          "explanation": "clean() prints hi, but it does not return a value, so print(clean(...)) shows hi and then None.",
           "type": "question",
           "questionKind": "common-mistake"
         }
@@ -2897,91 +3197,95 @@ export const pythonLessons: Lesson[] = [
   },
   {
     "id": "python-scope",
-    "title": "Scope",
-    "description": "Understand the difference between global and local variables in functions.",
+    "title": "Trace Variable Scope",
+    "description": "Understand which variables are local, which are global, and why some names are not visible where you expect.",
     "difficulty": "Intermediate",
     "baseXP": 50,
-    "baselineTime": 1,
+    "baselineTime": 3,
     "language": "python",
     "category": "Functions",
     "isLocked": false,
     "content": {
       "steps": [
         {
-          "title": "Example 1",
-          "content": "The function can read global variable.",
-          "code": "x = 5\n\ndef f():\n    print(x)\n\nf()",
-          "explanation": "The function can read global variable.",
+          "title": "Why this matters",
+          "content": "Scope bugs are common because a variable name may exist in one place but not another. The key question is always: where was this variable created, and is this code allowed to see it?",
+          "code": "",
+          "explanation": "Scope bugs are common because a variable name may exist in one place but not another. The key question is always: where was this variable created, and is this code allowed to see it?",
+          "type": "theory",
+          "practiceMode": "none",
+          "stepKind": "context"
+        },
+        {
+          "title": "Read a global value",
+          "content": "A function can read a global variable when it does not create a local one with the same name.",
+          "code": "tax = 5\n\ndef add_tax(price):\n    return price + tax\n\nprint(add_tax(20))",
+          "explanation": "The function reads the global tax variable and adds it to the input price.",
           "type": "theory",
           "practiceMode": "none",
           "stepKind": "example"
         },
         {
-          "title": "Example 2",
-          "content": "Local variable exists only inside the function.",
-          "code": "def f():\n    y = 10\n    print(y)\n\nf()",
-          "explanation": "Local variable exists only inside the function.",
-          "type": "theory",
-          "practiceMode": "none",
-          "stepKind": "example"
-        },
-        {
-          "title": "Example 3",
-          "content": "The local does not change the global.",
-          "code": "x = 5\n\ndef f():\n    x = 10\n    print(x)\n\nf()\nprint(x)",
-          "explanation": "The local does not change the global.",
-          "type": "theory",
-          "practiceMode": "none",
-          "stepKind": "example"
-        },
-        {
-          "title": "Example 4",
-          "content": "With global we change global variable.",
-          "code": "x = 5\n\ndef f():\n    global x\n    x = 10\n\nf()\nprint(x)",
-          "explanation": "With global we change global variable.",
+          "title": "Local shadows global",
+          "content": "A local variable with the same name hides the global one inside the function.",
+          "code": "x = 5\n\ndef show():\n    x = 10\n    print(x)\n\nshow()\nprint(x)",
+          "explanation": "The function prints 10, but the global x outside the function stays 5.",
           "type": "theory",
           "practiceMode": "none",
           "stepKind": "example"
         },
         {
           "title": "Q1",
-          "content": "Create a global variable x = 7 and a function that prints it, then call the function.",
-          "code": "x = 7\n\ndef show_x():\n    print(x)\n\nshow_x()",
-          "explanation": "The function can read the global x directly.",
+          "content": "Create a global variable tax = 5. Write a function add_tax(price) that returns price + tax. Print add_tax(price)",
+          "code": "tax = 5\n\ndef add_tax(price):\n    return price + tax\n\nprice = int(input())\nprint(add_tax(price))",
+          "explanation": "Define tax outside the function, then return price + tax from inside the function.",
           "type": "practice",
+          "evaluationMode": "execution",
           "validationMode": "includes_all",
           "requiredSnippets": [
-            "x =",
-            "def show_x",
-            "print("
+            "tax = 5",
+            "def add_tax"
           ],
-          "starterCode": "",
-          "evaluationMode": "execution",
-          "evaluationId": "python-scope"
+          "evaluationId": "python-scope",
+          "practiceBrief": {
+            "task": "Create a global variable tax = 5. Write a function add_tax(price) that returns price + tax. Print add_tax(price)",
+            "inputs": [
+              "Read an integer from input."
+            ],
+            "requirements": [
+              "Define the required function before calling it.",
+              "Use the function name add_tax."
+            ],
+            "expectedOutput": [
+              "25"
+            ],
+            "outputDescription": "",
+            "coachNote": "Define tax outside the function, then return price + tax from inside the function."
+          }
         },
         {
-          "question": "Q2 (Predict Output)\n\nx = 5\n\ndef f():\n    x = 10\n    print(x)\n\nf()\nprint(x)",
+          "question": "Q2 (Predict Output)\n\nx = 5\n\ndef show():\n    x = 10\n    print(x)\n\nshow()\nprint(x)",
           "options": [
-            "10 and 10",
-            "5 and 10",
-            "10 and 5",
-            "Error"
+            "10 then 10",
+            "5 then 10",
+            "10 then 5",
+            "NameError"
           ],
           "correctAnswer": 2,
-          "explanation": "The local x is 10 inside the function, but the global x stays 5 outside it.",
+          "explanation": "The function prints the local x = 10, while the global x printed later is still 5.",
           "type": "question",
           "questionKind": "predict-output"
         },
         {
-          "question": "Q3 (Common Mistake)\n\ndef f():\n    print(y)\n\nf()",
+          "question": "Q3 (Common Mistake)\n\ndef show():\n    y = 10\n\nshow()\nprint(y)",
           "options": [
+            "10",
             "y",
-            "0",
             "None",
             "NameError"
           ],
           "correctAnswer": 3,
-          "explanation": "y does not exist in local or global scope here, so Python raises a NameError.",
+          "explanation": "y only exists inside show(), so printing it outside the function raises NameError.",
           "type": "question",
           "questionKind": "common-mistake"
         }
@@ -2990,11 +3294,11 @@ export const pythonLessons: Lesson[] = [
   },
   {
     "id": "python-recursion-intro",
-    "title": "Recursion Intro",
-    "description": "Introduce recursive thinking with self-calls and clear base cases.",
+    "title": "Recursive Countdown",
+    "description": "Build the mental model for recursive calls, shrinking input, and base cases.",
     "difficulty": "Intermediate",
     "baseXP": 50,
-    "baselineTime": 1,
+    "baselineTime": 2,
     "language": "python",
     "category": "Recursion",
     "isLocked": false,
@@ -3002,89 +3306,87 @@ export const pythonLessons: Lesson[] = [
       "steps": [
         {
           "title": "Why this matters",
-          "content": "Recursion matters when the same action repeats on a smaller version of the problem. Countdowns, tree traversal, and many divide-and-conquer problems use this pattern.",
+          "content": "Recursion is useful when the same job repeats on a smaller version of the same problem. The two non-negotiable parts are a base case and a recursive step that moves toward it.",
           "code": "",
-          "explanation": "Recursion matters when the same action repeats on a smaller version of the problem. Countdowns, tree traversal, and many divide-and-conquer problems use this pattern.",
+          "explanation": "Recursion is useful when the same job repeats on a smaller version of the same problem. The two non-negotiable parts are a base case and a recursive step that moves toward it.",
           "type": "theory",
           "practiceMode": "none",
           "stepKind": "context"
         },
         {
-          "title": "Example 1",
-          "content": "The function calls itself.",
-          "code": "def count(n):\n    if n == 0:\n        return\n    print(n)\n    count(n - 1)\n\ncount(3)",
-          "explanation": "The function calls itself.",
+          "title": "Pattern",
+          "content": "A recursive function solves one piece of the problem, then calls itself on a smaller value.",
+          "code": "def countdown(n):\n    if n <= 0:\n        return\n    print(n)\n    countdown(n - 1)\n\ncountdown(3)",
+          "explanation": "The function prints the current value, then calls itself with n - 1 until the base case stops it.",
           "type": "theory",
           "practiceMode": "none",
           "stepKind": "example"
         },
         {
-          "title": "Example 2",
-          "content": "It needs a stop condition.",
-          "code": "def down(n):\n    if n <= 0:\n        return\n    print(n)\n    down(n - 1)\n\ndown(2)",
-          "explanation": "It needs a stop condition.",
-          "type": "theory",
-          "practiceMode": "none",
-          "stepKind": "example"
-        },
-        {
-          "title": "Example 3",
-          "content": "Recursion with base case.",
-          "code": "def show(n):\n    if n == 1:\n        print(n)\n        return\n    print(n)\n    show(n - 1)\n\nshow(3)",
-          "explanation": "Recursion with base case.",
-          "type": "theory",
-          "practiceMode": "none",
-          "stepKind": "example"
-        },
-        {
-          "title": "Example 4",
-          "content": "The recursive call repeats the pattern.",
-          "code": "def f(n):\n    if n == 0:\n        return\n    print(\"Run\")\n    f(n - 1)\n\nf(2)",
-          "explanation": "The recursive call repeats the pattern.",
+          "title": "Trace",
+          "content": "You can read recursion as a chain of smaller calls.",
+          "code": "def echo_levels(n):\n    if n == 0:\n        return\n    print(\"call\", n)\n    echo_levels(n - 1)\n\necho_levels(2)",
+          "explanation": "This prints call 2, then call 1, then stops when n becomes 0.",
           "type": "theory",
           "practiceMode": "none",
           "stepKind": "example"
         },
         {
           "title": "Q1",
-          "content": "Write a recursive function that prints the numbers from n down to 1, then call it with 4.",
-          "code": "def count_down(n):\n    if n == 0:\n        return\n    print(n)\n    count_down(n - 1)\n\ncount_down(3)",
-          "explanation": "Use a base case to stop at 0, and call the function again with n - 1.",
+          "content": "Define recursive function countdown(n) that prints the numbers from n down to 1. Then call countdown(n)",
+          "code": "def countdown(n):\n    if n <= 0:\n        return\n    print(n)\n    countdown(n - 1)\n\nn = int(input())\ncountdown(n)",
+          "explanation": "Use a base case that stops at 0 or below, then print n and recurse with n - 1.",
           "type": "practice",
+          "evaluationMode": "execution",
           "validationMode": "includes_all",
           "requiredSnippets": [
-            "def",
-            "if",
-            "print(",
-            "n - 1"
+            "def countdown",
+            "countdown(n - 1)"
           ],
-          "starterCode": "",
-          "evaluationMode": "execution",
-          "evaluationId": "python-recursion-intro"
+          "evaluationId": "python-recursion-intro",
+          "practiceBrief": {
+            "task": "Define recursive function countdown(n) that prints the numbers from n down to 1. Then call countdown(n)",
+            "inputs": [
+              "Read an integer from input."
+            ],
+            "requirements": [
+              "Define the required function before calling it.",
+              "Use a base case before the recursive call.",
+              "Use the function name countdown."
+            ],
+            "expectedOutput": [
+              "4",
+              "3",
+              "2",
+              "1"
+            ],
+            "outputDescription": "",
+            "coachNote": "Use a base case that stops at 0 or below, then print n and recurse with n - 1."
+          }
         },
         {
-          "question": "Q2 (Predict Output)\n\ndef f(n):\n    if n == 0:\n        return\n    print(n)\n    f(n - 1)\n\nf(2)",
+          "question": "Q2 (Predict Output)\n\ndef countdown(n):\n    if n <= 0:\n        return\n    print(n)\n    countdown(n - 1)\n\ncountdown(2)",
           "options": [
-            "2 and 1",
-            "1 and 2",
+            "2 then 1",
+            "1 then 2",
             "2 only",
-            "Error"
+            "RecursionError"
           ],
           "correctAnswer": 0,
-          "explanation": "The function prints 2, then 1, then stops at 0.",
+          "explanation": "countdown(2) prints 2, then calls countdown(1), which prints 1, then stops.",
           "type": "question",
           "questionKind": "predict-output"
         },
         {
-          "question": "Q3 (Common Mistake)\n\nWhat happens if the base case is missing in recursion?",
+          "question": "Q3 (Common Mistake)\n\ndef countdown(n):\n    print(n)\n    countdown(n - 1)\n\ncountdown(2)",
           "options": [
-            "It will stop by itself",
-            "It will run forever until recursion error",
-            "It will return 0",
-            "It will display None"
+            "2 then 1",
+            "NameError",
+            "RecursionError",
+            "SyntaxError"
           ],
-          "correctAnswer": 1,
-          "explanation": "Without a base case, the function keeps calling itself until Python hits the recursion limit.",
+          "correctAnswer": 2,
+          "explanation": "The function never reaches a base case, so the calls continue until Python raises RecursionError.",
           "type": "question",
           "questionKind": "common-mistake"
         }
@@ -3093,11 +3395,11 @@ export const pythonLessons: Lesson[] = [
   },
   {
     "id": "python-factorial",
-    "title": "Factorial",
-    "description": "Use recursion to calculate factorial values correctly and safely.",
-    "difficulty": "Advanced",
+    "title": "Recursive Factorial",
+    "description": "Use recursion to compute factorial values with a correct base case for 0 and 1.",
+    "difficulty": "Intermediate",
     "baseXP": 50,
-    "baselineTime": 1,
+    "baselineTime": 2,
     "language": "python",
     "category": "Recursion",
     "isLocked": false,
@@ -3105,75 +3407,71 @@ export const pythonLessons: Lesson[] = [
       "steps": [
         {
           "title": "Why this matters",
-          "content": "Factorial is the first recursion problem where the stop condition and the recursive step both matter. It is useful because it forces you to reason about both.",
+          "content": "Factorial is the first recursion problem where the base case and the recursive step both have to be correct. If either one is wrong, the whole function breaks.",
           "code": "",
-          "explanation": "Factorial is the first recursion problem where the stop condition and the recursive step both matter. It is useful because it forces you to reason about both.",
+          "explanation": "Factorial is the first recursion problem where the base case and the recursive step both have to be correct. If either one is wrong, the whole function breaks.",
           "type": "theory",
           "practiceMode": "none",
           "stepKind": "context"
         },
         {
-          "title": "Example 1",
-          "content": "Factorial calculation with recursion.",
-          "code": "def fact(n):\n    if n == 1:\n        return 1\n    return n * fact(n - 1)\n\nprint(fact(3))",
-          "explanation": "Factorial calculation with recursion.",
+          "title": "Core pattern",
+          "content": "Factorial multiplies n by the factorial of the next smaller value.",
+          "code": "def fact(n):\n    if n <= 1:\n        return 1\n    return n * fact(n - 1)\n\nprint(fact(4))",
+          "explanation": "fact(4) becomes 4 * fact(3), then 3 * fact(2), and so on until the base case returns 1.",
           "type": "theory",
           "practiceMode": "none",
           "stepKind": "example"
         },
         {
-          "title": "Example 2",
-          "content": "The 0! is 1.",
-          "code": "def fact(n):\n    if n == 0:\n        return 1\n    return n * fact(n - 1)\n\nprint(fact(4))",
-          "explanation": "The 0! is 1.",
-          "type": "theory",
-          "practiceMode": "none",
-          "stepKind": "example"
-        },
-        {
-          "title": "Example 3",
-          "content": "More secure base case.",
-          "code": "def fact(n):\n    if n <= 1:\n        return 1\n    return n * fact(n - 1)\n\nprint(fact(2))",
-          "explanation": "More secure base case.",
-          "type": "theory",
-          "practiceMode": "none",
-          "stepKind": "example"
-        },
-        {
-          "title": "Example 4",
-          "content": "We can save the result.",
-          "code": "x = fact(5)\nprint(x)",
-          "explanation": "We can save the result.",
+          "title": "Zero case",
+          "content": "0! must also return 1.",
+          "code": "def fact(n):\n    if n == 0:\n        return 1\n    return n * fact(n - 1)\n\nprint(fact(0))",
+          "explanation": "0! is defined as 1, so the function must stop there too.",
           "type": "theory",
           "practiceMode": "none",
           "stepKind": "example"
         },
         {
           "title": "Q1",
-          "content": "Write a function fact(n) that returns the factorial of n, and display the result for 4.",
-          "code": "def fact(n):\n    if n <= 1:\n        return 1\n    return n * fact(n - 1)\n\nprint(fact(4))",
-          "explanation": "Use a base case for 1 or below, then multiply by fact(n - 1).",
+          "content": "Define recursive function fact(n) that returns the factorial of n. Print fact(n)",
+          "code": "def fact(n):\n    if n <= 1:\n        return 1\n    return n * fact(n - 1)\n\nn = int(input())\nprint(fact(n))",
+          "explanation": "Use n <= 1 as the base case, then return n * fact(n - 1).",
           "type": "practice",
+          "evaluationMode": "execution",
           "validationMode": "includes_all",
           "requiredSnippets": [
             "def fact",
-            "return",
             "fact(n - 1)"
           ],
-          "starterCode": "",
-          "evaluationMode": "execution",
-          "evaluationId": "python-factorial"
+          "evaluationId": "python-factorial",
+          "practiceBrief": {
+            "task": "Define recursive function fact(n) that returns the factorial of n. Print fact(n)",
+            "inputs": [
+              "Read an integer from input."
+            ],
+            "requirements": [
+              "Define the required function before calling it.",
+              "Use a base case before the recursive call.",
+              "Use the function name fact."
+            ],
+            "expectedOutput": [
+              "24"
+            ],
+            "outputDescription": "",
+            "coachNote": "Use n <= 1 as the base case, then return n * fact(n - 1)."
+          }
         },
         {
-          "question": "Q2 (Predict Output)\n\ndef fact(n):\n    if n == 0:\n        return 1\n    return n * fact(n - 1)\n\nprint(fact(3))",
+          "question": "Q2 (Predict Output)\n\ndef fact(n):\n    if n <= 1:\n        return 1\n    return n * fact(n - 1)\n\nprint(fact(4))",
           "options": [
-            "3",
-            "6",
-            "9",
-            "Error"
+            "4",
+            "16",
+            "24",
+            "RecursionError"
           ],
-          "correctAnswer": 1,
-          "explanation": "3! equals 3 * 2 * 1, which is 6.",
+          "correctAnswer": 2,
+          "explanation": "4! = 4 * 3 * 2 * 1 = 24.",
           "type": "question",
           "questionKind": "predict-output"
         },
@@ -3182,11 +3480,11 @@ export const pythonLessons: Lesson[] = [
           "options": [
             "6",
             "3",
-            "Infinite recursion / recursion error",
-            "0"
+            "RecursionError",
+            "TypeError"
           ],
           "correctAnswer": 2,
-          "explanation": "Without a base case, the function never stops calling itself.",
+          "explanation": "There is no base case, so the function keeps calling itself until Python raises RecursionError.",
           "type": "question",
           "questionKind": "common-mistake"
         }
@@ -3195,93 +3493,91 @@ export const pythonLessons: Lesson[] = [
   },
   {
     "id": "python-linear-search",
-    "title": "Linear Search",
-    "description": "Scan a list item by item and stop early when a target is found.",
+    "title": "Search a List",
+    "description": "Scan a list one item at a time and stop as soon as the target is found.",
     "difficulty": "Advanced",
     "baseXP": 50,
-    "baselineTime": 1,
+    "baselineTime": 2,
     "language": "python",
     "category": "Algorithms",
     "isLocked": false,
     "content": {
       "steps": [
         {
-          "title": "Example 1",
-          "content": "Search within a list.",
-          "code": "nums = [1, 2, 3]\nfor n in nums:\n    if n == 2:\n        print(\"Found\")",
-          "explanation": "Search within a list.",
+          "title": "Why this matters",
+          "content": "Linear search is the first search tool you should trust when the list is small or unsorted. The goal is not speed yet. The goal is reliable control flow.",
+          "code": "",
+          "explanation": "Linear search is the first search tool you should trust when the list is small or unsorted. The goal is not speed yet. The goal is reliable control flow.",
+          "type": "theory",
+          "practiceMode": "none",
+          "stepKind": "context"
+        },
+        {
+          "title": "Stop early",
+          "content": "Break as soon as you find the target instead of scanning the rest of the list.",
+          "code": "names = [\"Mia\", \"Leo\", \"Rio\", \"Zoe\"]\ntarget = \"Rio\"\n\nfor name in names:\n    if name == target:\n        print(\"Found\")\n        break",
+          "explanation": "This prints Found once and exits the loop immediately.",
           "type": "theory",
           "practiceMode": "none",
           "stepKind": "example"
         },
         {
-          "title": "Example 2",
-          "content": "Comparison with target.",
-          "code": "nums = [5, 6, 7]\ntarget = 6\nfor n in nums:\n    if n == target:\n        print(\"Found\")",
-          "explanation": "Comparison with target.",
-          "type": "theory",
-          "practiceMode": "none",
-          "stepKind": "example"
-        },
-        {
-          "title": "Example 3",
-          "content": "Use flags.",
-          "code": "nums = [1, 2, 3]\nfound = False\nfor n in nums:\n    if n == 4:\n        found = True\nprint(found)",
-          "explanation": "Use flags.",
-          "type": "theory",
-          "practiceMode": "none",
-          "stepKind": "example"
-        },
-        {
-          "title": "Example 4",
-          "content": "It stops as soon as it is found.",
-          "code": "nums = [1, 2, 3]\nfor n in nums:\n    if n == 2:\n        print(\"Found\")\n        break",
-          "explanation": "It stops as soon as it is found.",
+          "title": "Final answer",
+          "content": "A flag lets you print one final result after the loop finishes.",
+          "code": "names = [\"Mia\", \"Leo\", \"Rio\", \"Zoe\"]\ntarget = \"Ada\"\nfound = False\n\nfor name in names:\n    if name == target:\n        found = True\n        break\n\nif found:\n    print(\"Found\")\nelse:\n    print(\"Missing\")",
+          "explanation": "This pattern avoids printing Missing too early inside the loop.",
           "type": "theory",
           "practiceMode": "none",
           "stepKind": "example"
         },
         {
           "title": "Q1",
-          "content": "Write a program that checks if the number 5 exists in the list [1, 5, 8] and displays \"Found\" if it does.",
-          "code": "nums = [1, 5, 8]\nfor n in nums:\n    if n == 5:\n        print(\"Found\")",
-          "explanation": "Loop through the list and print Found when you match the target value.",
+          "content": "Create names = [\"Mia\", \"Leo\", \"Rio\", \"Zoe\"]. Print Found if the target is in the list, otherwise print Missing",
+          "code": "names = [\"Mia\", \"Leo\", \"Rio\", \"Zoe\"]\ntarget = input().strip()\nfound = False\n\nfor name in names:\n    if name == target:\n        found = True\n        break\n\nif found:\n    print(\"Found\")\nelse:\n    print(\"Missing\")",
+          "explanation": "Loop through the list, stop when you match the target, then print one final result after the loop.",
           "type": "practice",
-          "validationMode": "includes_all",
-          "requiredSnippets": [
-            "nums =",
-            "for",
-            "if",
-            "print(",
-            "\"Found\""
-          ],
-          "starterCode": "",
           "evaluationMode": "execution",
-          "evaluationId": "python-linear-search"
+          "validationMode": "includes_all",
+          "requiredSnippets": [],
+          "evaluationId": "python-linear-search",
+          "practiceBrief": {
+            "task": "Create names = [\"Mia\", \"Leo\", \"Rio\", \"Zoe\"]. Print Found if the target is in the list, otherwise print Missing",
+            "inputs": [
+              "Read a target name from input."
+            ],
+            "requirements": [
+              "Handle both branches of the condition."
+            ],
+            "expectedOutput": [
+              "Found"
+            ],
+            "outputDescription": "",
+            "coachNote": "Loop through the list, stop when you match the target, then print one final result after the loop."
+          }
         },
         {
-          "question": "Q2 (Predict Output)\n\nnums = [1, 2, 3]\nfound = False\nfor n in nums:\n    if n == 2:\n        found = True\nprint(found)",
+          "question": "Q2 (Predict Output)\n\nnames = [\"Mia\", \"Leo\", \"Rio\"]\ntarget = \"Leo\"\nfound = False\n\nfor name in names:\n    if name == target:\n        found = True\n        break\n\nif found:\n    print(\"Found\")\nelse:\n    print(\"Missing\")",
           "options": [
-            "True",
-            "False",
-            "2",
-            "Error"
+            "Found",
+            "Missing",
+            "Leo",
+            "NameError"
           ],
           "correctAnswer": 0,
-          "explanation": "The loop sees 2, sets found to True, and prints True at the end.",
+          "explanation": "The target is present, so found becomes True and the program prints Found.",
           "type": "question",
           "questionKind": "predict-output"
         },
         {
-          "question": "Q3 (Common Mistake)\n\nnums = [1, 2, 3]\nfor n in nums:\n    if n == 4:\n        print(\"Found\")",
+          "question": "Q3 (Common Mistake)\n\nnames = [\"Mia\", \"Leo\", \"Rio\"]\ntarget = \"Rio\"\n\nfor name in names:\n    if name == target:\n        print(\"Found\")\n    else:\n        print(\"Missing\")",
           "options": [
             "Found",
-            "4",
-            "Nothing",
-            "NameError"
+            "Missing",
+            "Missing, Missing, Found",
+            "TypeError"
           ],
           "correctAnswer": 2,
-          "explanation": "Since 4 is not in the list, the print statement never runs.",
+          "explanation": "The else block runs for every non-match, so the loop prints Missing twice before it finally prints Found.",
           "type": "question",
           "questionKind": "common-mistake"
         }
@@ -3290,78 +3586,78 @@ export const pythonLessons: Lesson[] = [
   },
   {
     "id": "python-sorting",
-    "title": "Sorting",
-    "description": "Sort lists in place or with a new copy and understand which method returns None.",
+    "title": "Sort Real Data",
+    "description": "Sort dynamic input and understand when to use sort() versus sorted().",
     "difficulty": "Advanced",
     "baseXP": 50,
-    "baselineTime": 1,
+    "baselineTime": 2,
     "language": "python",
     "category": "Algorithms",
     "isLocked": false,
     "content": {
       "steps": [
         {
-          "title": "Example 1",
-          "content": "Sort within the same list.",
-          "code": "nums = [3, 1, 2]\nnums.sort()\nprint(nums)",
-          "explanation": "Sort within the same list.",
+          "title": "Why this matters",
+          "content": "Sorting is one of the fastest ways to make messy input usable. The two key decisions are whether you want to change the original list and whether you understand what the method returns.",
+          "code": "",
+          "explanation": "Sorting is one of the fastest ways to make messy input usable. The two key decisions are whether you want to change the original list and whether you understand what the method returns.",
+          "type": "theory",
+          "practiceMode": "none",
+          "stepKind": "context"
+        },
+        {
+          "title": "In place",
+          "content": "sort() changes the list you already have.",
+          "code": "nums = [4, 1, 3, 2]\nnums.sort()\nprint(nums)",
+          "explanation": "After sort(), nums itself becomes [1, 2, 3, 4].",
           "type": "theory",
           "practiceMode": "none",
           "stepKind": "example"
         },
         {
-          "title": "Example 2",
-          "content": "sorted() returns new list.",
-          "code": "nums = [3, 1, 2]\nprint(sorted(nums))",
-          "explanation": "sorted() returns new list.",
-          "type": "theory",
-          "practiceMode": "none",
-          "stepKind": "example"
-        },
-        {
-          "title": "Example 3",
-          "content": "Descending order.",
-          "code": "nums = [1, 2, 3]\nnums.sort(reverse=True)\nprint(nums)",
-          "explanation": "Descending order.",
-          "type": "theory",
-          "practiceMode": "none",
-          "stepKind": "example"
-        },
-        {
-          "title": "Example 4",
-          "content": "It also sorts strings.",
-          "code": "words = [\"b\", \"a\"]\nwords.sort()\nprint(words)",
-          "explanation": "It also sorts strings.",
+          "title": "New copy",
+          "content": "sorted() returns a new sorted list and leaves the original alone.",
+          "code": "nums = [4, 1, 3, 2]\nordered = sorted(nums)\nprint(nums)\nprint(ordered)",
+          "explanation": "nums stays unchanged, while ordered stores the sorted version.",
           "type": "theory",
           "practiceMode": "none",
           "stepKind": "example"
         },
         {
           "title": "Q1",
-          "content": "Create list [4, 1, 3, 2], sort it in ascending order and display it.",
-          "code": "nums = [4, 1, 3, 2]\nnums.sort()\nprint(nums)",
-          "explanation": "sort() mutates the existing list into ascending order.",
+          "content": "Store them in nums, sort them in ascending order, and print the final list",
+          "code": "nums = list(map(int, input().split()))\nnums.sort()\nprint(nums)",
+          "explanation": "Split the input, convert each value to int, sort the list, then print it.",
           "type": "practice",
-          "validationMode": "includes_all",
-          "requiredSnippets": [
-            "nums =",
-            "sort(",
-            "print("
-          ],
-          "starterCode": "",
           "evaluationMode": "execution",
-          "evaluationId": "python-sorting"
+          "validationMode": "includes_all",
+          "requiredSnippets": [],
+          "evaluationId": "python-sorting",
+          "practiceBrief": {
+            "task": "Store them in nums, sort them in ascending order, and print the final list",
+            "inputs": [
+              "Read space-separated integers from input."
+            ],
+            "requirements": [
+              "Use the variable name nums."
+            ],
+            "expectedOutput": [
+              "[1, 2, 3, 4]"
+            ],
+            "outputDescription": "",
+            "coachNote": "Split the input, convert each value to int, sort the list, then print it."
+          }
         },
         {
-          "question": "Q2 (Predict Output)\n\nnums = [2, 1]\nnums.sort()\nprint(nums)",
+          "question": "Q2 (Predict Output)\n\nnums = [9, 4, 7]\nprint(sorted(nums))",
           "options": [
-            "[2, 1]",
-            "[1, 2]",
-            "12",
-            "Error"
+            "[9, 4, 7]",
+            "[4, 7, 9]",
+            "9 4 7",
+            "None"
           ],
           "correctAnswer": 1,
-          "explanation": "After sorting, the list becomes [1, 2].",
+          "explanation": "sorted(nums) returns a new list in ascending order.",
           "type": "question",
           "questionKind": "predict-output"
         },
@@ -3370,11 +3666,11 @@ export const pythonLessons: Lesson[] = [
           "options": [
             "[1, 2, 3]",
             "None",
-            "3",
-            "TypeError"
+            "TypeError",
+            "[3, 1, 2]"
           ],
           "correctAnswer": 1,
-          "explanation": "sort() returns None because it modifies the list in place.",
+          "explanation": "sort() changes the list in place and returns None, so print(nums.sort()) prints None.",
           "type": "question",
           "questionKind": "common-mistake"
         }
@@ -3383,11 +3679,11 @@ export const pythonLessons: Lesson[] = [
   },
   {
     "id": "python-complexity-basics",
-    "title": "Complexity Basics",
+    "title": "How Loops Scale",
     "description": "Recognize constant-time access, linear scans, and nested-loop growth before performance becomes a problem.",
     "difficulty": "Advanced",
     "baseXP": 50,
-    "baselineTime": 1,
+    "baselineTime": 2,
     "language": "python",
     "category": "Algorithms",
     "isLocked": false,
@@ -3395,87 +3691,86 @@ export const pythonLessons: Lesson[] = [
       "steps": [
         {
           "title": "Why this matters",
-          "content": "Performance starts to matter as data grows. This lesson is the bridge from “can I code it?” to “will this still feel fast on a bigger input?”",
+          "content": "Performance starts to matter when the input grows. You do not need formal Big-O notation yet, but you do need to notice the difference between one lookup, one pass, and repeated work.",
           "code": "",
-          "explanation": "Performance starts to matter as data grows. This lesson is the bridge from “can I code it?” to “will this still feel fast on a bigger input?”",
+          "explanation": "Performance starts to matter when the input grows. You do not need formal Big-O notation yet, but you do need to notice the difference between one lookup, one pass, and repeated work.",
           "type": "theory",
           "practiceMode": "none",
           "stepKind": "context"
         },
         {
-          "title": "Example 1",
-          "content": "This pattern runs once for each element.",
-          "code": "for n in [1, 2, 3]:\n    print(n)",
-          "explanation": "This pattern runs once for each element.",
+          "title": "Direct access",
+          "content": "Reading one index does not scan the whole list.",
+          "code": "nums = [4, 8, 15, 16]\nprint(nums[0])",
+          "explanation": "This grabs one value directly.",
           "type": "theory",
           "practiceMode": "none",
           "stepKind": "example"
         },
         {
-          "title": "Example 2",
-          "content": "Access to an index is immediate.",
-          "code": "nums = [1, 2, 3]\nprint(nums[0])",
-          "explanation": "Access to an index is immediate.",
+          "title": "One pass",
+          "content": "A single loop visits each item once.",
+          "code": "nums = [4, 8, 15, 16]\ntotal = 0\n\nfor n in nums:\n    total += n\n\nprint(total)",
+          "explanation": "The work grows with the number of items because the loop touches each item once.",
           "type": "theory",
           "practiceMode": "none",
           "stepKind": "example"
         },
         {
-          "title": "Example 3",
-          "content": "Two nested loops do much more iterations.",
-          "code": "for i in range(3):\n    for j in range(3):\n        print(i, j)",
-          "explanation": "Two nested loops do much more iterations.",
-          "type": "theory",
-          "practiceMode": "none",
-          "stepKind": "example"
-        },
-        {
-          "title": "Example 4",
-          "content": "List search checks items one by one.",
-          "code": "nums = [1, 2, 3]\nprint(3 in nums)",
-          "explanation": "List search checks items one by one.",
+          "title": "Nested loops",
+          "content": "A loop inside a loop multiplies the amount of work.",
+          "code": "nums = [1, 2, 3]\n\nfor left in nums:\n    for right in nums:\n        print(left, right)",
+          "explanation": "Each value on the left gets paired with every value on the right.",
           "type": "theory",
           "practiceMode": "none",
           "stepKind": "example"
         },
         {
           "title": "Q1",
-          "content": "Write a program that displays all the elements of the list [1, 2, 3, 4] one by one in a loop.",
-          "code": "for n in [1, 2, 3, 4]:\n    print(n)",
-          "explanation": "A single loop touches each element once and prints it.",
+          "content": "Loop through them once, and print their total",
+          "code": "nums = list(map(int, input().split()))\ntotal = 0\n\nfor n in nums:\n    total += n\n\nprint(total)",
+          "explanation": "Use one loop and a running total variable.",
           "type": "practice",
-          "validationMode": "includes_all",
-          "requiredSnippets": [
-            "for",
-            "print("
-          ],
-          "starterCode": "",
           "evaluationMode": "execution",
-          "evaluationId": "python-complexity-basics"
+          "validationMode": "includes_all",
+          "requiredSnippets": [],
+          "evaluationId": "python-complexity-basics",
+          "practiceBrief": {
+            "task": "Loop through them once, and print their total",
+            "inputs": [
+              "Read space-separated integers from input."
+            ],
+            "requirements": [],
+            "expectedOutput": [
+              "10"
+            ],
+            "outputDescription": "",
+            "coachNote": "Use one loop and a running total variable."
+          }
         },
         {
           "question": "Q2 (Predict Output)\n\nnums = [1, 2, 3]\nprint(nums[0])",
           "options": [
-            "Access to a single item",
-            "Loop through all elements",
-            "Nested loop",
-            "Search the entire list"
+            "It scans every item in the list",
+            "It reads one item directly",
+            "It sorts the list",
+            "It raises IndexError"
           ],
-          "correctAnswer": 0,
-          "explanation": "nums[0] reads one item directly by index.",
+          "correctAnswer": 1,
+          "explanation": "nums[0] reads one element directly. It does not scan the whole list.",
           "type": "question",
           "questionKind": "predict-output"
         },
         {
-          "question": "Q3 (Common Mistake)\n\nWhich pattern takes more total iterations as the input grows?",
+          "question": "Q3 (Common Mistake)\n\nfor i in nums:\n    for j in nums:\n        print(i, j)",
           "options": [
-            "print(nums[0])",
-            "for x in nums:\n    print(x)",
-            "for i in nums:\n    for j in nums:\n        print(i, j)",
-            "print(len(nums))"
+            "The work grows about n * n",
+            "The work grows about n",
+            "Only the inner loop matters",
+            "NameError"
           ],
-          "correctAnswer": 2,
-          "explanation": "Nested loops grow much faster because each outer item triggers a full inner loop.",
+          "correctAnswer": 0,
+          "explanation": "Two nested loops multiply the total amount of work, so the number of operations grows roughly like n * n.",
           "type": "question",
           "questionKind": "common-mistake"
         }
@@ -3484,11 +3779,11 @@ export const pythonLessons: Lesson[] = [
   },
   {
     "id": "python-two-pointers",
-    "title": "Two Pointers",
+    "title": "Pair Sum with Two Pointers",
     "description": "Use left and right indexes to solve array problems with less work than a nested loop.",
     "difficulty": "Advanced",
     "baseXP": 50,
-    "baselineTime": 1,
+    "baselineTime": 3,
     "language": "python",
     "category": "Algorithms",
     "isLocked": false,
@@ -3496,89 +3791,84 @@ export const pythonLessons: Lesson[] = [
       "steps": [
         {
           "title": "Why this matters",
-          "content": "Two pointers are a reusable problem-solving pattern. They let you scan from both ends of a list without paying the cost of nested loops.",
+          "content": "Two pointers are useful when a list is already ordered. Instead of checking every pair, you move one pointer from the left and one from the right until you either find the target or cross over.",
           "code": "",
-          "explanation": "Two pointers are a reusable problem-solving pattern. They let you scan from both ends of a list without paying the cost of nested loops.",
+          "explanation": "Two pointers are useful when a list is already ordered. Instead of checking every pair, you move one pointer from the left and one from the right until you either find the target or cross over.",
           "type": "theory",
           "practiceMode": "none",
           "stepKind": "context"
         },
         {
-          "title": "Example 1",
-          "content": "Two pointers on two ends.",
-          "code": "nums = [1, 2, 3]\nl = 0\nr = 2\nprint(nums[l], nums[r])",
-          "explanation": "Two pointers on two ends.",
+          "title": "Start at both ends",
+          "content": "Begin with one pointer at the start and one at the end.",
+          "code": "nums = [1, 3, 4, 7, 9]\nl = 0\nr = len(nums) - 1\nprint(nums[l], nums[r])",
+          "explanation": "This starts with the smallest and largest values.",
           "type": "theory",
           "practiceMode": "none",
           "stepKind": "example"
         },
         {
-          "title": "Example 2",
-          "content": "The pointers move towards the center.",
-          "code": "nums = [1, 2, 3, 4]\nl = 0\nr = len(nums) - 1\nwhile l < r:\n    print(nums[l], nums[r])\n    l += 1\n    r -= 1",
-          "explanation": "The pointers move towards the center.",
-          "type": "theory",
-          "practiceMode": "none",
-          "stepKind": "example"
-        },
-        {
-          "title": "Example 3",
-          "content": "We can use both values together.",
-          "code": "nums = [1, 2, 3]\nl = 0\nr = 2\nprint(nums[l] + nums[r])",
-          "explanation": "We can use both values together.",
-          "type": "theory",
-          "practiceMode": "none",
-          "stepKind": "example"
-        },
-        {
-          "title": "Example 4",
-          "content": "Pointer traversing the list.",
-          "code": "nums = [10, 20, 30]\nl = 0\nwhile l < len(nums):\n    print(nums[l])\n    l += 1",
-          "explanation": "Pointer traversing the list.",
+          "title": "Move the correct side",
+          "content": "If the sum is too small, move the left pointer. If the sum is too large, move the right pointer.",
+          "code": "nums = [1, 3, 4, 7, 9]\ntarget = 10\nl = 0\nr = len(nums) - 1\n\nwhile l < r:\n    current = nums[l] + nums[r]\n    if current == target:\n        print(\"Found\")\n        break\n    if current < target:\n        l += 1\n    else:\n        r -= 1",
+          "explanation": "This avoids the cost of trying every possible pair.",
           "type": "theory",
           "practiceMode": "none",
           "stepKind": "example"
         },
         {
           "title": "Q1",
-          "content": "Create list [1, 2, 3, 4], set l = 0 and r = 3, and display the first and last element.",
-          "code": "nums = [1, 2, 3, 4]\nl = 0\nr = 3\nprint(nums[l], nums[r])",
-          "explanation": "l points at the first element and r at the last one.",
+          "content": "Use nums = [1, 3, 4, 7, 9]. Use a two-pointer loop to print Found if any pair adds to the target, otherwise print No pair",
+          "code": "nums = [1, 3, 4, 7, 9]\ntarget = int(input())\nl = 0\nr = len(nums) - 1\nfound = False\n\nwhile l < r:\n    current = nums[l] + nums[r]\n    if current == target:\n        found = True\n        break\n    if current < target:\n        l += 1\n    else:\n        r -= 1\n\nif found:\n    print(\"Found\")\nelse:\n    print(\"No pair\")",
+          "explanation": "Set one pointer on each end, compare the current sum to the target, and move only the side that can improve the result.",
           "type": "practice",
+          "evaluationMode": "execution",
           "validationMode": "includes_all",
           "requiredSnippets": [
-            "nums =",
-            "l =",
-            "r =",
-            "print("
+            "while l < r",
+            "l += 1",
+            "r -= 1"
           ],
-          "starterCode": "",
-          "evaluationMode": "execution",
-          "evaluationId": "python-two-pointers"
+          "evaluationId": "python-two-pointers",
+          "practiceBrief": {
+            "task": "Use nums = [1, 3, 4, 7, 9]. Use a two-pointer loop to print Found if any pair adds to the target, otherwise print No pair",
+            "inputs": [
+              "Read a target sum from input."
+            ],
+            "requirements": [
+              "Use a while loop to control repetition.",
+              "Handle both branches of the condition."
+            ],
+            "expectedOutput": [
+              "Found"
+            ],
+            "outputDescription": "",
+            "coachNote": "Set one pointer on each end, compare the current sum to the target, and move only the side that can improve the result."
+          }
         },
         {
-          "question": "Q2 (Predict Output)\n\nnums = [1, 2, 3]\nl = 0\nr = 2\nprint(nums[l], nums[r])",
+          "question": "Q2 (Predict Output)\n\nnums = [1, 3, 4, 7, 9]\ntarget = 12\nl = 0\nr = len(nums) - 1\n\nwhile l < r:\n    current = nums[l] + nums[r]\n    if current == target:\n        print(\"Found\")\n        break\n    if current < target:\n        l += 1\n    else:\n        r -= 1",
           "options": [
-            "1 2",
-            "2 3",
-            "1 3",
-            "Error"
+            "Found",
+            "No pair",
+            "12",
+            "IndexError"
           ],
-          "correctAnswer": 2,
-          "explanation": "Index 0 is 1 and index 2 is 3, so Python prints 1 3.",
+          "correctAnswer": 0,
+          "explanation": "3 + 9 becomes 12, so the loop prints Found.",
           "type": "question",
           "questionKind": "predict-output"
         },
         {
-          "question": "Q3 (Common Mistake)\n\nnums = [1, 2, 3]\nprint(nums[3])",
+          "question": "Q3 (Common Mistake)\n\nnums = [1, 3, 4]\nr = len(nums)\nprint(nums[r])",
           "options": [
-            "3",
+            "4",
             "0",
-            "None",
-            "IndexError"
+            "IndexError",
+            "TypeError"
           ],
-          "correctAnswer": 3,
-          "explanation": "Index 3 is out of range for this list, so Python raises an IndexError.",
+          "correctAnswer": 2,
+          "explanation": "The last valid index is len(nums) - 1. Using len(nums) goes past the end and raises IndexError.",
           "type": "question",
           "questionKind": "common-mistake"
         }
@@ -3587,77 +3877,77 @@ export const pythonLessons: Lesson[] = [
   },
   {
     "id": "python-mixed-problems",
-    "title": "Mixed Problems",
-    "description": "Combine built-in list operations like min, max, len, and sum in one place.",
+    "title": "Quick List Stats",
+    "description": "Combine small built-in tools like min, max, and len to answer simple data questions quickly.",
     "difficulty": "Advanced",
     "baseXP": 50,
-    "baselineTime": 1,
+    "baselineTime": 2,
     "language": "python",
     "category": "Algorithms",
     "isLocked": false,
     "content": {
       "steps": [
         {
-          "title": "Example 1",
-          "content": "List Sum.",
-          "code": "nums = [1, 2, 3]\nprint(sum(nums))",
-          "explanation": "List Sum.",
+          "title": "Why this matters",
+          "content": "A lot of practical coding is not about a new algorithm. It is about combining a few small built-ins correctly and knowing when edge cases can break them.",
+          "code": "",
+          "explanation": "A lot of practical coding is not about a new algorithm. It is about combining a few small built-ins correctly and knowing when edge cases can break them.",
+          "type": "theory",
+          "practiceMode": "none",
+          "stepKind": "context"
+        },
+        {
+          "title": "Smallest and largest",
+          "content": "min() and max() answer the most basic data questions immediately.",
+          "code": "nums = [7, 2, 9]\nprint(min(nums))\nprint(max(nums))",
+          "explanation": "This prints the smallest value first, then the largest.",
           "type": "theory",
           "practiceMode": "none",
           "stepKind": "example"
         },
         {
-          "title": "Example 2",
-          "content": "Minimum item.",
-          "code": "nums = [1, 2, 3]\nprint(min(nums))",
-          "explanation": "Minimum item.",
-          "type": "theory",
-          "practiceMode": "none",
-          "stepKind": "example"
-        },
-        {
-          "title": "Example 3",
-          "content": "Value range.",
-          "code": "nums = [1, 2, 3]\nprint(max(nums) - min(nums))",
-          "explanation": "Value range.",
-          "type": "theory",
-          "practiceMode": "none",
-          "stepKind": "example"
-        },
-        {
-          "title": "Example 4",
-          "content": "List size.",
-          "code": "nums = [1, 2, 3]\nprint(len(nums))",
-          "explanation": "List size.",
+          "title": "Range",
+          "content": "A list range is max minus min.",
+          "code": "nums = [7, 2, 9]\nprint(max(nums) - min(nums))",
+          "explanation": "This measures how spread out the data is.",
           "type": "theory",
           "practiceMode": "none",
           "stepKind": "example"
         },
         {
           "title": "Q1",
-          "content": "Create list [7, 2, 9] and display its smallest element.",
-          "code": "nums = [7, 2, 9]\nprint(min(nums))",
-          "explanation": "min() returns the smallest value in the list.",
+          "content": "Read space-separated integers and print the smallest value, then the largest value.",
+          "code": "nums = list(map(int, input().split()))\nprint(min(nums))\nprint(max(nums))",
+          "explanation": "Convert the input into a list of ints, then print min(nums) and max(nums) on separate lines.",
           "type": "practice",
-          "validationMode": "includes_all",
-          "requiredSnippets": [
-            "nums =",
-            "print("
-          ],
-          "starterCode": "",
           "evaluationMode": "execution",
-          "evaluationId": "python-mixed-problems"
+          "validationMode": "includes_all",
+          "requiredSnippets": [],
+          "evaluationId": "python-mixed-problems",
+          "practiceBrief": {
+            "task": "Read space-separated integers and print the smallest value, then the largest value.",
+            "inputs": [
+              "Read space-separated integers from input."
+            ],
+            "requirements": [],
+            "expectedOutput": [
+              "2",
+              "9"
+            ],
+            "outputDescription": "",
+            "coachNote": "Convert the input into a list of ints, then print min(nums) and max(nums) on separate lines."
+          }
         },
         {
-          "question": "Q2 (Predict Output)\n\nnums = [4, 1, 8]\nprint(min(nums))",
+          "question": "Q2 (Predict Output)\n\nnums = [4, 1, 8]\nprint(max(nums) - min(nums))",
           "options": [
+            "3",
+            "7",
             "8",
-            "4",
-            "1",
-            "Error"
+            "ValueError"
           ],
-          "correctAnswer": 2,
-          "explanation": "The smallest value in [4, 1, 8] is 1.",
+          "correctAnswer": 1,
+          "explanation": "max(nums) is 8 and min(nums) is 1, so the range is 7.",
           "type": "question",
           "questionKind": "predict-output"
         },
@@ -3665,12 +3955,12 @@ export const pythonLessons: Lesson[] = [
           "question": "Q3 (Common Mistake)\n\nnums = []\nprint(max(nums))",
           "options": [
             "0",
-            "[]",
             "None",
-            "ValueError"
+            "ValueError",
+            "IndexError"
           ],
-          "correctAnswer": 3,
-          "explanation": "max() on an empty list raises a ValueError.",
+          "correctAnswer": 2,
+          "explanation": "max() cannot choose a largest value from an empty list, so Python raises ValueError.",
           "type": "question",
           "questionKind": "common-mistake"
         }
@@ -3679,78 +3969,116 @@ export const pythonLessons: Lesson[] = [
   },
   {
     "id": "python-data-processor",
-    "title": "Data Processor",
-    "description": "Use sorting, totals, counts, and averages to process a small dataset.",
+    "title": "Project: Data Report Tool",
+    "description": "Turn raw numeric input into a report with sorted values, totals, averages, and range.",
     "difficulty": "Advanced",
     "baseXP": 50,
-    "baselineTime": 1,
+    "baselineTime": 5,
     "language": "python",
-    "category": "Algorithms",
+    "category": "Projects",
     "isLocked": false,
+    "projectBrief": {
+      "goal": "Transform a raw numeric dataset into a compact summary report.",
+      "inputs": [
+        "Space-separated integers from input"
+      ],
+      "outputs": [
+        "Sorted list",
+        "Total",
+        "Average",
+        "Range"
+      ],
+      "skills": [
+        "list parsing",
+        "sorted()",
+        "sum()",
+        "min/max",
+        "report formatting"
+      ]
+    },
     "content": {
       "steps": [
         {
-          "title": "Example 1",
-          "content": "Total calculation.",
-          "code": "nums = [1, 2, 3]\nprint(sum(nums))",
-          "explanation": "Total calculation.",
+          "title": "Why this matters",
+          "content": "This capstone should feel like a small reporting utility. You are taking raw numeric input and turning it into several useful signals that someone could actually read and act on.",
+          "code": "",
+          "explanation": "This capstone should feel like a small reporting utility. You are taking raw numeric input and turning it into several useful signals that someone could actually read and act on.",
+          "type": "theory",
+          "practiceMode": "none",
+          "stepKind": "context"
+        },
+        {
+          "title": "Summarize one dataset",
+          "content": "A useful script can answer more than one question from the same numbers.",
+          "code": "nums = [2, 4, 6, 8]\nprint(f\"Sorted: {sorted(nums)}\")\nprint(f\"Total: {sum(nums)}\")\nprint(f\"Average: {sum(nums) / len(nums)}\")\nprint(f\"Range: {max(nums) - min(nums)}\")",
+          "explanation": "A single list can produce a sorted view, a total, an average, and a range.",
           "type": "theory",
           "practiceMode": "none",
           "stepKind": "example"
         },
         {
-          "title": "Example 2",
-          "content": "Lots of items.",
-          "code": "nums = [1, 2, 3]\nprint(len(nums))",
-          "explanation": "Lots of items.",
+          "title": "Handle unsorted input",
+          "content": "The report should stay useful even when the input order is messy.",
+          "code": "nums = [3, 1, 2]\nprint(\"Sorted:\", sorted(nums))\nprint(\"Total:\", sum(nums))\nprint(\"Average:\", sum(nums) / len(nums))\nprint(\"Range:\", max(nums) - min(nums))",
+          "explanation": "sorted() fixes the order, while max() and min() expose the spread.",
           "type": "theory",
           "practiceMode": "none",
           "stepKind": "example"
         },
         {
-          "title": "Example 3",
-          "content": "Classification of data.",
-          "code": "nums = [3, 1, 2]\nprint(sorted(nums))",
-          "explanation": "Classification of data.",
-          "type": "theory",
-          "practiceMode": "none",
-          "stepKind": "example"
-        },
-        {
-          "title": "Example 4",
-          "content": "Average calculation.",
-          "code": "nums = [2, 4, 6]\nprint(sum(nums) / len(nums))",
-          "explanation": "Average calculation.",
+          "title": "Negative values still count",
+          "content": "A real report should work on datasets that include losses or negative changes.",
+          "code": "nums = [-5, 0, 10]\nprint(\"Range:\", max(nums) - min(nums))",
+          "explanation": "The range is still the distance from the minimum to the maximum value.",
           "type": "theory",
           "practiceMode": "none",
           "stepKind": "example"
         },
         {
           "title": "Q1",
-          "content": "Create list [2, 4, 6, 8] and display its average.",
-          "code": "nums = [2, 4, 6, 8]\nprint(sum(nums) / len(nums))",
-          "explanation": "The average is the total divided by the number of items.",
+          "content": "Read a line of numbers, process it, and print the required four-line data report.",
+          "code": "nums = list(map(int, input().split()))\nprint(f\"Sorted: {sorted(nums)}\")\nprint(f\"Total: {sum(nums)}\")\nprint(f\"Average: {sum(nums) / len(nums)}\")\nprint(f\"Range: {max(nums) - min(nums)}\")",
+          "explanation": "Parse the input once, then reuse that list to build the full four-line report.",
           "type": "practice",
+          "evaluationMode": "execution",
           "validationMode": "includes_all",
           "requiredSnippets": [
-            "nums =",
-            "print(",
-            "/"
+            "sorted(",
+            "sum(",
+            "len(",
+            "max(",
+            "min("
           ],
-          "starterCode": "",
-          "evaluationMode": "execution",
-          "evaluationId": "python-data-processor"
+          "evaluationId": "python-data-processor",
+          "practiceBrief": {
+            "task": "Read a line of numbers, process it, and print the required four-line data report.",
+            "inputs": [
+              "Space-separated integers from input"
+            ],
+            "requirements": [
+              "Keep the labels, order, and spacing exactly as shown.",
+              "Sort the values before printing the report."
+            ],
+            "expectedOutput": [
+              "Sorted: <sorted list>",
+              "Total: <sum>",
+              "Average: <average>",
+              "Range: <range>"
+            ],
+            "outputDescription": "",
+            "coachNote": "Parse the input once, then reuse that list to build the full four-line report."
+          }
         },
         {
-          "question": "Q2 (Predict Output)\n\nnums = [2, 4]\nprint(sum(nums) / len(nums))",
+          "question": "Q2 (Predict Output)\n\nnums = [2, 4]\nprint(f\"Sorted: {sorted(nums)}\")\nprint(f\"Total: {sum(nums)}\")\nprint(f\"Average: {sum(nums) / len(nums)}\")\nprint(f\"Range: {max(nums) - min(nums)}\")",
           "options": [
-            "2",
-            "3",
-            "3.0",
-            "6"
+            "Sorted: [2, 4] / Total: 6 / Average: 3.0 / Range: 2",
+            "Sorted: [2, 4] / Total: 6 / Average: 3 / Range: 2",
+            "Sorted: [4, 2] / Total: 6 / Average: 3.0 / Range: 2",
+            "TypeError"
           ],
-          "correctAnswer": 2,
-          "explanation": "The sum is 6, the length is 2, and 6 / 2 gives 3.0.",
+          "correctAnswer": 0,
+          "explanation": "The list is already sorted, the total is 6, the average is 3.0, and the range is 4 - 2 = 2.",
           "type": "question",
           "questionKind": "predict-output"
         },
@@ -3759,10 +4087,10 @@ export const pythonLessons: Lesson[] = [
           "options": [
             "0",
             "0.0",
-            "None",
-            "ZeroDivisionError"
+            "ZeroDivisionError",
+            "ValueError"
           ],
-          "correctAnswer": 3,
+          "correctAnswer": 2,
           "explanation": "sum(nums) / len(nums) divides by zero when nums is empty, so Python raises a ZeroDivisionError.",
           "type": "question",
           "questionKind": "common-mistake"
@@ -3772,11 +4100,11 @@ export const pythonLessons: Lesson[] = [
   },
   {
     "id": "python-file-reading",
-    "title": "File Reading",
+    "title": "Read from a File",
     "description": "Read real file data safely and understand how the file cursor changes after each read.",
     "difficulty": "Advanced",
     "baseXP": 50,
-    "baselineTime": 1,
+    "baselineTime": 3,
     "language": "python",
     "category": "Files",
     "isLocked": false,
@@ -3784,88 +4112,87 @@ export const pythonLessons: Lesson[] = [
       "steps": [
         {
           "title": "Why this matters",
-          "content": "Real programs do not only read input from the keyboard. They often load data from files, logs, or saved reports, so safe file access is a core practical skill.",
+          "content": "Real programs often load saved data from a file instead of asking the user to type everything again. Safe file reading starts with opening the file correctly and knowing how each read changes the file pointer.",
           "code": "",
-          "explanation": "Real programs do not only read input from the keyboard. They often load data from files, logs, or saved reports, so safe file access is a core practical skill.",
+          "explanation": "Real programs often load saved data from a file instead of asking the user to type everything again. Safe file reading starts with opening the file correctly and knowing how each read changes the file pointer.",
           "type": "theory",
           "practiceMode": "none",
           "stepKind": "context"
         },
         {
-          "title": "Example 1",
-          "content": "Reads the entire file.",
-          "code": "f = open(\"data.txt\", \"r\")\nprint(f.read())\nf.close()",
-          "explanation": "Reads the entire file.",
-          "type": "theory",
-          "practiceMode": "none",
-          "stepKind": "example"
-        },
-        {
-          "title": "Example 2",
-          "content": "Reads one line.",
-          "code": "f = open(\"data.txt\", \"r\")\nprint(f.readline())\nf.close()",
-          "explanation": "Reads one line.",
-          "type": "theory",
-          "practiceMode": "none",
-          "stepKind": "example"
-        },
-        {
-          "title": "Example 3",
-          "content": "with automatically closes the file.",
+          "title": "Read everything",
+          "content": "Use read() when you want the whole file at once.",
           "code": "with open(\"data.txt\", \"r\") as f:\n    print(f.read())",
-          "explanation": "with automatically closes the file.",
+          "explanation": "The with block closes the file automatically after reading it.",
           "type": "theory",
           "practiceMode": "none",
           "stepKind": "example"
         },
         {
-          "title": "Example 4",
-          "content": "Reads line by line.",
-          "code": "with open(\"data.txt\", \"r\") as f:\n    for line in f:\n        print(line)",
-          "explanation": "Reads line by line.",
+          "title": "Read line by line",
+          "content": "A loop is useful when the file may contain many lines.",
+          "code": "with open(\"data.txt\", \"r\") as f:\n    for line in f:\n        print(line.strip())",
+          "explanation": "strip() removes the newline at the end of each line.",
+          "type": "theory",
+          "practiceMode": "none",
+          "stepKind": "example"
+        },
+        {
+          "title": "The pointer moves",
+          "content": "After you read once, the next read starts from the new position.",
+          "code": "with open(\"data.txt\", \"r\") as f:\n    print(f.readline())\n    print(f.readline())",
+          "explanation": "Each readline() advances the file pointer to the next line.",
           "type": "theory",
           "practiceMode": "none",
           "stepKind": "example"
         },
         {
           "title": "Q1",
-          "content": "Write code that opens the file data.txt in read mode and displays all its contents.",
+          "content": "Open data.txt in read mode and print the full file contents",
           "code": "with open(\"data.txt\", \"r\") as f:\n    print(f.read())",
-          "explanation": "Use with open(..., \"r\") for safe file reading and print the result of read().",
+          "explanation": "Use with open(..., \"r\") and print the result of read().",
           "type": "practice",
+          "evaluationMode": "static",
           "validationMode": "includes_all",
           "requiredSnippets": [
-            "with open(",
-            "\"r\"",
-            "read(",
-            "print("
+            "open(",
+            "read("
           ],
-          "starterCode": "",
-          "evaluationMode": "static"
+          "practiceBrief": {
+            "task": "Open data.txt in read mode and print the full file contents",
+            "inputs": [],
+            "requirements": [],
+            "expectedOutput": [
+              "red",
+              "blue"
+            ],
+            "outputDescription": "",
+            "coachNote": "Use with open(..., \"r\") and print the result of read()."
+          }
         },
         {
           "question": "Q2 (Predict Output)\n\nWhat kind of object is f?\n\nwith open(\"data.txt\", \"r\") as f:\n    print(type(f))",
           "options": [
-            "int",
-            "string",
-            "file object",
-            "list"
+            "red then blue",
+            "redred",
+            "blue then red",
+            "FileNotFoundError"
           ],
-          "correctAnswer": 2,
-          "explanation": "open() returns a file object that you can read from or write to.",
+          "correctAnswer": 0,
+          "explanation": "The first readline() returns the first line, and the second readline() returns the next one.",
           "type": "question",
           "questionKind": "predict-output"
         },
         {
-          "question": "Q3 (Common Mistake)\n\nf = open(\"data.txt\", \"r\")\nprint(f.read())\nprint(f.read())\nf.close()",
+          "question": "Q3 (Common Mistake)\n\nwith open(\"missing.txt\", \"r\") as f:\n    print(f.read())",
           "options": [
-            "The same content will appear twice",
-            "The second read() will be empty",
+            "None",
             "FileNotFoundError",
-            "None"
+            "ValueError",
+            "TypeError"
           ],
           "correctAnswer": 1,
-          "explanation": "After the first read(), the file cursor is at the end, so the second read() is empty.",
+          "explanation": "Opening a file that does not exist in read mode raises FileNotFoundError.",
           "type": "question",
           "questionKind": "common-mistake"
         }
@@ -3874,11 +4201,11 @@ export const pythonLessons: Lesson[] = [
   },
   {
     "id": "python-file-writing",
-    "title": "File Writing",
+    "title": "Write and Verify a File",
     "description": "Write and append file content without losing data or confusing strings with non-string values.",
     "difficulty": "Advanced",
     "baseXP": 50,
-    "baselineTime": 1,
+    "baselineTime": 3,
     "language": "python",
     "category": "Files",
     "isLocked": false,
@@ -3886,86 +4213,76 @@ export const pythonLessons: Lesson[] = [
       "steps": [
         {
           "title": "Why this matters",
-          "content": "Writing to files turns your program into something that can save work, reports, and logs. That is the difference between a demo script and a useful tool.",
+          "content": "File writing is useful only if you understand what happens to existing content and how to verify the saved result. A reliable script writes, then checks what was actually stored.",
           "code": "",
-          "explanation": "Writing to files turns your program into something that can save work, reports, and logs. That is the difference between a demo script and a useful tool.",
+          "explanation": "File writing is useful only if you understand what happens to existing content and how to verify the saved result. A reliable script writes, then checks what was actually stored.",
           "type": "theory",
           "practiceMode": "none",
           "stepKind": "context"
         },
         {
-          "title": "Example 1",
-          "content": "Writes and overwrites the file.",
-          "code": "f = open(\"data.txt\", \"w\")\nf.write(\"Hello\")\nf.close()",
-          "explanation": "Writes and overwrites the file.",
+          "title": "Overwrite vs append",
+          "content": "w starts fresh. a adds new content to the end.",
+          "code": "with open(\"notes.txt\", \"w\") as f:\n    f.write(\"Hello\")\n\nwith open(\"notes.txt\", \"a\") as f:\n    f.write(\" world\")",
+          "explanation": "The first write replaces old content. The append adds more text after it.",
           "type": "theory",
           "practiceMode": "none",
           "stepKind": "example"
         },
         {
-          "title": "Example 2",
-          "content": "Secure registration with with.",
-          "code": "with open(\"data.txt\", \"w\") as f:\n    f.write(\"New\")",
-          "explanation": "Secure registration with with.",
-          "type": "theory",
-          "practiceMode": "none",
-          "stepKind": "example"
-        },
-        {
-          "title": "Example 3",
-          "content": "The a adds to the end.",
-          "code": "with open(\"data.txt\", \"a\") as f:\n    f.write(\" More\")",
-          "explanation": "The a adds to the end.",
-          "type": "theory",
-          "practiceMode": "none",
-          "stepKind": "example"
-        },
-        {
-          "title": "Example 4",
-          "content": "write() accepts a string.",
-          "code": "with open(\"data.txt\", \"w\") as f:\n    f.write(str(123))",
-          "explanation": "write() accepts a string.",
+          "title": "Verify the write",
+          "content": "Open the file again when you want to confirm what was saved.",
+          "code": "with open(\"notes.txt\", \"w\") as f:\n    f.write(\"Done\")\n\nwith open(\"notes.txt\", \"r\") as f:\n    print(f.read())",
+          "explanation": "Reopening the file lets the program confirm the saved content.",
           "type": "theory",
           "practiceMode": "none",
           "stepKind": "example"
         },
         {
           "title": "Q1",
-          "content": "Write code that creates or opens notes.txt in \"w\" mode and writes Hello inside.",
-          "code": "with open(\"notes.txt\", \"w\") as f:\n    f.write(\"Hello\")",
-          "explanation": "Open the file in write mode and pass a string to write().",
+          "content": "Write it to notes.txt, reopen the file, and print the saved text",
+          "code": "text = input()\n\nwith open(\"notes.txt\", \"w\") as f:\n    f.write(text)\n\nwith open(\"notes.txt\", \"r\") as f:\n    print(f.read())",
+          "explanation": "Capture the input, write it to notes.txt, then read the file back and print it.",
           "type": "practice",
+          "evaluationMode": "static",
           "validationMode": "includes_all",
           "requiredSnippets": [
-            "with open(",
-            "\"notes.txt\"",
-            "\"w\"",
-            "write(",
-            "\"Hello\""
+            "open(",
+            "write("
           ],
-          "starterCode": "",
-          "evaluationMode": "static"
+          "practiceBrief": {
+            "task": "Write it to notes.txt, reopen the file, and print the saved text",
+            "inputs": [
+              "Read one line of text from input."
+            ],
+            "requirements": [],
+            "expectedOutput": [
+              "Hello world"
+            ],
+            "outputDescription": "",
+            "coachNote": "Capture the input, write it to notes.txt, then read the file back and print it."
+          }
         },
         {
-          "question": "Q2 (Predict Output)\n\nWhat does \"w\" mode do when the file already has content?",
+          "question": "Q2 (Predict Output)\n\nwith open(\"notes.txt\", \"w\") as f:\n    f.write(\"Hi\")\n\nwith open(\"notes.txt\", \"a\") as f:\n    f.write(\"!\")\n\nwith open(\"notes.txt\", \"r\") as f:\n    print(f.read())",
           "options": [
-            "Adds to the end",
-            "Erases old content and writes from scratch",
-            "It only reads",
-            "It always raises an error"
+            "Hi",
+            "!",
+            "Hi!",
+            "TypeError"
           ],
-          "correctAnswer": 1,
-          "explanation": "Mode \"w\" overwrites the file from the beginning.",
+          "correctAnswer": 2,
+          "explanation": "The write saves Hi, the append adds !, and the final read prints Hi!.",
           "type": "question",
           "questionKind": "predict-output"
         },
         {
-          "question": "Q3 (Common Mistake)\n\nwith open(\"data.txt\", \"w\") as f:\n    f.write(123)",
+          "question": "Q3 (Common Mistake)\n\nwith open(\"notes.txt\", \"w\") as f:\n    f.write(123)",
           "options": [
-            "It will write 123",
-            "It will write \"123\"",
+            "123",
+            "\"123\"",
             "TypeError",
-            "None"
+            "ValueError"
           ],
           "correctAnswer": 2,
           "explanation": "write() expects a string. Passing the integer 123 directly raises a TypeError.",
@@ -3977,11 +4294,11 @@ export const pythonLessons: Lesson[] = [
   },
   {
     "id": "python-error-handling",
-    "title": "Error Handling",
+    "title": "Catch Runtime Errors",
     "description": "Catch common runtime failures and recover with a clear fallback message.",
     "difficulty": "Advanced",
     "baseXP": 50,
-    "baselineTime": 1,
+    "baselineTime": 3,
     "language": "python",
     "category": "Errors",
     "isLocked": false,
@@ -3989,89 +4306,82 @@ export const pythonLessons: Lesson[] = [
       "steps": [
         {
           "title": "Why this matters",
-          "content": "Production code has to survive bad input and runtime failures. Error handling lets the program recover or explain what went wrong instead of crashing silently.",
+          "content": "Error handling is where scripts stop crashing on the first bad input and start behaving like software. The goal is not to hide errors. The goal is to handle expected failures intentionally.",
           "code": "",
-          "explanation": "Production code has to survive bad input and runtime failures. Error handling lets the program recover or explain what went wrong instead of crashing silently.",
+          "explanation": "Error handling is where scripts stop crashing on the first bad input and start behaving like software. The goal is not to hide errors. The goal is to handle expected failures intentionally.",
           "type": "theory",
           "practiceMode": "none",
           "stepKind": "context"
         },
         {
-          "title": "Example 1",
-          "content": "The except block runs when a runtime error happens.",
-          "code": "try:\n    print(10 / 0)\nexcept:\n    print(\"Error\")",
-          "explanation": "The except block runs when a runtime error happens.",
+          "title": "Catch one failure",
+          "content": "Use a specific except block when you know what can go wrong.",
+          "code": "try:\n    print(10 / 0)\nexcept ZeroDivisionError:\n    print(\"Cannot divide\")",
+          "explanation": "This catches division by zero and replaces the crash with a clear message.",
           "type": "theory",
           "practiceMode": "none",
           "stepKind": "example"
         },
         {
-          "title": "Example 2",
-          "content": "The except block catches an invalid type conversion.",
-          "code": "try:\n    x = int(\"a\")\nexcept:\n    print(\"Invalid\")",
-          "explanation": "The except block catches an invalid type conversion.",
-          "type": "theory",
-          "practiceMode": "none",
-          "stepKind": "example"
-        },
-        {
-          "title": "Example 3",
-          "content": "The except block does not run when no error occurs.",
-          "code": "try:\n    print(\"Hi\")\nexcept:\n    print(\"Error\")",
-          "explanation": "The except block does not run when no error occurs.",
-          "type": "theory",
-          "practiceMode": "none",
-          "stepKind": "example"
-        },
-        {
-          "title": "Example 4",
-          "content": "finally always runs.",
-          "code": "try:\n    print(5)\nfinally:\n    print(\"Done\")",
-          "explanation": "finally always runs.",
+          "title": "finally always runs",
+          "content": "finally is useful for cleanup and closing steps that must happen either way.",
+          "code": "try:\n    print(\"Start\")\nfinally:\n    print(\"Done\")",
+          "explanation": "The finally block runs whether or not the try block fails.",
           "type": "theory",
           "practiceMode": "none",
           "stepKind": "example"
         },
         {
           "title": "Q1",
-          "content": "Write a program that tries to compute 10 / 0 and, if an error happens, prints Cannot divide.",
-          "code": "try:\n    print(10 / 0)\nexcept:\n    print(\"Cannot divide\")",
-          "explanation": "The except block catches the division error and prints the fallback message.",
+          "content": "Print 10 / n. If n is 0, catch the error and print Cannot divide instead",
+          "code": "n = int(input())\n\ntry:\n    print(10 / n)\nexcept ZeroDivisionError:\n    print(\"Cannot divide\")",
+          "explanation": "Wrap the division in try/except and catch ZeroDivisionError.",
           "type": "practice",
+          "evaluationMode": "execution",
           "validationMode": "includes_all",
           "requiredSnippets": [
             "try:",
-            "except",
-            "10 / 0",
-            "Cannot divide"
+            "except ZeroDivisionError"
           ],
-          "starterCode": "",
-          "evaluationMode": "execution",
-          "evaluationId": "python-error-handling"
+          "evaluationId": "python-error-handling",
+          "practiceBrief": {
+            "task": "Print 10 / n. If n is 0, catch the error and print Cannot divide instead",
+            "inputs": [
+              "Read an integer n from input."
+            ],
+            "requirements": [
+              "Handle the failing case with try / except."
+            ],
+            "expectedOutput": [
+              "5.0"
+            ],
+            "outputDescription": "",
+            "coachNote": "Wrap the division in try/except and catch ZeroDivisionError."
+          }
         },
         {
-          "question": "Q2 (Predict Output)\n\ntry:\n    print(1 / 0)\nexcept:\n    print(\"fail\")",
+          "question": "Q2 (Predict Output)\n\ntry:\n    print(5)\nfinally:\n    print(\"Done\")",
           "options": [
-            "0",
-            "1",
-            "fail",
-            "Error without catch"
+            "5 then Done",
+            "Done only",
+            "5 only",
+            "TypeError"
           ],
-          "correctAnswer": 2,
-          "explanation": "The division fails, so the except block prints fail.",
+          "correctAnswer": 0,
+          "explanation": "The try block prints 5, and the finally block prints Done after it.",
           "type": "question",
           "questionKind": "predict-output"
         },
         {
-          "question": "Q3 (Common Mistake)\n\ntry:\n    print(\"OK\")\nexcept:\n    print(\"Error\")",
+          "question": "Q3 (Common Mistake)\n\nprint(10 / 0)",
           "options": [
-            "OK",
-            "prints \"Error\"",
-            "OK and Error",
-            "Nothing"
+            "0",
+            "Cannot divide",
+            "ZeroDivisionError",
+            "ValueError"
           ],
-          "correctAnswer": 0,
-          "explanation": "Since no error happens, only OK is printed.",
+          "correctAnswer": 2,
+          "explanation": "Dividing by zero raises ZeroDivisionError.",
           "type": "question",
           "questionKind": "common-mistake"
         }
@@ -4080,11 +4390,11 @@ export const pythonLessons: Lesson[] = [
   },
   {
     "id": "python-modules",
-    "title": "Modules",
+    "title": "Import What You Need",
     "description": "Import standard-library tools correctly instead of assuming names already exist.",
     "difficulty": "Advanced",
     "baseXP": 50,
-    "baselineTime": 1,
+    "baselineTime": 2,
     "language": "python",
     "category": "Modules",
     "isLocked": false,
@@ -4092,83 +4402,77 @@ export const pythonLessons: Lesson[] = [
       "steps": [
         {
           "title": "Why this matters",
-          "content": "Imports are how real programs stay small. You reach for the standard library first instead of rebuilding every tool from scratch.",
+          "content": "Modules keep real programs small. Instead of rebuilding square roots, random numbers, or date tools, you import the piece you need from the standard library.",
           "code": "",
-          "explanation": "Imports are how real programs stay small. You reach for the standard library first instead of rebuilding every tool from scratch.",
+          "explanation": "Modules keep real programs small. Instead of rebuilding square roots, random numbers, or date tools, you import the piece you need from the standard library.",
           "type": "theory",
           "practiceMode": "none",
           "stepKind": "context"
         },
         {
-          "title": "Example 1",
-          "content": "Using function from module.",
+          "title": "Import the module",
+          "content": "A module import keeps the function name grouped under the module.",
           "code": "import math\nprint(math.sqrt(9))",
-          "explanation": "Using function from module.",
+          "explanation": "math.sqrt(9) prints 3.0.",
           "type": "theory",
           "practiceMode": "none",
           "stepKind": "example"
         },
         {
-          "title": "Example 2",
-          "content": "Direct import of a specific function.",
+          "title": "Import one function",
+          "content": "You can import one name directly when that is all you need.",
           "code": "from math import sqrt\nprint(sqrt(16))",
-          "explanation": "Direct import of a specific function.",
-          "type": "theory",
-          "practiceMode": "none",
-          "stepKind": "example"
-        },
-        {
-          "title": "Example 3",
-          "content": "Access to module constant.",
-          "code": "import math\nprint(math.pi)",
-          "explanation": "Access to module constant.",
-          "type": "theory",
-          "practiceMode": "none",
-          "stepKind": "example"
-        },
-        {
-          "title": "Example 4",
-          "content": "Using another module.",
-          "code": "import random\nprint(random.randint(1, 3))",
-          "explanation": "Using another module.",
+          "explanation": "This avoids writing math. before the function name.",
           "type": "theory",
           "practiceMode": "none",
           "stepKind": "example"
         },
         {
           "title": "Q1",
-          "content": "Import math and display the square root of 25.",
-          "code": "import math\nprint(math.sqrt(25))",
-          "explanation": "Import the module first, then call sqrt through math.",
+          "content": "Import math and print the square root of that value",
+          "code": "import math\n\nn = int(input())\nprint(math.sqrt(n))",
+          "explanation": "Import math first, then call math.sqrt(n).",
           "type": "practice",
+          "evaluationMode": "execution",
           "validationMode": "includes_all",
           "requiredSnippets": [
-            "print("
+            "import math",
+            "math.sqrt"
           ],
-          "starterCode": "",
-          "evaluationMode": "execution",
-          "evaluationId": "python-modules"
+          "evaluationId": "python-modules",
+          "practiceBrief": {
+            "task": "Import math and print the square root of that value",
+            "inputs": [
+              "Read an integer from input."
+            ],
+            "requirements": [],
+            "expectedOutput": [
+              "5.0"
+            ],
+            "outputDescription": "",
+            "coachNote": "Import math first, then call math.sqrt(n)."
+          }
         },
         {
-          "question": "Q2 (Predict Output)\n\nfrom math import sqrt\nprint(sqrt(4))",
+          "question": "Q2 (Predict Output)\n\nfrom math import sqrt\nprint(sqrt(36))",
           "options": [
-            "4",
-            "2.0",
-            "2",
-            "Error"
+            "36",
+            "6",
+            "6.0",
+            "NameError"
           ],
-          "correctAnswer": 1,
-          "explanation": "sqrt(4) returns 2.0 as a float.",
+          "correctAnswer": 2,
+          "explanation": "sqrt(36) returns 6.0.",
           "type": "question",
           "questionKind": "predict-output"
         },
         {
           "question": "Q3 (Common Mistake)\n\nprint(math.sqrt(9))",
           "options": [
-            "3.0",
             "3",
+            "3.0",
             "NameError",
-            "9"
+            "TypeError"
           ],
           "correctAnswer": 2,
           "explanation": "math was never imported, so Python raises a NameError when math.sqrt(9) runs.",
@@ -4180,11 +4484,11 @@ export const pythonLessons: Lesson[] = [
   },
   {
     "id": "python-libraries",
-    "title": "Libraries",
+    "title": "Standard Library Helpers",
     "description": "Use standard-library helpers such as random and math to move faster and write less code.",
     "difficulty": "Advanced",
     "baseXP": 50,
-    "baselineTime": 1,
+    "baselineTime": 2,
     "language": "python",
     "category": "Modules",
     "isLocked": false,
@@ -4192,65 +4496,63 @@ export const pythonLessons: Lesson[] = [
       "steps": [
         {
           "title": "Why this matters",
-          "content": "Libraries speed up real work. The goal is not to memorize every function, but to know when a built-in tool like random already solves the problem.",
+          "content": "The standard library exists so you can ship faster. The skill is not memorizing every function. The skill is recognizing when a library helper already solves the job.",
           "code": "",
-          "explanation": "Libraries speed up real work. The goal is not to memorize every function, but to know when a built-in tool like random already solves the problem.",
+          "explanation": "The standard library exists so you can ship faster. The skill is not memorizing every function. The skill is recognizing when a library helper already solves the job.",
           "type": "theory",
           "practiceMode": "none",
           "stepKind": "context"
         },
         {
-          "title": "Example 1",
-          "content": "Picks a random item.",
-          "code": "import random\nprint(random.choice([1, 2, 3]))",
-          "explanation": "Picks a random item.",
+          "title": "Choose one item",
+          "content": "random.choice picks one element from a list.",
+          "code": "import random\nprint(random.choice([\"A\", \"B\", \"C\"]))",
+          "explanation": "The result is one item from the list, not the whole list.",
           "type": "theory",
           "practiceMode": "none",
           "stepKind": "example"
         },
         {
-          "title": "Example 2",
-          "content": "Shuffles the list.",
+          "title": "Round intentionally",
+          "content": "math.ceil and math.floor round in different directions.",
+          "code": "import math\nprint(math.ceil(2.1))\nprint(math.floor(2.9))",
+          "explanation": "ceil goes up and floor goes down.",
+          "type": "theory",
+          "practiceMode": "none",
+          "stepKind": "example"
+        },
+        {
+          "title": "shuffle mutates",
+          "content": "random.shuffle changes the list in place and returns None.",
           "code": "import random\nnums = [1, 2, 3]\nrandom.shuffle(nums)\nprint(nums)",
-          "explanation": "Shuffles the list.",
-          "type": "theory",
-          "practiceMode": "none",
-          "stepKind": "example"
-        },
-        {
-          "title": "Example 3",
-          "content": "Rounds up.",
-          "code": "import math\nprint(math.ceil(2.3))",
-          "explanation": "Rounds up.",
-          "type": "theory",
-          "practiceMode": "none",
-          "stepKind": "example"
-        },
-        {
-          "title": "Example 4",
-          "content": "Rounds down.",
-          "code": "import math\nprint(math.floor(2.9))",
-          "explanation": "Rounds down.",
+          "explanation": "The list changes, but shuffle itself does not return the shuffled list.",
           "type": "theory",
           "practiceMode": "none",
           "stepKind": "example"
         },
         {
           "title": "Q1",
-          "content": "Import random and display a random element from the list [\"A\", \"B\", \"C\"].",
-          "code": "import random\nprint(random.choice([\"A\", \"B\", \"C\"]))",
-          "explanation": "choice() returns one random element from the list.",
+          "content": "Read space-separated words, store them in a list, and print one random word with random.choice().",
+          "code": "import random\n\nwords = input().split()\nprint(random.choice(words))",
+          "explanation": "Split the input into a list, then pass that list to random.choice().",
           "type": "practice",
+          "evaluationMode": "execution",
           "validationMode": "includes_all",
           "requiredSnippets": [
-            "print(",
-            "\"A\"",
-            "\"B\"",
-            "\"C\""
+            "import random",
+            "random.choice"
           ],
-          "starterCode": "",
-          "evaluationMode": "execution",
-          "evaluationId": "python-libraries"
+          "evaluationId": "python-libraries",
+          "practiceBrief": {
+            "task": "Read space-separated words, store them in a list, and print one random word with random.choice().",
+            "inputs": [
+              "Read space-separated words from input."
+            ],
+            "requirements": [],
+            "expectedOutput": [],
+            "outputDescription": "Print one valid value from [\"A\", \"B\", \"C\"].",
+            "coachNote": "Split the input into a list, then pass that list to random.choice()."
+          }
         },
         {
           "question": "Q2 (Predict Output)\n\nimport math\nprint(math.ceil(2.1))",
@@ -4258,23 +4560,23 @@ export const pythonLessons: Lesson[] = [
             "2",
             "2.1",
             "3",
-            "Error"
+            "TypeError"
           ],
           "correctAnswer": 2,
-          "explanation": "ceil() rounds 2.1 up to the next whole number, which is 3.",
+          "explanation": "math.ceil(2.1) rounds up to 3.",
           "type": "question",
           "questionKind": "predict-output"
         },
         {
           "question": "Q3 (Common Mistake)\n\nimport random\nnums = [1, 2, 3]\nprint(random.shuffle(nums))",
           "options": [
-            "[1, 2, 3]",
+            "[1, 2, 3] in a random order",
             "None",
-            "Random number",
-            "TypeError"
+            "TypeError",
+            "nums"
           ],
           "correctAnswer": 1,
-          "explanation": "shuffle() changes the list in place and returns None.",
+          "explanation": "shuffle changes nums in place and returns None.",
           "type": "question",
           "questionKind": "common-mistake"
         }
@@ -4283,11 +4585,11 @@ export const pythonLessons: Lesson[] = [
   },
   {
     "id": "python-classes-intro",
-    "title": "Classes Intro",
+    "title": "First Object Model",
     "description": "Create simple classes and access attributes through real object instances.",
     "difficulty": "Advanced",
     "baseXP": 50,
-    "baselineTime": 1,
+    "baselineTime": 3,
     "language": "python",
     "category": "OOP",
     "isLocked": false,
@@ -4295,89 +4597,83 @@ export const pythonLessons: Lesson[] = [
       "steps": [
         {
           "title": "Why this matters",
-          "content": "Classes help you group related data into a single object. This is the starting point for modeling users, carts, counters, and other real entities.",
+          "content": "Classes let you group related data under one object. This is the first step from isolated variables toward modeling things like users, badges, counters, and profiles.",
           "code": "",
-          "explanation": "Classes help you group related data into a single object. This is the starting point for modeling users, carts, counters, and other real entities.",
+          "explanation": "Classes let you group related data under one object. This is the first step from isolated variables toward modeling things like users, badges, counters, and profiles.",
           "type": "theory",
           "practiceMode": "none",
           "stepKind": "context"
         },
         {
-          "title": "Example 1",
-          "content": "Create class and instance.",
-          "code": "class User:\n    name = \"Alex\"\n\nu = User()\nprint(u.name)",
-          "explanation": "Create class and instance.",
+          "title": "Create an instance",
+          "content": "A class is the blueprint. An instance is one real object created from it.",
+          "code": "class Badge:\n    label = \"Starter\"\n\nbadge = Badge()\nprint(badge.label)",
+          "explanation": "badge is one object created from the Badge class.",
           "type": "theory",
           "practiceMode": "none",
           "stepKind": "example"
         },
         {
-          "title": "Example 2",
-          "content": "Access to attribute instance.",
-          "code": "class Car:\n    brand = \"BMW\"\n\nprint(Car().brand)",
-          "explanation": "Access to attribute instance.",
-          "type": "theory",
-          "practiceMode": "none",
-          "stepKind": "example"
-        },
-        {
-          "title": "Example 3",
-          "content": "Access to class attribute.",
-          "code": "class A:\n    x = 5\n\nprint(A.x)",
-          "explanation": "Access to class attribute.",
-          "type": "theory",
-          "practiceMode": "none",
-          "stepKind": "example"
-        },
-        {
-          "title": "Example 4",
-          "content": "Instance reads attribute of the class.",
-          "code": "class Book:\n    title = \"Python\"\n\nb = Book()\nprint(b.title)",
-          "explanation": "Instance reads attribute of the class.",
+          "title": "Set instance data",
+          "content": "You can add data to one instance without changing the class definition.",
+          "code": "class Badge:\n    pass\n\nbadge = Badge()\nbadge.label = \"Champion\"\nprint(badge.label)",
+          "explanation": "This stores label on that specific instance.",
           "type": "theory",
           "practiceMode": "none",
           "stepKind": "example"
         },
         {
           "title": "Q1",
-          "content": "Create class Dog with attribute name = \"Rex\" and display its value.",
-          "code": "class Dog:\n    name = \"Rex\"\n\ndog = Dog()\nprint(dog.name)",
-          "explanation": "Create the class, instantiate it, then read the name attribute.",
+          "content": "Create class Badge. Create badge = Badge(), set badge.name to the input value, and print badge.name",
+          "code": "class Badge:\n    pass\n\nname = input().strip()\nbadge = Badge()\nbadge.name = name\nprint(badge.name)",
+          "explanation": "Create the class, build one instance, attach the name attribute, then print it.",
           "type": "practice",
+          "evaluationMode": "execution",
           "validationMode": "includes_all",
           "requiredSnippets": [
-            "class Dog",
-            "name =",
-            "\"Rex\"",
-            "dog =",
-            "print("
+            "class Badge",
+            "badge = Badge()",
+            "badge.name"
           ],
-          "starterCode": "",
-          "evaluationMode": "execution",
-          "evaluationId": "python-classes-intro"
+          "evaluationId": "python-classes-intro",
+          "practiceBrief": {
+            "task": "Create class Badge. Create badge = Badge(), set badge.name to the input value, and print badge.name",
+            "inputs": [
+              "Read a name from input."
+            ],
+            "requirements": [
+              "Use the exact class name from the prompt.",
+              "Use the class name Badge."
+            ],
+            "expectedOutput": [
+              "Starter"
+            ],
+            "outputDescription": "",
+            "coachNote": "Create the class, build one instance, attach the name attribute, then print it."
+          }
         },
         {
-          "question": "Q2 (Predict Output)\n\nclass Test:\n    value = 1\n\nt = Test()\nprint(t.value)",
+          "question": "Q2 (Predict Output)\n\nclass Badge:\n    label = \"Starter\"\n\nbadge = Badge()\nprint(badge.label)",
           "options": [
-            "value",
-            "1",
-            "Test",
-            "Error"
+            "Badge",
+            "Starter",
+            "label",
+            "AttributeError"
           ],
           "correctAnswer": 1,
-          "explanation": "The instance reads the class attribute value, which is 1.",
+          "explanation": "badge.label reads the label attribute from the Badge class and prints Starter.",
           "type": "question",
           "questionKind": "predict-output"
         },
         {
-          "question": "Q3 (Common Mistake)\n\nclass A:\n    x = 5\n\na = A()\nprint(a.y)",
+          "question": "Q3 (Common Mistake)\n\nclass Badge:\n    label = \"Starter\"\n\nbadge = Badge()\nprint(badge.name)",
           "options": [
-            "5",
-            "y",
+            "Starter",
             "None",
-            "AttributeError"
+            "AttributeError",
+            "NameError"
           ],
-          "correctAnswer": 3,
+          "correctAnswer": 2,
           "explanation": "The instance has no attribute y, so Python raises an AttributeError.",
           "type": "question",
           "questionKind": "common-mistake"
@@ -4387,11 +4683,11 @@ export const pythonLessons: Lesson[] = [
   },
   {
     "id": "python-constructor",
-    "title": "Constructor",
+    "title": "Build Objects with __init__",
     "description": "Initialize object state correctly with __init__ and required arguments.",
     "difficulty": "Advanced",
     "baseXP": 50,
-    "baselineTime": 1,
+    "baselineTime": 3,
     "language": "python",
     "category": "OOP",
     "isLocked": false,
@@ -4399,87 +4695,81 @@ export const pythonLessons: Lesson[] = [
       "steps": [
         {
           "title": "Why this matters",
-          "content": "A constructor sets up valid object state from the start. If you understand __init__, you can create objects that are ready to use immediately.",
+          "content": "A constructor makes an object valid the moment it is created. This is the difference between manually patching attributes later and building the object in one clean step.",
           "code": "",
-          "explanation": "A constructor sets up valid object state from the start. If you understand __init__, you can create objects that are ready to use immediately.",
+          "explanation": "A constructor makes an object valid the moment it is created. This is the difference between manually patching attributes later and building the object in one clean step.",
           "type": "theory",
           "practiceMode": "none",
           "stepKind": "context"
         },
         {
-          "title": "Example 1",
-          "content": "Constructor with parameters.",
-          "code": "class User:\n    def __init__(self, name):\n        self.name = name\n\nu = User(\"Alex\")\nprint(u.name)",
-          "explanation": "Constructor with parameters.",
+          "title": "Store setup data",
+          "content": "A constructor receives input and stores it on self.",
+          "code": "class Student:\n    def __init__(self, name):\n        self.name = name\n\nstudent = Student(\"Sam\")\nprint(student.name)",
+          "explanation": "The constructor copies name into student.name.",
           "type": "theory",
           "practiceMode": "none",
           "stepKind": "example"
         },
         {
-          "title": "Example 2",
-          "content": "Store value in object.",
-          "code": "class A:\n    def __init__(self, x):\n        self.x = x\n\nprint(A(3).x)",
-          "explanation": "Store value in object.",
-          "type": "theory",
-          "practiceMode": "none",
-          "stepKind": "example"
-        },
-        {
-          "title": "Example 3",
-          "content": "Constructor without parameters.",
-          "code": "class T:\n    def __init__(self):\n        self.v = 5\n\nprint(T().v)",
-          "explanation": "Constructor without parameters.",
-          "type": "theory",
-          "practiceMode": "none",
-          "stepKind": "example"
-        },
-        {
-          "title": "Example 4",
-          "content": "Multiple attributes.",
-          "code": "class P:\n    def __init__(self, a, b):\n        self.a = a\n        self.b = b\n\nprint(P(1, 2).a)",
-          "explanation": "Multiple attributes.",
+          "title": "Multiple fields",
+          "content": "A constructor can store more than one piece of state.",
+          "code": "class Course:\n    def __init__(self, title, seats):\n        self.title = title\n        self.seats = seats\n\ncourse = Course(\"Python\", 30)\nprint(course.seats)",
+          "explanation": "Both title and seats are ready as soon as the object exists.",
           "type": "theory",
           "practiceMode": "none",
           "stepKind": "example"
         },
         {
           "title": "Q1",
-          "content": "Create a Student class with a constructor that accepts name, store it in self.name, create Student(\"Sam\"), and print the stored name.",
-          "code": "class Student:\n    def __init__(self, name):\n        self.name = name\n\nstudent = Student(\"Sam\")\nprint(student.name)",
-          "explanation": "Pass the name into the constructor and store it on self.name.",
+          "content": "Create class Student with __init__(self, name) that stores name in self.name. Create a Student object, and print student.name",
+          "code": "class Student:\n    def __init__(self, name):\n        self.name = name\n\nname = input().strip()\nstudent = Student(name)\nprint(student.name)",
+          "explanation": "Use __init__ to store the incoming name on self, then print the stored value from the created object.",
           "type": "practice",
+          "evaluationMode": "execution",
           "validationMode": "includes_all",
           "requiredSnippets": [
-            "class Student",
             "def __init__",
-            "student =",
-            "\"Sam\"",
-            "print("
+            "self.name = name"
           ],
-          "starterCode": "",
-          "evaluationMode": "execution",
-          "evaluationId": "python-constructor"
+          "evaluationId": "python-constructor",
+          "practiceBrief": {
+            "task": "Create class Student with __init__(self, name) that stores name in self.name. Create a Student object, and print student.name",
+            "inputs": [
+              "Read a name from input."
+            ],
+            "requirements": [
+              "Define the required function before calling it.",
+              "Store state on the instance, not in loose variables.",
+              "Use the class name Student."
+            ],
+            "expectedOutput": [
+              "Sam"
+            ],
+            "outputDescription": "",
+            "coachNote": "Use __init__ to store the incoming name on self, then print the stored value from the created object."
+          }
         },
         {
-          "question": "Q2 (Predict Output)\n\nclass A:\n    def __init__(self, x):\n        self.x = x\n\na = A(3)\nprint(a.x)",
+          "question": "Q2 (Predict Output)\n\nclass Student:\n    def __init__(self, name):\n        self.name = name\n\nstudent = Student(\"Sam\")\nprint(student.name)",
           "options": [
-            "x",
-            "3",
-            "A",
-            "Error"
+            "Student",
+            "name",
+            "Sam",
+            "TypeError"
           ],
-          "correctAnswer": 1,
-          "explanation": "The constructor stores 3 in self.x, so printing a.x shows 3.",
+          "correctAnswer": 2,
+          "explanation": "The constructor stores \"Sam\" in student.name.",
           "type": "question",
           "questionKind": "predict-output"
         },
         {
-          "question": "Q3 (Common Mistake)\n\nclass A:\n    def __init__(self, x):\n        self.x = x\n\na = A()\nprint(a.x)",
+          "question": "Q3 (Common Mistake)\n\nclass Student:\n    def __init__(self, name):\n        self.name = name\n\nstudent = Student()\nprint(student.name)",
           "options": [
-            "0",
             "None",
+            "name",
             "TypeError",
-            "x"
+            "AttributeError"
           ],
           "correctAnswer": 2,
           "explanation": "A() is missing the required x argument, so Python raises a TypeError.",
@@ -4491,11 +4781,11 @@ export const pythonLessons: Lesson[] = [
   },
   {
     "id": "python-methods",
-    "title": "Methods",
+    "title": "Behavior on the Object",
     "description": "Attach behavior to objects and understand how self connects data to actions.",
     "difficulty": "Advanced",
     "baseXP": 50,
-    "baselineTime": 1,
+    "baselineTime": 3,
     "language": "python",
     "category": "OOP",
     "isLocked": false,
@@ -4503,89 +4793,83 @@ export const pythonLessons: Lesson[] = [
       "steps": [
         {
           "title": "Why this matters",
-          "content": "Methods attach behavior to an object. This is where objects stop being passive data containers and start doing useful work.",
+          "content": "Methods are where objects become useful. A class without behavior is often just a bag of values. A method gives the object a job to do.",
           "code": "",
-          "explanation": "Methods attach behavior to an object. This is where objects stop being passive data containers and start doing useful work.",
+          "explanation": "Methods are where objects become useful. A class without behavior is often just a bag of values. A method gives the object a job to do.",
           "type": "theory",
           "practiceMode": "none",
           "stepKind": "context"
         },
         {
-          "title": "Example 1",
-          "content": "Method inside a class.",
-          "code": "class A:\n    def f(self):\n        print(\"Hi\")\n\nA().f()",
-          "explanation": "Method inside a class.",
+          "title": "Simple action",
+          "content": "A method can print or calculate something when you call it on the object.",
+          "code": "class Greeter:\n    def say(self):\n        print(\"Hello\")\n\nGreeter().say()",
+          "explanation": "say() is a behavior attached to the Greeter object.",
           "type": "theory",
           "practiceMode": "none",
           "stepKind": "example"
         },
         {
-          "title": "Example 2",
-          "content": "Method with parameters.",
-          "code": "class B:\n    def double(self, x):\n        return x * 2\n\nprint(B().double(3))",
-          "explanation": "Method with parameters.",
-          "type": "theory",
-          "practiceMode": "none",
-          "stepKind": "example"
-        },
-        {
-          "title": "Example 3",
-          "content": "Method that returns a value.",
-          "code": "class C:\n    def val(self):\n        return 5\n\nprint(C().val())",
-          "explanation": "Method that returns a value.",
-          "type": "theory",
-          "practiceMode": "none",
-          "stepKind": "example"
-        },
-        {
-          "title": "Example 4",
-          "content": "Method that uses an attribute of the object.",
-          "code": "class U:\n    def __init__(self, name):\n        self.name = name\n\n    def show(self):\n        print(self.name)\n\nU(\"Alex\").show()",
-          "explanation": "Method that uses an attribute of the object.",
+          "title": "Method with input",
+          "content": "Methods can receive extra arguments in addition to self.",
+          "code": "class Greeter:\n    def say(self, name):\n        print(\"Hello \" + name)\n\nGreeter().say(\"Alex\")",
+          "explanation": "self is the object, and name is the extra value passed to the method.",
           "type": "theory",
           "practiceMode": "none",
           "stepKind": "example"
         },
         {
           "title": "Q1",
-          "content": "Create a Greeter class with a say() method that displays Hello, then call it.",
-          "code": "class Greeter:\n    def say(self):\n        print(\"Hello\")\n\nGreeter().say()",
-          "explanation": "Define the method with self, then call it on an instance.",
+          "content": "Create class Greeter with a method say(self, name) that prints Hello <name>. Call the method",
+          "code": "class Greeter:\n    def say(self, name):\n        print(\"Hello \" + name)\n\nname = input().strip()\nGreeter().say(name)",
+          "explanation": "Define the method with self and name, then call it with the input value.",
           "type": "practice",
+          "evaluationMode": "execution",
           "validationMode": "includes_all",
           "requiredSnippets": [
-            "class Greeter",
-            "def say",
-            "print(",
-            "\"Hello\""
+            "def say(self, name)",
+            ".say("
           ],
-          "starterCode": "",
-          "evaluationMode": "execution",
-          "evaluationId": "python-methods"
+          "evaluationId": "python-methods",
+          "practiceBrief": {
+            "task": "Create class Greeter with a method say(self, name) that prints Hello <name>. Call the method",
+            "inputs": [
+              "Read a name from input."
+            ],
+            "requirements": [
+              "Define the required function before calling it.",
+              "Use the class name Greeter."
+            ],
+            "expectedOutput": [
+              "Hello Alex"
+            ],
+            "outputDescription": "",
+            "coachNote": "Define the method with self and name, then call it with the input value."
+          }
         },
         {
-          "question": "Q2 (Predict Output)\n\nclass A:\n    def get(self):\n        return 2\n\nprint(A().get())",
+          "question": "Q2 (Predict Output)\n\nclass Greeter:\n    def say(self, name):\n        print(\"Hello \" + name)\n\nGreeter().say(\"Rio\")",
           "options": [
-            "get",
-            "2",
-            "A",
-            "Error"
+            "Rio",
+            "Hello Rio",
+            "Greeter",
+            "TypeError"
           ],
           "correctAnswer": 1,
-          "explanation": "The get() method returns 2, so print() shows 2.",
+          "explanation": "The method prints Hello followed by the provided name.",
           "type": "question",
           "questionKind": "predict-output"
         },
         {
-          "question": "Q3 (Common Mistake)\n\nclass A:\n    def show(self):\n        print(\"Hi\")\n\nprint(A().show())",
+          "question": "Q3 (Common Mistake)\n\nclass Greeter:\n    def say(name):\n        print(\"Hello \" + name)\n\nGreeter().say(\"Rio\")",
           "options": [
-            "Hi",
-            "None",
-            "Hi and then None",
-            "TypeError"
+            "Hello Rio",
+            "TypeError",
+            "NameError",
+            "AttributeError"
           ],
-          "correctAnswer": 2,
-          "explanation": "show() prints Hi but returns None, so print(A().show()) displays None after Hi.",
+          "correctAnswer": 1,
+          "explanation": "Instance methods need self as the first parameter. Without it, the call shape is wrong and Python raises TypeError.",
           "type": "question",
           "questionKind": "common-mistake"
         }
@@ -4594,11 +4878,11 @@ export const pythonLessons: Lesson[] = [
   },
   {
     "id": "python-attributes-methods",
-    "title": "Attributes & Methods",
+    "title": "State and Behavior Together",
     "description": "Combine stored data and behavior in one small object model.",
     "difficulty": "Advanced",
     "baseXP": 50,
-    "baselineTime": 1,
+    "baselineTime": 3,
     "language": "python",
     "category": "OOP",
     "isLocked": false,
@@ -4606,90 +4890,85 @@ export const pythonLessons: Lesson[] = [
       "steps": [
         {
           "title": "Why this matters",
-          "content": "Production object models combine stored data and behavior. This lesson is the bridge from reading attributes to designing small, usable objects.",
+          "content": "Good object design combines stored state and behavior. The object should know enough about itself to answer useful questions through methods.",
           "code": "",
-          "explanation": "Production object models combine stored data and behavior. This lesson is the bridge from reading attributes to designing small, usable objects.",
+          "explanation": "Good object design combines stored state and behavior. The object should know enough about itself to answer useful questions through methods.",
           "type": "theory",
           "practiceMode": "none",
           "stepKind": "context"
         },
         {
-          "title": "Example 1",
-          "content": "Object with many attributes.",
-          "code": "class User:\n    def __init__(self, name, age):\n        self.name = name\n        self.age = age\n\nprint(User(\"A\", 20).age)",
-          "explanation": "Object with many attributes.",
+          "title": "Decision from state",
+          "content": "A method can use stored data to answer a question about the object.",
+          "code": "class ScoreCard:\n    def __init__(self, score):\n        self.score = score\n\n    def passed(self):\n        return self.score >= 50\n\nprint(ScoreCard(75).passed())",
+          "explanation": "passed() reads self.score and returns a boolean.",
           "type": "theory",
           "practiceMode": "none",
           "stepKind": "example"
         },
         {
-          "title": "Example 2",
-          "content": "Method for calculation.",
-          "code": "class Calc:\n    def add(self, a, b):\n        return a + b\n\nprint(Calc().add(2, 3))",
-          "explanation": "Method for calculation.",
-          "type": "theory",
-          "practiceMode": "none",
-          "stepKind": "example"
-        },
-        {
-          "title": "Example 3",
-          "content": "Getter method.",
-          "code": "class Point:\n    def __init__(self, x):\n        self.x = x\n\n    def get(self):\n        return self.x\n\nprint(Point(5).get())",
-          "explanation": "Getter method.",
-          "type": "theory",
-          "practiceMode": "none",
-          "stepKind": "example"
-        },
-        {
-          "title": "Example 4",
-          "content": "Method that uses attribute.",
-          "code": "class Box:\n    def __init__(self, x):\n        self.x = x\n\n    def double(self):\n        return self.x * 2\n\nprint(Box(4).double())",
-          "explanation": "Method that uses attribute.",
+          "title": "Readable summary",
+          "content": "A second method can turn the state into a message.",
+          "code": "class ScoreCard:\n    def __init__(self, score):\n        self.score = score\n\n    def summary(self):\n        return \"Score: \" + str(self.score)\n\nprint(ScoreCard(75).summary())",
+          "explanation": "Methods can return useful representations of the object state.",
           "type": "theory",
           "practiceMode": "none",
           "stepKind": "example"
         },
         {
           "title": "Q1",
-          "content": "Create a Person class with name and age attributes, create Person(\"Alex\", 21), and print both values.",
-          "code": "class Person:\n    def __init__(self, name, age):\n        self.name = name\n        self.age = age\n\nperson = Person(\"Alex\", 21)\nprint(person.name, person.age)",
-          "explanation": "Store both values in the constructor, then create one Person object.",
+          "content": "Create class ScoreCard with a constructor that stores score. Add a method passed(self) that returns True when score >= 50, otherwise False. Create the object, and print card.passed()",
+          "code": "class ScoreCard:\n    def __init__(self, score):\n        self.score = score\n\n    def passed(self):\n        return self.score >= 50\n\nscore = int(input())\ncard = ScoreCard(score)\nprint(card.passed())",
+          "explanation": "Store the score on self, then let passed() return the comparison result.",
           "type": "practice",
+          "evaluationMode": "execution",
           "validationMode": "includes_all",
           "requiredSnippets": [
-            "class Person",
-            "def __init__",
-            "person =",
-            "\"Alex\"",
-            "print("
+            "self.score = score",
+            "def passed"
           ],
-          "starterCode": "",
-          "evaluationMode": "execution",
-          "evaluationId": "python-attributes-methods"
+          "evaluationId": "python-attributes-methods",
+          "practiceBrief": {
+            "task": "Create class ScoreCard with a constructor that stores score. Add a method passed(self) that returns True when score >= 50, otherwise False. Create the object, and print card.passed()",
+            "inputs": [
+              "Read an integer score from input."
+            ],
+            "requirements": [
+              "Store state on the instance, not in loose variables.",
+              "Define the required function before calling it.",
+              "Handle both branches of the condition.",
+              "Use the class name ScoreCard."
+            ],
+            "expectedOutput": [
+              "True"
+            ],
+            "outputDescription": "",
+            "coachNote": "Store the score on self, then let passed() return the comparison result."
+          }
         },
         {
-          "question": "Q2 (Predict Output)\n\nclass Box:\n    def __init__(self, x):\n        self.x = x\n\nb = Box(3)\nprint(b.x)",
+          "question": "Q2 (Predict Output)\n\nclass ScoreCard:\n    def __init__(self, score):\n        self.score = score\n\n    def passed(self):\n        return self.score >= 50\n\nprint(ScoreCard(40).passed())",
           "options": [
-            "Box",
-            "x",
-            "3",
-            "Error"
+            "True",
+            "False",
+            "40",
+            "TypeError"
           ],
-          "correctAnswer": 2,
-          "explanation": "The constructor stores 3 in the x attribute, so b.x prints 3.",
+          "correctAnswer": 1,
+          "explanation": "40 is below 50, so passed() returns False.",
           "type": "question",
           "questionKind": "predict-output"
         },
         {
-          "question": "Q3 (Common Mistake)\n\nclass A:\n    def show():\n        print(\"Hi\")\n\nA().show()",
+          "question": "Q3 (Common Mistake)\n\nclass ScoreCard:\n    def __init__(self, score):\n        self.score = score\n\n    def passed(self):\n        return score >= 50",
           "options": [
-            "Hi",
-            "Nothing",
-            "TypeError",
-            "None"
+            "False",
+            "NameError",
+            "AttributeError",
+            "TypeError"
           ],
-          "correctAnswer": 2,
-          "explanation": "The method is missing self, so calling it through an instance raises a TypeError.",
+          "correctAnswer": 1,
+          "explanation": "Inside the method, score is not a local variable. The method should use self.score, so Python raises NameError.",
           "type": "question",
           "questionKind": "common-mistake"
         }
@@ -4698,102 +4977,125 @@ export const pythonLessons: Lesson[] = [
   },
   {
     "id": "python-full-class-pattern",
-    "title": "Full Class Pattern",
+    "title": "Project: Practice Tracker",
     "description": "Bring constructor, state changes, and methods together in a complete object pattern.",
     "difficulty": "Advanced",
     "baseXP": 50,
-    "baselineTime": 1,
+    "baselineTime": 6,
     "language": "python",
-    "category": "OOP",
+    "category": "Projects",
     "isLocked": false,
+    "projectBrief": {
+      "goal": "Model a small object that tracks progress toward a goal without allowing invalid state.",
+      "inputs": [
+        "A goal value",
+        "How many completion attempts to apply"
+      ],
+      "outputs": [
+        "Final status string"
+      ],
+      "skills": [
+        "classes",
+        "__init__",
+        "instance state",
+        "methods",
+        "guarded updates"
+      ]
+    },
     "content": {
       "steps": [
         {
           "title": "Why this matters",
-          "content": "This is the first full object pattern in the track: constructor, state updates, and methods working together. It should feel like a tiny production model, not an isolated syntax trick.",
+          "content": "A full object model should store setup data, update state safely, and expose one clean status message. This capstone should feel like a tiny production object, not a class with random methods.",
           "code": "",
-          "explanation": "This is the first full object pattern in the track: constructor, state updates, and methods working together. It should feel like a tiny production model, not an isolated syntax trick.",
+          "explanation": "A full object model should store setup data, update state safely, and expose one clean status message. This capstone should feel like a tiny production object, not a class with random methods.",
           "type": "theory",
           "practiceMode": "none",
           "stepKind": "context"
         },
         {
-          "title": "Example 1",
-          "content": "The object changes internal state.",
-          "code": "class Counter:\n    def __init__(self):\n        self.value = 0\n\n    def inc(self):\n        self.value += 1\n\nc = Counter()\nc.inc()\nprint(c.value)",
-          "explanation": "The object changes internal state.",
+          "title": "Store goal and progress",
+          "content": "The constructor should create valid state from the start.",
+          "code": "class PracticeTracker:\n    def __init__(self, goal):\n        self.goal = goal\n        self.completed = 0\n\ntracker = PracticeTracker(5)\nprint(tracker.goal)\nprint(tracker.completed)",
+          "explanation": "The tracker knows both its goal and its current completed count.",
           "type": "theory",
           "practiceMode": "none",
           "stepKind": "example"
         },
         {
-          "title": "Example 2",
-          "content": "Method that updates attribute.",
-          "code": "class Counter:\n    def __init__(self):\n        self.value = 0\n\n    def add(self, x):\n        self.value += x\n\nc = Counter()\nc.add(5)\nprint(c.value)",
-          "explanation": "Method that updates attribute.",
+          "title": "Cap the progress",
+          "content": "A state-changing method can guard against invalid updates.",
+          "code": "class PracticeTracker:\n    def __init__(self, goal):\n        self.goal = goal\n        self.completed = 0\n\n    def complete(self):\n        if self.completed < self.goal:\n            self.completed += 1\n\ntracker = PracticeTracker(2)\ntracker.complete()\ntracker.complete()\ntracker.complete()\nprint(tracker.completed)",
+          "explanation": "The third call does nothing because the tracker is already at its goal.",
           "type": "theory",
           "practiceMode": "none",
           "stepKind": "example"
         },
         {
-          "title": "Example 3",
-          "content": "Getter method.",
-          "code": "class Counter:\n    def __init__(self):\n        self.value = 0\n\n    def get(self):\n        return self.value\n\nprint(Counter().get())",
-          "explanation": "Getter method.",
-          "type": "theory",
-          "practiceMode": "none",
-          "stepKind": "example"
-        },
-        {
-          "title": "Example 4",
-          "content": "Status reset.",
-          "code": "class Counter:\n    def __init__(self):\n        self.value = 0\n\n    def reset(self):\n        self.value = 0\n\nc = Counter()\nc.reset()\nprint(c.value)",
-          "explanation": "Status reset.",
+          "title": "Expose a status string",
+          "content": "A status method turns internal state into one readable value.",
+          "code": "class PracticeTracker:\n    def __init__(self, goal):\n        self.goal = goal\n        self.completed = 0\n\n    def status(self):\n        return str(self.completed) + \"/\" + str(self.goal) + \" complete\"\n\nprint(PracticeTracker(3).status())",
+          "explanation": "The status string should describe both progress so far and the final target.",
           "type": "theory",
           "practiceMode": "none",
           "stepKind": "example"
         },
         {
           "title": "Q1",
-          "content": "Create a Counter class with value = 0 in __init__, add an inc() method that increases value by 1, call inc() once, and print the value.",
-          "code": "class Counter:\n    def __init__(self):\n        self.value = 0\n\n    def inc(self):\n        self.value += 1\n\nc = Counter()\nc.inc()\nprint(c.value)",
-          "explanation": "This combines constructor setup, mutation through a method, and reading final state.",
+          "content": "Build a PracticeTracker, update its progress, and print the final status.",
+          "code": "class PracticeTracker:\n    def __init__(self, goal):\n        self.goal = goal\n        self.completed = 0\n\n    def complete(self):\n        if self.completed < self.goal:\n            self.completed += 1\n\n    def status(self):\n        return str(self.completed) + \"/\" + str(self.goal) + \" complete\"\n\ngoal = int(input())\nn = int(input())\ntracker = PracticeTracker(goal)\n\nfor _ in range(n):\n    tracker.complete()\n\nprint(tracker.status())",
+          "explanation": "Build the tracker with a goal, cap the progress inside complete(), then print the final progress string.",
           "type": "practice",
+          "evaluationMode": "execution",
           "validationMode": "includes_all",
           "requiredSnippets": [
-            "class Counter",
-            "def __init__",
-            "def inc",
-            "self.value",
-            "print("
+            "self.goal = goal",
+            "self.completed = 0",
+            "if self.completed < self.goal",
+            "def status(self)"
           ],
-          "starterCode": "",
-          "evaluationMode": "execution",
-          "evaluationId": "python-full-class-pattern"
+          "evaluationId": "python-full-class-pattern",
+          "practiceBrief": {
+            "task": "Build a PracticeTracker, update its progress, and print the final status.",
+            "inputs": [
+              "A goal value",
+              "How many completion attempts to apply"
+            ],
+            "requirements": [
+              "Store state on the instance, not in loose variables.",
+              "Define the required function before calling it.",
+              "Apply the update method n times before printing the final status."
+            ],
+            "expectedOutput": [
+              "3/5 complete"
+            ],
+            "outputDescription": "",
+            "coachNote": "Build the tracker with a goal, cap the progress inside complete(), then print the final progress string."
+          }
         },
         {
-          "question": "Q2 (Predict Output)\n\nclass Counter:\n    def __init__(self):\n        self.value = 0\n\n    def inc(self):\n        self.value += 1\n\nc = Counter()\nc.inc()\nc.inc()\nprint(c.value)",
+          "question": "Q2 (Predict Output)\n\nclass PracticeTracker:\n    def __init__(self, goal):\n        self.goal = goal\n        self.completed = 0\n\n    def complete(self):\n        if self.completed < self.goal:\n            self.completed += 1\n\n    def status(self):\n        return str(self.completed) + \"/\" + str(self.goal) + \" complete\"\n\ntracker = PracticeTracker(2)\ntracker.complete()\ntracker.complete()\ntracker.complete()\nprint(tracker.status())",
           "options": [
-            "0",
-            "1",
-            "2",
-            "Error"
+            "1/2 complete",
+            "2/2 complete",
+            "3/2 complete",
+            "TypeError"
           ],
-          "correctAnswer": 2,
-          "explanation": "inc() runs twice, so value moves from 0 to 2.",
+          "correctAnswer": 1,
+          "explanation": "The tracker reaches its goal after two completions, so the extra call does not increase it past 2/2 complete.",
           "type": "question",
           "questionKind": "predict-output"
         },
         {
-          "question": "Q3 (Common Mistake)\n\nclass Counter:\n    def __init__(self):\n        self.value = 0\n\nc = Counter()\nprint(value)",
+          "question": "Q3 (Common Mistake)\n\nclass PracticeTracker:\n    def status(self):\n        return \"ready\"\n\nprint(PracticeTracker.status())",
           "options": [
-            "0",
-            "value",
-            "None",
+            "ready",
+            "Function reference",
+            "TypeError",
             "NameError"
           ],
-          "correctAnswer": 3,
-          "explanation": "value is not a standalone variable here, so Python raises a NameError.",
+          "correctAnswer": 2,
+          "explanation": "status() is an instance method, so calling it on the class without an instance leaves self missing and raises a TypeError.",
           "type": "question",
           "questionKind": "common-mistake"
         }

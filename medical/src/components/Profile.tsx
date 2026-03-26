@@ -360,7 +360,7 @@ const Profile: React.FC = () => {
           <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,_rgba(59,130,246,0.22),_transparent_35%),radial-gradient(circle_at_top_right,_rgba(217,70,239,0.18),_transparent_32%)]" />
           <div className="relative grid gap-6 xl:grid-cols-[minmax(0,1.6fr)_minmax(320px,0.95fr)]">
             <div className="space-y-5">
-              <div className="inline-flex items-center gap-2 rounded-full border border-primary/20 bg-primary/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-primary">
+              <div className="type-label-tight inline-flex items-center gap-2 rounded-full border border-primary/20 bg-primary/10 px-3 py-1 text-primary">
                 <ShieldCheck className="h-3.5 w-3.5" />
                 Developer skill profile
               </div>
@@ -413,7 +413,7 @@ const Profile: React.FC = () => {
                   ) : (
                     <div className="mt-4">
                       <div className="flex flex-wrap items-center gap-3">
-                        <h1 className="truncate text-3xl font-display font-semibold text-foreground sm:text-4xl">{user.name}</h1>
+                        <h1 className="type-display-section truncate text-foreground">{user.name}</h1>
                         <button
                           onClick={() => setIsEditing(true)}
                           className="inline-flex items-center gap-2 rounded-full border border-border bg-background/80 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground transition hover:border-primary/30 hover:text-primary"
@@ -422,7 +422,7 @@ const Profile: React.FC = () => {
                           Edit name
                         </button>
                       </div>
-                      <p className="mt-2 max-w-2xl text-sm text-muted-foreground">
+                      <p className="type-body-sm mt-2 max-w-2xl text-muted-foreground">
                         Track interview readiness, ranked duel strength, and your practice momentum from one clean profile.
                       </p>
                     </div>
@@ -430,24 +430,24 @@ const Profile: React.FC = () => {
 
                   <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
                     <div className={panelClassName}>
-                      <div className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">Duel rating</div>
-                      <div className="mt-2 text-xl font-semibold text-foreground">{resolvedDuelRating}</div>
-                      <div className="mt-1 text-sm text-muted-foreground">{duelRank.icon} {duelRank.tier} tier</div>
+                      <div className="type-label-tight text-muted-foreground">Duel rating</div>
+                      <div className="type-title-md mt-2 text-foreground">{resolvedDuelRating}</div>
+                      <div className="type-body-sm mt-1 text-muted-foreground">{duelRank.icon} {duelRank.tier} tier</div>
                     </div>
                     <div className={panelClassName}>
-                      <div className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">Current streak</div>
-                      <div className="mt-2 text-xl font-semibold text-foreground">{user.currentStreak} days</div>
-                      <div className="mt-1 text-sm text-muted-foreground">Consistency compounds quickly.</div>
+                      <div className="type-label-tight text-muted-foreground">Current streak</div>
+                      <div className="type-title-md mt-2 text-foreground">{user.currentStreak} days</div>
+                      <div className="type-body-sm mt-1 text-muted-foreground">Consistency compounds quickly.</div>
                     </div>
                     <div className={panelClassName}>
-                      <div className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">Available coins</div>
-                      <div className="mt-2 text-xl font-semibold text-foreground">{user.coins.toLocaleString()}</div>
-                      <div className="mt-1 text-sm text-muted-foreground">{user.totalCoinsEarned.toLocaleString()} earned lifetime</div>
+                      <div className="type-label-tight text-muted-foreground">Available coins</div>
+                      <div className="type-title-md mt-2 text-foreground">{user.coins.toLocaleString()}</div>
+                      <div className="type-body-sm mt-1 text-muted-foreground">{user.totalCoinsEarned.toLocaleString()} earned lifetime</div>
                     </div>
                     <div className={panelClassName}>
-                      <div className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">Practice coverage</div>
-                      <div className="mt-2 text-xl font-semibold text-foreground">{overallProgress}%</div>
-                      <div className="mt-1 text-sm text-muted-foreground">
+                      <div className="type-label-tight text-muted-foreground">Practice coverage</div>
+                      <div className="type-title-md mt-2 text-foreground">{overallProgress}%</div>
+                      <div className="type-body-sm mt-1 text-muted-foreground">
                         {completedLessonsCount} of {totalLessonsCount} lessons complete
                       </div>
                     </div>
@@ -474,18 +474,18 @@ const Profile: React.FC = () => {
               <div className={`${panelClassName} p-5`}>
                 <div className="flex items-center justify-between gap-3">
                   <div>
-                    <div className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">Level progress</div>
-                    <div className="mt-2 text-3xl font-display font-semibold text-foreground">Level {levelProgress.currentLevel}</div>
+                    <div className="type-label-tight text-muted-foreground">Level progress</div>
+                    <div className="type-display-section mt-2 text-foreground">Level {levelProgress.currentLevel}</div>
                   </div>
                   <div className="rounded-2xl border border-border/70 bg-card px-4 py-3 text-right">
-                    <div className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">Next level</div>
-                    <div className="mt-1 text-lg font-semibold text-foreground">{Math.max(0, levelProgress.nextLevelXP - user.xp).toLocaleString()} XP</div>
+                    <div className="type-label-tight text-muted-foreground">Next level</div>
+                    <div className="type-title-sm mt-1 text-foreground">{Math.max(0, levelProgress.nextLevelXP - user.xp).toLocaleString()} XP</div>
                   </div>
                 </div>
                 <div className="mt-4 h-3 rounded-full bg-card">
                   <div className="h-3 rounded-full bg-gradient-to-r from-primary via-fuchsia-500 to-cyan-400 transition-all duration-500" style={{ width: `${levelProgress.progressPercentage > 0 ? Math.max(6, levelProgress.progressPercentage) : 0}%` }} />
                 </div>
-                <div className="mt-2 text-sm text-muted-foreground">
+                <div className="type-body-sm mt-2 text-muted-foreground">
                   {levelProgress.progressToNext.toLocaleString()} XP earned in this level band.
                 </div>
               </div>

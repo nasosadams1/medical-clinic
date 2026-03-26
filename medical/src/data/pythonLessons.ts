@@ -39,6 +39,11 @@ interface PracticeSpec {
   starterCode?: string;
 }
 
+const PYTHON_TIER_SCHEDULE = {
+  beginnerCount: 15,
+  intermediateCount: 19,
+};
+
 const PRACTICE_LESSON_OVERRIDES: Record<string, PracticeSpec> = {
   'python-calculator-basics': {
     requiredSnippets: ['input(', 'int(', 'print(', '+'],
@@ -201,6 +206,17 @@ const makeLesson = (blueprint: LessonBlueprint): Lesson => {
     },
   };
 };
+
+const getScheduledDifficulty = (index: number): LessonDifficulty => {
+  if (index < PYTHON_TIER_SCHEDULE.beginnerCount) return 'Beginner';
+  if (index < PYTHON_TIER_SCHEDULE.beginnerCount + PYTHON_TIER_SCHEDULE.intermediateCount) return 'Intermediate';
+  return 'Advanced';
+};
+
+const applyScheduledDifficulty = (lesson: Lesson, index: number): Lesson => ({
+  ...lesson,
+  difficulty: getScheduledDifficulty(index),
+});
 
 const TRAP_ERROR_OPTION_BY_LESSON: Record<string, string> = {
   'python-first-output': 'NameError',
@@ -3529,6 +3545,7 @@ print(value)`,
 export const pythonLessons: Lesson[] = pythonLessonBlueprints
   .map(makeLesson)
   .map(applyTrapErrorLabels)
+  .map(applyScheduledDifficulty)
   .map((lesson) => translatePythonLessonText(lesson));
 
 export const pythonLessonCatalogEntries = pythonLessons.map((lesson, languageIndex) => ({

@@ -260,8 +260,8 @@ export default function MatchmakingQueue({
           <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/10 text-primary">
             <Loader2 className="h-7 w-7 animate-spin" />
           </div>
-          <h2 className="text-3xl font-bold font-display text-foreground">Match starting</h2>
-          <p className="mt-3 text-muted-foreground">The arena is loading now.</p>
+          <h2 className="type-display-section text-foreground">Match starting</h2>
+          <p className="type-body-md mt-3 text-muted-foreground">The arena is loading now.</p>
         </div>
       </div>
     );
@@ -277,13 +277,13 @@ export default function MatchmakingQueue({
 
           <div className="inline-flex items-center gap-2 rounded-full border border-primary/30 bg-primary/10 px-4 py-1.5">
             <Swords className="h-3.5 w-3.5 text-primary" />
-            <span className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">Code Duels</span>
+            <span className="type-kicker text-primary">Code Duels</span>
           </div>
 
-          <h2 className="mt-5 text-3xl font-bold font-display text-foreground sm:text-4xl">
+          <h2 className="type-display-section mt-5 text-foreground">
             {isRankedMode ? 'Queue for a ranked duel.' : 'Queue for a casual duel.'}
           </h2>
-          <p className="mx-auto mt-3 max-w-2xl text-sm leading-7 text-muted-foreground sm:text-base">
+          <p className="type-body-md mx-auto mt-3 max-w-2xl text-muted-foreground">
             {isRankedMode
               ? 'Race another player in a judged coding match and move your rating with every win.'
               : 'Jump into a fast head-to-head coding rep without changing your rating.'}
@@ -312,16 +312,16 @@ export default function MatchmakingQueue({
                   } disabled:cursor-not-allowed disabled:opacity-70`}
                 >
                   <div className="flex items-center justify-between gap-3">
-                    <div className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">{mode.eyebrow}</div>
+                    <div className="type-kicker text-primary">{mode.eyebrow}</div>
                     {isLocked ? (
-                      <span className="inline-flex items-center gap-1 rounded-full border border-primary/20 bg-primary/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-primary">
+                      <span className="type-label-tight inline-flex items-center gap-1 rounded-full border border-primary/20 bg-primary/10 px-2.5 py-1 text-primary">
                         <LockKeyhole className="h-3 w-3" />
                         Locked
                       </span>
                     ) : null}
                   </div>
-                  <div className="mt-2 text-lg font-bold font-display text-foreground">{mode.title}</div>
-                  <p className="mt-2 text-sm leading-6 text-muted-foreground">{mode.description}</p>
+                  <div className="type-title-sm mt-2 text-foreground">{mode.title}</div>
+                  <p className="type-body-sm mt-2 text-muted-foreground">{mode.description}</p>
                 </button>
               );
             })}
@@ -332,10 +332,10 @@ export default function MatchmakingQueue({
               <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10 text-primary">
                 {isRankedMode ? <Trophy className="h-5 w-5" /> : <Swords className="h-5 w-5" />}
               </div>
-              <div className="mt-3 text-2xl font-bold font-display text-foreground">
+              <div className="type-stat mt-3 text-foreground">
                 {isRankedMode ? rating : 'Casual 1v1'}
               </div>
-              <div className="mt-1 text-sm text-muted-foreground">
+              <div className="type-body-sm mt-1 text-muted-foreground">
                 {isRankedMode ? 'Current rating' : 'Head-to-head practice'}
               </div>
             </div>
@@ -344,16 +344,16 @@ export default function MatchmakingQueue({
               <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-xl bg-xp/10 text-xp">
                 <Users className="h-5 w-5" />
               </div>
-              <div className="mt-3 text-2xl font-bold font-display text-foreground">{playersOnline}</div>
-              <div className="mt-1 text-sm text-muted-foreground">Players online</div>
+              <div className="type-stat mt-3 text-foreground">{playersOnline}</div>
+              <div className="type-body-sm mt-1 text-muted-foreground">Players online</div>
             </div>
 
             <div className="rounded-[1.35rem] border border-border bg-background px-5 py-5 sm:col-span-2 lg:col-span-1">
               <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-xl bg-coins/10 text-coins">
                 <ArrowRight className="h-5 w-5" />
               </div>
-              <div className="mt-3 text-2xl font-bold font-display text-foreground">{formatQueueTime(queueWaitTime)}</div>
-              <div className="mt-1 text-sm text-muted-foreground">{inQueue ? 'Queue time' : 'Starts when you join'}</div>
+              <div className="type-stat mt-3 text-foreground">{formatQueueTime(queueWaitTime)}</div>
+              <div className="type-body-sm mt-1 text-muted-foreground">{inQueue ? 'Queue time' : 'Starts when you join'}</div>
             </div>
           </div>
 
@@ -369,7 +369,7 @@ export default function MatchmakingQueue({
           ) : null}
 
           {advancedAnalyticsUnlocked ? null : (
-            <div className="mt-4 text-sm text-muted-foreground">
+            <div className="type-body-sm mt-4 text-muted-foreground">
               Need deeper duel stats and unlimited access?
               {' '}
               <Link to="/pricing?intent=pro" className="font-semibold text-primary transition hover:text-primary/80">
