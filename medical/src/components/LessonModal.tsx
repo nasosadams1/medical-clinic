@@ -540,6 +540,19 @@ const toStaticExecutionFallbackResult = (
   };
 };
 
+const shouldPreferStaticAssessment = (
+  staticAssessment: CodeAssessmentResult,
+  executionAssessment: CodeAssessmentResult
+) => {
+  const hasStructureIssue =
+    (staticAssessment.missingSnippets?.length ?? 0) > 0 || (staticAssessment.flaggedPatterns?.length ?? 0) > 0;
+  const executionKind = executionAssessment.feedbackKind || "";
+
+  if (!hasStructureIssue) return false;
+
+  return executionKind === "timeout" || executionKind === "syntax_error" || executionKind === "runtime_error";
+};
+
 const buildCodeFeedback = (result: CodeAssessmentResult | null, languageLabel = "code") => {
   if (!result) return null;
 
@@ -1247,7 +1260,15 @@ const LessonModal: React.FC<LessonModalProps> = ({
       currentStepData?.evaluationMode === "execution" &&
       currentStepData?.evaluationId
     ) {
-      if (preflightAssessment.feedbackKind === "empty" || preflightAssessment.feedbackKind === "starter") {
+      const shouldStayLocal =
+        preflightAssessment.feedbackKind === "empty" ||
+        preflightAssessment.feedbackKind === "starter" ||
+        (preflightAssessment.feedbackKind === "structure_missing" &&
+          (preflightAssessment.missingSnippets?.length ?? 0) > 0) ||
+        (preflightAssessment.feedbackKind === "cleanup" &&
+          (preflightAssessment.flaggedPatterns?.length ?? 0) > 0);
+
+      if (shouldStayLocal) {
         return {
           ...preflightAssessment,
           evaluationSource: "static",
@@ -1259,7 +1280,14 @@ const LessonModal: React.FC<LessonModalProps> = ({
           lessonId: currentStepData.evaluationId,
           submittedCode: typedTheoryCode,
         });
-        return toExecutionAssessmentResult(result);
+        const executionAssessment = toExecutionAssessmentResult(result);
+        if (shouldPreferStaticAssessment(preflightAssessment, executionAssessment)) {
+          return {
+            ...preflightAssessment,
+            evaluationSource: "static",
+          };
+        }
+        return executionAssessment;
       } catch (error) {
         if (shouldUseStaticExecutionFallback(error)) {
           return toStaticExecutionFallbackResult(preflightAssessment, error);

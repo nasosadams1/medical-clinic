@@ -456,6 +456,7 @@ export const CPP_LESSON_EVALUATION_BANK = {
     "forbiddenPatterns": [
       "public:\n    std::vector<int> scores"
     ],
+    "compileProfile": "strict",
     "testCases": [
       {
         "label": "Gradebook report",
@@ -474,6 +475,7 @@ export const CPP_LESSON_EVALUATION_BANK = {
       "reportHeading()"
     ],
     "forbiddenPatterns": [],
+    "compileProfile": "strict",
     "testCases": [
       {
         "label": "Header-backed report",
@@ -523,6 +525,7 @@ export const CPP_LESSON_EVALUATION_BANK = {
       "delete ptr"
     ],
     "forbiddenPatterns": [],
+    "compileProfile": "sanitized",
     "testCases": [
       {
         "label": "Expected output",
@@ -544,6 +547,7 @@ export const CPP_LESSON_EVALUATION_BANK = {
       "new ScopeNote",
       "delete "
     ],
+    "compileProfile": "sanitized",
     "testCases": [
       {
         "label": "Expected output",
@@ -566,6 +570,7 @@ export const CPP_LESSON_EVALUATION_BANK = {
       "delete value",
       "delete ptr"
     ],
+    "compileProfile": "sanitized",
     "testCases": [
       {
         "label": "Expected output",
@@ -587,6 +592,7 @@ export const CPP_LESSON_EVALUATION_BANK = {
       "int* ptr = new int",
       "delete ptr"
     ],
+    "compileProfile": "sanitized",
     "testCases": [
       {
         "label": "Expected output",
@@ -607,6 +613,7 @@ export const CPP_LESSON_EVALUATION_BANK = {
     "forbiddenPatterns": [
       "std::vector<Shape>"
     ],
+    "compileProfile": "strict",
     "testCases": [
       {
         "label": "Public total area",
@@ -664,6 +671,7 @@ export const CPP_LESSON_EVALUATION_BANK = {
       "std::cout << \"Ready\"",
       "printf(\"Ready\")"
     ],
+    "compileProfile": "strict",
     "testCases": [
       {
         "label": "Public file write",
@@ -778,6 +786,7 @@ export const CPP_LESSON_EVALUATION_BANK = {
       "std::cout << \"ok=\" << counts[\"ok\"]"
     ],
     "forbiddenPatterns": [],
+    "compileProfile": "strict",
     "testCases": [
       {
         "label": "Public log count report",
@@ -805,6 +814,7 @@ export const CPP_LESSON_EVALUATION_BANK = {
       "std::cout << \"ok=\"",
       "std::cout << \"error=\""
     ],
+    "compileProfile": "strict",
     "testCases": [
       {
         "label": "Public summary file",
@@ -935,6 +945,7 @@ export const CPP_LESSON_EVALUATION_BANK = {
     "forbiddenPatterns": [
       "tasks.push_back(task); // no lock"
     ],
+    "compileProfile": "strict-threaded",
     "testCases": [
       {
         "label": "Public task save",
@@ -959,6 +970,7 @@ export const CPP_LESSON_EVALUATION_BANK = {
       "std::cout << engine.taskCount()"
     ],
     "forbiddenPatterns": [],
+    "compileProfile": "strict-threaded",
     "testCases": [
       {
         "label": "Public task load",

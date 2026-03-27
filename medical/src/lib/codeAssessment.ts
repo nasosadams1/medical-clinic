@@ -71,19 +71,161 @@ export const normalizeCodeForComparison = (value: string) =>
   trimTrailingWhitespace(value).replace(/\n{3,}/g, '\n\n');
 
 const toCollapsedCode = (value: string) => normalizeCodeForComparison(value).replace(/\s+/g, '');
+const cppMultiCharTokens = [
+  '::',
+  '->',
+  '<<=',
+  '>>=',
+  '<=',
+  '>=',
+  '==',
+  '!=',
+  '++',
+  '--',
+  '&&',
+  '||',
+  '<<',
+  '>>',
+  '+=',
+  '-=',
+  '*=',
+  '/=',
+  '%=',
+  '->*',
+  '.*',
+];
 
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 
 const roundPercent = (value: number) => Math.round(clamp(value, 0, 1) * 100);
 
-const getSignalMatchRatio = (submission: string, signals: string[]) => {
+const tokenizeCppForMatching = (value: string) => {
+  const source = String(value || '');
+  const tokens: string[] = [];
+  let index = 0;
+
+  while (index < source.length) {
+    const current = source[index];
+    const next = source[index + 1] || '';
+
+    if (/\s/.test(current)) {
+      index += 1;
+      continue;
+    }
+
+    if (current === '/' && next === '/') {
+      index += 2;
+      while (index < source.length && source[index] !== '\n') index += 1;
+      continue;
+    }
+
+    if (current === '/' && next === '*') {
+      index += 2;
+      while (index < source.length && !(source[index] === '*' && source[index + 1] === '/')) index += 1;
+      index += 2;
+      continue;
+    }
+
+    if (current === '"' || current === "'") {
+      const quote = current;
+      let token = current;
+      index += 1;
+      while (index < source.length) {
+        const ch = source[index];
+        token += ch;
+        if (ch === '\\' && index + 1 < source.length) {
+          token += source[index + 1];
+          index += 2;
+          continue;
+        }
+        index += 1;
+        if (ch === quote) break;
+      }
+      tokens.push(token);
+      continue;
+    }
+
+    if (/[A-Za-z_]/.test(current)) {
+      let token = current;
+      index += 1;
+      while (index < source.length && /[A-Za-z0-9_]/.test(source[index])) {
+        token += source[index];
+        index += 1;
+      }
+      tokens.push(token);
+      continue;
+    }
+
+    if (/\d/.test(current)) {
+      let token = current;
+      index += 1;
+      while (index < source.length && /[A-Za-z0-9_.]/.test(source[index])) {
+        token += source[index];
+        index += 1;
+      }
+      tokens.push(token);
+      continue;
+    }
+
+    const threeChar = source.slice(index, index + 3);
+    const twoChar = source.slice(index, index + 2);
+    const multiChar = cppMultiCharTokens.find((token) => token === threeChar || token === twoChar);
+    if (multiChar) {
+      tokens.push(multiChar);
+      index += multiChar.length;
+      continue;
+    }
+
+    if (/[{}()[\];,<>#=*+\-/%&|^!~?:.]/.test(current)) {
+      tokens.push(current);
+    }
+    index += 1;
+  }
+
+  return tokens;
+};
+
+const includesTokenSequence = (tokens: string[], patternTokens: string[]) => {
+  if (patternTokens.length === 0) return false;
+  if (patternTokens.length > tokens.length) return false;
+
+  for (let start = 0; start <= tokens.length - patternTokens.length; start += 1) {
+    let matched = true;
+    for (let offset = 0; offset < patternTokens.length; offset += 1) {
+      if (tokens[start + offset] !== patternTokens[offset]) {
+        matched = false;
+        break;
+      }
+    }
+    if (matched) return true;
+  }
+
+  return false;
+};
+
+const buildSnippetMatcher = (language: LanguageSlug, submission: string) => {
+  if (language !== 'cpp') {
+    const collapsedSubmission = toCollapsedCode(submission);
+    return {
+      includesSnippet: (snippet: string) => collapsedSubmission.includes(toCollapsedCode(snippet)),
+    };
+  }
+
+  const submissionTokens = tokenizeCppForMatching(submission);
+  return {
+    includesSnippet: (snippet: string) =>
+      includesTokenSequence(submissionTokens, tokenizeCppForMatching(String(snippet || ''))),
+  };
+};
+
+const getSignalMatchRatio = (matcher: { includesSnippet: (snippet: string) => boolean }, signals: string[]) => {
   if (signals.length === 0) {
     return {
       matched: [] as string[],
       ratio: 1,
     };
   }
-  const matched = signals.filter((signal) => submission.includes(toCollapsedCode(signal)));
+  const matched = signals.filter((signal) => matcher.includesSnippet(signal));
   return {
     matched,
     ratio: matched.length / signals.length,
@@ -139,6 +281,7 @@ export const validateCodeAssessment = (
   }
 
   const collapsedSubmission = toCollapsedCode(normalizedSubmission);
+  const snippetMatcher = buildSnippetMatcher(definition.language, normalizedSubmission);
   const edgeCaseSnippets = definition.edgeCaseSnippets ?? [];
   const qualitySignals = definition.qualitySignals ?? [];
   const efficiencySignals = definition.efficiencySignals ?? [];
@@ -173,21 +316,17 @@ export const validateCodeAssessment = (
   }
 
   const requiredSnippets = definition.requiredSnippets ?? [];
-  const missingSnippets = requiredSnippets.filter(
-    (snippet) => !collapsedSubmission.includes(toCollapsedCode(snippet))
-  );
+  const missingSnippets = requiredSnippets.filter((snippet) => !snippetMatcher.includesSnippet(snippet));
   const correctnessRatio =
     requiredSnippets.length > 0
       ? (requiredSnippets.length - missingSnippets.length) / requiredSnippets.length
       : normalizedReference
       ? Number(collapsedSubmission === toCollapsedCode(normalizedReference))
       : 1;
-  const edgeCaseMatch = getSignalMatchRatio(collapsedSubmission, edgeCaseSnippets);
-  const qualityMatch = getSignalMatchRatio(collapsedSubmission, qualitySignals);
-  const efficiencyMatch = getSignalMatchRatio(collapsedSubmission, efficiencySignals);
-  const flaggedPatterns = forbiddenPatterns.filter((pattern) =>
-    collapsedSubmission.includes(toCollapsedCode(pattern))
-  );
+  const edgeCaseMatch = getSignalMatchRatio(snippetMatcher, edgeCaseSnippets);
+  const qualityMatch = getSignalMatchRatio(snippetMatcher, qualitySignals);
+  const efficiencyMatch = getSignalMatchRatio(snippetMatcher, efficiencySignals);
+  const flaggedPatterns = forbiddenPatterns.filter((pattern) => snippetMatcher.includesSnippet(pattern));
 
   const edgeCaseRatio =
     edgeCaseSnippets.length > 0 ? edgeCaseMatch.ratio : correctnessRatio >= 1 ? 1 : correctnessRatio * 0.7;

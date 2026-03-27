@@ -3717,6 +3717,24 @@ const CPP_PRACTICE_ASSESSMENT_OVERRIDES = {
   },
 };
 
+const CPP_EXECUTION_COMPILE_OVERRIDES = {
+  'cpp-files': { compileProfile: 'strict' },
+  'cpp-memory-management': { compileProfile: 'sanitized' },
+  'cpp-class-methods': { compileProfile: 'sanitized' },
+  'cpp-comments': { compileProfile: 'sanitized' },
+  'cpp-function-parameters': { compileProfile: 'sanitized' },
+  'cpp-operators': { compileProfile: 'sanitized' },
+  'cpp-lambda': { compileProfile: 'strict' },
+  'cpp-enums': { compileProfile: 'strict' },
+  'cpp-output-report': { compileProfile: 'strict' },
+  'cpp-output-header-integration': { compileProfile: 'strict' },
+  'cpp-polymorphism-total': { compileProfile: 'strict' },
+  'cpp-list-log-report': { compileProfile: 'strict' },
+  'cpp-list-summary-file': { compileProfile: 'strict' },
+  'cpp-stacks-save': { compileProfile: 'strict-threaded' },
+  'cpp-stacks-load': { compileProfile: 'strict-threaded' },
+};
+
 const CPP_EXECUTION_CASE_OVERRIDES = {
   'cpp-getstarted': [
     {
@@ -4311,6 +4329,7 @@ const shouldUseExecutionPractice = (spec) => {
 };
 
 const getCppAssessmentOverrides = (lessonId) => CPP_PRACTICE_ASSESSMENT_OVERRIDES[lessonId] || {};
+const getCppCompileOverrides = (lessonId) => CPP_EXECUTION_COMPILE_OVERRIDES[lessonId] || {};
 
 const buildCppPracticeStep = (stepSpec) => {
   const evaluationMode = stepSpec.evaluationMode || 'static';
@@ -4353,6 +4372,7 @@ const buildCppExecutionBank = (sourceLessons) =>
     );
 
     for (const step of practiceSteps) {
+      const compileOverrides = getCppCompileOverrides(step.evaluationId);
       const testCases =
         CPP_EXECUTION_CASE_OVERRIDES[step.evaluationId]?.map((testCase) => ({ ...testCase })) ||
         (Array.isArray(step?.practiceBrief?.expectedOutput) && step.practiceBrief.expectedOutput.length > 0
@@ -4372,6 +4392,7 @@ const buildCppExecutionBank = (sourceLessons) =>
         language: 'cpp',
         requiredSnippets: step.requiredSnippets || [],
         forbiddenPatterns: step.forbiddenPatterns || [],
+        ...compileOverrides,
         testCases,
       };
     }
