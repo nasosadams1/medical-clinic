@@ -519,7 +519,7 @@ const shouldUseStaticExecutionFallback = (error: unknown) => {
   const message =
     error instanceof Error ? error.message : typeof error === "string" ? error : String(error || "");
 
-  return /lesson runner|isolated lesson execution|lesson execution is not available|could not reach/i.test(
+  return /lesson runner|isolated lesson execution|lesson execution is not available|could not reach|does not support server-side practice evaluation/i.test(
     message
   );
 };
