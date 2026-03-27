@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { CPP_LESSON_META } from '../../shared/cpp-lesson-meta.js';
 import { PYTHON_LESSON_META } from '../../shared/python-lesson-meta.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -34,10 +35,14 @@ const addLessonMeta = (lesson) => {
 };
 
 PYTHON_LESSON_META.forEach(addLessonMeta);
+CPP_LESSON_META.forEach(addLessonMeta);
 
 let match;
 while ((match = LESSON_REGEX.exec(lessonSource)) !== null) {
   const [, id, difficulty, baseXP, baselineTime, language] = match;
+  if (language === 'python' || language === 'cpp') {
+    continue;
+  }
   addLessonMeta({
     id,
     difficulty,

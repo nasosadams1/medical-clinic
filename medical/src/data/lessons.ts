@@ -1,7 +1,14 @@
 export type LessonPracticeMode = 'none' | 'exact' | 'includes_all';
 export type LessonEvaluationMode = 'static' | 'execution';
 export type LessonTheoryStepKind = 'example' | 'context';
-export type LessonQuestionKind = 'predict-output' | 'common-mistake' | 'knowledge-check';
+export type LessonQuestionKind =
+  | 'predict-output'
+  | 'common-mistake'
+  | 'knowledge-check'
+  | 'compiler-trace'
+  | 'ownership-check'
+  | 'api-design'
+  | 'refactor-choice';
 
 export interface LessonPracticeBrief {
   task: string;
@@ -28,6 +35,10 @@ export interface LessonTheoryStep {
   stepKind?: LessonTheoryStepKind;
   practiceMode?: LessonPracticeMode;
   requiredSnippets?: string[];
+  edgeCaseSnippets?: string[];
+  qualitySignals?: string[];
+  efficiencySignals?: string[];
+  forbiddenPatterns?: string[];
   starterCode?: string;
 }
 
@@ -42,6 +53,16 @@ export interface LessonPracticeStep {
   evaluationId?: string;
   validationMode?: Exclude<LessonPracticeMode, 'none'>;
   requiredSnippets?: string[];
+  edgeCaseSnippets?: string[];
+  qualitySignals?: string[];
+  efficiencySignals?: string[];
+  forbiddenPatterns?: string[];
+  weights?: {
+    correctness?: number;
+    edgeCaseHandling?: number;
+    codeQuality?: number;
+    efficiency?: number;
+  };
   starterCode?: string;
 }
 

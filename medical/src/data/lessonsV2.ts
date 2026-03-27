@@ -1,5 +1,6 @@
 import type { Lesson } from './lessons';
 import { allLessons as legacyAllLessons } from './lessons';
+import { cppLessons as rawCppLessons } from './cppLessons.generated';
 import { pythonLessons as rawPythonLessons } from './pythonLessons.generated';
 
 const LESSON_REWARD_BANDS: Record<
@@ -61,9 +62,12 @@ const rebalanceLessonRewards = (lessons: Lesson[]): Lesson[] => {
 };
 
 const pythonLessons = rebalanceLessonRewards(rawPythonLessons);
-const nonPythonLegacyLessons = legacyAllLessons.filter((lesson) => lesson.language !== 'python');
+const cppLessons = rawCppLessons;
+const nonPythonLegacyLessons = legacyAllLessons.filter(
+  (lesson) => lesson.language !== 'python' && lesson.language !== 'cpp'
+);
 
-export const allLessons: Lesson[] = [...pythonLessons, ...nonPythonLegacyLessons];
+export const allLessons: Lesson[] = [...pythonLessons, ...cppLessons, ...nonPythonLegacyLessons];
 
 export const getLessonsByLanguage = (language: 'python' | 'javascript' | 'cpp' | 'java'): Lesson[] =>
   allLessons.filter((lesson) => lesson.language === language);

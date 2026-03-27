@@ -103,7 +103,7 @@ export async function runInDockerSandbox({
       gcc:12.2 \
       bash -c "echo '${userB64}' | base64 -d > /tmp/${userFileName} && \
                cd /tmp && \
-               timeout ${Math.max(2, Math.ceil((timeLimitMs + 1000) / 1000))}s g++ -std=c++17 -O2 -pipe ${userFileName} -o main && \
+               timeout ${Math.max(2, Math.ceil((timeLimitMs + 1000) / 1000))}s g++ -std=c++20 -O2 -pipe ${userFileName} -o main && \
                echo '${stdinB64}' | base64 -d | timeout ${Math.ceil(timeLimitMs / 1000)}s ./main"`;
   } else {
     throw new Error(`Unsupported sandbox language: ${language}`);

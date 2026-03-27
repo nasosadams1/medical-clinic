@@ -9,7 +9,7 @@ function safeJsonParse(s) {
 }
 
 export function normalizeOutput(raw) {
-  const s = (raw ?? "").toString().trim();
+  const s = (raw ?? "").toString().replace(/\r\n?/g, "\n").trim();
   if (!s) return s;
 
   if (s.startsWith("(") && s.endsWith(")")) {

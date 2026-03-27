@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { calculateLessonXp } from './lesson-catalog.js';
 import { checkAchievements } from './achievement-runtime.js';
 import { PYTHON_LESSON_EVALUATION_BANK } from './python-lesson-evaluation-bank.generated.js';
+import { CPP_LESSON_EVALUATION_BANK } from './cpp-lesson-evaluation-bank.generated.js';
 import { LessonProgramJudgeService } from './lesson-program-judge.js';
 import { getAvatarById } from '../../shared/avatar-catalog.js';
 import { getBlockingSanction, formatSanctionMessage } from '../sanctions.js';
@@ -30,6 +31,10 @@ const EvaluateLessonSchema = z.object({
 });
 
 const lessonProgramJudgeService = new LessonProgramJudgeService();
+const LESSON_EVALUATION_BANK = {
+  ...PYTHON_LESSON_EVALUATION_BANK,
+  ...CPP_LESSON_EVALUATION_BANK,
+};
 
 const getBearerToken = (req) => {
   const authHeader = req.headers.authorization || '';
@@ -193,7 +198,7 @@ export const createProgressionRouter = ({ supabaseAdmin }) => {
   router.post('/lessons/evaluate', requireAuth, async (req, res) => {
     try {
       const parsed = EvaluateLessonSchema.parse(req.body || {});
-      const definition = PYTHON_LESSON_EVALUATION_BANK?.[parsed.lessonId];
+      const definition = LESSON_EVALUATION_BANK?.[parsed.lessonId];
 
       if (!definition) {
         return res.status(404).json({ error: 'This lesson does not support server-side practice evaluation.' });
@@ -204,19 +209,20 @@ export const createProgressionRouter = ({ supabaseAdmin }) => {
         return res.status(400).json({ error: 'Write code before checking your answer.' });
       }
 
-      const evaluation = await lessonProgramJudgeService.executePythonLesson(submittedCode, definition);
+      const evaluation = await lessonProgramJudgeService.executeLesson(submittedCode, definition);
       return res.json(evaluation);
     } catch (error) {
       if (error instanceof z.ZodError) {
         return res.status(400).json({ error: error.issues?.[0]?.message || 'Invalid lesson evaluation payload.' });
       }
 
+      const errorMessage = String(error?.message || '');
       const statusCode =
-        String(error?.message || '').includes('Isolated lesson execution')
+        /Isolated lesson execution|lesson execution is not available/i.test(errorMessage)
           ? 503
           : 400;
 
-      return res.status(statusCode).json({ error: error.message || 'Could not evaluate lesson practice.' });
+      return res.status(statusCode).json({ error: errorMessage || 'Could not evaluate lesson practice.' });
     }
   });
 

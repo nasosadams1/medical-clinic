@@ -162,6 +162,11 @@ const getAssessmentDefinition = (step: any, language: "python" | "javascript" | 
         ? "includes_all"
         : "exact",
   requiredSnippets: step?.requiredSnippets ?? [],
+  edgeCaseSnippets: step?.edgeCaseSnippets ?? [],
+  qualitySignals: step?.qualitySignals ?? [],
+  efficiencySignals: step?.efficiencySignals ?? [],
+  forbiddenPatterns: step?.forbiddenPatterns ?? [],
+  weights: step?.weights,
 });
 
 const genericExampleTitlePattern = /^Example\s+\d+$/i;
@@ -170,6 +175,10 @@ const questionKindLabelMap: Record<string, string> = {
   "predict-output": "Predict output",
   "common-mistake": "Common mistake",
   "knowledge-check": "Knowledge check",
+  "compiler-trace": "Compiler trace",
+  "ownership-check": "Ownership check",
+  "api-design": "API design",
+  "refactor-choice": "Refactor choice",
 };
 
 const getQuestionPrefix = (question?: string | null) => {
@@ -188,7 +197,7 @@ const stripQuestionPrefix = (question?: string | null) =>
 const getQuestionKindLabel = (step: any) =>
   questionKindLabelMap[step?.questionKind || ""] || getQuestionPrefix(step?.question).label || "Question";
 
-const getQuestionWorkspaceGuide = (item: any) => {
+const getQuestionWorkspaceGuide = (item: any, languageLabel = "the language") => {
   const kind = item?.questionKind || "";
 
   if (kind === "predict-output") {
@@ -212,7 +221,59 @@ const getQuestionWorkspaceGuide = (item: any) => {
       items: [
         "Check whether the code would run before judging the result.",
         "Look for missing quotes, type mismatches, and name errors.",
-        "Pick the answer that matches Python behavior exactly.",
+        `Pick the answer that matches ${languageLabel} behavior exactly.`,
+      ],
+    };
+  }
+
+  if (kind === "compiler-trace") {
+    return {
+      label: "Compiler trace",
+      title: "Find the first real compiler complaint",
+      accent: "border-rose-300/16 bg-rose-300/[0.05] text-rose-100",
+      items: [
+        "Start with the first error, not the last one in the list.",
+        "Check declarations, overloads, and missing symbols before guessing.",
+        `Answer based on what ${languageLabel} would reject first, not what looks suspicious.`,
+      ],
+    };
+  }
+
+  if (kind === "ownership-check") {
+    return {
+      label: "Ownership review",
+      title: "Track who owns cleanup",
+      accent: "border-emerald-300/16 bg-emerald-300/[0.05] text-emerald-100",
+      items: [
+        "Ask which object is responsible for lifetime and cleanup.",
+        "Watch for copied owners, raw new/delete, and unclear transfer rules.",
+        "Prefer the answer that preserves one clear ownership story.",
+      ],
+    };
+  }
+
+  if (kind === "api-design") {
+    return {
+      label: "API review",
+      title: "Choose the interface with the least surprise",
+      accent: "border-sky-300/16 bg-sky-300/[0.05] text-sky-100",
+      items: [
+        "Look for naming, return types, and ownership signals that match the behavior.",
+        "Reject answers that are technically possible but confusing to callers.",
+        "Prefer composition, explicitness, and small interfaces.",
+      ],
+    };
+  }
+
+  if (kind === "refactor-choice") {
+    return {
+      label: "Refactor review",
+      title: "Pick the cleaner change",
+      accent: "border-fuchsia-300/16 bg-fuchsia-300/[0.05] text-fuchsia-100",
+      items: [
+        "Choose the option that reduces duplication or ambiguity without adding magic.",
+        "Prefer a change that keeps behavior obvious and testable.",
+        "If two options work, pick the one that scales better for maintenance.",
       ],
     };
   }
@@ -298,6 +359,10 @@ const looksLikeCodeSnippet = (value?: string | null) => {
 const getQuestionFallbackHeading = (kind?: string | null) => {
   if (kind === "predict-output") return "What does this print?";
   if (kind === "common-mistake") return "What happens when this runs?";
+  if (kind === "compiler-trace") return "What would the compiler complain about first?";
+  if (kind === "ownership-check") return "Which ownership story is correct?";
+  if (kind === "api-design") return "Which API design is the safer choice?";
+  if (kind === "refactor-choice") return "Which refactor is the better production move?";
   return "Choose the best answer";
 };
 
@@ -388,11 +453,11 @@ const getStageMinHeightClass = (template: LessonLayoutTemplate, density: LessonL
   }
 
   if (template === "predict-output") {
-    return "min-h-0";
+    return density === "expanded" ? "min-h-[28rem]" : "min-h-0";
   }
 
   if (template === "common-mistake") {
-    return "min-h-0";
+    return density === "expanded" ? "min-h-[28rem]" : "min-h-0";
   }
 
   return density === "expanded" ? "min-h-[34rem]" : "min-h-0";
@@ -401,10 +466,10 @@ const getStageMinHeightClass = (template: LessonLayoutTemplate, density: LessonL
 const getStagePaddingClass = (template: LessonLayoutTemplate, density: LessonLayoutDensity) => {
   if (template === "predict-output" || template === "common-mistake") {
     return density === "compact"
-      ? "px-1 py-2 sm:px-2 sm:py-3 lg:px-3 lg:py-4 xl:px-4 xl:py-5"
+      ? "px-4 py-4 sm:px-5 sm:py-5 lg:px-6 lg:py-6"
       : density === "standard"
-      ? "px-1 py-2 sm:px-3 sm:py-4 lg:px-4 lg:py-5 xl:px-5 xl:py-6"
-      : "px-2 py-3 sm:px-4 sm:py-5 lg:px-5 lg:py-6 xl:px-6 xl:py-7";
+      ? "px-4 py-4 sm:px-6 sm:py-5 lg:px-7 lg:py-6"
+      : "px-5 py-5 sm:px-6 sm:py-6 lg:px-8 lg:py-7";
   }
 
   if (template === "practice") {
@@ -443,14 +508,39 @@ const toExecutionAssessmentResult = (
   scorePercent: result.scorePercent,
   rubricScores: result.rubricBreakdown,
   matchedSignals: [],
-  flaggedPatterns: [],
+  flaggedPatterns: result.flaggedPatterns ?? [],
   evaluationSource: "execution",
   runtimeMs: result.runtimeMs,
   stderr: result.stderr,
   testResults: result.testResults ?? [],
 });
 
-const buildCodeFeedback = (result: CodeAssessmentResult | null) => {
+const shouldUseStaticExecutionFallback = (error: unknown) => {
+  const message =
+    error instanceof Error ? error.message : typeof error === "string" ? error : String(error || "");
+
+  return /lesson runner|isolated lesson execution|lesson execution is not available|could not reach/i.test(
+    message
+  );
+};
+
+const toStaticExecutionFallbackResult = (
+  assessment: CodeAssessmentResult,
+  error: unknown
+): CodeAssessmentResult => {
+  const message =
+    error instanceof Error ? error.message : typeof error === "string" ? error : "The lesson runner is unavailable.";
+
+  return {
+    ...assessment,
+    evaluationSource: "static",
+    message: assessment.passed
+      ? `Runner unavailable. Static lesson checks passed locally. ${message}`
+      : `${assessment.message} Runner unavailable: using local structure checks only.`,
+  };
+};
+
+const buildCodeFeedback = (result: CodeAssessmentResult | null, languageLabel = "code") => {
   if (!result) return null;
 
   const missingSnippets = result.missingSnippets ?? [];
@@ -503,7 +593,10 @@ const buildCodeFeedback = (result: CodeAssessmentResult | null) => {
   } else if (feedbackKind === 'syntax_error') {
     tone = "error";
     title = "Fix the syntax";
-    summary = result.stderr || failingVisibleTest?.stderr || "Python found a syntax problem before the program could run.";
+    summary =
+      result.stderr ||
+      failingVisibleTest?.stderr ||
+      `The ${languageLabel} could not run because of a syntax or compile problem.`;
     nextAction = "Fix the syntax error, then run the check again.";
   } else if (feedbackKind === 'runtime_error') {
     tone = "error";
@@ -791,7 +884,8 @@ const LessonModal: React.FC<LessonModalProps> = ({
     !currentQuizPromptParts.code && looksLikeCodeSnippet(currentQuizPromptParts.prompt || currentQuizItem?.question);
   const currentQuizDisplayCode =
     currentQuizPromptParts.code || (currentQuizInlineCodePrompt ? currentQuizPromptParts.prompt : "");
-  const currentQuizGuide = getQuestionWorkspaceGuide(currentQuizItem);
+  const languageLabel = lessonLanguageLabelMap[lessonLanguage];
+  const currentQuizGuide = getQuestionWorkspaceGuide(currentQuizItem, languageLabel);
   const isCurrentStepQuestion = !isQuizMode && currentStepData?.type === "question" && Boolean(currentStepData?.question);
   const isTheoryCodeStep =
     !isQuizMode &&
@@ -809,7 +903,7 @@ const LessonModal: React.FC<LessonModalProps> = ({
     !currentQuestionPromptParts.code && looksLikeCodeSnippet(currentQuestionPromptParts.prompt || currentQuestionPrompt);
   const currentQuestionDisplayCode =
     currentQuestionPromptParts.code || (currentQuestionInlineCodePrompt ? currentQuestionPromptParts.prompt : "");
-  const currentQuestionGuide = getQuestionWorkspaceGuide(currentStepData);
+  const currentQuestionGuide = getQuestionWorkspaceGuide(currentStepData, languageLabel);
   const currentTheoryHeading = getTheoryStepHeading(currentStepData);
   const currentPracticeBrief = currentStepData?.practiceBrief || null;
   const currentPracticeHeading = currentPracticeBrief?.task || currentStepData?.content || currentStepData?.title || "";
@@ -861,7 +955,7 @@ const LessonModal: React.FC<LessonModalProps> = ({
   const modalQuestionHeadingClassName = "type-headline max-w-3xl text-white";
   const theoryDisplaySteps = groupedTheoryExampleSteps.length ? groupedTheoryExampleSteps : groupedTheorySteps;
   const showsLowHeartNote = !isUnlimitedHeartsActive() && (user?.hearts ?? 0) <= 2;
-  const codeFeedback = buildCodeFeedback(theoryCodeResult);
+  const codeFeedback = buildCodeFeedback(theoryCodeResult, languageLabel);
   const hasPracticeRequirements = Boolean(isPracticeStep && currentPracticeBrief?.requirements?.length);
   const hasPracticeOutput = Boolean(
     isPracticeStep && (currentPracticeBrief?.expectedOutput?.length || currentPracticeBrief?.outputDescription)
@@ -924,48 +1018,55 @@ const LessonModal: React.FC<LessonModalProps> = ({
         : theoryDensity;
   const stageMinHeightClass = getStageMinHeightClass(activeTemplate, activeDensity);
   const stagePaddingClass = getStagePaddingClass(activeTemplate, activeDensity);
+  const isAssessmentTemplate =
+    activeTemplate === "predict-output" || activeTemplate === "common-mistake";
+  const questionTemplateUsesViewportHeight = false;
   const workspaceMaxWidthClass =
-    activeTemplate === "predict-output" || activeTemplate === "common-mistake"
-      ? "max-w-[1900px]"
+    isAssessmentTemplate
+      ? "max-w-[1240px]"
       : activeTemplate === "practice"
         ? "max-w-[1600px]"
         : "max-w-[1660px]";
   const workspaceFrameClass =
-    activeTemplate === "predict-output" || activeTemplate === "common-mistake"
-      ? "px-0 pb-0 pt-1 sm:px-0 sm:pb-1 sm:pt-1 lg:px-1 lg:pb-2"
+    isAssessmentTemplate
+      ? "px-3 pb-4 pt-3 sm:px-4 sm:pb-5 sm:pt-4 lg:px-5 lg:pb-6"
       : "px-3 pb-5 pt-3 sm:px-4 sm:pb-6 sm:pt-4 lg:px-5 lg:pb-8";
   const editorHeight =
     practiceDensity === "expanded" ? "58vh" : practiceDensity === "compact" ? "48vh" : "54vh";
   const footerContainerClass =
     activeTemplate === "practice"
       ? "sticky bottom-4 z-10 mt-8 pt-4"
-      : activeTemplate === "predict-output" || activeTemplate === "common-mistake"
-        ? "mt-2 pt-0"
+      : isAssessmentTemplate
+        ? "mt-4 pt-0"
         : "mt-6 pt-3";
   const footerPanelClass =
     activeDensity === "compact"
       ? "lesson-panel border-white/10 bg-[linear-gradient(180deg,rgba(8,13,24,0.88),rgba(6,10,18,0.96))] px-4 py-3 shadow-[0_20px_38px_rgba(2,6,23,0.22)] sm:px-5"
       : "lesson-panel border-white/12 bg-[linear-gradient(180deg,rgba(8,13,24,0.88),rgba(6,10,18,0.96))] px-4 py-4 shadow-[0_26px_48px_rgba(2,6,23,0.28)] sm:px-5";
-  const compactQuestionUsesLeftGuide =
-    (activeTemplate === "predict-output" || activeTemplate === "common-mistake") && activeDensity === "compact";
+  const compactQuestionUsesLeftGuide = false;
   const questionGridClass =
     activeDensity === "expanded"
-      ? "grid gap-4 xl:grid-cols-[minmax(0,1.22fr)_minmax(420px,0.78fr)] xl:items-start xl:gap-6"
+      ? "grid items-start gap-4 xl:grid-cols-[minmax(0,1.55fr)_minmax(0,1.05fr)] xl:gap-6"
       : activeDensity === "standard"
-        ? "grid gap-4 xl:grid-cols-[minmax(0,1.18fr)_minmax(405px,0.8fr)] xl:items-start xl:gap-6"
-        : "grid gap-3 xl:grid-cols-[minmax(0,1.12fr)_minmax(385px,0.8fr)] xl:items-start xl:gap-4";
+        ? "grid items-start gap-4 xl:grid-cols-[minmax(0,1.52fr)_minmax(0,1.08fr)] xl:gap-6"
+        : "grid items-start gap-3 xl:grid-cols-[minmax(0,1.48fr)_minmax(0,1.12fr)] xl:gap-5";
   const quizHeading = currentQuizInlineCodePrompt
     ? getQuestionFallbackHeading(currentQuizItem?.questionKind)
     : currentQuizPromptParts.prompt || currentQuizItem?.question || "";
   const midLessonQuestionHeading = currentQuestionInlineCodePrompt
     ? getQuestionFallbackHeading(currentStepData?.questionKind)
     : currentQuestionPromptParts.prompt || currentQuestionPrompt || "";
-  const questionPanelClass = "lesson-panel flex self-start flex-col p-4 sm:p-5";
-  const questionSupportPanelClass = "lesson-support-panel flex self-start flex-col p-4 sm:p-5";
-  const questionCodeSurfaceClass = "lesson-code-surface mt-3 overflow-x-auto p-4 sm:p-5";
+  const questionPanelClass = isAssessmentTemplate
+    ? "lesson-panel flex self-start flex-col gap-4 p-4 sm:gap-[1.125rem] sm:p-5"
+    : "lesson-panel flex self-start flex-col p-4 sm:p-5";
+  const questionSupportPanelClass = isAssessmentTemplate
+    ? "lesson-support-panel flex self-start flex-col p-4 sm:p-5"
+    : "lesson-support-panel flex self-start flex-col p-4 sm:p-5";
+  const questionCodeSurfaceClass = isAssessmentTemplate
+    ? "lesson-code-surface min-h-[9.5rem] overflow-x-auto px-4 py-4 sm:min-h-[10.5rem] sm:px-5 sm:py-4"
+    : "lesson-code-surface mt-3 overflow-x-auto p-4 sm:p-5";
   const questionOptionsClass = "grid gap-3";
-  const questionCodePreClass =
-    "min-h-0";
+  const questionCodePreClass = "min-h-0";
   const quizCodeTextClassName = getLessonCodeClassName(
     getLessonCodeScale({ code: currentQuizDisplayCode, density: quizDensity, preferLarge: true })
   );
@@ -981,8 +1082,8 @@ const LessonModal: React.FC<LessonModalProps> = ({
   );
   const practiceEditorTypography = getLessonEditorTypography(currentStepData?.starterCode || currentStepData?.code);
   const compactLeftGuideClass =
-    "mt-4 rounded-[1.35rem] border border-white/10 bg-white/[0.03] px-4 py-4 text-slate-100";
-  const supportGuideClass = "mt-3 rounded-[1.35rem] border px-4 py-4";
+    "rounded-[1.35rem] border border-white/10 bg-white/[0.03] px-4 py-4 text-slate-100";
+  const supportGuideClass = "mt-4 rounded-[1.35rem] border px-4 py-4";
   const footerHint = isQuizMode
     ? showQuizResult
       ? selectedAnswer === currentQuizItem?.correctAnswer
@@ -1144,8 +1245,7 @@ const LessonModal: React.FC<LessonModalProps> = ({
     if (
       isPracticeStep &&
       currentStepData?.evaluationMode === "execution" &&
-      currentStepData?.evaluationId &&
-      lessonLanguage === "python"
+      currentStepData?.evaluationId
     ) {
       if (preflightAssessment.feedbackKind === "empty" || preflightAssessment.feedbackKind === "starter") {
         return {
@@ -1154,11 +1254,18 @@ const LessonModal: React.FC<LessonModalProps> = ({
         };
       }
 
-      const result = await evaluateLessonPractice({
-        lessonId: currentStepData.evaluationId,
-        submittedCode: typedTheoryCode,
-      });
-      return toExecutionAssessmentResult(result);
+      try {
+        const result = await evaluateLessonPractice({
+          lessonId: currentStepData.evaluationId,
+          submittedCode: typedTheoryCode,
+        });
+        return toExecutionAssessmentResult(result);
+      } catch (error) {
+        if (shouldUseStaticExecutionFallback(error)) {
+          return toStaticExecutionFallbackResult(preflightAssessment, error);
+        }
+        throw error;
+      }
     }
 
     return {
@@ -1511,35 +1618,37 @@ const LessonModal: React.FC<LessonModalProps> = ({
       role="dialog"
       aria-modal="true"
     >
-      <div className="min-h-full">
+      <div className={questionTemplateUsesViewportHeight ? "min-h-full flex flex-col" : "min-h-full"}>
         {header}
         <div className={workspaceFrameClass}>
-          <div className={`mx-auto ${workspaceMaxWidthClass}`}>
-            <div className={`lesson-stage ${stageMinHeightClass} ${stagePaddingClass} flex flex-col`}>
+          <div className={`mx-auto w-full ${workspaceMaxWidthClass} ${questionTemplateUsesViewportHeight ? "flex flex-1 flex-col" : ""}`}>
+            <div className={`lesson-stage ${stageMinHeightClass} ${stagePaddingClass} flex flex-col ${questionTemplateUsesViewportHeight ? "flex-1" : ""}`}>
             {isQuizMode ? (
               <div className={questionGridClass}>
                 <div className={questionPanelClass}>
-                  <div className="max-w-4xl">
-                    <div className="lesson-section-label">Final review</div>
-                    <h3 className={`${modalQuestionHeadingClassName} mt-3`}>
-                      {renderWithNewlines(quizHeading)}
-                    </h3>
-                  </div>
-                  {currentQuizDisplayCode ? (
-                    <div className={questionCodeSurfaceClass}>
-                      <div className="mb-4">
-                        <span className="lesson-meta-pill lesson-meta-pill--accent">Review code</span>
+                  <div className="flex flex-col gap-4 sm:gap-[1.125rem]">
+                    <div className="max-w-4xl">
+                      <div className="lesson-section-label">Final review</div>
+                      <h3 className={`${modalQuestionHeadingClassName} mt-3`}>
+                        {renderWithNewlines(quizHeading)}
+                      </h3>
+                    </div>
+                    {currentQuizDisplayCode ? (
+                      <div className={questionCodeSurfaceClass}>
+                        <div className="mb-4">
+                          <span className="lesson-meta-pill lesson-meta-pill--accent">Review code</span>
+                        </div>
+                        <pre className={`lesson-code-text font-mono text-emerald-300 ${quizCodeTextClassName} ${questionCodePreClass}`}>
+                          {currentQuizDisplayCode}
+                        </pre>
                       </div>
-                      <pre className={`lesson-code-text font-mono text-emerald-300 ${quizCodeTextClassName} ${questionCodePreClass}`}>
-                        {currentQuizDisplayCode}
-                      </pre>
-                    </div>
-                  ) : (
-                    <div className="lesson-panel-soft mt-5 border-white/8 bg-white/[0.02] p-4">
-                      <div className="lesson-section-label text-slate-300">Review focus</div>
-                      <div className="mt-3 type-body-md text-slate-200">{currentQuizGuide.items[0]}</div>
-                    </div>
-                  )}
+                    ) : (
+                      <div className="lesson-panel-soft border-white/8 bg-white/[0.02] p-4">
+                        <div className="lesson-section-label text-slate-300">Review focus</div>
+                        <div className="mt-3 type-body-md text-slate-200">{currentQuizGuide.items[0]}</div>
+                      </div>
+                    )}
+                  </div>
                   {compactQuestionUsesLeftGuide ? (
                     <div className={`${compactLeftGuideClass} ${currentQuizGuide.accent}`}>
                       <div className="lesson-section-label text-current/80">{currentQuizGuide.label}</div>
@@ -1556,57 +1665,59 @@ const LessonModal: React.FC<LessonModalProps> = ({
                   ) : null}
                 </div>
                 <div className={questionSupportPanelClass}>
-                  <div className="mb-4 flex items-center justify-between gap-3">
-                    <span className="lesson-meta-pill">Pick one answer</span>
-                    <span className="type-body-sm text-slate-400">{currentQuizItem?.options?.length || 0} options</span>
-                  </div>
-                  <div className={questionOptionsClass}>
-                    {currentQuizItem?.options?.map((option: string, index: number) => {
-                      const isSelected = selectedAnswer === index;
-                      const isCorrect = index === currentQuizItem.correctAnswer;
-                      const tone = showQuizResult
-                        ? isSelected
-                          ? isCorrect
-                            ? "border-emerald-400/40 bg-emerald-500/10 text-emerald-100"
-                            : "border-rose-400/40 bg-rose-500/10 text-rose-100"
-                          : isCorrect
-                            ? "border-emerald-400/30 bg-emerald-500/[0.06] text-emerald-100"
-                            : "border-white/8 bg-white/[0.02] text-slate-300"
-                        : isSelected
-                          ? "border-cyan-400/45 bg-cyan-400/[0.08] text-white"
-                          : "border-white/8 bg-white/[0.02] text-slate-300 hover:border-white/16 hover:bg-white/[0.04] hover:text-white";
-                      return (
-                        <button
-                          key={index}
-                          type="button"
-                          onClick={() => setSelectedAnswer(index)}
-                          disabled={showQuizResult}
-                          className={`w-full rounded-[1.2rem] border p-3 text-left transition sm:p-3.5 ${tone}`}
-                        >
-                          <div className="flex items-start gap-3">
-                            <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-white/10 bg-white/[0.04] text-[0.68rem] font-semibold text-slate-300">
-                              {String.fromCharCode(65 + index)}
-                            </div>
-                            <span className="pt-0.5 text-[0.95rem] font-medium leading-6">{renderWithNewlines(option)}</span>
-                          </div>
-                        </button>
-                      );
-                    })}
-                  </div>
-                  {showQuizResult ? (
-                    <div
-                      className={`mt-4 rounded-[1.5rem] border px-5 py-4 text-sm leading-6 ${
-                        selectedAnswer === currentQuizItem?.correctAnswer
-                          ? "border-emerald-400/20 bg-emerald-500/10 text-emerald-100"
-                          : "border-rose-400/20 bg-rose-500/10 text-rose-100"
-                      }`}
-                    >
-                      <p className="mb-2 text-base font-semibold">
-                        {selectedAnswer === currentQuizItem?.correctAnswer ? "Correct answer" : "Incorrect answer"}
-                      </p>
-                      <p className="text-slate-200">{renderWithNewlines(currentQuizItem?.explanation)}</p>
+                  <div className="flex flex-col">
+                    <div className="mb-4 flex items-center justify-between gap-3">
+                      <span className="lesson-meta-pill">Pick one answer</span>
+                      <span className="type-body-sm text-slate-400">{currentQuizItem?.options?.length || 0} options</span>
                     </div>
-                  ) : null}
+                    <div className={questionOptionsClass}>
+                      {currentQuizItem?.options?.map((option: string, index: number) => {
+                        const isSelected = selectedAnswer === index;
+                        const isCorrect = index === currentQuizItem.correctAnswer;
+                        const tone = showQuizResult
+                          ? isSelected
+                            ? isCorrect
+                              ? "border-emerald-400/40 bg-emerald-500/10 text-emerald-100"
+                              : "border-rose-400/40 bg-rose-500/10 text-rose-100"
+                            : isCorrect
+                              ? "border-emerald-400/30 bg-emerald-500/[0.06] text-emerald-100"
+                              : "border-white/8 bg-white/[0.02] text-slate-300"
+                          : isSelected
+                            ? "border-cyan-400/45 bg-cyan-400/[0.08] text-white"
+                            : "border-white/8 bg-white/[0.02] text-slate-300 hover:border-white/16 hover:bg-white/[0.04] hover:text-white";
+                        return (
+                          <button
+                            key={index}
+                            type="button"
+                            onClick={() => setSelectedAnswer(index)}
+                            disabled={showQuizResult}
+                            className={`min-h-[3.4rem] w-full rounded-[1.2rem] border px-3 py-2.5 text-left transition sm:min-h-[3.6rem] sm:px-3.5 sm:py-3 ${tone}`}
+                          >
+                            <div className="flex items-start gap-3">
+                              <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-white/10 bg-white/[0.04] text-[0.68rem] font-semibold text-slate-300">
+                                {String.fromCharCode(65 + index)}
+                              </div>
+                              <span className="pt-0.5 text-[0.95rem] font-medium leading-6">{renderWithNewlines(option)}</span>
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                    {showQuizResult ? (
+                      <div
+                        className={`mt-4 rounded-[1.5rem] border px-5 py-4 text-sm leading-6 ${
+                          selectedAnswer === currentQuizItem?.correctAnswer
+                            ? "border-emerald-400/20 bg-emerald-500/10 text-emerald-100"
+                            : "border-rose-400/20 bg-rose-500/10 text-rose-100"
+                        }`}
+                      >
+                        <p className="mb-2 text-base font-semibold">
+                          {selectedAnswer === currentQuizItem?.correctAnswer ? "Correct answer" : "Incorrect answer"}
+                        </p>
+                        <p className="text-slate-200">{renderWithNewlines(currentQuizItem?.explanation)}</p>
+                      </div>
+                    ) : null}
+                  </div>
                   {!compactQuestionUsesLeftGuide ? (
                     <div className={`${supportGuideClass} ${currentQuizGuide.accent}`}>
                       <div className="lesson-section-label text-current/80">{currentQuizGuide.label}</div>
@@ -1626,36 +1737,38 @@ const LessonModal: React.FC<LessonModalProps> = ({
             ) : isCurrentStepQuestion ? (
               <div className={questionGridClass}>
                 <div className={questionPanelClass}>
-                  <div className="max-w-4xl">
-                    <div className="mb-3 flex flex-wrap items-center gap-2.5">
-                      {currentQuestionPrefix.id ? (
-                        <span className="lesson-meta-pill border-violet-400/20 bg-violet-400/[0.08] text-violet-200">
-                          {currentQuestionPrefix.id}
+                  <div className="flex flex-col gap-4 sm:gap-[1.125rem]">
+                    <div className="max-w-4xl">
+                      <div className="mb-3 flex flex-wrap items-center gap-2.5">
+                        {currentQuestionPrefix.id ? (
+                          <span className="lesson-meta-pill border-violet-400/20 bg-violet-400/[0.08] text-violet-200">
+                            {currentQuestionPrefix.id}
+                          </span>
+                        ) : null}
+                        <span className="lesson-meta-pill">
+                          {getQuestionKindLabel(currentStepData)}
                         </span>
-                      ) : null}
-                      <span className="lesson-meta-pill">
-                        {getQuestionKindLabel(currentStepData)}
-                      </span>
-                    </div>
-                    <h3 className={modalQuestionHeadingClassName}>
-                      {renderWithNewlines(midLessonQuestionHeading)}
-                    </h3>
-                  </div>
-                  {currentQuestionDisplayCode ? (
-                    <div className={questionCodeSurfaceClass}>
-                      <div className="mb-4">
-                        <span className="lesson-meta-pill lesson-meta-pill--accent">Question code</span>
                       </div>
-                      <pre className={`lesson-code-text font-mono text-emerald-300 ${midLessonQuestionCodeTextClassName} ${questionCodePreClass}`}>
-                        {currentQuestionDisplayCode}
-                      </pre>
+                      <h3 className={modalQuestionHeadingClassName}>
+                        {renderWithNewlines(midLessonQuestionHeading)}
+                      </h3>
                     </div>
-                  ) : (
-                    <div className="lesson-panel-soft mt-5 border-white/8 bg-white/[0.02] p-4">
-                      <div className="lesson-section-label text-slate-300">Question focus</div>
-                      <div className="mt-3 type-body-md text-slate-200">{currentQuestionGuide.items[0]}</div>
-                    </div>
-                  )}
+                    {currentQuestionDisplayCode ? (
+                      <div className={questionCodeSurfaceClass}>
+                        <div className="mb-4">
+                          <span className="lesson-meta-pill lesson-meta-pill--accent">Question code</span>
+                        </div>
+                        <pre className={`lesson-code-text font-mono text-emerald-300 ${midLessonQuestionCodeTextClassName} ${questionCodePreClass}`}>
+                          {currentQuestionDisplayCode}
+                        </pre>
+                      </div>
+                    ) : (
+                      <div className="lesson-panel-soft border-white/8 bg-white/[0.02] p-4">
+                        <div className="lesson-section-label text-slate-300">Question focus</div>
+                        <div className="mt-3 type-body-md text-slate-200">{currentQuestionGuide.items[0]}</div>
+                      </div>
+                    )}
+                  </div>
                   {compactQuestionUsesLeftGuide ? (
                     <div className={`${compactLeftGuideClass} ${currentQuestionGuide.accent}`}>
                       <div className="lesson-section-label text-current/80">{currentQuestionGuide.label}</div>
@@ -1672,57 +1785,59 @@ const LessonModal: React.FC<LessonModalProps> = ({
                   ) : null}
                 </div>
                 <div className={questionSupportPanelClass}>
-                  <div className="mb-4 flex items-center justify-between gap-3">
-                    <span className="lesson-meta-pill">Pick one answer</span>
-                    <span className="type-body-sm text-slate-400">{(currentStepData?.options || currentStepData?.answers || []).length} options</span>
-                  </div>
-                  <div className={questionOptionsClass}>
-                    {(currentStepData?.options || currentStepData?.answers || []).map((option: string, index: number) => {
-                      const isSelected = selectedAnswer === index;
-                      const isCorrect = index === currentStepData.correctAnswer;
-                      const tone = showQuizResult
-                        ? isSelected
-                          ? isCorrect
-                            ? "border-emerald-400/40 bg-emerald-500/10 text-emerald-100"
-                            : "border-rose-400/40 bg-rose-500/10 text-rose-100"
-                          : isCorrect
-                            ? "border-emerald-400/30 bg-emerald-500/[0.06] text-emerald-100"
-                            : "border-white/8 bg-white/[0.02] text-slate-300"
-                        : isSelected
-                          ? "border-cyan-400/45 bg-cyan-400/[0.08] text-white"
-                          : "border-white/8 bg-white/[0.02] text-slate-300 hover:border-white/16 hover:bg-white/[0.04] hover:text-white";
-                      return (
-                        <button
-                          key={index}
-                          type="button"
-                          onClick={() => setSelectedAnswer(index)}
-                          disabled={showQuizResult}
-                          className={`w-full rounded-[1.2rem] border p-3 text-left transition sm:p-3.5 ${tone}`}
-                        >
-                          <div className="flex items-start gap-3">
-                            <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-white/10 bg-white/[0.04] text-[0.68rem] font-semibold text-slate-300">
-                              {String.fromCharCode(65 + index)}
-                            </div>
-                            <span className="pt-0.5 text-[0.95rem] font-medium leading-6">{renderWithNewlines(option)}</span>
-                          </div>
-                        </button>
-                      );
-                    })}
-                  </div>
-                  {showQuizResult ? (
-                    <div
-                      className={`mt-4 rounded-[1.5rem] border px-5 py-4 text-sm leading-6 ${
-                        selectedAnswer === currentStepData?.correctAnswer
-                          ? "border-emerald-400/20 bg-emerald-500/10 text-emerald-100"
-                          : "border-rose-400/20 bg-rose-500/10 text-rose-100"
-                      }`}
-                    >
-                      <p className="mb-2 text-base font-semibold">
-                        {selectedAnswer === currentStepData?.correctAnswer ? "Correct answer" : "Incorrect answer"}
-                      </p>
-                      <p className="text-slate-200">{renderWithNewlines(currentStepData?.explanation)}</p>
+                  <div className="flex flex-col">
+                    <div className="mb-4 flex items-center justify-between gap-3">
+                      <span className="lesson-meta-pill">Pick one answer</span>
+                      <span className="type-body-sm text-slate-400">{(currentStepData?.options || currentStepData?.answers || []).length} options</span>
                     </div>
-                  ) : null}
+                    <div className={questionOptionsClass}>
+                      {(currentStepData?.options || currentStepData?.answers || []).map((option: string, index: number) => {
+                        const isSelected = selectedAnswer === index;
+                        const isCorrect = index === currentStepData.correctAnswer;
+                        const tone = showQuizResult
+                          ? isSelected
+                            ? isCorrect
+                              ? "border-emerald-400/40 bg-emerald-500/10 text-emerald-100"
+                              : "border-rose-400/40 bg-rose-500/10 text-rose-100"
+                            : isCorrect
+                              ? "border-emerald-400/30 bg-emerald-500/[0.06] text-emerald-100"
+                              : "border-white/8 bg-white/[0.02] text-slate-300"
+                          : isSelected
+                            ? "border-cyan-400/45 bg-cyan-400/[0.08] text-white"
+                            : "border-white/8 bg-white/[0.02] text-slate-300 hover:border-white/16 hover:bg-white/[0.04] hover:text-white";
+                        return (
+                          <button
+                            key={index}
+                            type="button"
+                            onClick={() => setSelectedAnswer(index)}
+                            disabled={showQuizResult}
+                            className={`min-h-[3.4rem] w-full rounded-[1.2rem] border px-3 py-2.5 text-left transition sm:min-h-[3.6rem] sm:px-3.5 sm:py-3 ${tone}`}
+                          >
+                            <div className="flex items-start gap-3">
+                              <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-white/10 bg-white/[0.04] text-[0.68rem] font-semibold text-slate-300">
+                                {String.fromCharCode(65 + index)}
+                              </div>
+                              <span className="pt-0.5 text-[0.95rem] font-medium leading-6">{renderWithNewlines(option)}</span>
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                    {showQuizResult ? (
+                      <div
+                        className={`mt-4 rounded-[1.5rem] border px-5 py-4 text-sm leading-6 ${
+                          selectedAnswer === currentStepData?.correctAnswer
+                            ? "border-emerald-400/20 bg-emerald-500/10 text-emerald-100"
+                            : "border-rose-400/20 bg-rose-500/10 text-rose-100"
+                        }`}
+                      >
+                        <p className="mb-2 text-base font-semibold">
+                          {selectedAnswer === currentStepData?.correctAnswer ? "Correct answer" : "Incorrect answer"}
+                        </p>
+                        <p className="text-slate-200">{renderWithNewlines(currentStepData?.explanation)}</p>
+                      </div>
+                    ) : null}
+                  </div>
                   {!compactQuestionUsesLeftGuide ? (
                     <div className={`${supportGuideClass} ${currentQuestionGuide.accent}`}>
                       <div className="lesson-section-label text-current/80">{currentQuestionGuide.label}</div>
