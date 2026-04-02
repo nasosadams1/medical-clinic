@@ -32,6 +32,8 @@ const defineCodeSeedQuestion = (template) =>
     kind: 'code',
   });
 
+const cheapDistractorValues = new Set(['error', 'nothing', 'undefined', 'nan', 'null']);
+
 const lesson = (lessonId, lessonTitle) => ({ lessonId, lessonTitle });
 
 const languageConfigs = [
@@ -820,11 +822,14 @@ const renderMapListSumOutput = (language, entries, key) => {
 
 const buildChoiceQuestion = (config, family, index, details) => {
   const lessonRef = config.lessons[family.role][family.lessonKey];
+  const options = sanitizeChoiceOptions(details.options, details.correctAnswer);
   return defineChoiceSeedQuestion({
     templateId: `bench-${config.prefix}-${family.role}-${family.slug}-extra-${index + 1}`,
     language: config.language,
     packIds: [family.role === 'beginner' ? config.beginnerPackId : config.juniorPackId],
     sourceType: details.sourceType,
+    familySlug: family.slug,
+    familyRole: family.role,
     lessonId: lessonRef.lessonId,
     lessonTitle: lessonRef.lessonTitle,
     competency: family.competency,
@@ -833,7 +838,7 @@ const buildChoiceQuestion = (config, family, index, details) => {
     difficulty: family.difficulty,
     assessmentType: family.assessmentType,
     prompt: details.prompt,
-    options: details.options,
+    options,
     correctAnswer: details.correctAnswer,
     explanation: details.explanation,
     expectedDurationSeconds: details.expectedDurationSeconds,
@@ -850,6 +855,8 @@ const buildCodeQuestion = (config, family, index, details) => {
     language: config.language,
     packIds: [family.role === 'beginner' ? config.beginnerPackId : config.juniorPackId],
     sourceType: details.sourceType,
+    familySlug: family.slug,
+    familyRole: family.role,
     lessonId: lessonRef.lessonId,
     lessonTitle: lessonRef.lessonTitle,
     competency: family.competency,
@@ -905,6 +912,71 @@ const prependSupportCode = (task, supportCode) => ({
   referenceCode: `${supportCode}${task.referenceCode}`,
 });
 
+const pickUnusedCandidate = (used, candidates, fallbackBase = 'other') => {
+  for (const candidate of candidates) {
+    const normalized = candidate.trim().toLowerCase();
+    if (normalized && !used.has(normalized)) return candidate;
+  }
+  let suffix = 1;
+  while (used.has(`${fallbackBase}${suffix}`.toLowerCase())) {
+    suffix += 1;
+  }
+  return `${fallbackBase}${suffix}`;
+};
+
+const buildNumericDistractor = (used, numericOptions) => {
+  const values = numericOptions.map((option) => Number(option));
+  const candidates = [
+    String(Math.max(...values) + 1),
+    String(Math.min(...values) - 1),
+    String(values.reduce((sum, value) => sum + value, 0)),
+    String(values[0] + 1),
+    String(values[values.length - 1] - 1),
+  ];
+  return pickUnusedCandidate(used, candidates, '99');
+};
+
+const buildTextDistractor = (used, textOptions) => {
+  const alphaOnly = textOptions.every((option) => /^[A-Za-z]+$/.test(option));
+  if (alphaOnly) {
+    return pickUnusedCandidate(used, ['other', 'edge', 'later', 'base', 'final'], 'other');
+  }
+  const base = textOptions[0] || 'value';
+  const candidates = [
+    base.replace(/([A-Za-z])\s+(\d+)/, '$1-$2'),
+    base.replace(/([A-Za-z]+)(\d+)/, '$1-$2'),
+    base.replace(/(\d+)\s+([A-Za-z]+)/, '$1-$2'),
+    base.replace(/\s+/g, ''),
+    `${base}!`,
+    `${base}?`,
+  ].filter(Boolean);
+  return pickUnusedCandidate(used, candidates, 'value');
+};
+
+const buildReplacementDistractor = (options, correctAnswer) => {
+  const nonCheapOptions = options.filter(
+    (option, index) =>
+      index !== correctAnswer && !cheapDistractorValues.has(option.trim().toLowerCase())
+  );
+  const used = new Set(options.map((option) => option.trim().toLowerCase()).filter(Boolean));
+  if (nonCheapOptions.length === 0) {
+    return pickUnusedCandidate(used, ['other', 'fallback', 'default'], 'other');
+  }
+  if (nonCheapOptions.every((option) => /^-?\d+$/.test(option.trim()))) {
+    return buildNumericDistractor(used, nonCheapOptions.map((option) => option.trim()));
+  }
+  return buildTextDistractor(used, nonCheapOptions.map((option) => option.trim()));
+};
+
+const sanitizeChoiceOptions = (options = [], correctAnswer = 0) =>
+  options.map((option, index) => {
+    const normalized = option.trim().toLowerCase();
+    if (index === correctAnswer || !cheapDistractorValues.has(normalized)) {
+      return option;
+    }
+    return buildReplacementDistractor(options, correctAnswer);
+  });
+
 const renderedSpec = (renderer, options, correctAnswer, explanation, expectedDurationSeconds) => ({
   render: (language) => ({
     prompt: `What is printed?\n\n${renderer(language).trim()}`,
@@ -942,6 +1014,40 @@ const curatedCodeSpec = (prompt, build, requiredSnippets, explanation, overrides
   sourceType: overrides.sourceType ?? 'curated',
   version: overrides.version ?? 3,
 });
+
+const promoteChoiceSpec = (spec, overrides = {}) =>
+  curatedChoiceSpec(
+    (language) => {
+      const rendered = spec.render(language);
+      return {
+        ...rendered,
+        options: sanitizeChoiceOptions(rendered.options, rendered.correctAnswer),
+      };
+    },
+    {
+      expectedDurationSeconds: overrides.expectedDurationSeconds ?? spec.expectedDurationSeconds,
+      discrimination: Math.max(spec.discrimination ?? 0.76, overrides.discrimination ?? 0.82),
+      calibrationState: overrides.calibrationState ?? spec.calibrationState ?? 'calibrating',
+      sourceType: 'curated',
+      version: 3,
+    }
+  );
+
+const promoteCodeSpec = (spec, overrides = {}) =>
+  curatedCodeSpec(spec.prompt, spec.build, spec.requiredSnippets, spec.explanation, {
+    expectedDurationSeconds: overrides.expectedDurationSeconds ?? spec.expectedDurationSeconds,
+    discrimination: Math.max(spec.discrimination ?? 0.78, overrides.discrimination ?? 0.83),
+    calibrationState: overrides.calibrationState ?? spec.calibrationState ?? 'calibrating',
+    sourceType: 'curated',
+    version: 3,
+  });
+
+const splitPromotedSpecs = (specs, count, promoter) => ({
+  promoted: specs.slice(0, count).map((spec) => promoter(spec)),
+  remainder: specs.slice(count),
+});
+
+const CURATED_PROMOTION_COUNT = 3;
 
 const curatedBeginnerChoiceSpec = (render, overrides = {}) =>
   curatedChoiceSpec(render, {
@@ -1308,14 +1414,24 @@ const renderLongestWordComparisonBugFix = (language) => {
   };
 };
 
-const buildReturnExpressionTask = (language, returnType, params, expression, fallback = '') => ({
-  starterCode: renderFunction(language, returnType, 'solution', params, [
-    returnLine(language, fallback),
-  ]),
-  referenceCode: renderFunction(language, returnType, 'solution', params, [
-    returnLine(language, expression),
-  ]),
-});
+const buildReturnExpressionTask = (
+  language,
+  returnType,
+  params,
+  expression,
+  fallback = '',
+  executionCases = []
+) => {
+  const task = {
+    starterCode: renderFunction(language, returnType, 'solution', params, [
+      returnLine(language, fallback),
+    ]),
+    referenceCode: renderFunction(language, returnType, 'solution', params, [
+      returnLine(language, expression),
+    ]),
+  };
+  return executionCases.length > 0 ? attachExecutionCases(task, executionCases) : task;
+};
 
 const buildCountGreaterThanTask = (language, threshold, mode) => {
   const executionCases = [
@@ -1333,6 +1449,17 @@ const buildCountGreaterThanTask = (language, threshold, mode) => {
       label: 'Hidden multiple matches',
       input: [threshold + 1, threshold + 5, threshold + 9, threshold - 10],
       expected: 3,
+      hidden: true,
+    },
+    {
+      label: 'All values above threshold',
+      input: [threshold + 1, threshold + 2, threshold + 3],
+      expected: 3,
+    },
+    {
+      label: 'Hidden empty input',
+      input: [],
+      expected: 0,
       hidden: true,
     },
   ];
@@ -1378,6 +1505,8 @@ const buildSumEvenTask = (language, mode) => {
     { label: 'Mixed values', input: [1, 2, 4, 7], expected: 6 },
     { label: 'No even numbers', input: [1, 3, 5], expected: 0 },
     { label: 'Hidden negatives included', input: [-2, 3, 8, 10], expected: 16, hidden: true },
+    { label: 'All even numbers', input: [2, 6, 8], expected: 16 },
+    { label: 'Hidden empty input', input: [], expected: 0, hidden: true },
   ];
   const correctBody = [
     language === 'python' ? 'total = 0' : 'int total = 0;',
@@ -1428,6 +1557,8 @@ const buildContainsTargetTask = (language) =>
       { label: 'Target present', input: [[1, 2, 3], 2], expected: true },
       { label: 'Target missing', input: [[4, 5], 1], expected: false },
       { label: 'Hidden empty list', input: [[], 9], expected: false, hidden: true },
+      { label: 'Target appears multiple times', input: [[7, 7, 1], 7], expected: true },
+      { label: 'Hidden negative target', input: [[-4, 2, -1], -1], expected: true, hidden: true },
     ]
   );
 
@@ -1463,6 +1594,8 @@ const buildCountVowelsTask = (language) => {
     { label: 'Mixed case vowels', input: 'Ada', expected: 2 },
     { label: 'No vowels', input: 'rhythm', expected: 0 },
     { label: 'Hidden repeated vowels', input: 'Queue', expected: 4, hidden: true },
+    { label: 'Uppercase vowels only', input: 'IOU', expected: 3 },
+    { label: 'Hidden empty text', input: '', expected: 0, hidden: true },
   ]);
 };
 
@@ -1471,6 +1604,8 @@ const buildFilterPositiveTask = (language, mode) => {
     { label: 'Mixed values', input: [3, -1, 4, 0], expected: [3, 4] },
     { label: 'No positives', input: [-2, 0], expected: [] },
     { label: 'Hidden preserve order', input: [5, 6, -1, 2], expected: [5, 6, 2], hidden: true },
+    { label: 'All positives stay in order', input: [1, 2, 3], expected: [1, 2, 3] },
+    { label: 'Hidden empty input', input: [], expected: [], hidden: true },
   ];
   const init =
     language === 'python'
@@ -1520,6 +1655,8 @@ const buildMaxTask = (language, mode) => {
     { label: 'Mixed values', input: [5, 1, 9, 2], expected: 9 },
     { label: 'Already descending', input: [9, 8, 7], expected: 9 },
     { label: 'Hidden negatives', input: [-4, -1, -7], expected: -1, hidden: true },
+    { label: 'Single value', input: [4], expected: 4 },
+    { label: 'Hidden repeated maximum', input: [3, 9, 9, 2], expected: 9, hidden: true },
   ];
   const correctBody = [
     language === 'python' ? 'largest = values[0]' : 'int largest = values[0];',
@@ -1551,6 +1688,8 @@ const buildLongestWordLengthTask = (language, mode) => {
     { label: 'Mixed lengths', input: ['api', 'server', 'ui'], expected: 6 },
     { label: 'Single word', input: ['hooks'], expected: 5 },
     { label: 'Hidden empty string kept', input: ['', 'deploy', 'db'], expected: 6, hidden: true },
+    { label: 'Tie keeps length only', input: ['logs', 'ship', 'api'], expected: 4 },
+    { label: 'Hidden empty list', input: [], expected: 0, hidden: true },
   ];
   const lengthExpr =
     language === 'python'
@@ -1586,6 +1725,13 @@ const buildLongestWordLengthTask = (language, mode) => {
 };
 
 const buildCountMapAboveLimitTask = (language, limit, mode) => {
+  const executionCases = [
+    { label: 'Some scores above limit', input: { api: limit + 1, db: limit - 1, ui: limit + 3 }, expected: 2 },
+    { label: 'No scores above limit', input: { api: limit, db: limit - 2 }, expected: 0 },
+    { label: 'Hidden all scores above limit', input: { qa: limit + 4, ops: limit + 1 }, expected: 2, hidden: true },
+    { label: 'Single score above limit', input: { core: limit + 6 }, expected: 1 },
+    { label: 'Hidden empty score map', input: {}, expected: 0, hidden: true },
+  ];
   const correctBody =
     language === 'python'
       ? ['count = 0', 'for value in scores.values():', ...indent(ifBlock(language, `value > ${limit}`, [incrementLine(language, 'count')]), 4), returnLine(language, 'count')]
@@ -1603,19 +1749,19 @@ const buildCountMapAboveLimitTask = (language, limit, mode) => {
         : language === 'java'
         ? ['int count = 0;', 'for (int value : scores.values()) {', ...indent(ifBlock(language, `value < ${limit}`, [incrementLine(language, 'count')]), 4), '}', returnLine(language, 'count')]
         : ['int count = 0;', 'for (const auto& entry : scores) {', '    int value = entry.second;', ...indent(ifBlock(language, `value < ${limit}`, [incrementLine(language, 'count')]), 4), '}', returnLine(language, 'count')];
-    return {
+    return attachExecutionCases({
       starterCode: renderFunction(language, 'number', 'solution', [{ name: 'scores', type: 'scoreMap' }], buggyBody),
       referenceCode: renderFunction(language, 'number', 'solution', [{ name: 'scores', type: 'scoreMap' }], correctBody),
-    };
+    }, executionCases);
   }
-  return {
+  return attachExecutionCases({
     starterCode: renderFunction(language, 'number', 'solution', [{ name: 'scores', type: 'scoreMap' }], [
       language === 'python' ? 'count = 0' : 'int count = 0;',
       language === 'python' ? `# count scores above ${limit}` : `// count scores above ${limit}`,
       returnLine(language, 'count'),
     ]),
     referenceCode: renderFunction(language, 'number', 'solution', [{ name: 'scores', type: 'scoreMap' }], correctBody),
-  };
+  }, executionCases);
 };
 
 const buildPalindromeTask = (language) =>
@@ -1644,6 +1790,8 @@ const buildPalindromeTask = (language) =>
       { label: 'Palindrome', input: 'level', expected: true },
       { label: 'Not a palindrome', input: 'code', expected: false },
       { label: 'Hidden even length palindrome', input: 'abba', expected: true, hidden: true },
+      { label: 'Case-sensitive mismatch', input: 'Level', expected: false },
+      { label: 'Hidden empty string', input: '', expected: true, hidden: true },
     ]
   );
 
@@ -1711,6 +1859,8 @@ const buildCountTargetOccurrencesTask = (language, mode) => {
     { label: 'Repeated target', input: [[2, 1, 2, 3, 2], 2], expected: 3 },
     { label: 'Target missing', input: [[4, 5], 1], expected: 0 },
     { label: 'Hidden single hit', input: [[7, 8, 9], 8], expected: 1, hidden: true },
+    { label: 'All values are the target', input: [[5, 5, 5], 5], expected: 3 },
+    { label: 'Hidden empty input', input: [[], 4], expected: 0, hidden: true },
   ];
   const correctBody = [
     language === 'python' ? 'count = 0' : 'int count = 0;',
@@ -1765,8 +1915,126 @@ const buildAllPositiveTask = (language) =>
       { label: 'All positive', input: [1, 2, 3], expected: true },
       { label: 'Contains zero', input: [1, 0, 3], expected: false },
       { label: 'Hidden negative value', input: [7, -1], expected: false, hidden: true },
+      { label: 'Single positive value', input: [9], expected: true },
+      { label: 'Hidden empty input', input: [], expected: true, hidden: true },
     ]
   );
+
+const buildSumFirstAndLastTask = (language) =>
+  attachExecutionCases(
+    {
+      starterCode: renderFunction(language, 'number', 'solution', [{ name: 'values', type: 'numberList' }], [
+        language === 'python' ? '# return first + last' : '// return first + last',
+        returnLine(language, '0'),
+      ]),
+      referenceCode: renderFunction(language, 'number', 'solution', [{ name: 'values', type: 'numberList' }], [
+        returnLine(language, `values[0] + ${arrayLastExpression(language, 'values')}`),
+      ]),
+    },
+    [
+      { label: 'Three values', input: [4, 1, 6], expected: 10 },
+      { label: 'Two values', input: [9, 2], expected: 11 },
+      { label: 'Hidden repeated edges', input: [5, 3, 5], expected: 10, hidden: true },
+      { label: 'Negative last value', input: [7, 8, -2], expected: 5 },
+      { label: 'Hidden single value', input: [4], expected: 8, hidden: true },
+    ]
+  );
+
+const prefixedTextCases = (prefix) => [
+  { label: 'Short name', input: 'Ada', expected: `${prefix}Ada` },
+  { label: 'Empty string', input: '', expected: prefix },
+  { label: 'Hidden mixed case', input: 'cli', expected: `${prefix}cli`, hidden: true },
+  { label: 'Longer name', input: 'Nora', expected: `${prefix}Nora` },
+  { label: 'Hidden spaced text', input: 'Dev Ops', expected: `${prefix}Dev Ops`, hidden: true },
+];
+
+const suffixedTextCases = (suffix) => [
+  { label: 'Basic word', input: 'api', expected: `api${suffix}` },
+  { label: 'Single letter', input: 'x', expected: `x${suffix}` },
+  { label: 'Hidden mixed case', input: 'Prod', expected: `Prod${suffix}`, hidden: true },
+  { label: 'Empty string', input: '', expected: suffix },
+  { label: 'Hidden spaced text', input: 'ship it', expected: `ship it${suffix}`, hidden: true },
+];
+
+const multiplyCases = (factor) => [
+  { label: 'Positive number', input: 4, expected: 4 * factor },
+  { label: 'Zero', input: 0, expected: 0 },
+  { label: 'Hidden negative value', input: -3, expected: -3 * factor, hidden: true },
+  { label: 'One', input: 1, expected: factor },
+  { label: 'Hidden larger value', input: 9, expected: 9 * factor, hidden: true },
+];
+
+const offsetCases = (offset) => [
+  { label: 'Positive number', input: 6, expected: 6 + offset },
+  { label: 'Zero input', input: 0, expected: offset },
+  { label: 'Hidden negative input', input: -4, expected: -4 + offset, hidden: true },
+  { label: 'One input', input: 1, expected: 1 + offset },
+  { label: 'Hidden larger input', input: 12, expected: 12 + offset, hidden: true },
+];
+
+const evenValueCases = [
+  { label: 'Even number', input: 8, expected: true },
+  { label: 'Odd number', input: 7, expected: false },
+  { label: 'Hidden zero is even', input: 0, expected: true, hidden: true },
+  { label: 'Negative even number', input: -2, expected: true },
+  { label: 'Hidden negative odd number', input: -5, expected: false, hidden: true },
+];
+
+const greaterThanBooleanCases = (threshold) => [
+  { label: 'Above threshold', input: threshold + 2, expected: true },
+  { label: 'Equal to threshold', input: threshold, expected: false },
+  { label: 'Hidden below threshold', input: threshold - 3, expected: false, hidden: true },
+  { label: 'Far above threshold', input: threshold + 11, expected: true },
+  { label: 'Hidden negative value', input: -1, expected: false, hidden: true },
+];
+
+const maxPairCases = [
+  { label: 'Left is larger', input: [9, 4], expected: 9 },
+  { label: 'Right is larger', input: [3, 8], expected: 8 },
+  { label: 'Hidden equal values', input: [5, 5], expected: 5, hidden: true },
+  { label: 'Negative values', input: [-1, -6], expected: -1 },
+  { label: 'Hidden mixed sign', input: [-4, 2], expected: 2, hidden: true },
+];
+
+const stringLengthCases = [
+  { label: 'Short word', input: 'api', expected: 3 },
+  { label: 'Empty string', input: '', expected: 0 },
+  { label: 'Hidden mixed case', input: 'Deploy', expected: 6, hidden: true },
+  { label: 'Single letter', input: 'x', expected: 1 },
+  { label: 'Hidden spaced text', input: 'hi all', expected: 6, hidden: true },
+];
+
+const minutesFromHoursCases = [
+  { label: 'Whole hours', input: 2, expected: 120 },
+  { label: 'Zero hours', input: 0, expected: 0 },
+  { label: 'Hidden one hour', input: 1, expected: 60, hidden: true },
+  { label: 'Larger value', input: 5, expected: 300 },
+  { label: 'Hidden negative input', input: -1, expected: -60, hidden: true },
+];
+
+const absoluteDifferenceCases = [
+  { label: 'Left larger', input: [9, 3], expected: 6 },
+  { label: 'Right larger', input: [4, 10], expected: 6 },
+  { label: 'Hidden equal values', input: [7, 7], expected: 0, hidden: true },
+  { label: 'Mixed sign values', input: [-2, 3], expected: 5 },
+  { label: 'Hidden negatives', input: [-8, -3], expected: 5, hidden: true },
+];
+
+const moduloCases = (divisor) => [
+  { label: 'Value above divisor', input: divisor + 7, expected: 7 % divisor },
+  { label: 'Exact multiple', input: divisor * 3, expected: 0 },
+  { label: 'Hidden small value', input: 4, expected: 4 % divisor, hidden: true },
+  { label: 'Zero value', input: 0, expected: 0 },
+  { label: 'Hidden larger value', input: divisor * 4 + 2, expected: 2, hidden: true },
+];
+
+const sumPairCases = [
+  { label: 'Two positives', input: [2, 5], expected: 7 },
+  { label: 'Zero plus value', input: [0, 4], expected: 4 },
+  { label: 'Hidden negatives', input: [-3, 6], expected: 3, hidden: true },
+  { label: 'Two negatives', input: [-2, -8], expected: -10 },
+  { label: 'Hidden equal values', input: [9, 9], expected: 18, hidden: true },
+];
 
 const cppLowercaseSupport = joinLines([
   '#include <cctype>',
@@ -2756,14 +3024,28 @@ const beginnerFunctionCompletionSpecs = [
   {
     prompt: 'Complete `solution(name)` so it returns `"Hi " + name`.',
     build: (language) =>
-      buildReturnExpressionTask(language, 'string', [{ name: 'name', type: 'string' }], '"Hi " + name'),
+      buildReturnExpressionTask(
+        language,
+        'string',
+        [{ name: 'name', type: 'string' }],
+        '"Hi " + name',
+        '',
+        prefixedTextCases('Hi ')
+      ),
     requiredSnippets: ['return', '"Hi "', 'name'],
     explanation: 'Return the greeting string instead of printing it.',
   },
   {
     prompt: 'Complete `solution(value)` so it returns `value * 2`.',
     build: (language) =>
-      buildReturnExpressionTask(language, 'number', [{ name: 'value', type: 'number' }], 'value * 2'),
+      buildReturnExpressionTask(
+        language,
+        'number',
+        [{ name: 'value', type: 'number' }],
+        'value * 2',
+        '',
+        multiplyCases(2)
+      ),
     requiredSnippets: ['return', 'value', '* 2'],
     explanation: 'Multiply the input by 2 and return the result.',
   },
@@ -2775,7 +3057,8 @@ const beginnerFunctionCompletionSpecs = [
         'boolean',
         [{ name: 'value', type: 'number' }],
         'value % 2 == 0',
-        language === 'python' ? 'False' : 'false'
+        language === 'python' ? 'False' : 'false',
+        evenValueCases
       ),
     requiredSnippets: ['return', '% 2', '== 0'],
     explanation: 'An even number leaves remainder 0 when divided by 2.',
@@ -2783,7 +3066,14 @@ const beginnerFunctionCompletionSpecs = [
   {
     prompt: 'Complete `solution(amount)` so it returns `amount + 5`.',
     build: (language) =>
-      buildReturnExpressionTask(language, 'number', [{ name: 'amount', type: 'number' }], 'amount + 5'),
+      buildReturnExpressionTask(
+        language,
+        'number',
+        [{ name: 'amount', type: 'number' }],
+        'amount + 5',
+        '',
+        offsetCases(5)
+      ),
     requiredSnippets: ['return', 'amount', '+ 5'],
     explanation: 'The function should add the fixed fee and return the new amount.',
   },
@@ -2799,7 +3089,9 @@ const beginnerFunctionCompletionSpecs = [
         ],
         language === 'python'
           ? 'left if left > right else right'
-          : 'left > right ? left : right'
+          : 'left > right ? left : right',
+        '',
+        maxPairCases
       ),
     requiredSnippets: ['return', 'left', 'right'],
     explanation: 'Compare the two inputs and return the larger one.',
@@ -2810,14 +3102,28 @@ const beginnerFunctionWriteSpecs = [
   {
     prompt: 'Implement `solution(word)` so it returns the length of `word`.',
     build: (language) =>
-      buildReturnExpressionTask(language, 'number', [{ name: 'word', type: 'string' }], stringLengthExpression(language, 'word')),
+      buildReturnExpressionTask(
+        language,
+        'number',
+        [{ name: 'word', type: 'string' }],
+        stringLengthExpression(language, 'word'),
+        '',
+        stringLengthCases
+      ),
     requiredSnippets: ['return', 'word'],
     explanation: 'Return the word length directly.',
   },
   {
     prompt: 'Implement `solution(hours)` so it returns how many minutes are in `hours`.',
     build: (language) =>
-      buildReturnExpressionTask(language, 'number', [{ name: 'hours', type: 'number' }], 'hours * 60'),
+      buildReturnExpressionTask(
+        language,
+        'number',
+        [{ name: 'hours', type: 'number' }],
+        'hours * 60',
+        '',
+        minutesFromHoursCases
+      ),
     requiredSnippets: ['return', 'hours', '* 60'],
     explanation: 'Each hour contains 60 minutes.',
   },
@@ -2837,7 +3143,9 @@ const beginnerFunctionWriteSpecs = [
           ? 'Math.abs(left - right)'
           : language === 'java'
           ? 'Math.abs(left - right)'
-          : 'std::abs(left - right)'
+          : 'std::abs(left - right)',
+        '',
+        absoluteDifferenceCases
       ),
     requiredSnippets: ['return', 'left', 'right'],
     explanation: 'Use the absolute difference so the result is never negative.',
@@ -2850,15 +3158,7 @@ const beginnerFunctionWriteSpecs = [
   },
   {
     prompt: 'Implement `solution(values)` so it returns the sum of the first and last values.',
-    build: (language) => ({
-      starterCode: renderFunction(language, 'number', 'solution', [{ name: 'values', type: 'numberList' }], [
-        language === 'python' ? '# return first + last' : '// return first + last',
-        returnLine(language, '0'),
-      ]),
-      referenceCode: renderFunction(language, 'number', 'solution', [{ name: 'values', type: 'numberList' }], [
-        returnLine(language, `values[0] + ${arrayLastExpression(language, 'values')}`),
-      ]),
-    }),
+    build: (language) => buildSumFirstAndLastTask(language),
     requiredSnippets: ['return', 'values[0]'],
     explanation: 'Read the first and last values and add them.',
   },
@@ -3540,14 +3840,28 @@ const moreBeginnerFunctionCompletionSpecs = [
   {
     prompt: 'Complete `solution(text)` so it returns `text + "!"`.',
     build: (language) =>
-      buildReturnExpressionTask(language, 'string', [{ name: 'text', type: 'string' }], 'text + "!"'),
+      buildReturnExpressionTask(
+        language,
+        'string',
+        [{ name: 'text', type: 'string' }],
+        'text + "!"',
+        '',
+        suffixedTextCases('!')
+      ),
     requiredSnippets: ['return', 'text', '"!"'],
     explanation: 'Return the original text with an exclamation mark appended.',
   },
   {
     prompt: 'Complete `solution(value)` so it returns `value - 1`.',
     build: (language) =>
-      buildReturnExpressionTask(language, 'number', [{ name: 'value', type: 'number' }], 'value - 1'),
+      buildReturnExpressionTask(
+        language,
+        'number',
+        [{ name: 'value', type: 'number' }],
+        'value - 1',
+        '',
+        offsetCases(-1)
+      ),
     requiredSnippets: ['return', 'value', '- 1'],
     explanation: 'Subtract one from the input and return the result.',
   },
@@ -3557,7 +3871,14 @@ const moreBeginnerFunctionWriteSpecs = [
   {
     prompt: 'Implement `solution(value)` so it returns `value % 10`.',
     build: (language) =>
-      buildReturnExpressionTask(language, 'number', [{ name: 'value', type: 'number' }], 'value % 10'),
+      buildReturnExpressionTask(
+        language,
+        'number',
+        [{ name: 'value', type: 'number' }],
+        'value % 10',
+        '',
+        moduloCases(10)
+      ),
     requiredSnippets: ['return', 'value', '% 10'],
     explanation: 'Return the remainder after dividing the value by 10.',
   },
@@ -3850,11 +4171,11 @@ const megaBeginnerDsReadSpecs = [
 ];
 
 const megaBeginnerFunctionCompletionSpecs = [
-  codeSpec('Complete `solution(text)` so it returns `text + "?"`.', (language) => buildReturnExpressionTask(language, 'string', [{ name: 'text', type: 'string' }], 'text + "?"'), ['return', 'text', '"?"'], 'Return the input text with a question mark appended.'),
-  codeSpec('Complete `solution(value)` so it returns `value - 1`.', (language) => buildReturnExpressionTask(language, 'number', [{ name: 'value', type: 'number' }], 'value - 1'), ['return', 'value', '- 1'], 'Subtract one from the input and return it.'),
-  codeSpec('Complete `solution(value)` so it returns `value % 3`.', (language) => buildReturnExpressionTask(language, 'number', [{ name: 'value', type: 'number' }], 'value % 3'), ['return', 'value', '% 3'], 'Return the remainder after dividing by 3.'),
-  codeSpec('Complete `solution(left, right)` so it returns `left + right`.', (language) => buildReturnExpressionTask(language, 'number', [{ name: 'left', type: 'number' }, { name: 'right', type: 'number' }], 'left + right'), ['return', 'left', 'right'], 'Return the sum of the two inputs.'),
-  codeSpec('Complete `solution(value)` so it returns whether `value` is greater than 10.', (language) => buildReturnExpressionTask(language, 'boolean', [{ name: 'value', type: 'number' }], 'value > 10', language === 'python' ? 'False' : 'false'), ['return', 'value', '> 10'], 'Return true only when the input is above 10.'),
+codeSpec('Complete `solution(text)` so it returns `text + "?"`.', (language) => buildReturnExpressionTask(language, 'string', [{ name: 'text', type: 'string' }], 'text + "?"', '', suffixedTextCases('?')), ['return', 'text', '"?"'], 'Return the input text with a question mark appended.'),
+codeSpec('Complete `solution(value)` so it returns `value - 1`.', (language) => buildReturnExpressionTask(language, 'number', [{ name: 'value', type: 'number' }], 'value - 1', '', offsetCases(-1)), ['return', 'value', '- 1'], 'Subtract one from the input and return it.'),
+codeSpec('Complete `solution(value)` so it returns `value % 3`.', (language) => buildReturnExpressionTask(language, 'number', [{ name: 'value', type: 'number' }], 'value % 3', '', moduloCases(3)), ['return', 'value', '% 3'], 'Return the remainder after dividing by 3.'),
+codeSpec('Complete `solution(left, right)` so it returns `left + right`.', (language) => buildReturnExpressionTask(language, 'number', [{ name: 'left', type: 'number' }, { name: 'right', type: 'number' }], 'left + right', '', sumPairCases), ['return', 'left', 'right'], 'Return the sum of the two inputs.'),
+codeSpec('Complete `solution(value)` so it returns whether `value` is greater than 10.', (language) => buildReturnExpressionTask(language, 'boolean', [{ name: 'value', type: 'number' }], 'value > 10', language === 'python' ? 'False' : 'false', greaterThanBooleanCases(10)), ['return', 'value', '> 10'], 'Return true only when the input is above 10.'),
 ];
 
 const megaBeginnerFunctionWriteSpecs = [
@@ -6106,12 +6427,130 @@ const buildTemplatesForConfig = (config) => {
   const curatedBeginnerCodeSpecs = curatedBeginnerCodeSpecsByLanguage[config.language] || {};
   const curatedJuniorChoiceSpecs = curatedJuniorChoiceSpecsByLanguage[config.language] || {};
   const curatedJuniorCodeSpecs = curatedJuniorCodeSpecsByLanguage[config.language] || {};
+  const beginnerChoicePromotions = {
+    syntaxOutput: splitPromotedSpecs(
+      [...moreBeginnerSyntaxOutputSpecs, ...megaBeginnerSyntaxOutputSpecs],
+      CURATED_PROMOTION_COUNT,
+      promoteChoiceSpec
+    ),
+    typesRead: splitPromotedSpecs(
+      [...moreBeginnerTypesReadSpecs, ...megaBeginnerTypesReadSpecs],
+      CURATED_PROMOTION_COUNT,
+      promoteChoiceSpec
+    ),
+    flowTrace: splitPromotedSpecs(
+      [...moreBeginnerFlowTraceSpecs, ...megaBeginnerFlowTraceSpecs],
+      CURATED_PROMOTION_COUNT,
+      promoteChoiceSpec
+    ),
+    dsRead: splitPromotedSpecs(
+      [...moreBeginnerDsReadSpecs, ...megaBeginnerDsReadSpecs],
+      CURATED_PROMOTION_COUNT,
+      promoteChoiceSpec
+    ),
+    debugFix: splitPromotedSpecs(
+      [...moreBeginnerDebugFixSpecs, ...megaBeginnerDebugFixSpecs],
+      CURATED_PROMOTION_COUNT,
+      promoteChoiceSpec
+    ),
+    pressureRead: splitPromotedSpecs(
+      [...moreBeginnerPressureReadSpecs, ...megaBeginnerPressureReadSpecs],
+      CURATED_PROMOTION_COUNT,
+      promoteChoiceSpec
+    ),
+  };
+  const beginnerCodePromotions = {
+    functionCompletion: splitPromotedSpecs(
+      [...moreBeginnerFunctionCompletionSpecs, ...megaBeginnerFunctionCompletionSpecs],
+      CURATED_PROMOTION_COUNT,
+      promoteCodeSpec
+    ),
+    functionWrite: splitPromotedSpecs(
+      [...moreBeginnerFunctionWriteSpecs, ...megaBeginnerFunctionWriteSpecs],
+      CURATED_PROMOTION_COUNT,
+      promoteCodeSpec
+    ),
+    debugCode: splitPromotedSpecs(
+      [...moreBeginnerDebugCodeSpecs, ...megaBeginnerDebugCodeSpecs],
+      CURATED_PROMOTION_COUNT,
+      promoteCodeSpec
+    ),
+    miniProblem: splitPromotedSpecs(
+      [...moreBeginnerMiniProblemSpecs, ...megaBeginnerMiniProblemSpecs],
+      CURATED_PROMOTION_COUNT,
+      promoteCodeSpec
+    ),
+  };
+  const juniorChoicePromotions = {
+    readFast: splitPromotedSpecs(
+      [...moreJuniorReadFastSpecs, ...megaJuniorReadFastSpecs],
+      CURATED_PROMOTION_COUNT,
+      promoteChoiceSpec
+    ),
+    predictOutput: splitPromotedSpecs(
+      [...moreJuniorPredictOutputSpecs, ...megaJuniorPredictOutputSpecs],
+      CURATED_PROMOTION_COUNT,
+      promoteChoiceSpec
+    ),
+    bestFix: splitPromotedSpecs(
+      [...moreJuniorBestFixSpecs, ...megaJuniorBestFixSpecs],
+      CURATED_PROMOTION_COUNT,
+      promoteChoiceSpec
+    ),
+    dsRead: splitPromotedSpecs(
+      [...moreJuniorDsReadSpecs, ...megaJuniorDsReadSpecs],
+      CURATED_PROMOTION_COUNT,
+      promoteChoiceSpec
+    ),
+    flowRead: splitPromotedSpecs(
+      [...moreJuniorFlowReadSpecs, ...megaJuniorFlowReadSpecs],
+      CURATED_PROMOTION_COUNT,
+      promoteChoiceSpec
+    ),
+    pressureRead: splitPromotedSpecs(
+      [...moreJuniorPressureReadSpecs, ...megaJuniorPressureReadSpecs],
+      CURATED_PROMOTION_COUNT,
+      promoteChoiceSpec
+    ),
+    pressureFix: splitPromotedSpecs(
+      [...moreJuniorPressureFixSpecs, ...megaJuniorPressureFixSpecs],
+      CURATED_PROMOTION_COUNT,
+      promoteChoiceSpec
+    ),
+  };
+  const juniorCodePromotions = {
+    debugCode: splitPromotedSpecs(
+      [...moreJuniorDebugCodeSpecs, ...megaJuniorDebugCodeSpecs],
+      CURATED_PROMOTION_COUNT,
+      promoteCodeSpec
+    ),
+    writeHelper: splitPromotedSpecs(
+      [...moreJuniorWriteHelperSpecs, ...megaJuniorWriteHelperSpecs],
+      CURATED_PROMOTION_COUNT,
+      promoteCodeSpec
+    ),
+    completeData: splitPromotedSpecs(
+      [...moreJuniorCompleteDataSpecs, ...megaJuniorCompleteDataSpecs],
+      CURATED_PROMOTION_COUNT,
+      promoteCodeSpec
+    ),
+    miniProblem: splitPromotedSpecs(
+      [...moreJuniorMiniProblemSpecs, ...megaJuniorMiniProblemSpecs],
+      CURATED_PROMOTION_COUNT,
+      promoteCodeSpec
+    ),
+    miniProblem2: splitPromotedSpecs(
+      [...moreJuniorMiniProblem2Specs, ...megaJuniorMiniProblem2Specs],
+      CURATED_PROMOTION_COUNT,
+      promoteCodeSpec
+    ),
+  };
   const beginnerTemplates = [
     ...[
-      ...beginnerSyntaxOutputSpecs,
-      ...moreBeginnerSyntaxOutputSpecs,
-      ...megaBeginnerSyntaxOutputSpecs,
       ...(curatedBeginnerChoiceSpecs.syntaxOutput || []),
+      ...beginnerChoicePromotions.syntaxOutput.promoted,
+      ...beginnerSyntaxOutputSpecs,
+      ...beginnerChoicePromotions.syntaxOutput.remainder,
     ].map((spec, index) =>
       buildChoiceQuestion(config, beginnerFamilies.syntaxOutput, index, {
         ...spec.render(config.language),
@@ -6123,10 +6562,10 @@ const buildTemplatesForConfig = (config) => {
       })
     ),
     ...[
-      ...beginnerTypesReadSpecs,
-      ...moreBeginnerTypesReadSpecs,
-      ...megaBeginnerTypesReadSpecs,
       ...(curatedBeginnerChoiceSpecs.typesRead || []),
+      ...beginnerChoicePromotions.typesRead.promoted,
+      ...beginnerTypesReadSpecs,
+      ...beginnerChoicePromotions.typesRead.remainder,
     ].map((spec, index) =>
       buildChoiceQuestion(config, beginnerFamilies.typesRead, index, {
         ...spec.render(config.language),
@@ -6138,10 +6577,10 @@ const buildTemplatesForConfig = (config) => {
       })
     ),
     ...[
-      ...beginnerFlowTraceSpecs,
-      ...moreBeginnerFlowTraceSpecs,
-      ...megaBeginnerFlowTraceSpecs,
       ...(curatedBeginnerChoiceSpecs.flowTrace || []),
+      ...beginnerChoicePromotions.flowTrace.promoted,
+      ...beginnerFlowTraceSpecs,
+      ...beginnerChoicePromotions.flowTrace.remainder,
     ].map((spec, index) =>
       buildChoiceQuestion(config, beginnerFamilies.flowTrace, index, {
         ...spec.render(config.language),
@@ -6153,10 +6592,10 @@ const buildTemplatesForConfig = (config) => {
       })
     ),
     ...[
-      ...beginnerDsReadSpecs,
-      ...moreBeginnerDsReadSpecs,
-      ...megaBeginnerDsReadSpecs,
       ...(curatedBeginnerChoiceSpecs.dsRead || []),
+      ...beginnerChoicePromotions.dsRead.promoted,
+      ...beginnerDsReadSpecs,
+      ...beginnerChoicePromotions.dsRead.remainder,
     ].map((spec, index) =>
       buildChoiceQuestion(config, beginnerFamilies.dsRead, index, {
         ...spec.render(config.language),
@@ -6168,10 +6607,10 @@ const buildTemplatesForConfig = (config) => {
       })
     ),
     ...[
-      ...beginnerFunctionCompletionSpecs,
-      ...moreBeginnerFunctionCompletionSpecs,
-      ...megaBeginnerFunctionCompletionSpecs,
       ...(curatedBeginnerCodeSpecs.functionCompletion || []),
+      ...beginnerCodePromotions.functionCompletion.promoted,
+      ...beginnerFunctionCompletionSpecs,
+      ...beginnerCodePromotions.functionCompletion.remainder,
     ].map((spec, index) => {
       const task = spec.build(config.language);
       return buildCodeQuestion(config, beginnerFamilies.functionCompletion, index, {
@@ -6192,10 +6631,10 @@ const buildTemplatesForConfig = (config) => {
       });
     }),
     ...[
-      ...beginnerFunctionWriteSpecs,
-      ...moreBeginnerFunctionWriteSpecs,
-      ...megaBeginnerFunctionWriteSpecs,
       ...(curatedBeginnerCodeSpecs.functionWrite || []),
+      ...beginnerCodePromotions.functionWrite.promoted,
+      ...beginnerFunctionWriteSpecs,
+      ...beginnerCodePromotions.functionWrite.remainder,
     ].map((spec, index) => {
       const task = spec.build(config.language);
       return buildCodeQuestion(config, beginnerFamilies.functionWrite, index, {
@@ -6216,10 +6655,10 @@ const buildTemplatesForConfig = (config) => {
       });
     }),
     ...[
-      ...beginnerDebugFixSpecs,
-      ...moreBeginnerDebugFixSpecs,
-      ...megaBeginnerDebugFixSpecs,
       ...(curatedBeginnerChoiceSpecs.debugFix || []),
+      ...beginnerChoicePromotions.debugFix.promoted,
+      ...beginnerDebugFixSpecs,
+      ...beginnerChoicePromotions.debugFix.remainder,
     ].map((spec, index) =>
       buildChoiceQuestion(config, beginnerFamilies.debugFix, index, {
         ...spec.render(config.language),
@@ -6231,10 +6670,10 @@ const buildTemplatesForConfig = (config) => {
       })
     ),
     ...[
-      ...beginnerDebugCodeSpecs,
-      ...moreBeginnerDebugCodeSpecs,
-      ...megaBeginnerDebugCodeSpecs,
       ...(curatedBeginnerCodeSpecs.debugCode || []),
+      ...beginnerCodePromotions.debugCode.promoted,
+      ...beginnerDebugCodeSpecs,
+      ...beginnerCodePromotions.debugCode.remainder,
     ].map((spec, index) => {
       const task = spec.build(config.language);
       return buildCodeQuestion(config, beginnerFamilies.debugCode, index, {
@@ -6256,10 +6695,10 @@ const buildTemplatesForConfig = (config) => {
       });
     }),
     ...[
-      ...beginnerMiniProblemSpecs,
-      ...moreBeginnerMiniProblemSpecs,
-      ...megaBeginnerMiniProblemSpecs,
       ...(curatedBeginnerCodeSpecs.miniProblem || []),
+      ...beginnerCodePromotions.miniProblem.promoted,
+      ...beginnerMiniProblemSpecs,
+      ...beginnerCodePromotions.miniProblem.remainder,
     ].map((spec, index) => {
       const task = spec.build(config.language);
       return buildCodeQuestion(config, beginnerFamilies.miniProblem, index, {
@@ -6280,10 +6719,10 @@ const buildTemplatesForConfig = (config) => {
       });
     }),
     ...[
-      ...beginnerPressureReadSpecs,
-      ...moreBeginnerPressureReadSpecs,
-      ...megaBeginnerPressureReadSpecs,
       ...(curatedBeginnerChoiceSpecs.pressureRead || []),
+      ...beginnerChoicePromotions.pressureRead.promoted,
+      ...beginnerPressureReadSpecs,
+      ...beginnerChoicePromotions.pressureRead.remainder,
     ].map((spec, index) =>
       buildChoiceQuestion(config, beginnerFamilies.pressureRead, index, {
         ...spec.render(config.language),
@@ -6297,7 +6736,12 @@ const buildTemplatesForConfig = (config) => {
   ];
 
   const juniorTemplates = [
-    ...[...(curatedJuniorChoiceSpecs.readFast || []), ...juniorReadFastSpecs, ...moreJuniorReadFastSpecs, ...megaJuniorReadFastSpecs].map((spec, index) =>
+    ...[
+      ...(curatedJuniorChoiceSpecs.readFast || []),
+      ...juniorChoicePromotions.readFast.promoted,
+      ...juniorReadFastSpecs,
+      ...juniorChoicePromotions.readFast.remainder,
+    ].map((spec, index) =>
       buildChoiceQuestion(config, juniorFamilies.readFast, index, {
         ...spec.render(config.language),
         expectedDurationSeconds: spec.expectedDurationSeconds,
@@ -6307,7 +6751,12 @@ const buildTemplatesForConfig = (config) => {
         version: spec.version,
       })
     ),
-    ...[...(curatedJuniorChoiceSpecs.predictOutput || []), ...juniorPredictOutputSpecs, ...moreJuniorPredictOutputSpecs, ...megaJuniorPredictOutputSpecs].map((spec, index) =>
+    ...[
+      ...(curatedJuniorChoiceSpecs.predictOutput || []),
+      ...juniorChoicePromotions.predictOutput.promoted,
+      ...juniorPredictOutputSpecs,
+      ...juniorChoicePromotions.predictOutput.remainder,
+    ].map((spec, index) =>
       buildChoiceQuestion(config, juniorFamilies.predictOutput, index, {
         ...spec.render(config.language),
         expectedDurationSeconds: spec.expectedDurationSeconds,
@@ -6317,7 +6766,12 @@ const buildTemplatesForConfig = (config) => {
         version: spec.version,
       })
     ),
-    ...[...(curatedJuniorChoiceSpecs.bestFix || []), ...juniorBestFixSpecs, ...moreJuniorBestFixSpecs, ...megaJuniorBestFixSpecs].map((spec, index) =>
+    ...[
+      ...(curatedJuniorChoiceSpecs.bestFix || []),
+      ...juniorChoicePromotions.bestFix.promoted,
+      ...juniorBestFixSpecs,
+      ...juniorChoicePromotions.bestFix.remainder,
+    ].map((spec, index) =>
       buildChoiceQuestion(config, juniorFamilies.bestFix, index, {
         ...spec.render(config.language),
         expectedDurationSeconds: spec.expectedDurationSeconds,
@@ -6327,7 +6781,12 @@ const buildTemplatesForConfig = (config) => {
         version: spec.version,
       })
     ),
-    ...[...(curatedJuniorCodeSpecs.debugCode || []), ...juniorDebugCodeSpecs, ...moreJuniorDebugCodeSpecs, ...megaJuniorDebugCodeSpecs].map((spec, index) => {
+    ...[
+      ...(curatedJuniorCodeSpecs.debugCode || []),
+      ...juniorCodePromotions.debugCode.promoted,
+      ...juniorDebugCodeSpecs,
+      ...juniorCodePromotions.debugCode.remainder,
+    ].map((spec, index) => {
       const task = spec.build(config.language);
       return buildCodeQuestion(config, juniorFamilies.debugCode, index, {
         prompt: spec.prompt,
@@ -6346,7 +6805,12 @@ const buildTemplatesForConfig = (config) => {
         version: spec.version,
       });
     }),
-    ...[...(curatedJuniorCodeSpecs.writeHelper || []), ...juniorWriteHelperSpecs, ...moreJuniorWriteHelperSpecs, ...megaJuniorWriteHelperSpecs].map((spec, index) => {
+    ...[
+      ...(curatedJuniorCodeSpecs.writeHelper || []),
+      ...juniorCodePromotions.writeHelper.promoted,
+      ...juniorWriteHelperSpecs,
+      ...juniorCodePromotions.writeHelper.remainder,
+    ].map((spec, index) => {
       const task = spec.build(config.language);
       return buildCodeQuestion(config, juniorFamilies.writeHelper, index, {
         prompt: spec.prompt,
@@ -6365,7 +6829,12 @@ const buildTemplatesForConfig = (config) => {
         version: spec.version,
       });
     }),
-    ...[...(curatedJuniorCodeSpecs.completeData || []), ...juniorCompleteDataSpecs, ...moreJuniorCompleteDataSpecs, ...megaJuniorCompleteDataSpecs].map((spec, index) => {
+    ...[
+      ...(curatedJuniorCodeSpecs.completeData || []),
+      ...juniorCodePromotions.completeData.promoted,
+      ...juniorCompleteDataSpecs,
+      ...juniorCodePromotions.completeData.remainder,
+    ].map((spec, index) => {
       const task = spec.build(config.language);
       return buildCodeQuestion(config, juniorFamilies.completeData, index, {
         prompt: spec.prompt,
@@ -6384,7 +6853,12 @@ const buildTemplatesForConfig = (config) => {
         version: spec.version,
       });
     }),
-    ...[...(curatedJuniorChoiceSpecs.dsRead || []), ...juniorDsReadSpecs, ...moreJuniorDsReadSpecs, ...megaJuniorDsReadSpecs].map((spec, index) =>
+    ...[
+      ...(curatedJuniorChoiceSpecs.dsRead || []),
+      ...juniorChoicePromotions.dsRead.promoted,
+      ...juniorDsReadSpecs,
+      ...juniorChoicePromotions.dsRead.remainder,
+    ].map((spec, index) =>
       buildChoiceQuestion(config, juniorFamilies.dsRead, index, {
         ...spec.render(config.language),
         expectedDurationSeconds: spec.expectedDurationSeconds,
@@ -6394,7 +6868,12 @@ const buildTemplatesForConfig = (config) => {
         version: spec.version,
       })
     ),
-    ...[...(curatedJuniorChoiceSpecs.flowRead || []), ...juniorFlowReadSpecs, ...moreJuniorFlowReadSpecs, ...megaJuniorFlowReadSpecs].map((spec, index) =>
+    ...[
+      ...(curatedJuniorChoiceSpecs.flowRead || []),
+      ...juniorChoicePromotions.flowRead.promoted,
+      ...juniorFlowReadSpecs,
+      ...juniorChoicePromotions.flowRead.remainder,
+    ].map((spec, index) =>
       buildChoiceQuestion(config, juniorFamilies.flowRead, index, {
         ...spec.render(config.language),
         expectedDurationSeconds: spec.expectedDurationSeconds,
@@ -6404,7 +6883,12 @@ const buildTemplatesForConfig = (config) => {
         version: spec.version,
       })
     ),
-    ...[...(curatedJuniorCodeSpecs.miniProblem || []), ...juniorMiniProblemSpecs, ...moreJuniorMiniProblemSpecs, ...megaJuniorMiniProblemSpecs].map((spec, index) => {
+    ...[
+      ...(curatedJuniorCodeSpecs.miniProblem || []),
+      ...juniorCodePromotions.miniProblem.promoted,
+      ...juniorMiniProblemSpecs,
+      ...juniorCodePromotions.miniProblem.remainder,
+    ].map((spec, index) => {
       const task = spec.build(config.language);
       return buildCodeQuestion(config, juniorFamilies.miniProblem, index, {
         prompt: spec.prompt,
@@ -6423,7 +6907,12 @@ const buildTemplatesForConfig = (config) => {
         version: spec.version,
       });
     }),
-    ...[...(curatedJuniorCodeSpecs.miniProblem2 || []), ...juniorMiniProblem2Specs, ...moreJuniorMiniProblem2Specs, ...megaJuniorMiniProblem2Specs].map((spec, index) => {
+    ...[
+      ...(curatedJuniorCodeSpecs.miniProblem2 || []),
+      ...juniorCodePromotions.miniProblem2.promoted,
+      ...juniorMiniProblem2Specs,
+      ...juniorCodePromotions.miniProblem2.remainder,
+    ].map((spec, index) => {
       const task = spec.build(config.language);
       return buildCodeQuestion(config, juniorFamilies.miniProblem2, index, {
         prompt: spec.prompt,
@@ -6442,7 +6931,12 @@ const buildTemplatesForConfig = (config) => {
         version: spec.version,
       });
     }),
-    ...[...(curatedJuniorChoiceSpecs.pressureRead || []), ...juniorPressureReadSpecs, ...moreJuniorPressureReadSpecs, ...megaJuniorPressureReadSpecs].map((spec, index) =>
+    ...[
+      ...(curatedJuniorChoiceSpecs.pressureRead || []),
+      ...juniorChoicePromotions.pressureRead.promoted,
+      ...juniorPressureReadSpecs,
+      ...juniorChoicePromotions.pressureRead.remainder,
+    ].map((spec, index) =>
       buildChoiceQuestion(config, juniorFamilies.pressureRead, index, {
         ...spec.render(config.language),
         expectedDurationSeconds: spec.expectedDurationSeconds,
@@ -6452,7 +6946,12 @@ const buildTemplatesForConfig = (config) => {
         version: spec.version,
       })
     ),
-    ...[...(curatedJuniorChoiceSpecs.pressureFix || []), ...juniorPressureFixSpecs, ...moreJuniorPressureFixSpecs, ...megaJuniorPressureFixSpecs].map((spec, index) =>
+    ...[
+      ...(curatedJuniorChoiceSpecs.pressureFix || []),
+      ...juniorChoicePromotions.pressureFix.promoted,
+      ...juniorPressureFixSpecs,
+      ...juniorChoicePromotions.pressureFix.remainder,
+    ].map((spec, index) =>
       buildChoiceQuestion(config, juniorFamilies.pressureFix, index, {
         ...spec.render(config.language),
         expectedDurationSeconds: spec.expectedDurationSeconds,

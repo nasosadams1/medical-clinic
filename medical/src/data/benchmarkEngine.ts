@@ -4003,7 +4003,8 @@ const buildObservedItemSignalMap = (reports: BenchmarkReport[] = []) => {
 const templateSelectionPreference = (template: BenchmarkSeedQuestionTemplate) => {
   const cheapDistractorCount =
     template.kind === 'multiple_choice'
-      ? (template.options || []).filter((option) => {
+      ? (template.options || []).filter((option, index) => {
+          if (index === template.correctAnswer) return false;
           const normalized = option.trim().toLowerCase();
           return ['error', 'nothing', 'undefined', 'nan', 'null'].includes(normalized);
         }).length
@@ -4023,7 +4024,6 @@ const templateSelectionPreference = (template: BenchmarkSeedQuestionTemplate) =>
       ? 4
       : 1;
   const executionScore = template.executionCases?.length ? 4 : template.kind === 'code' ? 1 : 0;
-  const versionScore = Math.max(0, (template.version ?? 1) - 1) * 1.1;
   const discriminationScore = Math.max(0, Math.min(0.35, (template.discrimination ?? 0.68) - 0.55)) * 4;
   const promptDepthScore = Math.min(1.2, ((template.prompt.match(/\n/g) || []).length || 0) * 0.08);
   const distractorPenalty = cheapDistractorCount * 1.4;
@@ -4031,7 +4031,6 @@ const templateSelectionPreference = (template: BenchmarkSeedQuestionTemplate) =>
     sourceScore +
     calibrationScore +
     executionScore +
-    versionScore +
     discriminationScore +
     promptDepthScore -
     distractorPenalty
@@ -4095,18 +4094,16 @@ const pickTemplateForSlot = (
   if (activePool.length === 0) return null;
 
   const nonDraftPool = activePool.filter((template) => (template.calibrationState ?? 'draft') !== 'draft');
-  const premiumVersionPool = nonDraftPool.filter((template) => (template.version ?? 1) >= 3);
-  const qualityFloorPool =
-    premiumVersionPool.length > 0 ? premiumVersionPool : nonDraftPool.length > 0 ? nonDraftPool : activePool;
+  const qualityFloorPool = nonDraftPool.length > 0 ? nonDraftPool : activePool;
   const executionBackedPool =
     slot.preferredKind === 'code'
       ? qualityFloorPool.filter((template) => (template.executionCases?.length ?? 0) > 0)
       : [];
   const assessmentFloorPool =
     slot.preferredKind === 'code' && executionBackedPool.length > 0 ? executionBackedPool : qualityFloorPool;
-  const authoredPool = assessmentFloorPool.filter(
-    (template) => template.sourceType === 'curated' || template.sourceType === 'seeded'
-  );
+  const curatedPool = assessmentFloorPool.filter((template) => template.sourceType === 'curated');
+  const seededPool = assessmentFloorPool.filter((template) => template.sourceType === 'seeded');
+  const authoredPool = curatedPool.length > 0 ? curatedPool : seededPool;
   const sourceFloorPool =
     authoredPool.length > 0
       ? authoredPool

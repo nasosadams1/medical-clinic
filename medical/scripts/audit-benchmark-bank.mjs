@@ -16,6 +16,7 @@ const minimumPackCounts = {
   beginner: 150,
   junior: 180,
 };
+const minimumCuratedTemplatesPerFamily = 6;
 const expectedPackIdsByLanguage = {
   python: {
     beginner: 'python-beginner-fundamentals',
@@ -56,6 +57,34 @@ const expectedQuestionTypesByRole = {
     'applied_mini_problem',
   ],
 };
+const expectedFamilySlugsByRole = {
+  beginner: [
+    'syntax-output',
+    'types-read',
+    'flow-trace',
+    'ds-reading',
+    'function-completion',
+    'function-write',
+    'debug-fix',
+    'debug-code',
+    'mini-problem',
+    'pressure-read',
+  ],
+  junior: [
+    'read-fast',
+    'predict-output',
+    'best-fix',
+    'debug-code',
+    'write-helper',
+    'complete-data',
+    'ds-read',
+    'flow-read',
+    'mini-problem',
+    'mini-problem-2',
+    'pressure-read',
+    'pressure-fix',
+  ],
+};
 
 const recordIssue = (message) => {
   issues.push(message);
@@ -78,6 +107,18 @@ const countByPackAndType = (templates) =>
     return accumulator;
   }, {});
 
+const countByPackAndFamilyAndSource = (templates) =>
+  templates.reduce((accumulator, template) => {
+    for (const packId of template.packIds ?? []) {
+      accumulator[packId] ??= {};
+      const familySlug = template.familySlug ?? 'unknown';
+      accumulator[packId][familySlug] ??= {};
+      accumulator[packId][familySlug][template.sourceType] =
+        (accumulator[packId][familySlug][template.sourceType] ?? 0) + 1;
+    }
+    return accumulator;
+  }, {});
+
 for (const [language, templates] of Object.entries(benchmarkExpandedSeedTemplatesByLanguage)) {
   if (!Array.isArray(templates) || templates.length === 0) {
     recordIssue(`${language}: bank is empty.`);
@@ -86,6 +127,7 @@ for (const [language, templates] of Object.entries(benchmarkExpandedSeedTemplate
 
   const packCounts = countByPack(templates);
   const packTypeCounts = countByPackAndType(templates);
+  const packFamilySourceCounts = countByPackAndFamilyAndSource(templates);
   const expectedPackIds = expectedPackIdsByLanguage[language];
 
   for (const template of templates) {
@@ -98,18 +140,22 @@ for (const [language, templates] of Object.entries(benchmarkExpandedSeedTemplate
     if (!template.sourceType) {
       recordIssue(`${language}:${template.templateId} is missing sourceType.`);
     }
+    if (!template.familySlug) {
+      recordIssue(`${language}:${template.templateId} is missing familySlug.`);
+    }
     if (template.sourceType === 'legacy') {
       recordIssue(`${language}:${template.templateId} is marked legacy inside the expanded bank.`);
     }
     if (template.kind === 'multiple_choice') {
-      const cheapOptionCount = (template.options ?? []).filter((option) =>
-        cheapDistractors.has(option.trim().toLowerCase())
+      const cheapOptionCount = (template.options ?? []).filter(
+        (option, index) =>
+          index !== template.correctAnswer && cheapDistractors.has(option.trim().toLowerCase())
       ).length;
-      if (template.sourceType === 'curated' && cheapOptionCount > 0) {
+      if (cheapOptionCount > 0) {
         recordIssue(`${language}:${template.templateId} still uses cheap distractors.`);
       }
     }
-    if (template.kind === 'code' && template.sourceType === 'curated') {
+    if (template.kind === 'code') {
       if ((template.executionCases?.length ?? 0) < 5) {
         recordIssue(`${language}:${template.templateId} has fewer than 5 execution cases.`);
       }
@@ -130,9 +176,18 @@ for (const [language, templates] of Object.entries(benchmarkExpandedSeedTemplate
   for (const role of ['beginner', 'junior']) {
     const packId = expectedPackIds[role];
     const typeCounts = packTypeCounts[packId] ?? {};
+    const familySourceCounts = packFamilySourceCounts[packId] ?? {};
     for (const questionType of expectedQuestionTypesByRole[role]) {
       if ((typeCounts[questionType] ?? 0) < 3) {
         recordIssue(`${language}:${packId} has fewer than 3 templates for ${questionType}.`);
+      }
+    }
+    for (const familySlug of expectedFamilySlugsByRole[role]) {
+      const curatedCount = familySourceCounts[familySlug]?.curated ?? 0;
+      if (curatedCount < minimumCuratedTemplatesPerFamily) {
+        recordIssue(
+          `${language}:${packId}:${familySlug} has only ${curatedCount} curated templates.`
+        );
       }
     }
   }
@@ -158,10 +213,20 @@ const requiredExpandedBankSnippets = [
   "sourceType: template.sourceType ?? 'generated'",
   "version: Math.max(3, template.version ?? 3)",
   "sourceType: overrides.sourceType ?? 'curated'",
+  'const CURATED_PROMOTION_COUNT = 3;',
+  'const splitPromotedSpecs =',
+  'familySlug: family.slug',
 ];
 for (const snippet of requiredExpandedBankSnippets) {
   if (!expandedBankSource.includes(snippet)) {
     recordIssue(`benchmarkExpandedSeedBank.js is missing expected guard snippet: ${snippet}`);
+  }
+}
+
+const forbiddenEngineSnippets = ['versionScore', 'template.version >= 3'];
+for (const snippet of forbiddenEngineSnippets) {
+  if (engineSource.includes(snippet)) {
+    recordIssue(`benchmarkEngine.ts still contains deprecated quality heuristic: ${snippet}`);
   }
 }
 
