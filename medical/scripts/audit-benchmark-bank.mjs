@@ -3,6 +3,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { benchmarkExpandedSeedTemplatesByLanguage } from '../src/data/benchmarkExpandedSeedBank.js';
+import { buildDynamicBenchmarkExecutionDefinition } from '../services/benchmark/execution-bank.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -158,6 +159,19 @@ for (const [language, templates] of Object.entries(benchmarkExpandedSeedTemplate
     if (template.kind === 'code') {
       if ((template.executionCases?.length ?? 0) < 5) {
         recordIssue(`${language}:${template.templateId} has fewer than 5 execution cases.`);
+      }
+      if (template.evaluationStrategy === 'execution') {
+        const executionDefinition = buildDynamicBenchmarkExecutionDefinition({
+          language,
+          starterCode: template.starterCode,
+          referenceCode: template.referenceCode,
+          executionCases: template.executionCases,
+        });
+        if (!executionDefinition) {
+          recordIssue(
+            `${language}:${template.templateId} does not build a backend execution definition.`
+          );
+        }
       }
     }
   }

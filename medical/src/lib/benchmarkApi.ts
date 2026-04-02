@@ -3,6 +3,7 @@ import {
   type BenchmarkCalibrationSignal,
   type BenchmarkReport,
 } from '../data/benchmarkEngine';
+import type { BenchmarkExecutionCase } from '../data/benchmarkModel';
 import { buildApiUrl } from './apiBase';
 import { supabase } from './supabase';
 
@@ -193,6 +194,9 @@ export const evaluateBenchmarkSubmission = async (payload: {
   templateId: string;
   language: 'python' | 'javascript' | 'java' | 'cpp';
   submittedCode: string;
+  starterCode?: string;
+  referenceCode?: string;
+  executionCases?: BenchmarkExecutionCase[];
 }) => {
   const response = await benchmarkPublicFetch<BenchmarkExecutionEvaluationResult>('/evaluate', {
     method: 'POST',

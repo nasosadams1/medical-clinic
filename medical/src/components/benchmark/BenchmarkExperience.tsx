@@ -411,6 +411,24 @@ const toExecutionBlockedEvaluation = (message: string): BenchmarkCodeEvaluation 
   requiresExecution: true,
 });
 
+const toExecutionMissingEvaluation = (): BenchmarkCodeEvaluation => ({
+  passed: false,
+  message: 'Write code before running benchmark tests.',
+  missingSnippets: [],
+  scorePercent: 0,
+  rubricScores: {
+    correctness: 0,
+    edgeCaseHandling: 0,
+    codeQuality: 0,
+    efficiency: 0,
+  },
+  matchedSignals: [],
+  flaggedPatterns: [],
+  evaluationStrategy: 'execution',
+  testResults: [],
+  requiresExecution: true,
+});
+
 export default function BenchmarkExperience({
   mode = 'public',
   presetLanguage,
@@ -1062,11 +1080,17 @@ export default function BenchmarkExperience({
     options: { silent?: boolean } = {}
   ) => {
     if (question.evaluationStrategy === 'execution') {
+      if (!submittedCode.trim()) {
+        return toExecutionMissingEvaluation();
+      }
       try {
         const result = await evaluateBenchmarkSubmission({
           templateId: question.templateId,
           language: setup.language as 'python' | 'javascript' | 'java' | 'cpp',
           submittedCode,
+          starterCode: question.starterCode,
+          referenceCode: question.referenceCode,
+          executionCases: question.executionCases,
         });
         return toExecutionEvaluation(result);
       } catch (error) {

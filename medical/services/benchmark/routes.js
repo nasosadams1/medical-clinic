@@ -2,7 +2,10 @@ import express from 'express';
 import { randomBytes } from 'node:crypto';
 import { z } from 'zod';
 import { createAuthenticatedUserMiddleware } from '../auth-utils.js';
-import { getBenchmarkExecutionDefinition } from './execution-bank.js';
+import {
+  buildDynamicBenchmarkExecutionDefinition,
+  getBenchmarkExecutionDefinition,
+} from './execution-bank.js';
 
 const BenchmarkSetupSchema = z.object({
   goal: z.enum(['interview_prep', 'class_improvement', 'skill_growth']),
@@ -171,7 +174,24 @@ const SharedReportRouteParamsSchema = z.object({
 const BenchmarkEvaluateRequestSchema = z.object({
   templateId: z.string().trim().min(1).max(200),
   language: z.enum(['python', 'javascript', 'java', 'cpp']),
-  submittedCode: z.string().trim().min(1).max(12000),
+  submittedCode: z.string().max(12000),
+  starterCode: z.string().max(12000).optional(),
+  referenceCode: z.string().max(12000).optional(),
+  executionCases: z
+    .array(
+      z.object({
+        label: z.string().trim().min(1).max(160).optional(),
+        input: z.unknown().optional(),
+        expected: z.unknown().optional(),
+        expectedOutput: z.string().max(4000).optional(),
+        validator: z.string().trim().min(1).max(160).nullable().optional(),
+        compareMode: z.string().trim().min(1).max(160).nullable().optional(),
+        hidden: z.boolean().optional(),
+        timeLimitMs: z.number().int().min(50).max(10000).nullable().optional(),
+      })
+    )
+    .max(20)
+    .optional(),
 });
 
 const mapJudgeResultToBenchmarkEvaluation = (judgeResult) => {
@@ -208,6 +228,20 @@ const mapJudgeResultToBenchmarkEvaluation = (judgeResult) => {
     runtimeMs: judgeResult?.runtimeMs || 0,
   };
 };
+
+const buildMissingSubmissionEvaluation = () => ({
+  passed: false,
+  message: 'Write code before running benchmark tests.',
+  scorePercent: 0,
+  rubricBreakdown: {
+    correctness: 0,
+    edgeCaseHandling: 0,
+    codeQuality: 0,
+    efficiency: 0,
+  },
+  testResults: [],
+  runtimeMs: 0,
+});
 
 const buildPersistedReportRow = (userId, report) => ({
   user_id: userId,
@@ -887,12 +921,30 @@ export const createBenchmarkRouter = ({ supabaseAdmin, judgeService = null }) =>
 
   router.post('/evaluate', async (req, res) => {
     try {
-      const { templateId, language, submittedCode } = BenchmarkEvaluateRequestSchema.parse(req.body || {});
+      const {
+        templateId,
+        language,
+        submittedCode,
+        starterCode,
+        referenceCode,
+        executionCases,
+      } = BenchmarkEvaluateRequestSchema.parse(req.body || {});
       if (!judgeService || typeof judgeService.executeCode !== 'function') {
         return res.status(503).json({ error: 'Benchmark execution is not configured on this server.' });
       }
 
-      const executionDefinition = getBenchmarkExecutionDefinition(templateId);
+      if (!String(submittedCode || '').trim()) {
+        return res.json(buildMissingSubmissionEvaluation());
+      }
+
+      const executionDefinition =
+        getBenchmarkExecutionDefinition(templateId) ||
+        buildDynamicBenchmarkExecutionDefinition({
+          language,
+          starterCode,
+          referenceCode,
+          executionCases,
+        });
       if (!executionDefinition) {
         return res.status(400).json({ error: 'This benchmark task is not execution-backed.' });
       }
