@@ -1,6 +1,8 @@
 import type { Lesson } from './lessons';
 import { allLessons as legacyAllLessons } from './lessons';
 import { cppLessons as rawCppLessons } from './cppLessons.generated';
+import { javaLessons as rawJavaLessons } from './javaLessons.generated';
+import { javascriptLessons as rawJavascriptLessons } from './javascriptLessons.generated';
 import { pythonLessons as rawPythonLessons } from './pythonLessons.generated';
 
 const LESSON_REWARD_BANDS: Record<
@@ -62,12 +64,24 @@ const rebalanceLessonRewards = (lessons: Lesson[]): Lesson[] => {
 };
 
 const pythonLessons = rebalanceLessonRewards(rawPythonLessons);
+const javascriptLessons = rawJavascriptLessons;
 const cppLessons = rawCppLessons;
+const javaLessons = rawJavaLessons;
 const nonPythonLegacyLessons = legacyAllLessons.filter(
-  (lesson) => lesson.language !== 'python' && lesson.language !== 'cpp'
+  (lesson) =>
+    lesson.language !== 'python' &&
+    lesson.language !== 'javascript' &&
+    lesson.language !== 'cpp' &&
+    lesson.language !== 'java'
 );
 
-export const allLessons: Lesson[] = [...pythonLessons, ...cppLessons, ...nonPythonLegacyLessons];
+export const allLessons: Lesson[] = [
+  ...pythonLessons,
+  ...javascriptLessons,
+  ...cppLessons,
+  ...javaLessons,
+  ...nonPythonLegacyLessons,
+];
 
 export const getLessonsByLanguage = (language: 'python' | 'javascript' | 'cpp' | 'java'): Lesson[] =>
   allLessons.filter((lesson) => lesson.language === language);

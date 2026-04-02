@@ -1,4 +1,8 @@
-import { hydrateBenchmarkReport, type BenchmarkReport } from '../data/benchmarkCatalog';
+import {
+  hydrateBenchmarkReport,
+  type BenchmarkCalibrationSignal,
+  type BenchmarkReport,
+} from '../data/benchmarkEngine';
 import { buildApiUrl } from './apiBase';
 import { supabase } from './supabase';
 
@@ -72,13 +76,7 @@ export interface BenchmarkQualitySummary {
     positiveRetakeRate: number | null;
     duelParticipationRate: number | null;
   }>;
-  itemSignals: Array<{
-    templateId: string;
-    exposureCount: number;
-    passRate: number;
-    discrimination: number;
-    calibrationState: string;
-  }>;
+  itemSignals: BenchmarkCalibrationSignal[];
 }
 
 const getAuthHeaders = async () => {

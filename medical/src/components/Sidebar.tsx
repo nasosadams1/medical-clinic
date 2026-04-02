@@ -139,7 +139,7 @@ export default function Sidebar({
           onFocus={() => preloadSection?.(item.id)}
           className={`flex w-full items-center gap-3 rounded-xl px-4 py-2.5 text-left text-sm font-medium transition-all duration-200 ${
             isActive
-              ? 'bg-primary text-primary-foreground shadow-glow'
+              ? 'bg-primary text-primary-foreground shadow-[0_10px_28px_rgba(59,130,246,0.18)]'
               : quiet
               ? 'text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground'
               : 'text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground'
@@ -159,9 +159,9 @@ export default function Sidebar({
       }`}
     >
       <div className="flex h-16 items-center justify-between border-b border-sidebar-border px-5">
-        <div className="flex items-center gap-2.5">
-          <img src={mascot} alt="Codhak" className="h-7 w-7" />
-          <span className="type-brand text-lg text-sidebar-accent-foreground">Codhak</span>
+        <div className="flex items-center gap-3.5">
+          <img src={mascot} alt="Codhak" className="h-11 w-11" />
+          <span className="type-brand text-2xl text-sidebar-accent-foreground">Codhak</span>
         </div>
         <button
           type="button"
@@ -174,7 +174,7 @@ export default function Sidebar({
       </div>
 
       <div className="flex-1 overflow-y-auto">
-        <div className="mx-3 mt-4 rounded-xl border border-sidebar-border bg-sidebar-accent/60 p-3">
+        <div className="mx-3 mt-4 rounded-xl border border-sidebar-border bg-sidebar-accent/40 p-3">
           {authUser && user ? (
             <>
               <div className="flex items-center gap-3">

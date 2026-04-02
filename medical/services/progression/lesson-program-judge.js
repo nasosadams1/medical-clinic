@@ -17,7 +17,9 @@ const ALLOW_INSECURE_LOCAL_CPP_JUDGE =
 const MAX_CAPTURED_OUTPUT_CHARS = 256 * 1024;
 
 let localPythonCommandPromise = null;
+let localJavascriptCommandPromise = null;
 let localCppCommandPromise = null;
+let localJavaCommandsPromise = null;
 
 function safeJsonParse(raw) {
   try {
@@ -126,6 +128,30 @@ async function resolveLocalPythonCommand() {
   return localPythonCommandPromise;
 }
 
+async function resolveLocalJavascriptCommand() {
+  if (localJavascriptCommandPromise) return localJavascriptCommandPromise;
+
+  const candidates = [{ command: 'node', args: [] }];
+
+  localJavascriptCommandPromise = (async () => {
+    for (const candidate of candidates) {
+      const probe = await spawnProcess({
+        command: candidate.command,
+        args: [...candidate.args, '--version'],
+        timeLimitMs: 2000,
+      }).catch(() => null);
+
+      if (probe && !probe.timeout && probe.exitCode === 0) {
+        return candidate;
+      }
+    }
+
+    return null;
+  })();
+
+  return localJavascriptCommandPromise;
+}
+
 async function resolveLocalCppCommand() {
   if (localCppCommandPromise) return localCppCommandPromise;
 
@@ -159,6 +185,61 @@ async function resolveLocalCppCommand() {
   })();
 
   return localCppCommandPromise;
+}
+
+async function resolveLocalJavaCommands() {
+  if (localJavaCommandsPromise) return localJavaCommandsPromise;
+
+  const javaCandidates =
+    process.platform === 'win32'
+      ? [{ command: 'java', args: [] }]
+      : [{ command: 'java', args: [] }];
+  const javacCandidates =
+    process.platform === 'win32'
+      ? [{ command: 'javac', args: [] }]
+      : [{ command: 'javac', args: [] }];
+
+  localJavaCommandsPromise = (async () => {
+    let javaCommand = null;
+    let javacCommand = null;
+
+    for (const candidate of javaCandidates) {
+      const probe = await spawnProcess({
+        command: candidate.command,
+        args: [...candidate.args, '-version'],
+        timeLimitMs: 2000,
+      }).catch(() => null);
+
+      if (probe && !probe.timeout && probe.exitCode === 0) {
+        javaCommand = candidate;
+        break;
+      }
+    }
+
+    for (const candidate of javacCandidates) {
+      const probe = await spawnProcess({
+        command: candidate.command,
+        args: [...candidate.args, '-version'],
+        timeLimitMs: 2000,
+      }).catch(() => null);
+
+      if (probe && !probe.timeout && probe.exitCode === 0) {
+        javacCommand = candidate;
+        break;
+      }
+    }
+
+    if (!javaCommand || !javacCommand) {
+      return null;
+    }
+
+    return {
+      java: javaCommand,
+      javac: javacCommand,
+    };
+  })();
+
+  return localJavaCommandsPromise;
 }
 
 async function writeSupportFiles(baseDir, files = []) {
@@ -246,6 +327,46 @@ function splitCppSupportFiles(files = []) {
   return { compileFiles, runtimeFiles };
 }
 
+function isJavaCompileSupportPath(value = '') {
+  return /\.java$/i.test(normalizeSupportPath(value));
+}
+
+function splitJavaSupportFiles(files = []) {
+  const compileFiles = [];
+  const runtimeFiles = [];
+
+  for (const file of files) {
+    const relativePath = normalizeSupportPath(file?.path);
+    if (!relativePath) continue;
+    const normalizedFile = {
+      path: relativePath,
+      contents: String(file?.contents || ''),
+    };
+
+    if (isJavaCompileSupportPath(relativePath)) {
+      compileFiles.push(normalizedFile);
+    } else {
+      runtimeFiles.push(normalizedFile);
+    }
+  }
+
+  return { compileFiles, runtimeFiles };
+}
+
+function getJavaCompileSources(files = [], entrySource = 'Main.java') {
+  const sources = new Set([entrySource]);
+
+  for (const file of files) {
+    const relativePath = normalizeSupportPath(file?.path);
+    if (!relativePath) continue;
+    if (isJavaCompileSupportPath(relativePath)) {
+      sources.add(relativePath);
+    }
+  }
+
+  return [...sources];
+}
+
 function mergeSupportFiles(fileGroups = []) {
   const merged = new Map();
 
@@ -318,6 +439,29 @@ const cppMultiCharTokens = [
   '%=',
   '->*',
   '.*',
+];
+
+const javascriptMultiCharTokens = [
+  '===',
+  '!==',
+  '=>',
+  '??',
+  '?.',
+  '...',
+  '**',
+  '<=',
+  '>=',
+  '==',
+  '!=',
+  '++',
+  '--',
+  '&&',
+  '||',
+  '+=',
+  '-=',
+  '*=',
+  '/=',
+  '%=',
 ];
 
 function tokenizeCppForMatching(value = '') {
@@ -406,6 +550,92 @@ function tokenizeCppForMatching(value = '') {
   return tokens;
 }
 
+function tokenizeJavascriptForMatching(value = '') {
+  const source = String(value || '');
+  const tokens = [];
+  let index = 0;
+
+  while (index < source.length) {
+    const current = source[index];
+    const next = source[index + 1] || '';
+
+    if (/\s/.test(current)) {
+      index += 1;
+      continue;
+    }
+
+    if (current === '/' && next === '/') {
+      index += 2;
+      while (index < source.length && source[index] !== '\n') index += 1;
+      continue;
+    }
+
+    if (current === '/' && next === '*') {
+      index += 2;
+      while (index < source.length && !(source[index] === '*' && source[index + 1] === '/')) index += 1;
+      index += 2;
+      continue;
+    }
+
+    if (current === '"' || current === "'" || current === '`') {
+      const quote = current;
+      let token = current;
+      index += 1;
+      while (index < source.length) {
+        const ch = source[index];
+        token += ch;
+        if (ch === '\\' && index + 1 < source.length) {
+          token += source[index + 1];
+          index += 2;
+          continue;
+        }
+        index += 1;
+        if (ch === quote) break;
+      }
+      tokens.push(token);
+      continue;
+    }
+
+    if (/[A-Za-z_$]/.test(current)) {
+      let token = current;
+      index += 1;
+      while (index < source.length && /[A-Za-z0-9_$]/.test(source[index])) {
+        token += source[index];
+        index += 1;
+      }
+      tokens.push(token);
+      continue;
+    }
+
+    if (/\d/.test(current)) {
+      let token = current;
+      index += 1;
+      while (index < source.length && /[A-Za-z0-9_.]/.test(source[index])) {
+        token += source[index];
+        index += 1;
+      }
+      tokens.push(token);
+      continue;
+    }
+
+    const threeChar = source.slice(index, index + 3);
+    const twoChar = source.slice(index, index + 2);
+    const multiChar = javascriptMultiCharTokens.find((token) => token === threeChar || token === twoChar);
+    if (multiChar) {
+      tokens.push(multiChar);
+      index += multiChar.length;
+      continue;
+    }
+
+    if (/[{}()[\];,<>#=*+\-/%&|^!~?:.]/.test(current)) {
+      tokens.push(current);
+    }
+    index += 1;
+  }
+
+  return tokens;
+}
+
 function includesTokenSequence(tokens = [], patternTokens = []) {
   if (!patternTokens.length || patternTokens.length > tokens.length) return false;
 
@@ -423,17 +653,29 @@ function includesTokenSequence(tokens = [], patternTokens = []) {
   return false;
 }
 
+function isCppLikeMatchLanguage(language = 'python') {
+  return language === 'cpp' || language === 'java';
+}
+
 function buildSnippetMatcher(language, code) {
-  if (language !== 'cpp') {
+  if (!isCppLikeMatchLanguage(language) && language !== 'javascript') {
     const collapsedCode = normalizeOutput(code).replace(/\s+/g, '');
     return {
       includesSnippet: (snippet) => collapsedCode.includes(normalizeOutput(snippet).replace(/\s+/g, '')),
     };
   }
 
-  const tokens = tokenizeCppForMatching(code);
+  const tokens = isCppLikeMatchLanguage(language)
+    ? tokenizeCppForMatching(code)
+    : tokenizeJavascriptForMatching(code);
   return {
-    includesSnippet: (snippet) => includesTokenSequence(tokens, tokenizeCppForMatching(snippet)),
+    includesSnippet: (snippet) =>
+      includesTokenSequence(
+        tokens,
+        isCppLikeMatchLanguage(language)
+          ? tokenizeCppForMatching(snippet)
+          : tokenizeJavascriptForMatching(snippet)
+      ),
   };
 }
 
@@ -608,6 +850,7 @@ async function prepareDockerCppExecutionSession({ userCode, testCases = [], comp
 
     const compileSources = getCppCompileSources(compileFiles, sourceName);
     const compileContainerName = `lesson-cpp-compile-${sessionId}`;
+    const compileTimeoutSeconds = Math.max(2, Math.ceil(compileConfig.compileTimeoutMs / 1000));
     const compile = await spawnProcess({
       command: 'docker',
       args: [
@@ -624,26 +867,34 @@ async function prepareDockerCppExecutionSession({ userCode, testCases = [], comp
         '-w',
         '/workspace',
         'gcc:12.2',
-        'g++',
-        ...compileConfig.compileFlags,
-        ...compileSources,
-        '-o',
-        executableName,
+        'bash',
+        '-lc',
+        `timeout ${compileTimeoutSeconds}s g++ ${[...compileConfig.compileFlags, ...compileSources, '-o', executableName]
+          .map((arg) => shellQuote(arg))
+          .join(' ')}`,
       ],
-      timeLimitMs: compileConfig.compileTimeoutMs,
+      timeLimitMs: compileConfig.compileTimeoutMs + 5000,
     });
 
     if (compile.timeout) {
       await execAsync(`docker kill ${compileContainerName}`).catch(() => {});
     }
 
-    if (compile.timeout || (compile.exitCode ?? 0) !== 0) {
+    const normalizedCompile = compile.exitCode === 124 && !compile.timeout
+      ? {
+          ...compile,
+          timeout: true,
+          stderr: compile.stderr || 'Time Limit Exceeded',
+        }
+      : compile;
+
+    if (normalizedCompile.timeout || (normalizedCompile.exitCode ?? 0) !== 0) {
       return {
         compileFailure: {
-          stdout: compile.stdout,
-          stderr: compile.stderr || compile.stdout,
-          exitCode: compile.exitCode,
-          timeout: compile.timeout,
+          stdout: normalizedCompile.stdout,
+          stderr: normalizedCompile.stderr || normalizedCompile.stdout,
+          exitCode: normalizedCompile.exitCode,
+          timeout: normalizedCompile.timeout,
         },
         cleanup: async () => {
           await rm(tempDir, { recursive: true, force: true }).catch(() => {});
@@ -661,6 +912,8 @@ async function prepareDockerCppExecutionSession({ userCode, testCases = [], comp
         await clearRelativePaths(tempDir, runtimeResetPaths);
         await writeSupportFiles(tempDir, runtimeFiles);
 
+        const runtimeLimitMs = testCase?.time_limit_ms || 2000;
+        const runtimeTimeoutSeconds = Math.max(1, Math.ceil(runtimeLimitMs / 1000));
         const runContainerName = `lesson-cpp-run-${sessionId}-${runCounter++}`;
         const result = await spawnProcess({
           command: 'docker',
@@ -680,20 +933,30 @@ async function prepareDockerCppExecutionSession({ userCode, testCases = [], comp
             '/workspace',
             ...buildDockerEnvArgs(compileConfig.runtimeEnv),
             'gcc:12.2',
-            `./${executableName}`,
+            'bash',
+            '-lc',
+            `timeout ${runtimeTimeoutSeconds}s ./${shellQuote(executableName)}`,
           ],
           stdin: testCase?.stdin_text || '',
-          timeLimitMs: testCase?.time_limit_ms || 2000,
+          timeLimitMs: runtimeLimitMs + 5000,
         });
 
         if (result.timeout) {
           await execAsync(`docker kill ${runContainerName}`).catch(() => {});
         }
 
+        const normalizedResult = result.exitCode === 124 && !result.timeout
+          ? {
+              ...result,
+              timeout: true,
+              stderr: result.stderr || 'Time Limit Exceeded',
+            }
+          : result;
+
         const capturedFiles = Array.isArray(testCase?.expected_files) && testCase.expected_files.length
           ? await collectCapturedFiles(tempDir, testCase.expected_files)
           : [];
-        return { ...result, capturedFiles };
+        return { ...normalizedResult, capturedFiles };
       },
     };
   } catch (error) {
@@ -718,6 +981,253 @@ async function createCppExecutionSession({ runnerKind, userCode, testCases, defi
     : prepareLocalCppExecutionSession({ userCode, testCases, compileConfig });
 }
 
+async function prepareLocalJavaExecutionSession({ userCode, testCases = [] }) {
+  const commands = await resolveLocalJavaCommands();
+  if (!commands) {
+    return {
+      compileFailure: {
+        stdout: '',
+        stderr: 'Java tools are not available in the local lesson judge environment',
+        exitCode: 1,
+        timeout: false,
+      },
+      cleanup: async () => {},
+    };
+  }
+
+  const tempDir = await mkdtemp(path.join(os.tmpdir(), 'codhak-java-lesson-judge-'));
+  const sourceName = 'Main.java';
+  const runtimeFileGroups = testCases.map((testCase) => splitJavaSupportFiles(testCase?.files || []).runtimeFiles);
+  const runtimeResetPaths = [
+    ...new Set([
+      ...collectRelativePaths(runtimeFileGroups),
+      ...testCases.flatMap((testCase) => collectExpectedFilePaths(testCase?.expected_files || [])),
+    ]),
+  ];
+
+  try {
+    const compileFiles = mergeSupportFiles(
+      testCases.map((testCase) => splitJavaSupportFiles(testCase?.files || []).compileFiles),
+    );
+    await writeFile(path.join(tempDir, sourceName), userCode, 'utf8');
+    await writeSupportFiles(tempDir, compileFiles);
+
+    const compileSources = getJavaCompileSources(compileFiles, sourceName);
+    const compile = await spawnProcess({
+      command: commands.javac.command,
+      args: [...commands.javac.args, ...compileSources],
+      cwd: tempDir,
+      timeLimitMs: Math.max(
+        5000,
+        testCases.reduce((maxValue, testCase) => Math.max(maxValue, Number(testCase?.time_limit_ms) || 2000), 2000) +
+          1500,
+      ),
+    });
+
+    if (compile.timeout || (compile.exitCode ?? 0) !== 0) {
+      return {
+        compileFailure: {
+          stdout: compile.stdout,
+          stderr: compile.stderr || compile.stdout,
+          exitCode: compile.exitCode,
+          timeout: compile.timeout,
+        },
+        cleanup: async () => {
+          await rm(tempDir, { recursive: true, force: true }).catch(() => {});
+        },
+      };
+    }
+
+    return {
+      compileFailure: null,
+      cleanup: async () => {
+        await rm(tempDir, { recursive: true, force: true }).catch(() => {});
+      },
+      runCase: async (testCase) => {
+        const { runtimeFiles } = splitJavaSupportFiles(testCase?.files || []);
+        await clearRelativePaths(tempDir, runtimeResetPaths);
+        await writeSupportFiles(tempDir, runtimeFiles);
+
+        const result = await spawnProcess({
+          command: commands.java.command,
+          args: [...commands.java.args, 'Main'],
+          cwd: tempDir,
+          stdin: testCase?.stdin_text || '',
+          timeLimitMs: testCase?.time_limit_ms || 2000,
+        });
+        const capturedFiles =
+          Array.isArray(testCase?.expected_files) && testCase.expected_files.length
+            ? await collectCapturedFiles(tempDir, testCase.expected_files)
+            : [];
+        return { ...result, capturedFiles };
+      },
+    };
+  } catch (error) {
+    return {
+      compileFailure: {
+        stdout: '',
+        stderr: error?.message || 'Failed to prepare the local Java lesson workspace',
+        exitCode: 1,
+        timeout: false,
+      },
+      cleanup: async () => {
+        await rm(tempDir, { recursive: true, force: true }).catch(() => {});
+      },
+    };
+  }
+}
+
+async function prepareDockerJavaExecutionSession({ userCode, testCases = [] }) {
+  const sessionId = crypto.randomBytes(8).toString('hex');
+  const tempDir = await mkdtemp(path.join(os.tmpdir(), 'codhak-java-lesson-docker-'));
+  const sourceName = 'Main.java';
+  const runtimeFileGroups = testCases.map((testCase) => splitJavaSupportFiles(testCase?.files || []).runtimeFiles);
+  const runtimeResetPaths = [
+    ...new Set([
+      ...collectRelativePaths(runtimeFileGroups),
+      ...testCases.flatMap((testCase) => collectExpectedFilePaths(testCase?.expected_files || [])),
+    ]),
+  ];
+  let runCounter = 0;
+
+  try {
+    const compileFiles = mergeSupportFiles(
+      testCases.map((testCase) => splitJavaSupportFiles(testCase?.files || []).compileFiles),
+    );
+    await writeFile(path.join(tempDir, sourceName), userCode, 'utf8');
+    await writeSupportFiles(tempDir, compileFiles);
+
+    const compileSources = getJavaCompileSources(compileFiles, sourceName);
+    const compileContainerName = `lesson-java-compile-${sessionId}`;
+    const compileTimeoutMs = Math.max(
+      6000,
+      testCases.reduce((maxValue, testCase) => Math.max(maxValue, Number(testCase?.time_limit_ms) || 2000), 2000) +
+        2000,
+    );
+    const compileTimeoutSeconds = Math.max(2, Math.ceil(compileTimeoutMs / 1000));
+    const compile = await spawnProcess({
+      command: 'docker',
+      args: [
+        'run',
+        '--rm',
+        '--name',
+        compileContainerName,
+        '--network=none',
+        '-v',
+        `${tempDir}:/workspace`,
+        '-w',
+        '/workspace',
+        'eclipse-temurin:21-jdk',
+        'bash',
+        '-lc',
+        `timeout ${compileTimeoutSeconds}s javac ${compileSources.map((sourcePath) => shellQuote(sourcePath)).join(' ')}`,
+      ],
+      timeLimitMs: compileTimeoutMs + 5000,
+    });
+
+    if (compile.timeout) {
+      await execAsync(`docker kill ${compileContainerName}`).catch(() => {});
+    }
+
+    const normalizedCompile =
+      compile.exitCode === 124 && !compile.timeout
+        ? {
+            ...compile,
+            timeout: true,
+            stderr: compile.stderr || 'Time Limit Exceeded',
+          }
+        : compile;
+
+    if (normalizedCompile.timeout || (normalizedCompile.exitCode ?? 0) !== 0) {
+      return {
+        compileFailure: {
+          stdout: normalizedCompile.stdout,
+          stderr: normalizedCompile.stderr || normalizedCompile.stdout,
+          exitCode: normalizedCompile.exitCode,
+          timeout: normalizedCompile.timeout,
+        },
+        cleanup: async () => {
+          await rm(tempDir, { recursive: true, force: true }).catch(() => {});
+        },
+      };
+    }
+
+    return {
+      compileFailure: null,
+      cleanup: async () => {
+        await rm(tempDir, { recursive: true, force: true }).catch(() => {});
+      },
+      runCase: async (testCase) => {
+        const { runtimeFiles } = splitJavaSupportFiles(testCase?.files || []);
+        await clearRelativePaths(tempDir, runtimeResetPaths);
+        await writeSupportFiles(tempDir, runtimeFiles);
+
+        const runtimeLimitMs = testCase?.time_limit_ms || 2000;
+        const runtimeTimeoutSeconds = Math.max(1, Math.ceil(runtimeLimitMs / 1000));
+        const runContainerName = `lesson-java-run-${sessionId}-${runCounter++}`;
+        const result = await spawnProcess({
+          command: 'docker',
+          args: [
+            'run',
+            '--rm',
+            '--name',
+            runContainerName,
+            '--network=none',
+            '-i',
+            '-v',
+            `${tempDir}:/workspace`,
+            '-w',
+            '/workspace',
+            'eclipse-temurin:21-jdk',
+            'bash',
+            '-lc',
+            `timeout ${runtimeTimeoutSeconds}s java Main`,
+          ],
+          stdin: testCase?.stdin_text || '',
+          timeLimitMs: runtimeLimitMs + 5000,
+        });
+
+        if (result.timeout) {
+          await execAsync(`docker kill ${runContainerName}`).catch(() => {});
+        }
+
+        const normalizedResult =
+          result.exitCode === 124 && !result.timeout
+            ? {
+                ...result,
+                timeout: true,
+                stderr: result.stderr || 'Time Limit Exceeded',
+              }
+            : result;
+
+        const capturedFiles =
+          Array.isArray(testCase?.expected_files) && testCase.expected_files.length
+            ? await collectCapturedFiles(tempDir, testCase.expected_files)
+            : [];
+        return { ...normalizedResult, capturedFiles };
+      },
+    };
+  } catch (error) {
+    return {
+      compileFailure: {
+        stdout: '',
+        stderr: error?.message || 'Failed to prepare the Docker Java lesson workspace',
+        exitCode: 1,
+        timeout: false,
+      },
+      cleanup: async () => {
+        await rm(tempDir, { recursive: true, force: true }).catch(() => {});
+      },
+    };
+  }
+}
+
+async function createJavaExecutionSession({ runnerKind, userCode, testCases }) {
+  return runnerKind === 'docker'
+    ? prepareDockerJavaExecutionSession({ userCode, testCases })
+    : prepareLocalJavaExecutionSession({ userCode, testCases });
+}
+
 async function runInLocalPythonProgram({ userCode, stdinText, timeLimitMs = 2000, files = [], captureFiles = [] }) {
   const python = await resolveLocalPythonCommand();
   if (!python) {
@@ -737,6 +1247,36 @@ async function runInLocalPythonProgram({ userCode, stdinText, timeLimitMs = 2000
     const result = await spawnProcess({
       command: python.command,
       args: [...python.args, 'user.py'],
+      cwd: tempDir,
+      stdin: stdinText,
+      timeLimitMs,
+    });
+    const capturedFiles = captureFiles.length ? await collectCapturedFiles(tempDir, captureFiles) : [];
+    return { ...result, capturedFiles };
+  } finally {
+    await rm(tempDir, { recursive: true, force: true }).catch(() => {});
+  }
+}
+
+async function runInLocalJavascriptProgram({ userCode, stdinText, timeLimitMs = 2000, files = [], captureFiles = [] }) {
+  const node = await resolveLocalJavascriptCommand();
+  if (!node) {
+    return {
+      stdout: '',
+      stderr: 'Node.js is not available in the local lesson judge environment',
+      exitCode: 1,
+      timeout: false,
+    };
+  }
+
+  const tempDir = await mkdtemp(path.join(os.tmpdir(), 'codhak-javascript-lesson-judge-'));
+  try {
+    await writeFile(path.join(tempDir, 'user.js'), userCode, 'utf8');
+    await writeSupportFiles(tempDir, files);
+
+    const result = await spawnProcess({
+      command: node.command,
+      args: [...node.args, 'user.js'],
       cwd: tempDir,
       stdin: stdinText,
       timeLimitMs,
@@ -784,6 +1324,58 @@ async function runInDockerPythonProgram({
         'python:3.11-slim',
         'python',
         'user.py',
+      ],
+      stdin: stdinText,
+      timeLimitMs,
+    });
+
+    if (result.timeout) {
+      await execAsync(`docker kill ${containerName}`).catch(() => {});
+    }
+
+    const capturedFiles = captureFiles.length ? await collectCapturedFiles(tempDir, captureFiles) : [];
+    return { ...result, capturedFiles };
+  } finally {
+    await rm(tempDir, { recursive: true, force: true }).catch(() => {});
+  }
+}
+
+async function runInDockerJavascriptProgram({
+  userCode,
+  stdinText,
+  timeLimitMs = 2000,
+  memoryMb = 256,
+  cpuLimit = 0.5,
+  pidsLimit = 64,
+  files = [],
+  captureFiles = [],
+}) {
+  const id = crypto.randomBytes(8).toString('hex');
+  const containerName = `lesson-js-judge-${id}`;
+  const tempDir = await mkdtemp(path.join(os.tmpdir(), 'codhak-javascript-docker-'));
+  try {
+    await writeFile(path.join(tempDir, 'user.js'), userCode, 'utf8');
+    await writeSupportFiles(tempDir, files);
+
+    const result = await spawnProcess({
+      command: 'docker',
+      args: [
+        'run',
+        '--rm',
+        '--name',
+        containerName,
+        `--memory=${memoryMb}m`,
+        `--cpus=${cpuLimit}`,
+        `--pids-limit=${pidsLimit}`,
+        '--network=none',
+        '-i',
+        '-v',
+        `${tempDir}:/workspace`,
+        '-w',
+        '/workspace',
+        'node:20-slim',
+        'node',
+        'user.js',
       ],
       stdin: stdinText,
       timeLimitMs,
@@ -1009,7 +1601,10 @@ function inferRuntimeFeedbackKind(stderr = '', language = 'python') {
   if (/SyntaxError|IndentationError|TabError/i.test(normalized)) {
     return 'syntax_error';
   }
-  if (language === 'cpp' && /(^|\n).*(error:|undefined reference|no matching function|expected [^.\n]+|undeclared|not declared)/i.test(normalized)) {
+  if ((language === 'cpp' || language === 'java') && /(^|\n).*(error:|undefined reference|no matching function|expected [^.\n]+|undeclared|not declared|cannot find symbol|class Main is public)/i.test(normalized)) {
+    return 'syntax_error';
+  }
+  if (language === 'javascript' && /(^|\n).*(SyntaxError|Unexpected token|Unexpected end of input|Cannot use import statement outside a module)/i.test(normalized)) {
     return 'syntax_error';
   }
   return 'runtime_error';
@@ -1022,6 +1617,32 @@ async function getLessonRunnerKind(language) {
   if (language === 'python') {
     const localPython = await resolveLocalPythonCommand();
     if (localPython) return 'local';
+  }
+
+  if (language === 'javascript') {
+    if (REQUIRE_ISOLATED_JUDGE) {
+      throw new Error(
+        'Isolated lesson execution is required. Configure Docker or allow local lesson evaluation explicitly.'
+      );
+    }
+
+    const localJavascript = await resolveLocalJavascriptCommand();
+    if (localJavascript) return 'local';
+
+    throw new Error('JavaScript lesson execution is not available in the local lesson judge environment.');
+  }
+
+  if (language === 'java') {
+    if (REQUIRE_ISOLATED_JUDGE) {
+      throw new Error(
+        'Isolated lesson execution is required. Configure Docker or allow local lesson evaluation explicitly.'
+      );
+    }
+
+    const localJava = await resolveLocalJavaCommands();
+    if (localJava) return 'local';
+
+    throw new Error('Java lesson execution is not available in the local lesson judge environment.');
   }
 
   if (language === 'cpp') {
@@ -1039,7 +1660,8 @@ async function getLessonRunnerKind(language) {
     throw new Error('Isolated lesson execution is required. Configure Docker or allow local lesson evaluation explicitly.');
   }
 
-  const lessonLabel = language === 'cpp' ? 'C++' : 'Python';
+  const lessonLabel =
+    language === 'cpp' ? 'C++' : language === 'javascript' ? 'JavaScript' : language === 'java' ? 'Java' : 'Python';
   throw new Error(`${lessonLabel} lesson execution is not available in the local lesson judge environment.`);
 }
 
@@ -1058,19 +1680,30 @@ async function runLessonProgram({
       : runInLocalPythonProgram({ userCode, stdinText, timeLimitMs, files, captureFiles });
   }
 
-  if (language === 'cpp') {
+  if (language === 'javascript') {
     return runnerKind === 'docker'
-      ? runInDockerCppProgram({ userCode, stdinText, timeLimitMs, files, captureFiles })
-      : runInLocalCppProgram({ userCode, stdinText, timeLimitMs, files, captureFiles });
+      ? runInDockerJavascriptProgram({ userCode, stdinText, timeLimitMs, files, captureFiles })
+      : runInLocalJavascriptProgram({ userCode, stdinText, timeLimitMs, files, captureFiles });
   }
 
-  throw new Error(`Unsupported lesson execution language: ${language}`);
-}
+    if (language === 'cpp') {
+      return runnerKind === 'docker'
+        ? runInDockerCppProgram({ userCode, stdinText, timeLimitMs, files, captureFiles })
+        : runInLocalCppProgram({ userCode, stdinText, timeLimitMs, files, captureFiles });
+    }
+
+    if (language === 'java') {
+      throw new Error('Java lesson execution should use the compile-once session path.');
+    }
+
+    throw new Error(`Unsupported lesson execution language: ${language}`);
+  }
 
 export class LessonProgramJudgeService {
   async executeLesson(code, definition) {
     const startedAt = Date.now();
     const language = String(definition?.language || 'python');
+    const usesCompiledSession = language === 'cpp' || language === 'java';
     const testCases = Array.isArray(definition?.testCases) ? definition.testCases : [];
     const missingSnippets = checkRequiredSnippets(code, definition?.requiredSnippets || [], language);
     const flaggedPatterns = checkFlaggedPatterns(code, definition?.forbiddenPatterns || [], language);
@@ -1082,6 +1715,7 @@ export class LessonProgramJudgeService {
     let stderr = '';
     const runnerKind = await getLessonRunnerKind(language);
     let cppSession = null;
+    let javaSession = null;
 
     try {
       if (language === 'cpp') {
@@ -1091,6 +1725,12 @@ export class LessonProgramJudgeService {
           testCases,
           definition,
         });
+      } else if (language === 'java') {
+        javaSession = await createJavaExecutionSession({
+          runnerKind,
+          userCode: code,
+          testCases,
+        });
       }
 
       for (let index = 0; index < testCases.length; index += 1) {
@@ -1099,6 +1739,10 @@ export class LessonProgramJudgeService {
           ? cppSession?.compileFailure
             ? cppSession.compileFailure
             : await cppSession.runCase(testCase)
+          : language === 'java'
+          ? javaSession?.compileFailure
+            ? javaSession.compileFailure
+            : await javaSession.runCase(testCase)
           : await runLessonProgram({
               runnerKind,
               language,
@@ -1118,7 +1762,7 @@ export class LessonProgramJudgeService {
           const runtimeKind = inferRuntimeFeedbackKind(result.stderr, language);
           if (runtimeKind === 'syntax_error') {
             sawSyntaxError = true;
-            reason = language === 'cpp' ? 'Compile Error' : 'Syntax Error';
+            reason = usesCompiledSession ? 'Compile Error' : 'Syntax Error';
           } else {
             sawRuntimeError = true;
             reason = 'Runtime Error';
@@ -1188,7 +1832,7 @@ export class LessonProgramJudgeService {
         ? sawTimeout
           ? 'The program timed out before it finished the lesson checks.'
           : sawSyntaxError
-          ? language === 'cpp'
+          ? usesCompiledSession
             ? 'The program did not compile for the lesson checks.'
             : 'The program could not run because of a syntax error.'
           : sawRuntimeError
@@ -1219,6 +1863,9 @@ export class LessonProgramJudgeService {
       if (cppSession?.cleanup) {
         await cppSession.cleanup().catch(() => {});
       }
+      if (javaSession?.cleanup) {
+        await javaSession.cleanup().catch(() => {});
+      }
     }
   }
 
@@ -1228,5 +1875,13 @@ export class LessonProgramJudgeService {
 
   async executeCppLesson(code, definition) {
     return this.executeLesson(code, { ...definition, language: 'cpp' });
+  }
+
+  async executeJavaLesson(code, definition) {
+    return this.executeLesson(code, { ...definition, language: 'java' });
+  }
+
+  async executeJavascriptLesson(code, definition) {
+    return this.executeLesson(code, { ...definition, language: 'javascript' });
   }
 }

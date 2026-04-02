@@ -95,6 +95,29 @@ const cppMultiCharTokens = [
   '.*',
 ];
 
+const javascriptMultiCharTokens = [
+  '===',
+  '!==',
+  '=>',
+  '??',
+  '?.',
+  '...',
+  '**',
+  '<=',
+  '>=',
+  '==',
+  '!=',
+  '++',
+  '--',
+  '&&',
+  '||',
+  '+=',
+  '-=',
+  '*=',
+  '/=',
+  '%=',
+];
+
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 
 const roundPercent = (value: number) => Math.round(clamp(value, 0, 1) * 100);
@@ -185,6 +208,92 @@ const tokenizeCppForMatching = (value: string) => {
   return tokens;
 };
 
+const tokenizeJavascriptForMatching = (value: string) => {
+  const source = String(value || '');
+  const tokens: string[] = [];
+  let index = 0;
+
+  while (index < source.length) {
+    const current = source[index];
+    const next = source[index + 1] || '';
+
+    if (/\s/.test(current)) {
+      index += 1;
+      continue;
+    }
+
+    if (current === '/' && next === '/') {
+      index += 2;
+      while (index < source.length && source[index] !== '\n') index += 1;
+      continue;
+    }
+
+    if (current === '/' && next === '*') {
+      index += 2;
+      while (index < source.length && !(source[index] === '*' && source[index + 1] === '/')) index += 1;
+      index += 2;
+      continue;
+    }
+
+    if (current === '"' || current === "'" || current === '`') {
+      const quote = current;
+      let token = current;
+      index += 1;
+      while (index < source.length) {
+        const ch = source[index];
+        token += ch;
+        if (ch === '\\' && index + 1 < source.length) {
+          token += source[index + 1];
+          index += 2;
+          continue;
+        }
+        index += 1;
+        if (ch === quote) break;
+      }
+      tokens.push(token);
+      continue;
+    }
+
+    if (/[A-Za-z_$]/.test(current)) {
+      let token = current;
+      index += 1;
+      while (index < source.length && /[A-Za-z0-9_$]/.test(source[index])) {
+        token += source[index];
+        index += 1;
+      }
+      tokens.push(token);
+      continue;
+    }
+
+    if (/\d/.test(current)) {
+      let token = current;
+      index += 1;
+      while (index < source.length && /[A-Za-z0-9_.]/.test(source[index])) {
+        token += source[index];
+        index += 1;
+      }
+      tokens.push(token);
+      continue;
+    }
+
+    const threeChar = source.slice(index, index + 3);
+    const twoChar = source.slice(index, index + 2);
+    const multiChar = javascriptMultiCharTokens.find((token) => token === threeChar || token === twoChar);
+    if (multiChar) {
+      tokens.push(multiChar);
+      index += multiChar.length;
+      continue;
+    }
+
+    if (/[{}()[\];,<>#=*+\-/%&|^!~?:.]/.test(current)) {
+      tokens.push(current);
+    }
+    index += 1;
+  }
+
+  return tokens;
+};
+
 const includesTokenSequence = (tokens: string[], patternTokens: string[]) => {
   if (patternTokens.length === 0) return false;
   if (patternTokens.length > tokens.length) return false;
@@ -203,18 +312,28 @@ const includesTokenSequence = (tokens: string[], patternTokens: string[]) => {
   return false;
 };
 
+const isCppLikeMatchLanguage = (language: LanguageSlug) => language === 'cpp' || language === 'java';
+const isTokenAwareMatchLanguage = (language: LanguageSlug) =>
+  isCppLikeMatchLanguage(language) || language === 'javascript';
+
 const buildSnippetMatcher = (language: LanguageSlug, submission: string) => {
-  if (language !== 'cpp') {
+  if (!isTokenAwareMatchLanguage(language)) {
     const collapsedSubmission = toCollapsedCode(submission);
     return {
       includesSnippet: (snippet: string) => collapsedSubmission.includes(toCollapsedCode(snippet)),
     };
   }
 
-  const submissionTokens = tokenizeCppForMatching(submission);
+  const submissionTokens =
+    isCppLikeMatchLanguage(language) ? tokenizeCppForMatching(submission) : tokenizeJavascriptForMatching(submission);
   return {
     includesSnippet: (snippet: string) =>
-      includesTokenSequence(submissionTokens, tokenizeCppForMatching(String(snippet || ''))),
+      includesTokenSequence(
+        submissionTokens,
+        isCppLikeMatchLanguage(language)
+          ? tokenizeCppForMatching(String(snippet || ''))
+          : tokenizeJavascriptForMatching(String(snippet || ''))
+      ),
   };
 };
 

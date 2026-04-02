@@ -28,10 +28,10 @@ export default function MarketingLayout({ children, openAuthModal, isAuthenticat
     <div className="min-h-[100dvh] overflow-x-clip bg-background text-foreground">
       <header className="sticky top-0 z-50 border-b border-border/70 glass">
         <div className="container mx-auto flex h-16 items-center justify-between gap-4 px-5 sm:px-6 xl:px-8">
-          <Link to="/" className="flex items-center gap-2.5">
-            <img src={mascot} alt="Codhak" className="h-8 w-8" />
+          <Link to="/" className="flex items-center gap-3.5">
+            <img src={mascot} alt="Codhak" className="h-12 w-12" />
             <div>
-              <div className="type-brand text-xl text-foreground">Codhak</div>
+              <div className="type-brand text-[1.75rem] text-foreground">Codhak</div>
               <div className="type-kicker text-[10px] text-muted-foreground">
                 Lessons, practice, duels, progress
               </div>
@@ -146,10 +146,10 @@ export default function MarketingLayout({ children, openAuthModal, isAuthenticat
 
       <footer className="border-t border-border/70 bg-card/40">
         <div className="container mx-auto flex flex-col items-center justify-between gap-5 px-5 py-8 text-center sm:px-6 sm:flex-row sm:text-left xl:px-8">
-          <div className="flex items-center gap-3">
-            <img src={mascot} alt="" className="h-7 w-7" />
+          <div className="flex items-center gap-4">
+            <img src={mascot} alt="" className="h-11 w-11" />
             <div>
-              <div className="font-semibold text-foreground">Codhak</div>
+              <div className="text-lg font-semibold text-foreground">Codhak</div>
               <div className="text-xs uppercase tracking-[0.18em] text-muted-foreground">
                 Learn by coding every day.
               </div>

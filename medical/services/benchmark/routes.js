@@ -223,6 +223,41 @@ const buildPersistedReportRow = (userId, report) => ({
   created_at: report.createdAt,
 });
 
+const buildBenchmarkItemOutcomeRows = (userId, report) => {
+  const answerMap = new Map((report.answerRecords || []).map((answer) => [answer.questionId, answer]));
+  const scoredQuestions = (report.questions || []).map((question) => {
+    const answer = answerMap.get(question.id) || {};
+    return {
+      question,
+      answer,
+      scorePercent: getAnswerScorePercent(answer),
+    };
+  });
+  const totalObservedScore = scoredQuestions.reduce((total, entry) => total + entry.scorePercent, 0);
+
+  return scoredQuestions.map(({ question, answer, scorePercent }) => ({
+    user_id: userId,
+    client_report_id: report.id,
+    question_id: question.id,
+    template_id: question.templateId,
+    pack_id: question.packId || report.packId || null,
+    language: report.setup.language,
+    format: report.format || 'quick',
+    evaluation_strategy: question.evaluationStrategy || answer.evaluationStrategy || 'choice',
+    calibration_state: question.calibrationState || 'calibrating',
+    score_percent: Math.round(scorePercent),
+    is_correct: Boolean(answer.isCorrect),
+    latency_ms: typeof answer.latencyMs === 'number' ? Math.max(0, Math.round(answer.latencyMs)) : null,
+    ability_without_item:
+      scoredQuestions.length > 1
+        ? Math.round((((totalObservedScore - scorePercent) / (scoredQuestions.length - 1)) || 0) * 100) / 100
+        : Number(report.overallScore || 0),
+    trust_score: Math.round(report?.trustSignal?.score || 0),
+    confidence_percent: Math.round(report?.confidenceBand?.percent || 0),
+    created_at: report.createdAt,
+  }));
+};
+
 const mergeReportRow = (row) => ({
   ...(row.report_payload || {}),
   isPublic: Boolean(row.is_public),
@@ -240,6 +275,25 @@ const roundAverage = (values = []) => {
 const roundRate = (value, total) => {
   if (!total) return null;
   return Math.round((value / total) * 100);
+};
+
+const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
+
+const getPercentileFromSorted = (values = [], percentile = 0.5) => {
+  if (!values.length) return null;
+  const index = (values.length - 1) * percentile;
+  const lower = Math.floor(index);
+  const upper = Math.ceil(index);
+  if (lower === upper) return values[lower];
+  const weight = index - lower;
+  return values[lower] * (1 - weight) + values[upper] * weight;
+};
+
+const getAnswerScorePercent = (answer) => {
+  if (typeof answer?.scorePercent === 'number') {
+    return clamp(Number(answer.scorePercent || 0), 0, 100);
+  }
+  return answer?.isCorrect ? 100 : 0;
 };
 
 const toValidDate = (value) => {
@@ -580,8 +634,125 @@ const computeTrustTierOutcomes = (reports, matchEvents) => {
   }));
 };
 
+const buildItemSignalsFromOutcomeRows = (outcomeRows = []) => {
+  const itemSignalMap = new Map();
+  const calibrationMix = { draft: 0, calibrating: 0, validated: 0 };
+
+  outcomeRows.forEach((row) => {
+    if (!row?.template_id) return;
+    const reportWeight =
+      (row.format === 'full' ? 1.15 : row.format === 'retake' ? 0.45 : 1) *
+      clamp((Number(row.trust_score || 0) || 0) / 100, 0.35, 1);
+    const signal = itemSignalMap.get(row.template_id) || {
+      templateId: row.template_id,
+      exposureWeight: 0,
+      correctWeight: 0,
+      correctCount: 0,
+      correctAbilityTotal: 0,
+      incorrectAbilityTotal: 0,
+      incorrectCount: 0,
+      executionExposureWeight: 0,
+      latencySamples: [],
+      correctLatencySamples: [],
+      calibrationState: row.calibration_state || 'calibrating',
+    };
+
+    signal.exposureWeight += reportWeight;
+    if (row.evaluation_strategy === 'execution') {
+      signal.executionExposureWeight += reportWeight;
+    }
+    if (typeof row.latency_ms === 'number' && row.latency_ms >= 0 && Number(row.trust_score || 0) >= 60) {
+      const latencySeconds = Math.max(1, Math.round(Number(row.latency_ms || 0) / 1000));
+      signal.latencySamples.push(latencySeconds);
+      if (Number(row.score_percent || 0) >= 70) {
+        signal.correctLatencySamples.push(latencySeconds);
+      }
+    }
+
+    if (row.is_correct) {
+      signal.correctCount += 1;
+      signal.correctWeight += reportWeight;
+      signal.correctAbilityTotal += Number(row.ability_without_item || 0) * reportWeight;
+    } else {
+      signal.incorrectCount += 1;
+      signal.incorrectAbilityTotal += Number(row.ability_without_item || 0) * reportWeight;
+    }
+
+    if (signal.calibrationState !== 'validated') {
+      signal.calibrationState = row.calibration_state || signal.calibrationState;
+    }
+    itemSignalMap.set(row.template_id, signal);
+  });
+
+  const itemSignals = Array.from(itemSignalMap.values())
+    .map((signal) => {
+      const passRate = signal.correctWeight / Math.max(1, signal.exposureWeight);
+      const avgCorrectAbility =
+        signal.correctCount > 0 ? signal.correctAbilityTotal / Math.max(1, signal.correctWeight) : 0;
+      const incorrectWeight = Math.max(0, signal.exposureWeight - signal.correctWeight);
+      const avgIncorrectAbility =
+        signal.incorrectCount > 0
+          ? signal.incorrectAbilityTotal / Math.max(1, incorrectWeight)
+          : avgCorrectAbility;
+      const abilityGap = Math.max(0, avgCorrectAbility - avgIncorrectAbility);
+      const balanceFactor = 1 - Math.min(1, Math.abs(passRate - 0.5) / 0.5);
+      const evidenceFactor = Math.min(1, signal.exposureWeight / 32);
+      const executionFactor = Math.min(
+        1,
+        signal.executionExposureWeight / Math.max(1, signal.exposureWeight)
+      );
+      const latencySource =
+        signal.correctLatencySamples.length >= 6 ? signal.correctLatencySamples : signal.latencySamples;
+      const sortedLatencies = [...latencySource].sort((left, right) => left - right);
+      const medianLatencySeconds = getPercentileFromSorted(sortedLatencies, 0.5);
+      const latencyP75Seconds = getPercentileFromSorted(sortedLatencies, 0.75);
+      const expectedDurationSeconds =
+        medianLatencySeconds && latencyP75Seconds
+          ? clamp(Math.round(medianLatencySeconds * 0.55 + latencyP75Seconds * 0.45), 35, 480)
+          : null;
+      const calibrationState =
+        signal.exposureWeight >= 28 &&
+        abilityGap >= 7 &&
+        (sortedLatencies.length >= 6 || executionFactor < 0.2)
+          ? 'validated'
+          : signal.exposureWeight >= 10
+          ? 'calibrating'
+          : 'draft';
+      calibrationMix[calibrationState] = (calibrationMix[calibrationState] || 0) + 1;
+
+      return {
+        templateId: signal.templateId,
+        exposureCount: Math.round(signal.exposureWeight * 10) / 10,
+        passRate: Math.round(passRate * 100),
+        discrimination: clamp(
+          Math.round(
+            (0.42 +
+              (abilityGap / 100) * 0.36 +
+              balanceFactor * 0.12 +
+              evidenceFactor * 0.06 +
+              executionFactor * 0.04) *
+              100
+          ) / 100,
+          0.4,
+          0.96
+        ),
+        calibrationState,
+        abilityGap: Math.round(abilityGap * 10) / 10,
+        executionCoverageRatio: Math.round(executionFactor * 100) / 100,
+        latencySampleCount: sortedLatencies.length,
+        medianLatencySeconds: medianLatencySeconds ? Math.round(medianLatencySeconds) : null,
+        latencyP75Seconds: latencyP75Seconds ? Math.round(latencyP75Seconds) : null,
+        expectedDurationSeconds,
+      };
+    })
+    .sort((left, right) => right.exposureCount - left.exposureCount);
+
+  return { itemSignals, calibrationMix };
+};
+
 const buildQualitySummary = ({
   reportRows = [],
+  itemOutcomeRows = [],
   lessonEvents = [],
   matchEvents = [],
   analyticsEvents = [],
@@ -606,34 +777,12 @@ const buildQualitySummary = ({
     })
     .filter(Boolean);
 
-  const itemSignalMap = new Map();
   const formatMix = { quick: 0, full: 0, retake: 0 };
-  const calibrationMix = { draft: 0, calibrating: 0, validated: 0 };
 
   hydratedReports.forEach((report) => {
     formatMix[report.format] = (formatMix[report.format] || 0) + 1;
-    const answerMap = new Map(report.answerRecords.map((answer) => [answer.questionId, answer]));
-
-    report.questions.forEach((question) => {
-      const signal = itemSignalMap.get(question.templateId) || {
-        templateId: question.templateId,
-        exposureCount: 0,
-        correctCount: 0,
-        discriminationTotal: 0,
-        calibrationState: question.calibrationState || 'calibrating',
-      };
-
-      signal.exposureCount += 1;
-      signal.correctCount += answerMap.get(question.id)?.isCorrect ? 1 : 0;
-      signal.discriminationTotal += Number(question.discrimination || 0.6);
-      signal.calibrationState = question.calibrationState || signal.calibrationState;
-      itemSignalMap.set(question.templateId, signal);
-    });
   });
-
-  itemSignalMap.forEach((signal) => {
-    calibrationMix[signal.calibrationState] = (calibrationMix[signal.calibrationState] || 0) + 1;
-  });
+  const calibrationSource = buildItemSignalsFromOutcomeRows(itemOutcomeRows || []);
 
   const validation = computeOutcomeValidation(hydratedReports, lessonEvents, matchEvents);
   const trustTierOutcomes = computeTrustTierOutcomes(hydratedReports, matchEvents);
@@ -648,22 +797,10 @@ const buildQualitySummary = ({
     ),
     formatMix,
     formatFunnels,
-    calibrationMix,
+    calibrationMix: calibrationSource.calibrationMix,
     validation,
     trustTierOutcomes,
-    itemSignals: Array.from(itemSignalMap.values())
-      .map((signal) => ({
-        templateId: signal.templateId,
-        exposureCount: signal.exposureCount,
-        passRate: signal.exposureCount > 0 ? Math.round((signal.correctCount / signal.exposureCount) * 100) : 0,
-        discrimination:
-          signal.exposureCount > 0
-            ? Math.round((signal.discriminationTotal / signal.exposureCount) * 100) / 100
-            : 0.6,
-        calibrationState: signal.calibrationState,
-      }))
-      .sort((left, right) => right.exposureCount - left.exposureCount)
-      .slice(0, 8),
+    itemSignals: calibrationSource.itemSignals,
   };
 };
 
@@ -764,7 +901,12 @@ export const createBenchmarkRouter = ({ supabaseAdmin, judgeService = null }) =>
         return res.status(400).json({ error: 'Benchmark execution definition does not match the selected language.' });
       }
 
-      const judgeResult = await judgeService.executeCode(submittedCode, executionDefinition.language, executionDefinition.testCases);
+      const preparedCode =
+        typeof executionDefinition.prepareCode === 'function'
+          ? executionDefinition.prepareCode(submittedCode)
+          : submittedCode;
+
+      const judgeResult = await judgeService.executeCode(preparedCode, executionDefinition.language, executionDefinition.testCases);
       return res.json(mapJudgeResultToBenchmarkEvaluation(judgeResult));
     } catch (error) {
       return res.status(400).json({ error: error.message || 'Could not evaluate the benchmark task.' });
@@ -781,6 +923,7 @@ export const createBenchmarkRouter = ({ supabaseAdmin, judgeService = null }) =>
 
       const [
         benchmarkRowsResult,
+        benchmarkItemOutcomesResult,
         lessonEventsResult,
         matchEventsResult,
         analyticsEventsResult,
@@ -791,6 +934,13 @@ export const createBenchmarkRouter = ({ supabaseAdmin, judgeService = null }) =>
           .select('id, user_id, created_at, report_payload, is_public, public_token, public_shared_at')
           .order('created_at', { ascending: false })
           .limit(2000),
+        supabaseAdmin
+          .from('benchmark_item_outcomes')
+          .select(
+            'template_id, format, evaluation_strategy, calibration_state, score_percent, is_correct, latency_ms, ability_without_item, trust_score'
+          )
+          .order('created_at', { ascending: false })
+          .limit(40000),
         supabaseAdmin
           .from('lesson_completion_events')
           .select('user_id, created_at')
@@ -830,6 +980,7 @@ export const createBenchmarkRouter = ({ supabaseAdmin, judgeService = null }) =>
       }
 
       const optionalQueryErrors = [
+        benchmarkItemOutcomesResult.error,
         lessonEventsResult.error,
         matchEventsResult.error,
         analyticsEventsResult.error,
@@ -838,6 +989,7 @@ export const createBenchmarkRouter = ({ supabaseAdmin, judgeService = null }) =>
 
       const summary = buildQualitySummary({
         reportRows: benchmarkRowsResult.data || [],
+        itemOutcomeRows: benchmarkItemOutcomesResult.error ? [] : benchmarkItemOutcomesResult.data || [],
         lessonEvents: lessonEventsResult.error ? [] : lessonEventsResult.data || [],
         matchEvents: matchEventsResult.error ? [] : matchEventsResult.data || [],
         analyticsEvents: analyticsEventsResult.error ? [] : analyticsEventsResult.data || [],
@@ -921,6 +1073,19 @@ export const createBenchmarkRouter = ({ supabaseAdmin, judgeService = null }) =>
 
       if (error || !data) {
         throw new Error(error?.message || 'Could not save benchmark report.');
+      }
+
+      const itemOutcomeRows = buildBenchmarkItemOutcomeRows(req.authenticatedUser.id, report);
+      if (itemOutcomeRows.length > 0) {
+        const { error: outcomeError } = await supabaseAdmin
+          .from('benchmark_item_outcomes')
+          .upsert(itemOutcomeRows, {
+            onConflict: 'user_id,client_report_id,question_id',
+          });
+
+        if (outcomeError) {
+          console.error('[benchmark] failed to persist item outcomes', outcomeError);
+        }
       }
 
       return res.status(201).json({ report: mergeReportRow(data) });

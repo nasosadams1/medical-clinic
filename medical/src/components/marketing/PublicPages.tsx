@@ -26,8 +26,8 @@ import DemoRequestCard from './DemoRequestCard';
 import MarketingLayout from './MarketingLayout';
 import { useAuth } from '../../context/AuthContext';
 import { usePlanEntitlements } from '../../hooks/usePlanEntitlements';
-import type { BenchmarkReport } from '../../data/benchmarkCatalog';
-import { buildSampleBenchmarkReport } from '../../data/benchmarkCatalog';
+import type { BenchmarkReport } from '../../data/benchmarkEngine';
+import { buildSampleBenchmarkReport } from '../../data/benchmarkEngine';
 import {
   audienceSegments,
   faqItems,

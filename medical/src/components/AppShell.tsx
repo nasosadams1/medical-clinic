@@ -292,9 +292,9 @@ export default function AppShell({ openAuthModal }: AppShellProps) {
               <Menu className="h-4 w-4" />
               <span className="hidden sm:inline">{sidebarOpen ? 'Hide taskbar' : 'Show taskbar'}</span>
             </button>
-            <div className="flex items-center gap-2">
-              <img src={mascot} alt="" className="h-6 w-6" />
-              <span className="type-brand text-foreground">Codhak</span>
+            <div className="flex items-center gap-3">
+              <img src={mascot} alt="" className="h-10 w-10" />
+              <span className="type-brand text-lg text-foreground sm:text-xl">Codhak</span>
             </div>
           </div>
           <div className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">

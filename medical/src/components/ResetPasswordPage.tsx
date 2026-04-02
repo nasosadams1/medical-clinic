@@ -143,8 +143,8 @@ const ResetPasswordPage: React.FC = () => {
             <BrandLockup
               mascot="learn"
               subtitle="Safe account recovery with the same mascot and brand language as the rest of the app."
-              iconWrapperClassName="h-16 w-16"
-              titleClassName="text-white"
+              iconWrapperClassName="h-20 w-20"
+              titleClassName="text-2xl text-white"
               subtitleClassName="text-slate-300"
             />
             <div className="type-kicker mt-6 inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/5 px-3 py-1 text-slate-200">

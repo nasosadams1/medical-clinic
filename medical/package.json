@@ -23,7 +23,8 @@
     "test:feedback": "node scripts/test-feedback.js",
     "test:store": "node scripts/test-store.js",
     "test:legal": "node scripts/test-legal.js",
-    "test:duel-anticheat": "node scripts/test-duel-anticheat.js"
+    "test:duel-anticheat": "node scripts/test-duel-anticheat.js",
+    "test:benchmark-bank": "node scripts/audit-benchmark-bank.mjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.1",

@@ -4,6 +4,8 @@ import { calculateLessonXp } from './lesson-catalog.js';
 import { checkAchievements } from './achievement-runtime.js';
 import { PYTHON_LESSON_EVALUATION_BANK } from './python-lesson-evaluation-bank.generated.js';
 import { CPP_LESSON_EVALUATION_BANK } from './cpp-lesson-evaluation-bank.generated.js';
+import { JAVA_LESSON_EVALUATION_BANK } from './java-lesson-evaluation-bank.generated.js';
+import { JAVASCRIPT_LESSON_EVALUATION_BANK } from './javascript-lesson-evaluation-bank.generated.js';
 import { LessonProgramJudgeService } from './lesson-program-judge.js';
 import { getAvatarById } from '../../shared/avatar-catalog.js';
 import { getBlockingSanction, formatSanctionMessage } from '../sanctions.js';
@@ -33,7 +35,9 @@ const EvaluateLessonSchema = z.object({
 const lessonProgramJudgeService = new LessonProgramJudgeService();
 const LESSON_EVALUATION_BANK = {
   ...PYTHON_LESSON_EVALUATION_BANK,
+  ...JAVASCRIPT_LESSON_EVALUATION_BANK,
   ...CPP_LESSON_EVALUATION_BANK,
+  ...JAVA_LESSON_EVALUATION_BANK,
 };
 
 const getBearerToken = (req) => {

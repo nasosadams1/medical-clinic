@@ -249,8 +249,8 @@ const AuthContainer: React.FC<AuthContainerProps> = ({ open, onClose, initialVie
                 title="Codhak"
                 subtitle="Save reports, sync your roadmap, and keep your skills history in one benchmark-first workspace."
                 className="flex-col items-start gap-3 text-left sm:flex-row sm:items-center"
-                iconWrapperClassName="h-14 w-14 sm:h-16 sm:w-16"
-                titleClassName="text-2xl text-white sm:text-3xl"
+                iconWrapperClassName="h-20 w-20 sm:h-24 sm:w-24"
+                titleClassName="text-3xl text-white sm:text-[2.2rem]"
                 subtitleClassName="max-w-md text-sm text-slate-300"
               />
 

@@ -22,12 +22,12 @@ export default function BrandLockup({
   subtitleClassName = '',
 }: BrandLockupProps) {
   return (
-    <div className={`flex items-center gap-3 ${className}`}>
-      <div className={`flex h-14 w-14 shrink-0 items-center justify-center ${iconWrapperClassName}`}>
+    <div className={`flex items-center gap-4 ${className}`}>
+      <div className={`flex h-20 w-20 shrink-0 items-center justify-center ${iconWrapperClassName}`}>
         <MascotIcon mascot={mascot} className="h-full w-full" imageClassName="drop-shadow-md" />
       </div>
       <div className="min-w-0">
-        <div className={`text-lg font-semibold leading-tight text-slate-900 ${titleClassName}`}>{title}</div>
+        <div className={`text-2xl font-semibold leading-tight text-slate-900 ${titleClassName}`}>{title}</div>
         {subtitle ? (
           <div className={`text-sm leading-5 text-slate-500 ${subtitleClassName}`}>{subtitle}</div>
         ) : null}

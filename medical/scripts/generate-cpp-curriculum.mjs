@@ -21,6 +21,11 @@ const LESSON_REWARD_BANDS = {
   },
 };
 
+const PYTHON_TIER_SCHEDULE = {
+  beginnerCount: 17,
+  intermediateCount: 16,
+};
+
 const interpolate = (start, end, progress) => start + (end - start) * progress;
 const roundToHalfMinute = (value) => Math.round(value * 2) / 2;
 
@@ -4283,14 +4288,13 @@ const getCppComplexityScore = (spec) => {
   return Number(score.toFixed(2));
 };
 
-const getDifficultyByLessonSpec = (spec) => {
-  const score = getCppComplexityScore(spec);
-  if (score < 2.2) return 'Beginner';
-  if (score < 4.1) return 'Intermediate';
+const getScheduledDifficulty = (index) => {
+  if (index < PYTHON_TIER_SCHEDULE.beginnerCount) return 'Beginner';
+  if (index < PYTHON_TIER_SCHEDULE.beginnerCount + PYTHON_TIER_SCHEDULE.intermediateCount) return 'Intermediate';
   return 'Advanced';
 };
 
-const lessonDifficulties = lessons.map((spec) => getDifficultyByLessonSpec(spec));
+const lessonDifficulties = lessons.map((_, index) => getScheduledDifficulty(index));
 const countsByDifficulty = lessonDifficulties.reduce(
   (acc, difficulty) => {
     acc[difficulty] += 1;

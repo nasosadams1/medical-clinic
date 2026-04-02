@@ -873,7 +873,12 @@ const LessonModal: React.FC<LessonModalProps> = ({
   const [typedTheoryCode, setTypedTheoryCode] = useState("");
   const [theoryCodeResult, setTheoryCodeResult] = useState<CodeAssessmentResult | null>(null);
   const [isCheckingCode, setIsCheckingCode] = useState(false);
-  const [startTime] = useState(Date.now());
+  const [startTime, setStartTime] = useState(Date.now());
+  const [completionSnapshot, setCompletionSnapshot] = useState<{
+    durationSeconds: number;
+    earnedXP: number;
+    boostMultiplier: number;
+  } | null>(null);
   const [showRetakeModal, setShowRetakeModal] = useState(false);
   const [shouldClose, setShouldClose] = useState(false);
 
@@ -1176,8 +1181,10 @@ const LessonModal: React.FC<LessonModalProps> = ({
   };
 
   const finalizeLesson = async () => {
-    const actualTimeMinutes = (Date.now() - startTime) / (1000 * 60);
-    const earnedXP = calculateXPFn(
+    const completedAt = Date.now();
+    const actualTimeSeconds = (completedAt - startTime) / 1000;
+    const actualTimeMinutes = actualTimeSeconds / 60;
+    const baseXP = calculateXPFn(
       lesson.baseXP,
       lesson.difficulty,
       lessonIndex,
@@ -1185,6 +1192,14 @@ const LessonModal: React.FC<LessonModalProps> = ({
       actualTimeMinutes,
       lesson.baselineTime
     );
+    const boostMultiplier = isXPBoostActive() ? activeBoosts.xpBoost?.multiplier || 1 : 1;
+    const earnedXP = Math.floor(baseXP * boostMultiplier);
+
+    setCompletionSnapshot({
+      durationSeconds: actualTimeSeconds,
+      earnedXP,
+      boostMultiplier,
+    });
 
     if (!user?.completedLessons?.includes?.(lesson.id)) {
       try {
@@ -1227,6 +1242,8 @@ const LessonModal: React.FC<LessonModalProps> = ({
     setTypedTheoryCode("");
     setTheoryCodeResult(null);
     setIsCheckingCode(false);
+    setStartTime(Date.now());
+    setCompletionSnapshot(null);
     setShowRetakeModal(false);
     resetHeartLossFn?.();
   };
@@ -1326,6 +1343,8 @@ const LessonModal: React.FC<LessonModalProps> = ({
     setTypedTheoryCode("");
     setTheoryCodeResult(null);
     setIsCheckingCode(false);
+    setStartTime(Date.now());
+    setCompletionSnapshot(null);
     setShowRetakeModal(false);
     setShouldClose(false);
   }, [lesson?.id, content, visibleStepStarts]);
@@ -1418,20 +1437,21 @@ const LessonModal: React.FC<LessonModalProps> = ({
   }
 
   if (isCompleted) {
-    const correctAnswers = Object.values(quizResults).filter(Boolean).length;
-    const correctMidAnswers = Object.values(midLessonResults).filter(Boolean).length;
-    const correctCodeChecks = Object.values(codePracticeResults).filter(Boolean).length;
-    const actualTimeSeconds = (Date.now() - startTime) / 1000;
-    const baseXP = calculateXPFn(
-      lesson.baseXP,
-      lesson.difficulty,
-      lessonIndex,
-      languageLessonCount,
-      actualTimeSeconds / 60,
-      lesson.baselineTime
-    );
-    const boostMultiplier = isXPBoostActive() ? activeBoosts.xpBoost?.multiplier || 1 : 1;
-    const earnedXP = Math.floor(baseXP * boostMultiplier);
+    const actualTimeSeconds = completionSnapshot?.durationSeconds ?? (Date.now() - startTime) / 1000;
+    const boostMultiplier =
+      completionSnapshot?.boostMultiplier ?? (isXPBoostActive() ? activeBoosts.xpBoost?.multiplier || 1 : 1);
+    const earnedXP =
+      completionSnapshot?.earnedXP ??
+      Math.floor(
+        calculateXPFn(
+          lesson.baseXP,
+          lesson.difficulty,
+          lessonIndex,
+          languageLessonCount,
+          actualTimeSeconds / 60,
+          lesson.baselineTime
+        ) * boostMultiplier
+      );
 
     return renderOverlay(
       <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/95 p-4 backdrop-blur-md" role="dialog" aria-modal="true">
@@ -1443,11 +1463,8 @@ const LessonModal: React.FC<LessonModalProps> = ({
             <h2 className="text-3xl font-semibold text-white">Lesson complete</h2>
             <p className="mt-3 text-sm leading-6 text-slate-300">The next practice unit is ready. This lesson now counts toward your progress path.</p>
           </div>
-          <div className="mt-8 grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
+          <div className="mt-8 grid gap-4 sm:grid-cols-2">
             <div className="rounded-2xl border border-white/10 bg-white/5 p-4"><div className="text-xs uppercase tracking-[0.2em] text-slate-500">Earned XP</div><div className="mt-2 text-lg font-semibold text-white">{earnedXP} XP</div></div>
-            <div className="rounded-2xl border border-white/10 bg-white/5 p-4"><div className="text-xs uppercase tracking-[0.2em] text-slate-500">Code Checks</div><div className="mt-2 text-lg font-semibold text-white">{correctCodeChecks}/{codePracticeSteps.length || 0}</div></div>
-            <div className="rounded-2xl border border-white/10 bg-white/5 p-4"><div className="text-xs uppercase tracking-[0.2em] text-slate-500">Final Quiz</div><div className="mt-2 text-lg font-semibold text-white">{effectiveQuizCount > 0 ? `${correctAnswers}/${effectiveQuizCount}` : "Skipped"}</div></div>
-            <div className="rounded-2xl border border-white/10 bg-white/5 p-4"><div className="text-xs uppercase tracking-[0.2em] text-slate-500">Theory Checks</div><div className="mt-2 text-lg font-semibold text-white">{correctMidAnswers}/{questionSteps.length || 0}</div></div>
             <div className="rounded-2xl border border-white/10 bg-white/5 p-4"><div className="text-xs uppercase tracking-[0.2em] text-slate-500">Duration</div><div className="mt-2 text-lg font-semibold text-white">{formatTime(actualTimeSeconds)}</div></div>
           </div>
           {boostMultiplier > 1 && (
