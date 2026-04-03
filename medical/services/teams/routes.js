@@ -427,6 +427,33 @@ const normalizeEntitlementStatus = (value) => String(value || 'active').trim().t
 const getEntitlementMetadata = (entry) =>
   typeof entry?.metadata === 'object' && entry.metadata ? entry.metadata : {};
 
+const resolveEntitlementPlanSignal = (entry) => {
+  const metadata = getEntitlementMetadata(entry);
+  const rawValues = [
+    entry?.plan_name,
+    entry?.planName,
+    metadata.plan_name,
+    metadata.planName,
+    entry?.item_id,
+    entry?.itemId,
+    metadata.item_id,
+    metadata.itemId,
+  ]
+    .map((value) => String(value || '').trim())
+    .filter(Boolean);
+
+  for (const rawValue of rawValues) {
+    const normalized = rawValue.toLowerCase();
+    if (normalized === 'teams' || normalized === 'teams_monthly') return 'Teams';
+    if (normalized === 'teams growth' || normalized === 'teams_growth' || normalized === 'teams_growth_monthly') {
+      return 'Teams Growth';
+    }
+    if (normalized === 'custom' || normalized === 'admin_custom') return 'Custom';
+  }
+
+  return rawValues[0] || '';
+};
+
 const getEntitlementExpiryTimestamp = (entry) => {
   const metadata = getEntitlementMetadata(entry);
   const candidates = [
@@ -1543,7 +1570,7 @@ const resolveUserTeamPlanPolicy = async (supabaseAdmin, authenticatedUser) => {
   }
 
   const entitlements = await loadActiveTeamEntitlements(supabaseAdmin, authenticatedUser.id);
-  return resolveTeamPlanPolicy(entitlements.map((entry) => entry.plan_name));
+  return resolveTeamPlanPolicy(entitlements.map((entry) => resolveEntitlementPlanSignal(entry)).filter(Boolean));
 };
 
 const ensureWorkspaceCreationAllowed = async (supabaseAdmin, authenticatedUser) => {
