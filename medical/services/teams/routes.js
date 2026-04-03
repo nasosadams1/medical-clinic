@@ -1573,6 +1573,19 @@ const resolveUserTeamPlanPolicy = async (supabaseAdmin, authenticatedUser) => {
   return resolveTeamPlanPolicy(entitlements.map((entry) => resolveEntitlementPlanSignal(entry)).filter(Boolean));
 };
 
+const loadUserWorkspaceCount = async (supabaseAdmin, userId) => {
+  const { count, error } = await supabaseAdmin
+    .from('skill_teams')
+    .select('id', { count: 'exact', head: true })
+    .eq('created_by', userId);
+
+  if (error) {
+    throw new Error(error.message || 'Could not validate your team workspace limit.');
+  }
+
+  return Number(count || 0);
+};
+
 const ensureWorkspaceCreationAllowed = async (supabaseAdmin, authenticatedUser) => {
   const policy = await resolveUserTeamPlanPolicy(supabaseAdmin, authenticatedUser);
   if (policy.workspaceLimit <= 0) {
@@ -1591,16 +1604,9 @@ const ensureWorkspaceCreationAllowed = async (supabaseAdmin, authenticatedUser) 
     teamId: null,
   });
 
-  const { count, error } = await supabaseAdmin
-    .from('skill_teams')
-    .select('id', { count: 'exact', head: true })
-    .eq('created_by', authenticatedUser.id);
+  const workspaceCount = await loadUserWorkspaceCount(supabaseAdmin, authenticatedUser.id);
 
-  if (error) {
-    throw new Error(error.message || 'Could not validate your team workspace limit.');
-  }
-
-  if (Number(count || 0) >= policy.workspaceLimit) {
+  if (workspaceCount >= policy.workspaceLimit) {
     throw new Error(
       policy.supportsMultiCohort
         ? `Your ${policy.label} plan has reached its workspace limit of ${policy.workspaceLimit}.`
@@ -1609,6 +1615,44 @@ const ensureWorkspaceCreationAllowed = async (supabaseAdmin, authenticatedUser) 
   }
 
   return policy;
+};
+
+const getWorkspaceCreationCapability = async (supabaseAdmin, authenticatedUser) => {
+  try {
+    const policy = await resolveUserTeamPlanPolicy(supabaseAdmin, authenticatedUser);
+    const privileged = isPrivilegedAdmin(authenticatedUser);
+    let currentWorkspaceCount = 0;
+
+    try {
+      currentWorkspaceCount = await loadUserWorkspaceCount(supabaseAdmin, authenticatedUser.id);
+    } catch {
+      currentWorkspaceCount = 0;
+    }
+
+    await ensureWorkspaceCreationAllowed(supabaseAdmin, authenticatedUser);
+    return {
+      canCreateTeam: true,
+      createBlockedReason: null,
+      isPrivilegedAdmin: privileged,
+      activeTeamPlanKey: policy.key,
+      activeTeamPlanLabel: policy.label,
+      workspaceLimit: policy.workspaceLimit,
+      seatLimit: policy.seatLimit,
+      currentWorkspaceCount,
+    };
+  } catch (error) {
+    const fallbackPolicy = TEAM_PLAN_POLICY_NONE;
+    return {
+      canCreateTeam: false,
+      createBlockedReason: error?.message || 'Could not create team.',
+      isPrivilegedAdmin: isPrivilegedAdmin(authenticatedUser),
+      activeTeamPlanKey: fallbackPolicy.key,
+      activeTeamPlanLabel: fallbackPolicy.label,
+      workspaceLimit: fallbackPolicy.workspaceLimit,
+      seatLimit: fallbackPolicy.seatLimit,
+      currentWorkspaceCount: 0,
+    };
+  }
 };
 
 const ensureTeamCapacityAvailable = async (supabaseAdmin, teamId, nextSeatCount = 1) => {
@@ -2278,6 +2322,15 @@ export const createTeamsRouter = ({ supabaseAdmin }) => {
         error: error?.message || String(error),
       });
       return res.status(400).json({ error: error.message || 'Could not create team.' });
+    }
+  });
+
+  router.get('/capabilities', requireAuth, async (req, res) => {
+    try {
+      const capability = await getWorkspaceCreationCapability(supabaseAdmin, req.authenticatedUser);
+      return res.json(capability);
+    } catch (error) {
+      return res.status(400).json({ error: error.message || 'Could not load teams capabilities.' });
     }
   });
 

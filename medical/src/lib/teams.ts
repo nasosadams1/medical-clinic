@@ -172,6 +172,17 @@ export interface TeamWorkspaceDetail {
   joinRequests: TeamJoinRequest[];
 }
 
+export interface TeamCapabilities {
+  canCreateTeam: boolean;
+  createBlockedReason: string | null;
+  isPrivilegedAdmin: boolean;
+  activeTeamPlanKey: string;
+  activeTeamPlanLabel: string;
+  workspaceLimit: number;
+  seatLimit: number;
+  currentWorkspaceCount: number;
+}
+
 export interface TeamAnalytics {
   scoreBands: Array<{ label: string; count: number }>;
   roleDistribution: Record<TeamRole, number>;
@@ -332,6 +343,23 @@ const teamsFetchRaw = async (path: string, init: RequestInit = {}) => {
 export const listTeams = async () => {
   const payload = await teamsFetch<{ teams: TeamSummary[] }>('');
   return payload.teams || [];
+};
+
+export const getTeamsCapabilities = async () => {
+  try {
+    return await teamsFetch<TeamCapabilities>('/capabilities');
+  } catch (error: any) {
+    return {
+      canCreateTeam: false,
+      createBlockedReason: error?.message || 'Could not load team creation access.',
+      isPrivilegedAdmin: false,
+      activeTeamPlanKey: 'none',
+      activeTeamPlanLabel: 'No team plan',
+      workspaceLimit: 0,
+      seatLimit: 0,
+      currentWorkspaceCount: 0,
+    };
+  }
 };
 
 export const createTeam = async (input: {

@@ -38,6 +38,7 @@ import {
   deleteTeamInvite,
   exportTeamReport,
   fetchTeamAnalytics,
+  getTeamsCapabilities,
   getTeamWorkspace,
   joinTeamByCode,
   listTeams,
@@ -47,6 +48,7 @@ import {
   TeamAnalytics,
   TeamAssignment,
   TeamAssignmentType,
+  TeamCapabilities,
   TeamAssignmentLifecycleState,
   TeamFeedback,
   TeamFeedbackStatus,
@@ -977,6 +979,7 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
   const [selectedTeamId, setSelectedTeamId] = useState(TEAM_WORKSPACE_OVERVIEW_VALUE);
   const [teamDetail, setTeamDetail] = useState<TeamWorkspaceDetail | null>(null);
   const [teamAnalytics, setTeamAnalytics] = useState<TeamAnalytics | null>(null);
+  const [teamCapabilities, setTeamCapabilities] = useState<TeamCapabilities | null>(null);
   const [loadingTeams, setLoadingTeams] = useState(false);
   const [loadingDetail, setLoadingDetail] = useState(false);
   const [submittingKey, setSubmittingKey] = useState<string | null>(null);
@@ -1039,7 +1042,8 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
   const canManageMembers = currentRole === 'owner' || currentRole === 'admin';
   const canManageWorkspace = currentRole === 'owner' || currentRole === 'admin' || currentRole === 'coach';
   const canPublishProof = currentRole === 'owner' || currentRole === 'admin';
-  const canCreateTeams = hasAnyTeamPlan;
+  const canCreateTeams = teamCapabilities ? teamCapabilities.canCreateTeam : hasAnyTeamPlan;
+  const createTeamBlockedReason = teamCapabilities?.createBlockedReason || null;
   const feedbackComposerSnapshot = useMemo(
     () =>
       serializeFeedbackComposerSnapshot({
@@ -1104,6 +1108,7 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
   const refreshTeamList = useCallback(async (preferredTeamId?: string) => {
     if (!isSignedIn) {
       setTeams([]);
+      setTeamCapabilities(null);
       setSelectedTeamId(TEAM_WORKSPACE_OVERVIEW_VALUE);
       return;
     }
@@ -1112,8 +1117,12 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
     setErrorMessage(null);
 
     try {
-      const nextTeams = await listTeams();
+      const [nextTeams, nextCapabilities] = await Promise.all([
+        listTeams(),
+        getTeamsCapabilities(),
+      ]);
       setTeams(nextTeams);
+      setTeamCapabilities(nextCapabilities);
 
       const nextSelectedTeamId =
         preferredTeamId && nextTeams.some((team) => team.id === preferredTeamId)
@@ -1361,8 +1370,10 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
     }
 
     if (!canCreateTeams) {
-      toast.error('A Teams plan is required before you can create a team.');
-      navigate('/pricing?intent=teams');
+      toast.error(createTeamBlockedReason || 'A Teams plan is required before you can create a team.');
+      if (!teamCapabilities?.isPrivilegedAdmin && teamCapabilities?.activeTeamPlanKey === 'none') {
+        navigate('/pricing?intent=teams');
+      }
       return;
     }
 
@@ -5152,9 +5163,17 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
                 <div className="mt-5">
                   {createCardDisabled ? (
                     <div className="rounded-2xl border border-primary/25 bg-primary/10 p-5">
-                      <div className="text-sm font-semibold text-primary">Teams plan required</div>
+                      <div className="text-sm font-semibold text-primary">
+                        {!isSignedIn
+                          ? 'Sign in required'
+                          : teamCapabilities?.activeTeamPlanKey === 'none'
+                            ? 'Teams plan required'
+                            : 'Team creation unavailable'}
+                      </div>
                       <div className="mt-2 text-sm leading-7 text-foreground">
-                        Create workspaces with Teams, Teams Growth, or Custom.
+                        {!isSignedIn
+                          ? 'Sign in first to create and manage team workspaces.'
+                          : createTeamBlockedReason || 'Create workspaces with Teams, Teams Growth, or Custom.'}
                       </div>
                     </div>
                   ) : (
@@ -5189,7 +5208,9 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
                   )}
 
                   <div className="mt-4 text-sm text-muted-foreground">
-                    {activeTeamEntitlement
+                    {teamCapabilities
+                      ? `${teamCapabilities.activeTeamPlanLabel}: ${teamCapabilities.currentWorkspaceCount}/${teamCapabilities.workspaceLimit} workspace${teamCapabilities.workspaceLimit === 1 ? '' : 's'}, ${teamCapabilities.seatLimit} seats per team.`
+                      : activeTeamEntitlement
                       ? `${activeTeamEntitlement.planName}: ${teamPlanPolicy.workspaceLimit} workspace${teamPlanPolicy.workspaceLimit === 1 ? '' : 's'}, ${teamPlanPolicy.managerMembershipLimit} managed teams, ${teamPlanPolicy.seatLimit} seats per team.`
                       : `Learners can join up to ${teamPlanPolicy.learnerMembershipLimit} active teams. Upgrade to create and manage team workspaces.`}
                   </div>
