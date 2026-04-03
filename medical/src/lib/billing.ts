@@ -90,6 +90,14 @@ export function isRecurringPlanEntitlement(entitlement: PlanEntitlement | null |
   return entitlement?.metadata?.billing_mode === 'subscription';
 }
 
+export function isAdminOverridePlanEntitlement(entitlement: PlanEntitlement | null | undefined): boolean {
+  return entitlement?.metadata?.admin_override === true;
+}
+
+export function shouldDisplayPlanRenewalDate(entitlement: PlanEntitlement | null | undefined): boolean {
+  return Boolean(entitlement?.currentPeriodEnd) && !isAdminOverridePlanEntitlement(entitlement);
+}
+
 export function formatPlanRenewalDate(value: string | null | undefined) {
   if (!value) return null;
 
@@ -102,6 +110,19 @@ export function formatPlanRenewalDate(value: string | null | undefined) {
   } catch {
     return null;
   }
+}
+
+export function formatPlanAccessWindowLabel(entitlement: PlanEntitlement | null | undefined) {
+  if (!shouldDisplayPlanRenewalDate(entitlement)) {
+    return null;
+  }
+
+  const formattedDate = formatPlanRenewalDate(entitlement?.currentPeriodEnd);
+  if (!formattedDate) {
+    return null;
+  }
+
+  return isRecurringPlanEntitlement(entitlement) ? `renews on ${formattedDate}` : `active through ${formattedDate}`;
 }
 
 export async function listPlanEntitlements(): Promise<PlanEntitlement[]> {

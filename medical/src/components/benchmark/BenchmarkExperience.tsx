@@ -54,6 +54,7 @@ import {
   unshareBenchmarkReport,
   type BenchmarkExecutionEvaluationResult,
 } from '../../lib/benchmarkApi';
+import { getLastWorkspaceHref } from '../../lib/appNavigation';
 import { formatPlanRenewalDate } from '../../lib/billing';
 import { trackEvent } from '../../lib/analytics';
 import BenchmarkReportCard from './BenchmarkReportCard';
@@ -998,7 +999,7 @@ export default function BenchmarkExperience({
 
     return () => {
       setNavigationCallback(() => {
-        navigate('/app', { replace: true });
+        navigate(getLastWorkspaceHref('benchmark'), { replace: true });
       });
     };
   }, [mode, navigate, savedReport, setNavigationCallback, view]);

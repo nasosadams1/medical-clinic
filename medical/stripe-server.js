@@ -242,29 +242,78 @@ function appendQueryParams(url, params) {
 }
 
 function mapStripeSubscriptionStatus(subscription) {
-  switch (subscription?.status) {
+  switch (String(subscription?.status || '').toLowerCase()) {
     case 'active':
     case 'trialing':
     case 'past_due':
       return 'active';
     case 'canceled':
       return 'cancelled';
+    case 'incomplete':
+    case 'paused':
     case 'incomplete_expired':
     case 'unpaid':
       return 'expired';
     default:
-      return subscription?.ended_at ? 'cancelled' : 'active';
+      throw new Error(`Unsupported Stripe subscription status: ${subscription?.status || 'unknown'}`);
   }
 }
 
+function resolveStripePeriodSeconds(subscription) {
+  const topLevelStart = Number(subscription?.current_period_start || 0);
+  const topLevelEnd = Number(subscription?.current_period_end || 0);
+
+  if (topLevelStart > 0 && topLevelEnd > 0) {
+    return {
+      currentPeriodStartSeconds: topLevelStart,
+      currentPeriodEndSeconds: topLevelEnd,
+    };
+  }
+
+  const firstItem = Array.isArray(subscription?.items?.data) ? subscription.items.data[0] : null;
+  const itemLevelStart = Number(firstItem?.current_period_start || 0);
+  const itemLevelEnd = Number(firstItem?.current_period_end || 0);
+
+  if (itemLevelStart > 0 && itemLevelEnd > 0) {
+    return {
+      currentPeriodStartSeconds: itemLevelStart,
+      currentPeriodEndSeconds: itemLevelEnd,
+    };
+  }
+
+  throw new Error(`Stripe subscription ${subscription?.id || '(unknown)'} is missing current period boundaries.`);
+}
+
 function resolveStripeSubscriptionPeriod(subscription) {
-  const startSeconds = Number(subscription?.current_period_start || 0);
-  const endSeconds = Number(subscription?.current_period_end || 0);
+  const { currentPeriodStartSeconds, currentPeriodEndSeconds } = resolveStripePeriodSeconds(subscription);
+
+  if (currentPeriodEndSeconds <= currentPeriodStartSeconds) {
+    throw new Error(`Stripe subscription ${subscription?.id || '(unknown)'} has an invalid current period.`);
+  }
 
   return {
-    currentPeriodStart: startSeconds > 0 ? new Date(startSeconds * 1000).toISOString() : new Date().toISOString(),
-    currentPeriodEnd: endSeconds > 0 ? new Date(endSeconds * 1000).toISOString() : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+    currentPeriodStart: new Date(currentPeriodStartSeconds * 1000).toISOString(),
+    currentPeriodEnd: new Date(currentPeriodEndSeconds * 1000).toISOString(),
   };
+}
+
+async function hydrateStripeSubscription(subscription) {
+  if (!subscription) {
+    throw new Error('Stripe subscription payload is required.');
+  }
+
+  try {
+    resolveStripePeriodSeconds(subscription);
+    return subscription;
+  } catch (error) {
+    if (!stripe || !subscription?.id) {
+      throw error;
+    }
+
+    const hydratedSubscription = await stripe.subscriptions.retrieve(subscription.id);
+    resolveStripePeriodSeconds(hydratedSubscription);
+    return hydratedSubscription;
+  }
 }
 
 async function syncStripeSubscriptionEntitlement({
@@ -356,16 +405,15 @@ async function syncStripeSubscriptionEntitlement({
 }
 
 async function syncEntitlementFromStripeSubscription(subscription, overrides = {}) {
-  if (!subscription) {
-    throw new Error('Stripe subscription payload is required.');
-  }
+  const hydratedSubscription = await hydrateStripeSubscription(subscription);
 
-  const userId = overrides.userId || subscription.metadata?.userId || '';
-  const itemId = overrides.itemId || subscription.metadata?.itemId || '';
-  const planName = overrides.planName || subscription.metadata?.planName || '';
-  const customerId = typeof subscription.customer === 'string' ? subscription.customer : subscription.customer?.id;
-  const subscriptionId = subscription.id;
-  const priceId = subscription.items?.data?.[0]?.price?.id || null;
+  const userId = overrides.userId || hydratedSubscription.metadata?.userId || '';
+  const itemId = overrides.itemId || hydratedSubscription.metadata?.itemId || '';
+  const planName = overrides.planName || hydratedSubscription.metadata?.planName || '';
+  const customerId =
+    typeof hydratedSubscription.customer === 'string' ? hydratedSubscription.customer : hydratedSubscription.customer?.id;
+  const subscriptionId = hydratedSubscription.id;
+  const priceId = hydratedSubscription.items?.data?.[0]?.price?.id || null;
 
   return syncStripeSubscriptionEntitlement({
     userId,
@@ -374,7 +422,7 @@ async function syncEntitlementFromStripeSubscription(subscription, overrides = {
     customerId,
     subscriptionId,
     priceId,
-    subscription,
+    subscription: hydratedSubscription,
   });
 }
 

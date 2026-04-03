@@ -71,6 +71,20 @@ import {
   updateTeamMember,
   updateTeamSubmission,
 } from '../../lib/teams';
+import {
+  ActionButton,
+  COACHING_STARTERS,
+  ConfirmActionDialog,
+  EmptyState,
+  FormField,
+  MetricCard,
+  ModalShell,
+  ReviewField,
+  ReviewStatePill,
+  RubricScoreControl,
+  StatusPill,
+} from './reviewUi';
+import { GradeAndCoachModal, GradeAndCoachReviewSidebar } from './gradeAndCoachUi';
 
 type TeamsWorkspaceMode = 'app' | 'public';
 type WorkspaceModal = null | 'members' | 'assignments' | 'invites' | 'feedback' | 'analytics' | 'reports';
@@ -207,6 +221,12 @@ type WorkspaceConfirmAction =
       entry: TeamFeedback;
     };
 
+type FeedbackDiscardPrompt = null | {
+  title: string;
+  description: string;
+  confirmLabel: string;
+};
+
 const MEMBER_ROLE_ORDER: Record<TeamRole, number> = {
   owner: 0,
   admin: 1,
@@ -289,40 +309,79 @@ const ASSIGNMENT_TEMPLATES: Array<{
   },
 ];
 
-const FEEDBACK_SNIPPETS: Array<{
-  id: string;
+const FEEDBACK_RUBRIC_FIELDS: Array<{
+  field: keyof FeedbackRubricDraft;
   label: string;
-  summary: string;
-  strengths: string;
-  focusAreas: string;
+  helper: string;
 }> = [
   {
-    id: 'clean-logic',
-    label: 'Clean logic',
-    summary: 'Strong baseline. The core approach is correct and easy to follow.',
-    strengths: 'Good control flow, readable naming, and clear problem framing.',
-    focusAreas: 'Push deeper on edge cases and test your output against tricky inputs.',
+    field: 'correctness',
+    label: 'Correctness',
+    helper: 'Did the solution actually solve the task?',
   },
   {
-    id: 'needs-edge-cases',
-    label: 'Edge cases',
-    summary: 'The main solution works, but edge-case handling still needs attention.',
-    strengths: 'Core structure is there and the logic is mostly sound.',
-    focusAreas: 'Handle empty input, boundary values, and output formatting more deliberately.',
+    field: 'codeQuality',
+    label: 'Code quality',
+    helper: 'Was the code clear, structured, and maintainable?',
   },
   {
-    id: 'speed-pressure',
-    label: 'Speed under pressure',
-    summary: 'You can solve the task, but speed drops once pressure increases.',
-    strengths: 'Problem-solving instincts are solid once you settle into the task.',
-    focusAreas: 'Practice timed reps and simplify your first pass before optimizing.',
+    field: 'problemSolving',
+    label: 'Problem solving',
+    helper: 'Did the learner choose a sound approach and adjust well?',
   },
   {
-    id: 'ready-retake',
-    label: 'Ready for retake',
-    summary: 'This looks ready for a stronger retake or next-level assignment.',
-    strengths: 'Execution is more confident and the solution quality is improving.',
-    focusAreas: 'Take a harder benchmark or a more time-constrained challenge next.',
+    field: 'communication',
+    label: 'Communication',
+    helper: 'Can another person understand the thinking and output?',
+  },
+];
+
+const MANUAL_FEEDBACK_RUBRIC_FIELDS: Array<{
+  field: keyof FeedbackRubricDraft;
+  label: string;
+  helper: string;
+}> = [
+  {
+    field: 'correctness',
+    label: 'Clarity',
+    helper: 'Is the learner’s current thinking clear enough to coach directly?',
+  },
+  {
+    field: 'codeQuality',
+    label: 'Consistency',
+    helper: 'Does the current work show repeatable habits instead of one-off guesses?',
+  },
+  {
+    field: 'problemSolving',
+    label: 'Reasoning',
+    helper: 'Is there a sound approach behind the attempt, even if it is still rough?',
+  },
+  {
+    field: 'communication',
+    label: 'Next-step readiness',
+    helper: 'Can you point to one clear next move the learner is ready to execute?',
+  },
+];
+
+const FEEDBACK_WORKFLOW_OPTIONS: Array<{
+  value: 'draft' | 'shared' | 'resolved';
+  label: string;
+  helper: string;
+}> = [
+  {
+    value: 'draft',
+    label: 'Save draft',
+    helper: 'Keep the note private while you tighten it.',
+  },
+  {
+    value: 'shared',
+    label: 'Share to learner',
+    helper: 'Publish the learner-facing note right now.',
+  },
+  {
+    value: 'resolved',
+    label: 'Mark resolved',
+    helper: 'Close the coaching pass after the note is ready.',
   },
 ];
 
@@ -384,6 +443,29 @@ const emptySubmissionDraft = (): SubmissionDraft => ({
 const emptyJoinSettingsDraft = (): JoinSettingsDraft => ({
   joinMode: 'open_code',
   allowedEmailDomain: '',
+});
+
+const serializeFeedbackComposerSnapshot = (input: {
+  feedbackDraft: FeedbackDraft;
+  feedbackRubricDraft: FeedbackRubricDraft;
+  submissionAttachmentMode: SubmissionAttachmentMode;
+  selectedSubmissionId: string | null;
+  submissionDraft: SubmissionDraft;
+}) =>
+  JSON.stringify({
+    feedbackDraft: input.feedbackDraft,
+    feedbackRubricDraft: input.feedbackRubricDraft,
+    submissionAttachmentMode: input.submissionAttachmentMode,
+    selectedSubmissionId: input.selectedSubmissionId,
+    submissionDraft: input.submissionDraft,
+  });
+
+const EMPTY_FEEDBACK_COMPOSER_SNAPSHOT = serializeFeedbackComposerSnapshot({
+  feedbackDraft: emptyFeedbackDraft(),
+  feedbackRubricDraft: emptyFeedbackRubricDraft(),
+  submissionAttachmentMode: 'none',
+  selectedSubmissionId: null,
+  submissionDraft: emptySubmissionDraft(),
 });
 
 const formatDateLabel = (value: string | null | undefined) => {
@@ -482,6 +564,14 @@ const hasRubricBreakdownValues = (breakdown: TeamRubricBreakdown | null | undefi
   Boolean(
     breakdown &&
       [breakdown.correctness, breakdown.codeQuality, breakdown.problemSolving, breakdown.communication].some(
+        (value) => value !== null
+      )
+  );
+
+const hasCompleteRubricBreakdown = (breakdown: TeamRubricBreakdown | null | undefined) =>
+  Boolean(
+    breakdown &&
+      [breakdown.correctness, breakdown.codeQuality, breakdown.problemSolving, breakdown.communication].every(
         (value) => value !== null
       )
   );
@@ -852,193 +942,6 @@ const copyTextToClipboard = async (value: string) => {
   }
 };
 
-function ModalShell({
-  title,
-  subtitle,
-  onClose,
-  children,
-}: {
-  title: string;
-  subtitle?: string;
-  onClose: () => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center bg-background/80 px-4 py-6 backdrop-blur sm:py-10">
-      <div className="absolute inset-0" onClick={onClose} />
-      <div className="relative z-10 flex max-h-[calc(100dvh-2rem)] w-full max-w-[min(98vw,1680px)] flex-col overflow-hidden rounded-[1.5rem] border border-border bg-card shadow-elevated">
-        <div className="flex items-start justify-between gap-4 border-b border-border px-5 py-4 sm:px-6">
-          <div>
-            <div className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">{title}</div>
-            {subtitle ? <div className="mt-2 text-sm text-muted-foreground">{subtitle}</div> : null}
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-border bg-background text-muted-foreground transition hover:text-foreground"
-          >
-            <X className="h-4 w-4" />
-          </button>
-        </div>
-        <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5 sm:px-6">{children}</div>
-      </div>
-    </div>
-  );
-}
-
-function ActionButton({
-  title,
-  value,
-  onClick,
-  disabled,
-  icon,
-}: {
-  title: string;
-  value: string;
-  onClick: () => void;
-  disabled?: boolean;
-  icon: React.ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      className="flex min-h-[112px] flex-col justify-between rounded-2xl border border-border bg-background px-4 py-4 text-left transition hover:border-primary/30 hover:bg-card disabled:cursor-not-allowed disabled:opacity-60"
-    >
-      <div className="flex items-center justify-between gap-3">
-        <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10 text-primary">{icon}</div>
-        <ArrowRight className="h-4 w-4 text-muted-foreground" />
-      </div>
-      <div>
-        <div className="text-sm font-semibold uppercase tracking-[0.16em] text-primary">{title}</div>
-        <div className="mt-2 text-base font-semibold text-foreground">{value}</div>
-      </div>
-    </button>
-  );
-}
-
-function StatusPill({
-  children,
-  tone = 'default',
-}: {
-  children: React.ReactNode;
-  tone?: 'default' | 'success' | 'warn' | 'danger';
-}) {
-  const toneClass =
-    tone === 'success'
-      ? 'border-xp/20 bg-xp/10 text-xp'
-      : tone === 'danger'
-      ? 'border-destructive/20 bg-destructive/10 text-destructive'
-      : tone === 'warn'
-      ? 'border-coins/20 bg-coins/10 text-coins'
-      : 'border-primary/20 bg-primary/10 text-primary';
-
-  return (
-    <span className={`inline-flex items-center rounded-full border px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] ${toneClass}`}>
-      {children}
-    </span>
-  );
-}
-
-function EmptyState({ title, helper }: { title: string; helper: string }) {
-  return (
-    <div className="rounded-2xl border border-dashed border-border bg-background/50 px-4 py-6 text-sm text-muted-foreground">
-      <div className="font-semibold text-foreground">{title}</div>
-      <div className="mt-2">{helper}</div>
-    </div>
-  );
-}
-
-function ConfirmActionDialog({
-  title,
-  description,
-  confirmLabel,
-  tone = 'default',
-  busy = false,
-  onCancel,
-  onConfirm,
-}: {
-  title: string;
-  description: string;
-  confirmLabel: string;
-  tone?: 'default' | 'destructive';
-  busy?: boolean;
-  onCancel: () => void;
-  onConfirm: () => void;
-}) {
-  return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-background/80 px-4 py-6 backdrop-blur sm:py-10">
-      <div className="absolute inset-0" onClick={busy ? undefined : onCancel} />
-      <div className="relative z-10 w-full max-w-md rounded-[1.5rem] border border-border bg-card p-6 shadow-elevated">
-        <div className="text-lg font-semibold text-foreground">{title}</div>
-        <div className="mt-3 text-sm leading-7 text-muted-foreground">{description}</div>
-        <div className="mt-6 flex justify-end gap-3">
-          <button
-            type="button"
-            onClick={onCancel}
-            disabled={busy}
-            className="inline-flex h-11 items-center justify-center rounded-2xl border border-border bg-background px-4 text-sm font-semibold text-foreground transition hover:bg-secondary disabled:opacity-60"
-          >
-            Cancel
-          </button>
-          <button
-            type="button"
-            onClick={onConfirm}
-            disabled={busy}
-            className={`inline-flex h-11 items-center justify-center gap-2 rounded-2xl px-4 text-sm font-semibold transition disabled:opacity-60 ${
-              tone === 'destructive'
-                ? 'border border-destructive/20 bg-destructive/10 text-destructive hover:bg-destructive/15'
-                : 'border border-primary/20 bg-primary text-primary-foreground hover:bg-primary/90'
-            }`}
-          >
-            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-            {confirmLabel}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function MetricCard({
-  label,
-  value,
-  helper,
-}: {
-  label: string;
-  value: string;
-  helper?: string;
-}) {
-  return (
-    <div className="rounded-2xl border border-border bg-background px-4 py-3">
-      <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-primary">{label}</div>
-      <div className="mt-2 break-words text-lg font-semibold leading-tight text-foreground sm:text-xl">{value}</div>
-      {helper ? <div className="mt-1 text-xs text-muted-foreground">{helper}</div> : null}
-    </div>
-  );
-}
-
-function FormField({
-  label,
-  helper,
-  children,
-}: {
-  label: string;
-  helper?: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <label className="block space-y-2">
-      <div className="flex items-center justify-between gap-3">
-        <span className="text-xs font-semibold uppercase tracking-[0.16em] text-primary">{label}</span>
-        {helper ? <span className="text-xs text-muted-foreground">{helper}</span> : null}
-      </div>
-      {children}
-    </label>
-  );
-}
-
 function ProgressStack({
   completed,
   inProgress,
@@ -1112,11 +1015,21 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
   const [selectedFeedbackId, setSelectedFeedbackId] = useState<string | null>(null);
   const [selectedReviewItemId, setSelectedReviewItemId] = useState<string | null>(null);
   const [feedbackComposerOpen, setFeedbackComposerOpen] = useState(false);
+  const [feedbackDiscardPrompt, setFeedbackDiscardPrompt] = useState<FeedbackDiscardPrompt>(null);
   const [submissionAttachmentMode, setSubmissionAttachmentMode] = useState<SubmissionAttachmentMode>('none');
   const [selectedSubmissionId, setSelectedSubmissionId] = useState<string | null>(null);
   const [submissionDraft, setSubmissionDraft] = useState<SubmissionDraft>(emptySubmissionDraft());
+  const [showAllSubmissionHistory, setShowAllSubmissionHistory] = useState(false);
+  const [showAllFeedbackHistory, setShowAllFeedbackHistory] = useState(false);
+  const [showAllComposerHistory, setShowAllComposerHistory] = useState(false);
 
   const inviteJoinHandledRef = useRef<string | null>(null);
+  const feedbackComposerBaselineRef = useRef(EMPTY_FEEDBACK_COMPOSER_SNAPSHOT);
+  const feedbackComposerLockedTargetRef = useRef<{ memberUserId: string; assignmentId: string }>({
+    memberUserId: '',
+    assignmentId: '',
+  });
+  const pendingFeedbackComposerActionRef = useRef<(() => void) | null>(null);
 
   const isSignedIn = Boolean(user);
   const isOverviewSelected = selectedTeamId === TEAM_WORKSPACE_OVERVIEW_VALUE;
@@ -1127,6 +1040,20 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
   const canManageWorkspace = currentRole === 'owner' || currentRole === 'admin' || currentRole === 'coach';
   const canPublishProof = currentRole === 'owner' || currentRole === 'admin';
   const canCreateTeams = hasAnyTeamPlan;
+  const feedbackComposerSnapshot = useMemo(
+    () =>
+      serializeFeedbackComposerSnapshot({
+        feedbackDraft,
+        feedbackRubricDraft,
+        submissionAttachmentMode,
+        selectedSubmissionId,
+        submissionDraft,
+      }),
+    [feedbackDraft, feedbackRubricDraft, selectedSubmissionId, submissionAttachmentMode, submissionDraft]
+  );
+  const isEditingFeedback = Boolean(feedbackDraft.id);
+  const isFeedbackComposerDirty =
+    feedbackComposerOpen && feedbackComposerSnapshot !== feedbackComposerBaselineRef.current;
   const learnerMembers = useMemo(
     () => (teamDetail?.members || []).filter((member) => member.role === 'learner'),
     [teamDetail?.members]
@@ -1281,17 +1208,41 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
     })();
   }, [isSignedIn, searchParams, setSearchParams]);
 
+  const primeFeedbackComposerBaseline = useCallback(
+    (input: {
+      feedbackDraft: FeedbackDraft;
+      feedbackRubricDraft: FeedbackRubricDraft;
+      submissionAttachmentMode: SubmissionAttachmentMode;
+      selectedSubmissionId: string | null;
+      submissionDraft: SubmissionDraft;
+    }) => {
+      feedbackComposerBaselineRef.current = serializeFeedbackComposerSnapshot(input);
+    },
+    []
+  );
+  const resetFeedbackComposerTracking = useCallback(() => {
+    feedbackComposerBaselineRef.current = EMPTY_FEEDBACK_COMPOSER_SNAPSHOT;
+    feedbackComposerLockedTargetRef.current = {
+      memberUserId: '',
+      assignmentId: '',
+    };
+  }, []);
   const resetInviteDraft = useCallback(() => setInviteDraft(emptyInviteDraft()), []);
   const resetAssignmentDraft = useCallback(() => setAssignmentDraft(emptyAssignmentDraft()), []);
   const resetSubmissionDraft = useCallback(() => setSubmissionDraft(emptySubmissionDraft()), []);
-  const resetFeedbackEditor = useCallback(
-    () =>
-      setFeedbackDraft((current) => ({
-        ...emptyFeedbackDraft(),
-        memberUserId: learnerMembers[0]?.userId || current.memberUserId || '',
-      })),
-    [learnerMembers]
-  );
+  const resetFeedbackEditor = useCallback(() => setFeedbackDraft(emptyFeedbackDraft()), []);
+  const performFeedbackComposerClose = useCallback((onAfterClose?: () => void) => {
+    pendingFeedbackComposerActionRef.current = null;
+    setFeedbackDiscardPrompt(null);
+    resetFeedbackEditor();
+    setFeedbackRubricDraft(emptyFeedbackRubricDraft());
+    setSubmissionAttachmentMode('none');
+    setSelectedSubmissionId(null);
+    resetSubmissionDraft();
+    resetFeedbackComposerTracking();
+    setFeedbackComposerOpen(false);
+    onAfterClose?.();
+  }, [resetFeedbackComposerTracking, resetFeedbackEditor, resetSubmissionDraft]);
   const closeAssignmentEditor = useCallback(() => {
     resetAssignmentDraft();
     setAssignmentEditorOpen(false);
@@ -1300,27 +1251,76 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
     resetAssignmentDraft();
     setAssignmentEditorOpen(true);
   }, [resetAssignmentDraft]);
-  const closeFeedbackComposer = useCallback(() => {
-    resetFeedbackEditor();
-    setFeedbackRubricDraft(emptyFeedbackRubricDraft());
-    setSubmissionAttachmentMode('none');
-    setSelectedSubmissionId(null);
-    resetSubmissionDraft();
-    setFeedbackComposerOpen(false);
-  }, [resetFeedbackEditor, resetSubmissionDraft]);
-  const openNewFeedbackComposer = useCallback((memberUserId?: string, assignmentId?: string) => {
-    setSelectedFeedbackId(null);
-    setFeedbackDraft({
-      ...emptyFeedbackDraft(),
-      memberUserId: memberUserId || learnerMembers[0]?.userId || '',
-      assignmentId: assignmentId || '',
+  const closeFeedbackComposer = useCallback((options?: { force?: boolean; onAfterClose?: () => void }) => {
+    if (!options?.force && isFeedbackComposerDirty) {
+      pendingFeedbackComposerActionRef.current = options?.onAfterClose || null;
+      setFeedbackDiscardPrompt({
+        title: 'Discard this draft review?',
+        description: 'Your unsaved rubric, learner-facing note, and private coach notes will be lost.',
+        confirmLabel: 'Discard draft',
+      });
+      return false;
+    }
+
+    performFeedbackComposerClose(options?.onAfterClose);
+    return true;
+  }, [isFeedbackComposerDirty, performFeedbackComposerClose]);
+  const cancelFeedbackDiscard = useCallback(() => {
+    pendingFeedbackComposerActionRef.current = null;
+    setFeedbackDiscardPrompt(null);
+  }, []);
+  const confirmFeedbackDiscard = useCallback(() => {
+    const pendingAction = pendingFeedbackComposerActionRef.current || undefined;
+    performFeedbackComposerClose(pendingAction);
+  }, [performFeedbackComposerClose]);
+  const runAfterFeedbackComposerClose = useCallback((action: () => void, options?: { force?: boolean }) => {
+    if (!feedbackComposerOpen) {
+      action();
+      return true;
+    }
+
+    return closeFeedbackComposer({
+      force: options?.force,
+      onAfterClose: action,
     });
-    setFeedbackRubricDraft(emptyFeedbackRubricDraft());
-    setSubmissionAttachmentMode('none');
-    setSelectedSubmissionId(null);
-    resetSubmissionDraft();
+  }, [closeFeedbackComposer, feedbackComposerOpen]);
+  const openNewFeedbackComposer = useCallback((
+    memberUserId?: string,
+    assignmentId?: string,
+    attachmentMode: SubmissionAttachmentMode = 'none',
+    submissionId: string | null = null
+  ) => {
+    const nextFeedbackDraft = {
+      ...emptyFeedbackDraft(),
+      memberUserId: memberUserId || '',
+      assignmentId: assignmentId || '',
+    };
+    const nextRubricDraft = emptyFeedbackRubricDraft();
+    const nextSubmissionDraft = emptySubmissionDraft();
+    const nextSelectedSubmissionId = attachmentMode === 'existing' ? submissionId : null;
+
+    setSelectedFeedbackId(null);
+    if (!memberUserId && !assignmentId) {
+      setSelectedReviewItemId(null);
+    }
+    setFeedbackDraft(nextFeedbackDraft);
+    setFeedbackRubricDraft(nextRubricDraft);
+    setSubmissionAttachmentMode(attachmentMode);
+    setSelectedSubmissionId(nextSelectedSubmissionId);
+    setSubmissionDraft(nextSubmissionDraft);
+    feedbackComposerLockedTargetRef.current = {
+      memberUserId: '',
+      assignmentId: '',
+    };
+    primeFeedbackComposerBaseline({
+      feedbackDraft: nextFeedbackDraft,
+      feedbackRubricDraft: nextRubricDraft,
+      submissionAttachmentMode: attachmentMode,
+      selectedSubmissionId: nextSelectedSubmissionId,
+      submissionDraft: nextSubmissionDraft,
+    });
     setFeedbackComposerOpen(true);
-  }, [learnerMembers, resetSubmissionDraft]);
+  }, [primeFeedbackComposerBaseline]);
 
   const handleJoinResult = async (
     result: Awaited<ReturnType<typeof joinTeamByCode>>,
@@ -1734,7 +1734,11 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
 
   const handleSaveFeedback = async () => {
     if (!selectedTeamId) return;
-    if (!feedbackDraft.memberUserId) {
+    const lockedTarget = feedbackDraft.id ? feedbackComposerLockedTargetRef.current : null;
+    const memberUserIdToPersist = lockedTarget?.memberUserId || feedbackDraft.memberUserId;
+    const assignmentIdToPersist = lockedTarget ? lockedTarget.assignmentId : feedbackDraft.assignmentId;
+
+    if (!memberUserIdToPersist) {
       toast.error('Select a learner.');
       return;
     }
@@ -1747,6 +1751,33 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
     let submissionIdToPersist: string | null =
       submissionAttachmentMode === 'existing' ? selectedSubmissionId || null : null;
 
+    if (submissionAttachmentMode === 'existing' && !linkedExistingSubmission) {
+      toast.error('Choose an existing submission or switch back to a manual note.');
+      return;
+    }
+
+    const trimmedSummary = feedbackDraft.summary.trim();
+    const trimmedStrengths = feedbackDraft.strengths.trim();
+    const trimmedFocusAreas = feedbackDraft.focusAreas.trim();
+    const trimmedCoachNotes = feedbackDraft.coachNotes.trim();
+
+    if (feedbackDraft.sharedWithMember && !trimmedSummary && !trimmedStrengths && !trimmedFocusAreas) {
+      toast.error('Add learner-facing feedback before you share or resolve this note.');
+      return;
+    }
+
+    const trimmedSubmissionScore = submissionDraft.rubricScore.trim();
+    const parsedSubmissionScore =
+      trimmedSubmissionScore === '' ? null : Number(trimmedSubmissionScore);
+
+    if (
+      trimmedSubmissionScore !== '' &&
+      (!Number.isFinite(parsedSubmissionScore) || parsedSubmissionScore < 0 || parsedSubmissionScore > 100)
+    ) {
+      toast.error('Enter a valid submission score between 0 and 100.');
+      return;
+    }
+
     if (submissionAttachmentMode === 'new') {
       if (!submissionDraft.title.trim()) {
         toast.error('Enter a submission title.');
@@ -1756,6 +1787,15 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
       if (submissionDraft.submissionType === 'link' && !submissionDraft.externalUrl.trim()) {
         toast.error('Enter a submission link.');
         return;
+      }
+
+      if (submissionDraft.submissionType === 'link') {
+        try {
+          new URL(submissionDraft.externalUrl.trim());
+        } catch {
+          toast.error('Enter a valid submission link.');
+          return;
+        }
       }
 
       if (submissionDraft.submissionType !== 'link' && !submissionDraft.body.trim()) {
@@ -1770,35 +1810,42 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
       ? Math.round((rubricBreakdownTotal / 40) * 100)
       : null;
 
+    if (feedbackDraft.sharedWithMember && !hasCompleteRubricBreakdown(rubricBreakdown)) {
+      toast.error('Score all four review dimensions before you share or resolve this review.');
+      return;
+    }
+
     setSubmittingKey('save-feedback');
     try {
       const isEditing = Boolean(feedbackDraft.id);
       if (submissionAttachmentMode === 'new') {
         const createdSubmission = await createTeamSubmission(selectedTeamId, {
-          memberUserId: feedbackDraft.memberUserId,
-          assignmentId: feedbackDraft.assignmentId || null,
+          memberUserId: memberUserIdToPersist,
+          assignmentId: assignmentIdToPersist || null,
           submissionType: submissionDraft.submissionType,
           title: submissionDraft.title.trim(),
           body: submissionDraft.body.trim(),
           externalUrl: submissionDraft.externalUrl.trim() || null,
           codeLanguage: submissionDraft.submissionType === 'code' ? submissionDraft.codeLanguage || 'python' : null,
           status: submissionDraft.status,
-          rubricScore: submissionDraft.rubricScore ? Number(submissionDraft.rubricScore) : null,
+          rubricScore: parsedSubmissionScore,
         });
         submissionIdToPersist = createdSubmission.id;
       }
 
       const payload = {
-        memberUserId: feedbackDraft.memberUserId,
-        assignmentId: feedbackDraft.assignmentId || linkedExistingSubmission?.assignmentId || null,
+        memberUserId: memberUserIdToPersist,
+        assignmentId: feedbackDraft.id
+          ? assignmentIdToPersist || null
+          : assignmentIdToPersist || linkedExistingSubmission?.assignmentId || null,
         submissionId: submissionIdToPersist,
         rubricScore,
         rubricBreakdown: hasRubricBreakdownValues(rubricBreakdown) ? rubricBreakdown : null,
         status: feedbackDraft.status,
-        summary: feedbackDraft.summary.trim(),
-        strengths: feedbackDraft.strengths.trim(),
-        focusAreas: feedbackDraft.focusAreas.trim(),
-        coachNotes: feedbackDraft.coachNotes.trim(),
+        summary: trimmedSummary,
+        strengths: trimmedStrengths,
+        focusAreas: trimmedFocusAreas,
+        coachNotes: trimmedCoachNotes,
         sharedWithMember: feedbackDraft.sharedWithMember,
       };
 
@@ -1807,9 +1854,20 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
         : await createTeamFeedback(selectedTeamId, payload);
 
       toast.success(isEditing ? 'Feedback updated.' : 'Feedback saved.');
+      setTeamDetail((current) =>
+        current
+          ? {
+              ...current,
+              feedback: [
+                savedFeedback,
+                ...(current.feedback || []).filter((entry) => entry.id !== savedFeedback.id),
+              ],
+            }
+          : current
+      );
       setSelectedFeedbackId(savedFeedback.id);
       setSelectedReviewItemId(submissionIdToPersist ? `submission:${submissionIdToPersist}` : `feedback:${savedFeedback.id}`);
-      closeFeedbackComposer();
+      closeFeedbackComposer({ force: true });
       await refreshSelectedTeam(selectedTeamId);
     } catch (error: any) {
       if (submissionAttachmentMode === 'new' && submissionIdToPersist) {
@@ -1827,7 +1885,7 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
 
   const startFeedbackEdit = (entry: TeamFeedback) => {
     const linkedSubmission = (teamDetail?.submissions || []).find((submission) => submission.id === entry.submissionId) || null;
-    setFeedbackDraft({
+    const nextFeedbackDraft = {
       id: entry.id,
       memberUserId: entry.memberUserId,
       assignmentId: entry.assignmentId || '',
@@ -1837,24 +1895,39 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
       focusAreas: entry.focusAreas,
       coachNotes: entry.coachNotes,
       sharedWithMember: entry.sharedWithMember,
+    };
+    const nextRubricDraft = buildFeedbackRubricDraft(entry.rubricBreakdown);
+    const nextSubmissionAttachmentMode = linkedSubmission ? 'existing' : 'none';
+    const nextSelectedSubmissionId = linkedSubmission?.id || null;
+    const nextSubmissionDraft = linkedSubmission
+      ? {
+          id: linkedSubmission.id,
+          title: linkedSubmission.title,
+          submissionType: linkedSubmission.submissionType,
+          body: linkedSubmission.body,
+          externalUrl: linkedSubmission.externalUrl || '',
+          codeLanguage: linkedSubmission.codeLanguage || 'python',
+          status: linkedSubmission.status,
+          rubricScore: linkedSubmission.rubricScore === null ? '' : String(linkedSubmission.rubricScore),
+        }
+      : emptySubmissionDraft();
+
+    setFeedbackDraft(nextFeedbackDraft);
+    setFeedbackRubricDraft(nextRubricDraft);
+    setSubmissionAttachmentMode(nextSubmissionAttachmentMode);
+    setSelectedSubmissionId(nextSelectedSubmissionId);
+    setSubmissionDraft(nextSubmissionDraft);
+    feedbackComposerLockedTargetRef.current = {
+      memberUserId: entry.memberUserId,
+      assignmentId: entry.assignmentId || '',
+    };
+    primeFeedbackComposerBaseline({
+      feedbackDraft: nextFeedbackDraft,
+      feedbackRubricDraft: nextRubricDraft,
+      submissionAttachmentMode: nextSubmissionAttachmentMode,
+      selectedSubmissionId: nextSelectedSubmissionId,
+      submissionDraft: nextSubmissionDraft,
     });
-    setFeedbackRubricDraft(buildFeedbackRubricDraft(entry.rubricBreakdown));
-    setSubmissionAttachmentMode(linkedSubmission ? 'existing' : 'none');
-    setSelectedSubmissionId(linkedSubmission?.id || null);
-    setSubmissionDraft(
-      linkedSubmission
-        ? {
-            id: linkedSubmission.id,
-            title: linkedSubmission.title,
-            submissionType: linkedSubmission.submissionType,
-            body: linkedSubmission.body,
-            externalUrl: linkedSubmission.externalUrl || '',
-            codeLanguage: linkedSubmission.codeLanguage || 'python',
-            status: linkedSubmission.status,
-            rubricScore: linkedSubmission.rubricScore === null ? '' : String(linkedSubmission.rubricScore),
-          }
-        : emptySubmissionDraft()
-    );
     setSelectedFeedbackId(entry.id);
     setSelectedReviewItemId(linkedSubmission ? `submission:${linkedSubmission.id}` : `feedback:${entry.id}`);
     setFeedbackComposerOpen(true);
@@ -1876,7 +1949,7 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
   };
 
   const applyFeedbackSnippet = (snippetId: string) => {
-    const snippet = FEEDBACK_SNIPPETS.find((entry) => entry.id === snippetId);
+    const snippet = COACHING_STARTERS.find((entry) => entry.id === snippetId);
     if (!snippet) return;
 
     setFeedbackDraft((current) => ({
@@ -1980,7 +2053,7 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
     try {
       await deleteTeamFeedback(selectedTeamId, entry.id);
       toast.success('Feedback deleted.');
-      if (feedbackDraft.id === entry.id) closeFeedbackComposer();
+      if (feedbackDraft.id === entry.id) closeFeedbackComposer({ force: true });
       setConfirmWorkspaceAction(null);
       await refreshSelectedTeam(selectedTeamId);
     } catch (error: any) {
@@ -2150,7 +2223,8 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
     setSubmissionAttachmentMode('none');
     setSelectedSubmissionId(null);
     setSubmissionDraft(emptySubmissionDraft());
-  }, [activeModal, selectedTeamId]);
+    resetFeedbackComposerTracking();
+  }, [activeModal, resetFeedbackComposerTracking, selectedTeamId]);
 
   const assignmentOperationalMeta = useMemo(() => {
     const assignments = teamDetail?.assignments || [];
@@ -2545,6 +2619,35 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
   const selectedAssignmentIndex = selectedAssignment ? filteredAssignments.findIndex((assignment) => assignment.id === selectedAssignment.id) : -1;
   const selectedReviewItemIndex = selectedReviewItem ? filteredReviewItems.findIndex((item) => item.id === selectedReviewItem.id) : -1;
 
+  const openManualFeedbackComposer = useCallback(() => {
+    return runAfterFeedbackComposerClose(() => {
+      openNewFeedbackComposer();
+    });
+  }, [openNewFeedbackComposer, runAfterFeedbackComposerClose]);
+
+  const openContextualFeedbackComposer = useCallback(() => {
+    const contextMemberUserId = selectedReviewItem?.member?.userId;
+    const contextAssignmentId =
+      selectedReviewItem?.assignment?.id || selectedReviewItem?.submission?.assignmentId || selectedReviewItem?.feedback?.assignmentId || undefined;
+
+    return runAfterFeedbackComposerClose(() => {
+      openNewFeedbackComposer(contextMemberUserId, contextAssignmentId);
+    });
+  }, [openNewFeedbackComposer, runAfterFeedbackComposerClose, selectedReviewItem]);
+
+  const requestStartFeedbackEdit = useCallback((entry: TeamFeedback) => {
+    if (feedbackComposerOpen && feedbackDraft.id === entry.id) return true;
+    return runAfterFeedbackComposerClose(() => {
+      startFeedbackEdit(entry);
+    });
+  }, [feedbackComposerOpen, feedbackDraft.id, runAfterFeedbackComposerClose, startFeedbackEdit]);
+
+  const requestCloseFeedbackModal = useCallback(() => {
+    runAfterFeedbackComposerClose(() => {
+      setActiveModal(null);
+    });
+  }, [runAfterFeedbackComposerClose]);
+
   useEffect(() => {
     if (activeModal !== 'assignments') return;
     setSelectedAssignmentId((current) =>
@@ -2569,9 +2672,27 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
   }, [activeModal, filteredReviewItems]);
 
   useEffect(() => {
+    setShowAllSubmissionHistory(false);
+    setShowAllFeedbackHistory(false);
+    setShowAllComposerHistory(false);
+  }, [selectedReviewItemId, feedbackComposerOpen]);
+
+  useEffect(() => {
     if (activeModal !== 'assignments') return;
     setSelectedAssignmentIds((current) => current.filter((assignmentId) => filteredAssignments.some((assignment) => assignment.id === assignmentId)));
   }, [activeModal, filteredAssignments]);
+
+  useEffect(() => {
+    if (!feedbackComposerOpen || !isFeedbackComposerDirty) return;
+
+    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = '';
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [feedbackComposerOpen, isFeedbackComposerDirty]);
 
   useEffect(() => {
     if (activeModal !== 'assignments' && activeModal !== 'feedback') return;
@@ -2585,6 +2706,7 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
 
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.metaKey || event.ctrlKey || event.altKey || isTypingTarget(event.target)) return;
+      if (confirmMemberAction || confirmWorkspaceAction || feedbackDiscardPrompt) return;
 
       if (activeModal === 'assignments') {
         if (event.key.toLowerCase() === 'n') {
@@ -2621,27 +2743,39 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
       if (activeModal === 'feedback') {
         if (event.key.toLowerCase() === 'n') {
           event.preventDefault();
-          openNewFeedbackComposer(selectedReviewItem?.member?.userId, selectedReviewItem?.assignment?.id || undefined);
+          openContextualFeedbackComposer();
           return;
         }
         if (event.key.toLowerCase() === 'e' && selectedReviewFeedback) {
           event.preventDefault();
-          startFeedbackEdit(selectedReviewFeedback);
+          requestStartFeedbackEdit(selectedReviewFeedback);
           return;
         }
         if ((event.key.toLowerCase() === 'j' || event.key === 'ArrowDown') && filteredReviewItems.length > 0) {
           event.preventDefault();
           const nextIndex =
-            selectedReviewItemIndex >= 0 ? Math.min(selectedReviewItemIndex + 1, filteredReviewItems.length - 1) : 0;
-          setSelectedReviewItemId(filteredReviewItems[nextIndex]?.id || null);
-          setFeedbackComposerOpen(false);
+            selectedReviewItemIndex >= 0 && selectedReviewItemIndex < filteredReviewItems.length - 1
+              ? selectedReviewItemIndex + 1
+              : selectedReviewItemIndex >= 0
+              ? selectedReviewItemIndex
+              : 0;
+          const nextItem = filteredReviewItems[nextIndex];
+          if (!nextItem) return;
+          runAfterFeedbackComposerClose(() => {
+            setSelectedReviewItemId(nextItem.id);
+            setSelectedFeedbackId(nextItem.feedback?.id || null);
+          });
           return;
         }
         if ((event.key.toLowerCase() === 'k' || event.key === 'ArrowUp') && filteredReviewItems.length > 0) {
           event.preventDefault();
           const previousIndex = selectedReviewItemIndex > 0 ? selectedReviewItemIndex - 1 : 0;
-          setSelectedReviewItemId(filteredReviewItems[previousIndex]?.id || null);
-          setFeedbackComposerOpen(false);
+          const previousItem = filteredReviewItems[previousIndex];
+          if (!previousItem) return;
+          runAfterFeedbackComposerClose(() => {
+            setSelectedReviewItemId(previousItem.id);
+            setSelectedFeedbackId(previousItem.feedback?.id || null);
+          });
         }
       }
     };
@@ -2650,14 +2784,19 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [
     activeModal,
+    confirmMemberAction,
+    confirmWorkspaceAction,
+    feedbackDiscardPrompt,
     filteredAssignments,
     filteredReviewItems,
     openNewAssignmentEditor,
-    openNewFeedbackComposer,
+    openContextualFeedbackComposer,
+    feedbackComposerOpen,
+    requestStartFeedbackEdit,
+    runAfterFeedbackComposerClose,
     selectedAssignment,
     selectedAssignmentIndex,
     selectedReviewFeedback,
-    selectedReviewItem,
     selectedReviewItemIndex,
   ]);
 
@@ -3591,9 +3730,12 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
                             type="button"
                             onClick={() => {
                               if (!submission.memberUserId) return;
-                              openNewFeedbackComposer(submission.memberUserId, submission.assignmentId || undefined);
-                              setSubmissionAttachmentMode('existing');
-                              setSelectedSubmissionId(submission.id);
+                              openNewFeedbackComposer(
+                                submission.memberUserId,
+                                submission.assignmentId || undefined,
+                                'existing',
+                                submission.id
+                              );
                             }}
                             className="w-full rounded-2xl border border-border bg-background px-4 py-3 text-left transition hover:bg-secondary"
                           >
@@ -3724,1008 +3866,1237 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
       ? Math.round((composerRubricTotal / 40) * 100)
       : null;
     const hasReviewQueue = reviewQueueItems.length > 0;
+    const hasFilteredQueue = filteredReviewItems.length > 0;
+    const composerMode = feedbackComposerOpen ? (isEditingFeedback ? 'edit' : 'new') : 'browse';
+    const activeReviewState =
+      (feedbackComposerOpen
+        ? {
+            label: composerMode === 'edit' ? 'Editing review' : 'New review',
+            tone: 'default' as const,
+            sortPriority: 0,
+          }
+        : selectedReviewState);
+    const activeReviewHeading = feedbackContextMember?.name || selectedReviewItem?.member?.name || 'New review';
+    const activeReviewTitle = feedbackComposerOpen
+      ? feedbackContextAssignment?.title || 'Manual coaching note'
+      : selectedReviewItem
+      ? selectedReviewItem.assignment?.title || selectedReviewItem.submission?.assignmentTitle || 'General coaching note'
+      : feedbackContextAssignment?.title || 'Manual coaching note';
+    const activeSubmissionLabel = feedbackContextSubmission
+      ? `Attempt ${feedbackContextSubmission.attemptNumber} | ${formatSubmissionStatusLabel(feedbackContextSubmission.status)}`
+      : feedbackComposerOpen && submissionAttachmentMode === 'new'
+      ? 'New submission snapshot'
+      : 'No submission attached';
+    const composerHasAnchoredEvidence = Boolean(
+      feedbackContextSubmission ||
+        submissionAttachmentMode === 'new' ||
+        (submissionAttachmentMode === 'existing' && selectedSubmissionId)
+    );
+    const composerRubricFields = composerHasAnchoredEvidence ? FEEDBACK_RUBRIC_FIELDS : MANUAL_FEEDBACK_RUBRIC_FIELDS;
+    const reviewTypeLabel = composerHasAnchoredEvidence ? 'Anchored review' : 'Manual coaching note';
+    const evidenceStatusLabel = composerHasAnchoredEvidence ? activeSubmissionLabel : 'No evidence attached';
+    const manualReviewWarning = composerHasAnchoredEvidence
+      ? null
+      : 'No learner attempt is attached. Score coaching signals here, not pretend code correctness.';
+    const composerRubricHeading = composerHasAnchoredEvidence ? 'Evidence-backed rubric' : 'Manual coaching rubric';
+    const composerRubricHelper = composerHasAnchoredEvidence
+      ? 'Score the anchored work directly. Leave a dimension empty only if you have not judged it yet.'
+      : 'This note is not tied to a submission, so score clarity, consistency, reasoning, and next-step readiness instead.';
+    const composerModeTitle =
+      composerMode === 'edit'
+        ? `Edit review for ${activeReviewHeading}`
+        : `Create review for ${activeReviewHeading}`;
+    const composerModeHelper =
+      composerMode === 'edit'
+        ? 'Check the evidence, rescore if needed, then tighten one clear learner note.'
+        : 'Set the scope, evaluate the work honestly, write one learner note, and choose the outcome.';
+    const composerQueueLabel =
+      selectedReviewItem && filteredReviewItems.length > 0
+        ? `${Math.max(selectedReviewItemIndex + 1, 1)} of ${filteredReviewItems.length} in this queue view`
+        : `${reviewQueueStats.needsReview} waiting for review`;
+    const visibleSubmissionHistory = showAllSubmissionHistory ? submissionHistory : submissionHistory.slice(0, 3);
+    const hiddenSubmissionHistoryCount = Math.max(submissionHistory.length - visibleSubmissionHistory.length, 0);
+    const visibleFeedbackHistory = showAllFeedbackHistory ? feedbackHistory : feedbackHistory.slice(0, 3);
+    const hiddenFeedbackHistoryCount = Math.max(feedbackHistory.length - visibleFeedbackHistory.length, 0);
+    const composerHistoryEntries = showAllComposerHistory ? feedbackHistory : feedbackHistory.slice(0, 2);
+    const hiddenComposerHistoryCount = Math.max(feedbackHistory.length - composerHistoryEntries.length, 0);
+    const composerAttachedSubmissionPreview =
+      submissionAttachmentMode === 'new'
+        ? submissionDraft.submissionType === 'link'
+          ? submissionDraft.externalUrl || 'Add the learner link here.'
+          : submissionDraft.body || 'Add the learner submission here.'
+        : feedbackContextSubmission?.preview || '';
+    const visibleSelectedFeedback = selectedReviewFeedback || selectedFeedback || null;
+    const noteSections = visibleSelectedFeedback
+      ? [
+          { label: 'Summary', value: visibleSelectedFeedback.summary },
+          { label: 'Strengths', value: visibleSelectedFeedback.strengths },
+          { label: 'Focus areas', value: visibleSelectedFeedback.focusAreas },
+          { label: 'Private coach notes', value: visibleSelectedFeedback.coachNotes },
+        ].filter((entry) => entry.value.trim().length > 0)
+      : [];
+
+    const clearReviewFilters = () => {
+      setFeedbackSearchQuery('');
+      setFeedbackStatusFilter('all');
+      setFeedbackVisibilityFilter('all');
+      setFeedbackSort('recent');
+    };
+    const hasNextReviewItem = selectedReviewItemIndex >= 0 && selectedReviewItemIndex < filteredReviewItems.length - 1;
+    const selectReviewItem = (item: ReviewQueueItem | null) => {
+      if (!item) return;
+      runAfterFeedbackComposerClose(() => {
+        setSelectedReviewItemId(item.id);
+        setSelectedFeedbackId(item.feedback?.id || null);
+      });
+    };
 
     const openReviewItem = (item: ReviewQueueItem) => {
-      setSelectedReviewItemId(item.id);
-      setSelectedFeedbackId(item.feedback?.id || null);
-      setFeedbackComposerOpen(false);
+      selectReviewItem(item);
+    };
+
+    const moveToNextReviewItem = () => {
+      if (!hasNextReviewItem) return;
+      const nextIndex = selectedReviewItemIndex + 1;
+      selectReviewItem(filteredReviewItems[nextIndex] || null);
     };
 
     const startReviewForItem = (item: ReviewQueueItem) => {
       if (item.feedback) {
-        startFeedbackEdit(item.feedback);
-        if (item.submission) {
-          setSubmissionAttachmentMode('existing');
-          setSelectedSubmissionId(item.submission.id);
-        }
+        requestStartFeedbackEdit(item.feedback);
         return;
       }
 
-      openNewFeedbackComposer(item.member?.userId, item.assignment?.id || undefined);
-      if (item.submission) {
-        setSubmissionAttachmentMode('existing');
-        setSelectedSubmissionId(item.submission.id);
-      }
+      runAfterFeedbackComposerClose(() => {
+        openNewFeedbackComposer(
+          item.member?.userId,
+          item.assignment?.id || item.submission?.assignmentId || undefined,
+          item.submission ? 'existing' : 'none',
+          item.submission?.id || null
+        );
+      });
     };
 
-    return (
-      <ModalShell
-        title="Grade and coach"
-        subtitle="Move through learner work quickly: queue on the left, submission context in the center, scoring on the right."
-        onClose={() => setActiveModal(null)}
-      >
-        <div className="space-y-5">
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+    const renderQueuePane = () => (
+      <aside className="space-y-4">
+        <div className="rounded-[1.75rem] border border-border/60 bg-background/70 p-4">
+          <div className="flex items-start justify-between gap-3">
             <div>
               <div className="text-lg font-semibold text-foreground">Review queue</div>
               <div className="mt-1 text-sm text-muted-foreground">
-                Pick the learner who needs attention, inspect the work, then score and share feedback without losing context.
+                Pick the next learner, finish the note, then move on.
               </div>
             </div>
-            <div className="flex flex-wrap gap-3">
-              <button
-                type="button"
-                onClick={() => openNewFeedbackComposer(selectedReviewItem?.member?.userId, selectedReviewItem?.assignment?.id || undefined)}
-                disabled={!canManageWorkspace}
-                className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl bg-primary px-5 text-sm font-semibold text-primary-foreground transition hover:bg-primary/90 disabled:opacity-60"
-              >
-                <Plus className="h-4 w-4" />
-                New review
-              </button>
-              {feedbackComposerOpen ? (
-                <button
-                  type="button"
-                  onClick={closeFeedbackComposer}
-                  className="inline-flex h-11 items-center justify-center rounded-2xl border border-border bg-background px-4 text-sm font-semibold text-foreground transition hover:bg-secondary"
-                >
-                  Close composer
-                </button>
-              ) : null}
-            </div>
+            <button
+              type="button"
+              onClick={openContextualFeedbackComposer}
+              disabled={!canManageWorkspace}
+              className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl bg-primary px-4 text-sm font-semibold text-primary-foreground transition hover:bg-primary/90 disabled:opacity-60"
+            >
+              <Plus className="h-4 w-4" />
+              New review
+            </button>
           </div>
 
-          <div className="grid gap-3 xl:grid-cols-[minmax(0,1.3fr)_170px_170px_180px]">
+          <div className="mt-4 space-y-3">
             <div className="relative">
               <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <input
                 value={feedbackSearchQuery}
                 onChange={(event) => setFeedbackSearchQuery(event.target.value)}
                 placeholder="Search learner, assignment, submission, or note"
-                className="h-11 w-full rounded-2xl border border-border bg-background pl-11 pr-4 text-sm text-foreground outline-none transition focus:border-primary/40"
+                className="h-11 w-full rounded-2xl border border-border bg-card pl-11 pr-4 text-sm text-foreground outline-none transition focus:border-primary/40"
               />
             </div>
-            <select
-              value={feedbackStatusFilter}
-              onChange={(event) => setFeedbackStatusFilter(event.target.value as ReviewStatusFilter)}
-              className="h-11 rounded-2xl border border-border bg-background px-4 text-sm text-foreground outline-none transition focus:border-primary/40"
-            >
-              <option value="all">All review states</option>
-              <option value="needs_review">Needs review</option>
-              <option value="draft">Drafted</option>
-              <option value="shared">Shared</option>
-              <option value="resolved">Resolved</option>
-            </select>
-            <select
-              value={feedbackVisibilityFilter}
-              onChange={(event) => setFeedbackVisibilityFilter(event.target.value as FeedbackVisibilityFilter)}
-              className="h-11 rounded-2xl border border-border bg-background px-4 text-sm text-foreground outline-none transition focus:border-primary/40"
-            >
-              {FEEDBACK_VISIBILITY_FILTER_OPTIONS.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-            <select
-              value={feedbackSort}
-              onChange={(event) => setFeedbackSort(event.target.value as FeedbackSortOption)}
-              className="h-11 rounded-2xl border border-border bg-background px-4 text-sm text-foreground outline-none transition focus:border-primary/40"
-            >
-              <option value="recent">Sort: Recent</option>
-              <option value="score">Sort: Score</option>
-              <option value="learner">Sort: Learner</option>
-            </select>
+
+            <div className="grid gap-2 sm:grid-cols-3 xl:grid-cols-1">
+              <select
+                value={feedbackStatusFilter}
+                onChange={(event) => setFeedbackStatusFilter(event.target.value as ReviewStatusFilter)}
+                className="h-11 rounded-2xl border border-border bg-card px-4 text-sm text-foreground outline-none transition focus:border-primary/40"
+              >
+                <option value="all">All review states</option>
+                <option value="needs_review">Needs review</option>
+                <option value="draft">Drafted</option>
+                <option value="shared">Shared</option>
+                <option value="resolved">Resolved</option>
+              </select>
+              <select
+                value={feedbackVisibilityFilter}
+                onChange={(event) => setFeedbackVisibilityFilter(event.target.value as FeedbackVisibilityFilter)}
+                className="h-11 rounded-2xl border border-border bg-card px-4 text-sm text-foreground outline-none transition focus:border-primary/40"
+              >
+                {FEEDBACK_VISIBILITY_FILTER_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+              <select
+                value={feedbackSort}
+                onChange={(event) => setFeedbackSort(event.target.value as FeedbackSortOption)}
+                className="h-11 rounded-2xl border border-border bg-card px-4 text-sm text-foreground outline-none transition focus:border-primary/40"
+              >
+                <option value="recent">Sort by recent</option>
+                <option value="score">Sort by score</option>
+                <option value="learner">Sort by learner</option>
+              </select>
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              <ReviewStatePill label={`${reviewQueueStats.needsReview} need review`} tone="warn" />
+              <ReviewStatePill label={`${reviewQueueStats.drafted} drafts`} tone="default" />
+              <ReviewStatePill label={`${reviewQueueStats.resolved} resolved`} tone="success" />
+            </div>
+          </div>
+        </div>
+
+        <div className="rounded-[1.75rem] border border-border/60 bg-background/70">
+          {!hasReviewQueue ? (
+            <div className="p-4">
+              <EmptyState
+                title="No learner work yet"
+                helper={
+                  (teamDetail.submissions || []).length > 0
+                    ? 'Submitted work is here. Start the first review and turn it into feedback.'
+                    : 'The queue will fill as learners submit assignments or you create manual coaching notes.'
+                }
+                action={
+                  canManageWorkspace ? (
+                    <button
+                      type="button"
+                      onClick={openManualFeedbackComposer}
+                      className="inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-primary px-4 text-sm font-semibold text-primary-foreground transition hover:bg-primary/90"
+                    >
+                      <Plus className="h-4 w-4" />
+                      Start a manual review
+                    </button>
+                  ) : null
+                }
+              />
+            </div>
+          ) : !hasFilteredQueue ? (
+            <div className="p-4">
+              <EmptyState
+                title="No queue items match this view"
+                helper="Clear the filters and get back to the active review queue."
+                action={
+                  <button
+                    type="button"
+                    onClick={clearReviewFilters}
+                    className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-border bg-card px-4 text-sm font-semibold text-foreground transition hover:bg-secondary"
+                  >
+                    <RotateCcw className="h-4 w-4" />
+                    Reset filters
+                  </button>
+                }
+              />
+            </div>
+          ) : (
+            <div className="max-h-[68vh] divide-y divide-border/70 overflow-y-auto">
+              {filteredReviewItems.map((item) => {
+                const stateMeta = getReviewQueueStateMeta(item.state);
+                const isSelected = selectedReviewItem?.id === item.id;
+                const assignmentLabel = item.assignment?.title || item.submission?.assignmentTitle || 'General coaching note';
+                const sourceLabel = item.submission
+                  ? `Attempt ${item.submission.attemptNumber}`
+                  : item.feedback?.authorName
+                  ? `Coach note by ${item.feedback.authorName}`
+                  : 'Manual review';
+
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => openReviewItem(item)}
+                    className={`w-full px-4 py-4 text-left transition ${isSelected ? 'bg-primary/10' : 'hover:bg-card/70'}`}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <div className="truncate text-base font-semibold text-foreground">
+                            {item.member?.name || 'Unknown learner'}
+                          </div>
+                          <ReviewStatePill label={stateMeta.label} tone={stateMeta.tone} />
+                        </div>
+                        <div className="mt-1 truncate text-sm text-muted-foreground">{assignmentLabel}</div>
+                      </div>
+                      <div className="text-right text-xs text-muted-foreground">
+                        {formatRelativeActivityLabel(item.updatedAt)}
+                      </div>
+                    </div>
+                    <div className="mt-3 flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                      <span>{sourceLabel}</span>
+                      <span>{item.score !== null ? `${item.score} score` : 'Unscored'}</span>
+                      {item.historyCount > 1 ? <span>{item.historyCount} reviews</span> : null}
+                    </div>
+                    <div className="mt-3 line-clamp-2 text-sm leading-6 text-muted-foreground">{item.preview}</div>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </aside>
+    );
+
+    const renderComposerContextPanel = () => (
+      <div className="space-y-3">
+        <div className="rounded-[1.2rem] border border-border/70 bg-background/80 p-4">
+          <div className="text-sm font-semibold text-foreground">Evidence</div>
+          <div className="mt-1 text-sm text-muted-foreground">
+            Keep the note manual unless a specific learner attempt is the reason for the score or feedback.
           </div>
 
-          <div className="flex flex-wrap gap-2">
-            {[
-              { value: 'all' as const, label: 'All' },
-              { value: 'needs_review' as const, label: 'Needs review' },
-              { value: 'draft' as const, label: 'Drafted' },
-              { value: 'shared' as const, label: 'Shared' },
-              { value: 'resolved' as const, label: 'Resolved' },
-            ].map((tab) => (
+          <dl className="mt-4 space-y-2 text-sm">
+            <div className="flex items-start justify-between gap-4">
+              <dt className="text-muted-foreground">Learner</dt>
+              <dd className="text-right font-semibold text-foreground">
+                {feedbackContextMember?.name || 'Select learner'}
+              </dd>
+            </div>
+            <div className="flex items-start justify-between gap-4">
+              <dt className="text-muted-foreground">Assignment</dt>
+              <dd className="max-w-[65%] text-right font-semibold text-foreground">
+                {feedbackContextAssignment?.title || 'General coaching note'}
+              </dd>
+            </div>
+            <div className="flex items-start justify-between gap-4">
+              <dt className="text-muted-foreground">Last active</dt>
+              <dd className="text-right font-semibold text-foreground">
+                {feedbackContextMember ? formatRelativeActivityLabel(feedbackContextMember.lastActiveAt) : 'No activity yet'}
+              </dd>
+            </div>
+            {feedbackContextMember?.latestBenchmarkScore !== null ? (
+              <div className="flex items-start justify-between gap-4">
+                <dt className="text-muted-foreground">Benchmark</dt>
+                <dd className="text-right font-semibold text-foreground">
+                  {feedbackContextMember.latestBenchmarkScore}
+                  {feedbackContextMember.latestBenchmarkAt ? ` | ${formatDateLabel(feedbackContextMember.latestBenchmarkAt)}` : ''}
+                </dd>
+              </div>
+            ) : null}
+          </dl>
+        </div>
+
+        <div className="rounded-[1.2rem] border border-border/70 bg-background/80 p-4">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <div className="text-sm font-semibold text-foreground">Attachment mode</div>
+              <div className="mt-1 text-sm text-muted-foreground">
+                Choose manual, reuse an attempt, or create a snapshot only when it improves the review.
+              </div>
+            </div>
+            <ReviewStatePill
+              label={
+                submissionAttachmentMode === 'none'
+                  ? 'Manual'
+                  : submissionAttachmentMode === 'existing'
+                  ? 'Linked'
+                  : 'Snapshot'
+              }
+              tone={submissionAttachmentMode === 'none' ? 'default' : 'warn'}
+            />
+          </div>
+
+          <div className="mt-4 grid gap-2 sm:grid-cols-3">
+            {([
+              ['none', 'Manual'],
+              ['existing', 'Use existing'],
+              ['new', 'Create snapshot'],
+            ] as Array<[SubmissionAttachmentMode, string]>).map(([value, label]) => (
               <button
-                key={tab.value}
+                key={value}
                 type="button"
-                onClick={() => setFeedbackStatusFilter(tab.value)}
-                className={`inline-flex h-9 items-center rounded-full border px-4 text-sm font-semibold transition ${
-                  feedbackStatusFilter === tab.value
-                    ? 'border-primary/30 bg-primary/10 text-primary'
-                    : 'border-border bg-background text-muted-foreground hover:text-foreground'
+                onClick={() => {
+                  setSubmissionAttachmentMode(value);
+                  if (value === 'none') {
+                    setSelectedSubmissionId(null);
+                    setSubmissionDraft(emptySubmissionDraft());
+                  }
+                  if (value === 'new') {
+                    setSelectedSubmissionId(null);
+                  }
+                }}
+                className={`rounded-xl px-3 py-3 text-sm font-semibold transition ${
+                  submissionAttachmentMode === value ? 'bg-primary text-primary-foreground' : 'bg-card text-foreground hover:bg-secondary'
                 }`}
               >
-                {tab.label}
+                {label}
               </button>
             ))}
           </div>
 
-          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
-            <MetricCard label="Needs review" value={String(reviewQueueStats.needsReview)} helper="Ready for scoring" />
-            <MetricCard label="Drafted" value={String(reviewQueueStats.drafted)} helper="Private feedback drafts" />
-            <MetricCard label="Shared" value={String(reviewQueueStats.shared)} helper="Visible to learners" />
-            <MetricCard label="Resolved" value={String(reviewQueueStats.resolved)} helper="Feedback loop closed" />
-            <MetricCard
-              label="Avg score"
-              value={reviewQueueStats.averageScore !== null ? `${reviewQueueStats.averageScore}` : '--'}
-              helper={`${feedbackModalStats.total} notes on file`}
-            />
+          {submissionAttachmentMode === 'existing' ? (
+            <div className="mt-4">
+              <ReviewField
+                label="Existing attempt"
+                helper={
+                  eligibleExistingSubmissions.length > 0
+                    ? 'Attach one of this learner\'s recorded attempts.'
+                    : 'No recorded attempts match this learner yet.'
+                }
+              >
+                <select
+                  value={selectedSubmissionId || ''}
+                  onChange={(event) => setSelectedSubmissionId(event.target.value || null)}
+                  className="h-11 w-full rounded-2xl border border-border bg-card px-4 text-sm text-foreground outline-none transition focus:border-primary/40"
+                >
+                  <option value="">
+                    {eligibleExistingSubmissions.length > 0 ? 'Select attempt' : 'No attempts available'}
+                  </option>
+                  {eligibleExistingSubmissions.map((submission) => (
+                    <option key={submission.id} value={submission.id}>
+                      {submission.title} | Attempt {submission.attemptNumber} | {formatSubmissionStatusLabel(submission.status)}
+                    </option>
+                  ))}
+                </select>
+              </ReviewField>
+            </div>
+          ) : null}
+
+          {submissionAttachmentMode === 'new' ? (
+            <div className="mt-4 space-y-3 rounded-[1rem] bg-card/80 p-3">
+              <ReviewField label="Snapshot title">
+                <input
+                  value={submissionDraft.title}
+                  onChange={(event) => setSubmissionDraft((current) => ({ ...current, title: event.target.value }))}
+                  placeholder="Benchmark retry #2"
+                  className="h-11 w-full rounded-2xl border border-border bg-background px-4 text-sm text-foreground outline-none transition focus:border-primary/40"
+                />
+              </ReviewField>
+
+              <div className="grid gap-3 sm:grid-cols-2">
+                <ReviewField label="Type">
+                  <select
+                    value={submissionDraft.submissionType}
+                    onChange={(event) =>
+                      setSubmissionDraft((current) => ({
+                        ...current,
+                        submissionType: event.target.value as TeamSubmissionType,
+                      }))
+                    }
+                    className="h-11 w-full rounded-2xl border border-border bg-background px-4 text-sm text-foreground outline-none transition focus:border-primary/40"
+                  >
+                    <option value="written">Written response</option>
+                    <option value="code">Code snapshot</option>
+                    <option value="link">External link</option>
+                  </select>
+                </ReviewField>
+
+                <ReviewField label="State">
+                  <select
+                    value={submissionDraft.status}
+                    onChange={(event) =>
+                      setSubmissionDraft((current) => ({
+                        ...current,
+                        status: event.target.value as TeamSubmissionStatus,
+                      }))
+                    }
+                    className="h-11 w-full rounded-2xl border border-border bg-background px-4 text-sm text-foreground outline-none transition focus:border-primary/40"
+                  >
+                    <option value="submitted">Submitted</option>
+                    <option value="needs_revision">Needs revision</option>
+                    <option value="reviewed">Reviewed</option>
+                  </select>
+                </ReviewField>
+              </div>
+
+              {submissionDraft.submissionType === 'code' ? (
+                <ReviewField label="Language">
+                  <select
+                    value={submissionDraft.codeLanguage}
+                    onChange={(event) =>
+                      setSubmissionDraft((current) => ({
+                        ...current,
+                        codeLanguage: event.target.value as BenchmarkLanguage,
+                      }))
+                    }
+                    className="h-11 w-full rounded-2xl border border-border bg-background px-4 text-sm text-foreground outline-none transition focus:border-primary/40"
+                  >
+                    <option value="python">Python</option>
+                    <option value="javascript">JavaScript</option>
+                    <option value="java">Java</option>
+                    <option value="cpp">C++</option>
+                  </select>
+                </ReviewField>
+              ) : null}
+
+              {submissionDraft.submissionType === 'link' ? (
+                <ReviewField label="Link">
+                  <input
+                    value={submissionDraft.externalUrl}
+                    onChange={(event) => setSubmissionDraft((current) => ({ ...current, externalUrl: event.target.value }))}
+                    placeholder="https://github.com/..."
+                    className="h-11 w-full rounded-2xl border border-border bg-background px-4 text-sm text-foreground outline-none transition focus:border-primary/40"
+                  />
+                </ReviewField>
+              ) : (
+                <ReviewField label={submissionDraft.submissionType === 'code' ? 'Code snapshot' : 'Written response'}>
+                  <textarea
+                    value={submissionDraft.body}
+                    onChange={(event) => setSubmissionDraft((current) => ({ ...current, body: event.target.value }))}
+                    rows={5}
+                    placeholder={
+                      submissionDraft.submissionType === 'code'
+                        ? 'Paste the learner code snapshot here.'
+                        : 'Paste the learner answer or work sample here.'
+                    }
+                    className="w-full rounded-2xl border border-border bg-background px-4 py-3 text-sm text-foreground outline-none transition focus:border-primary/40"
+                  />
+                </ReviewField>
+              )}
+            </div>
+          ) : null}
+        </div>
+
+        {(feedbackContextSubmission || submissionAttachmentMode === 'new') && composerAttachedSubmissionPreview ? (
+          <div className="rounded-[1.2rem] border border-border/70 bg-background/80 p-4">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <div className="text-sm font-semibold text-foreground">
+                  {feedbackContextSubmission ? 'Attached evidence' : 'Snapshot preview'}
+                </div>
+                <div className="mt-1 text-sm text-muted-foreground">{activeSubmissionLabel}</div>
+              </div>
+              {feedbackContextSubmission?.externalUrl ? (
+                <a
+                  href={feedbackContextSubmission.externalUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center gap-2 text-sm font-semibold text-primary"
+                >
+                  <ExternalLink className="h-4 w-4" />
+                  Open link
+                </a>
+              ) : null}
+            </div>
+
+            <div className="mt-3 max-h-[14rem] overflow-y-auto rounded-[1rem] bg-card px-4 py-3 text-sm leading-7 text-muted-foreground whitespace-pre-wrap">
+              {composerAttachedSubmissionPreview}
+            </div>
+          </div>
+        ) : null}
+
+        {submissionHistory.length > 0 ? (
+          <details className="rounded-[1.2rem] border border-border/70 bg-background/80">
+            <summary className="cursor-pointer list-none px-4 py-3">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <div className="text-sm font-semibold text-foreground">Recent attempts</div>
+                  <div className="text-sm text-muted-foreground">Re-anchor here if another attempt is the real source of truth.</div>
+                </div>
+                <div className="text-xs text-muted-foreground">{submissionHistory.length} total</div>
+              </div>
+            </summary>
+
+            <div className="border-t border-border px-4 py-4">
+              <div className="space-y-2">
+                {visibleSubmissionHistory.map((submission) => (
+                  <button
+                    key={submission.id}
+                    type="button"
+                    onClick={() => {
+                      setSelectedReviewItemId(`submission:${submission.id}`);
+                      setSelectedFeedbackId(null);
+                      setSubmissionAttachmentMode('existing');
+                      setSelectedSubmissionId(submission.id);
+                    }}
+                    className="w-full rounded-[1rem] bg-card px-4 py-3 text-left transition hover:bg-secondary"
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="text-sm font-semibold text-foreground">{submission.title}</div>
+                      <div className="text-xs text-muted-foreground">{formatRelativeActivityLabel(submission.updatedAt)}</div>
+                    </div>
+                    <div className="mt-1 text-sm text-muted-foreground">
+                      {formatSubmissionTypeLabel(submission.submissionType)} | Attempt {submission.attemptNumber} |{' '}
+                      {formatSubmissionStatusLabel(submission.status)}
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </div>
+          </details>
+        ) : null}
+      </div>
+    );
+
+    const renderWorkContextPane = () => {
+      if (feedbackComposerOpen) {
+        return (
+          <aside className="space-y-4 2xl:sticky 2xl:top-0 self-start">
+            <div className="rounded-[1.6rem] border border-border/60 bg-background/70 p-5">
+              <div className="text-base font-semibold text-foreground">Review context</div>
+              <div className="mt-1 text-sm text-muted-foreground">
+                Keep the context tight. The coaching work happens in the main column.
+              </div>
+
+              <dl className="mt-4 space-y-3 text-sm">
+                <div className="flex items-start justify-between gap-4">
+                  <dt className="text-muted-foreground">Learner</dt>
+                  <dd className="text-right font-semibold text-foreground">
+                    {feedbackContextMember?.name || 'Select learner'}
+                  </dd>
+                </div>
+                <div className="flex items-start justify-between gap-4">
+                  <dt className="text-muted-foreground">Role</dt>
+                  <dd className="text-right font-semibold text-foreground">
+                    {feedbackContextMember ? formatTeamRoleLabel(feedbackContextMember.role) : 'No learner yet'}
+                  </dd>
+                </div>
+                <div className="flex items-start justify-between gap-4">
+                  <dt className="text-muted-foreground">Assignment</dt>
+                  <dd className="max-w-[70%] text-right font-semibold text-foreground">
+                    {feedbackContextAssignment?.title || 'General coaching note'}
+                  </dd>
+                </div>
+                <div className="flex items-start justify-between gap-4">
+                  <dt className="text-muted-foreground">Last active</dt>
+                  <dd className="text-right font-semibold text-foreground">
+                    {feedbackContextMember ? formatRelativeActivityLabel(feedbackContextMember.lastActiveAt) : 'No activity yet'}
+                  </dd>
+                </div>
+                {feedbackContextMember?.latestBenchmarkScore !== null ? (
+                  <div className="flex items-start justify-between gap-4">
+                    <dt className="text-muted-foreground">Latest benchmark</dt>
+                    <dd className="text-right font-semibold text-foreground">
+                      {feedbackContextMember.latestBenchmarkScore}
+                      {feedbackContextMember.latestBenchmarkAt ? ` | ${formatDateLabel(feedbackContextMember.latestBenchmarkAt)}` : ''}
+                    </dd>
+                  </div>
+                ) : null}
+              </dl>
+            </div>
+
+            <div className="rounded-[1.6rem] border border-border/60 bg-background/70 p-5">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <div className="text-base font-semibold text-foreground">Submission anchor</div>
+                  <div className="mt-1 text-sm text-muted-foreground">
+                    Optional unless this note needs to point to a specific learner attempt.
+                  </div>
+                </div>
+                <ReviewStatePill
+                  label={submissionAttachmentMode === 'none' ? 'Manual' : submissionAttachmentMode === 'existing' ? 'Linked' : 'Snapshot'}
+                  tone={submissionAttachmentMode === 'none' ? 'default' : 'warn'}
+                />
+              </div>
+
+              <div className="mt-4 grid gap-2 sm:grid-cols-3">
+                {([
+                  ['none', 'Manual note'],
+                  ['existing', 'Use existing'],
+                  ['new', 'Create snapshot'],
+                ] as Array<[SubmissionAttachmentMode, string]>).map(([value, label]) => (
+                  <button
+                    key={value}
+                    type="button"
+                    onClick={() => {
+                      setSubmissionAttachmentMode(value);
+                      if (value === 'none') {
+                        setSelectedSubmissionId(null);
+                        setSubmissionDraft(emptySubmissionDraft());
+                      }
+                      if (value === 'new') {
+                        setSelectedSubmissionId(null);
+                      }
+                    }}
+                    className={`rounded-2xl px-4 py-3 text-left text-sm font-semibold transition ${
+                      submissionAttachmentMode === value ? 'bg-primary text-primary-foreground' : 'bg-card text-foreground hover:bg-secondary'
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+
+              {submissionAttachmentMode === 'none' ? (
+                <div className="mt-4 rounded-[1.2rem] bg-card/80 px-4 py-4 text-sm text-muted-foreground">
+                  Keep this as a manual note unless the feedback needs to be anchored to a real attempt.
+                </div>
+              ) : null}
+
+              {submissionAttachmentMode === 'existing' ? (
+                <div className="mt-4">
+                  <ReviewField
+                    label="Choose submission"
+                    helper={
+                      eligibleExistingSubmissions.length > 0
+                        ? 'Attach one of this learner’s existing attempts.'
+                        : 'No existing submissions match this learner yet.'
+                    }
+                  >
+                    <select
+                      value={selectedSubmissionId || ''}
+                      onChange={(event) => setSelectedSubmissionId(event.target.value || null)}
+                      className="h-11 w-full rounded-2xl border border-border bg-card px-4 text-sm text-foreground outline-none transition focus:border-primary/40"
+                    >
+                      <option value="">
+                        {eligibleExistingSubmissions.length > 0 ? 'Select submission' : 'No submissions available'}
+                      </option>
+                      {eligibleExistingSubmissions.map((submission) => (
+                        <option key={submission.id} value={submission.id}>
+                          {submission.title} | Attempt {submission.attemptNumber} | {formatSubmissionStatusLabel(submission.status)}
+                        </option>
+                      ))}
+                    </select>
+                  </ReviewField>
+                </div>
+              ) : null}
+
+              {submissionAttachmentMode === 'new' ? (
+                <div className="mt-4 space-y-3 rounded-[1.35rem] bg-card/80 p-4">
+                  <ReviewField label="Submission title">
+                    <input
+                      value={submissionDraft.title}
+                      onChange={(event) => setSubmissionDraft((current) => ({ ...current, title: event.target.value }))}
+                      placeholder="Benchmark retry #2"
+                      className="h-11 w-full rounded-2xl border border-border bg-background px-4 text-sm text-foreground outline-none transition focus:border-primary/40"
+                    />
+                  </ReviewField>
+
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <ReviewField label="Submission type">
+                      <select
+                        value={submissionDraft.submissionType}
+                        onChange={(event) =>
+                          setSubmissionDraft((current) => ({
+                            ...current,
+                            submissionType: event.target.value as TeamSubmissionType,
+                          }))
+                        }
+                        className="h-11 w-full rounded-2xl border border-border bg-background px-4 text-sm text-foreground outline-none transition focus:border-primary/40"
+                      >
+                        <option value="written">Written response</option>
+                        <option value="code">Code snapshot</option>
+                        <option value="link">External link</option>
+                      </select>
+                    </ReviewField>
+
+                    <ReviewField label="Submission state">
+                      <select
+                        value={submissionDraft.status}
+                        onChange={(event) =>
+                          setSubmissionDraft((current) => ({
+                            ...current,
+                            status: event.target.value as TeamSubmissionStatus,
+                          }))
+                        }
+                        className="h-11 w-full rounded-2xl border border-border bg-background px-4 text-sm text-foreground outline-none transition focus:border-primary/40"
+                      >
+                        <option value="submitted">Submitted</option>
+                        <option value="needs_revision">Needs revision</option>
+                        <option value="reviewed">Reviewed</option>
+                      </select>
+                    </ReviewField>
+                  </div>
+
+                  <ReviewField label="Submission score" helper="Optional">
+                    <input
+                      value={submissionDraft.rubricScore}
+                      onChange={(event) => setSubmissionDraft((current) => ({ ...current, rubricScore: event.target.value }))}
+                      placeholder="74"
+                      className="h-11 w-full rounded-2xl border border-border bg-background px-4 text-sm text-foreground outline-none transition focus:border-primary/40"
+                    />
+                  </ReviewField>
+
+                  {submissionDraft.submissionType === 'code' ? (
+                    <ReviewField label="Code language">
+                      <select
+                        value={submissionDraft.codeLanguage}
+                        onChange={(event) =>
+                          setSubmissionDraft((current) => ({
+                            ...current,
+                            codeLanguage: event.target.value as BenchmarkLanguage,
+                          }))
+                        }
+                        className="h-11 w-full rounded-2xl border border-border bg-background px-4 text-sm text-foreground outline-none transition focus:border-primary/40"
+                      >
+                        <option value="python">Python</option>
+                        <option value="javascript">JavaScript</option>
+                        <option value="java">Java</option>
+                        <option value="cpp">C++</option>
+                      </select>
+                    </ReviewField>
+                  ) : null}
+
+                  {submissionDraft.submissionType === 'link' ? (
+                    <ReviewField label="Submission link">
+                      <input
+                        value={submissionDraft.externalUrl}
+                        onChange={(event) => setSubmissionDraft((current) => ({ ...current, externalUrl: event.target.value }))}
+                        placeholder="https://github.com/..."
+                        className="h-11 w-full rounded-2xl border border-border bg-background px-4 text-sm text-foreground outline-none transition focus:border-primary/40"
+                      />
+                    </ReviewField>
+                  ) : (
+                    <ReviewField label={submissionDraft.submissionType === 'code' ? 'Code' : 'Submission body'}>
+                      <textarea
+                        value={submissionDraft.body}
+                        onChange={(event) => setSubmissionDraft((current) => ({ ...current, body: event.target.value }))}
+                        rows={5}
+                        placeholder={
+                          submissionDraft.submissionType === 'code'
+                            ? 'Paste the learner code snapshot here.'
+                            : 'Paste the learner answer or submission here.'
+                        }
+                        className="w-full rounded-2xl border border-border bg-background px-4 py-3 text-sm text-foreground outline-none transition focus:border-primary/40"
+                      />
+                    </ReviewField>
+                  )}
+                </div>
+              ) : null}
+            </div>
+
+            {(feedbackContextSubmission || submissionAttachmentMode === 'new') && composerAttachedSubmissionPreview ? (
+              <div className="rounded-[1.6rem] border border-border/60 bg-background/70 p-5">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <div className="text-base font-semibold text-foreground">
+                      {feedbackContextSubmission ? 'Attached work' : 'Snapshot preview'}
+                    </div>
+                    <div className="mt-1 text-sm text-muted-foreground">{activeSubmissionLabel}</div>
+                  </div>
+                  {feedbackContextSubmission?.externalUrl ? (
+                    <a
+                      href={feedbackContextSubmission.externalUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center gap-2 text-sm font-semibold text-primary"
+                    >
+                      <ExternalLink className="h-4 w-4" />
+                      Open link
+                    </a>
+                  ) : null}
+                </div>
+
+                {feedbackContextSubmission ? (
+                  <div className="mt-4">
+                    <ReviewField label="Submission state">
+                      <select
+                        value={feedbackContextSubmission.status}
+                        onChange={(event) =>
+                          void handleUpdateSubmissionStatus(
+                            feedbackContextSubmission.id,
+                            event.target.value as TeamSubmissionStatus
+                          )
+                        }
+                        disabled={!canManageWorkspace || submittingKey === `submission-status-${feedbackContextSubmission.id}`}
+                        className="h-11 w-full rounded-2xl border border-border bg-card px-4 text-sm font-semibold text-foreground outline-none transition focus:border-primary/40 disabled:opacity-60"
+                      >
+                        <option value="submitted">Submitted</option>
+                        <option value="needs_revision">Needs revision</option>
+                        <option value="reviewed">Reviewed</option>
+                      </select>
+                    </ReviewField>
+                  </div>
+                ) : null}
+
+                <div className="mt-4 max-h-[22rem] overflow-y-auto rounded-[1.2rem] bg-card/80 px-4 py-4 text-sm leading-7 text-muted-foreground whitespace-pre-wrap">
+                  {composerAttachedSubmissionPreview}
+                </div>
+              </div>
+            ) : null}
+
+            {submissionHistory.length > 0 ? (
+              <div className="rounded-[1.6rem] border border-border/60 bg-background/70 p-5">
+                <div className="text-base font-semibold text-foreground">Recent attempts</div>
+                <div className="mt-1 text-sm text-muted-foreground">
+                  Re-anchor the note if another attempt is the real source of truth.
+                </div>
+                <div className="mt-3 space-y-2">
+                  {submissionHistory.map((submission) => (
+                    <button
+                      key={submission.id}
+                      type="button"
+                      onClick={() => {
+                        setSelectedReviewItemId(`submission:${submission.id}`);
+                        setSelectedFeedbackId(null);
+                        setSubmissionAttachmentMode('existing');
+                        setSelectedSubmissionId(submission.id);
+                      }}
+                      className="w-full rounded-2xl bg-card/80 px-4 py-4 text-left transition hover:bg-card"
+                    >
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="text-sm font-semibold text-foreground">{submission.title}</div>
+                        <div className="text-xs text-muted-foreground">{formatRelativeActivityLabel(submission.updatedAt)}</div>
+                      </div>
+                      <div className="mt-1 text-sm text-muted-foreground">
+                        {formatSubmissionTypeLabel(submission.submissionType)} | Attempt {submission.attemptNumber} |{' '}
+                        {formatSubmissionStatusLabel(submission.status)}
+                      </div>
+                      <div className="mt-3 line-clamp-2 text-sm leading-6 text-muted-foreground">{submission.preview}</div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+          </aside>
+        );
+      }
+
+      return (
+      <div className="space-y-5">
+        <div className="rounded-[1.75rem] border border-border/60 bg-background/70 p-5">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+            <div>
+              <div className="text-lg font-semibold text-foreground">Current work</div>
+              <div className="mt-1 text-sm text-muted-foreground">
+                {feedbackContextSubmission
+                  ? 'Read the actual learner work before you score and coach it.'
+                  : feedbackComposerOpen
+                  ? 'Attach existing work or create a snapshot only if the review needs it.'
+                  : 'This queue item has no attached submission yet.'}
+              </div>
+            </div>
+            {feedbackContextSubmission?.externalUrl ? (
+              <a
+                href={feedbackContextSubmission.externalUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-2 text-sm font-semibold text-primary"
+              >
+                <ExternalLink className="h-4 w-4" />
+                Open submitted link
+              </a>
+            ) : null}
           </div>
 
-          <div className="grid gap-5 xl:grid-cols-[320px_minmax(0,1.08fr)_430px] 2xl:grid-cols-[340px_minmax(0,1.12fr)_460px]">
-            <div className="rounded-2xl border border-border bg-background">
-              {!hasReviewQueue ? (
-                <div className="p-4">
-                  <EmptyState
-                    title="No submissions or feedback yet"
-                    helper={
-                      (teamDetail.submissions || []).length > 0
-                        ? 'Learner work is available. Start the first review to turn submissions into scored feedback.'
-                        : 'When learners submit work, the review queue will populate here.'
-                    }
-                  />
-                </div>
-              ) : filteredReviewItems.length === 0 ? (
-                <div className="p-4">
-                  <EmptyState
-                    title="No review items in this view"
-                    helper="Reset the filters to return to the full coaching queue."
-                  />
-                </div>
-              ) : (
-                <div className="max-h-[58vh] divide-y divide-border overflow-y-auto">
-                  {filteredReviewItems.map((item) => {
-                    const stateMeta = getReviewQueueStateMeta(item.state);
-                    const isSelected = selectedReviewItem?.id === item.id;
-                    const assignmentLabel = item.assignment?.title || item.submission?.assignmentTitle || 'General coaching note';
-                    const submissionMeta = item.submission
-                      ? `${item.submission.title} | Attempt ${item.submission.attemptNumber}`
-                      : item.feedback?.authorName
-                      ? `Coach note by ${item.feedback.authorName}`
-                      : 'Manual review note';
+          {feedbackContextMember || feedbackContextAssignment || feedbackContextSubmission ? (
+            <dl className="mt-5 grid gap-x-6 gap-y-4 text-sm sm:grid-cols-2 xl:grid-cols-4">
+              {feedbackContextMember ? (
+                <>
+                  <div>
+                    <dt className="text-muted-foreground">Learner</dt>
+                    <dd className="mt-1 font-semibold text-foreground">{feedbackContextMember.name}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-muted-foreground">Role</dt>
+                    <dd className="mt-1 font-semibold text-foreground">{formatTeamRoleLabel(feedbackContextMember.role)}</dd>
+                  </div>
+                </>
+              ) : null}
+              {feedbackContextAssignment ? (
+                <>
+                  <div>
+                    <dt className="text-muted-foreground">Assignment</dt>
+                    <dd className="mt-1 font-semibold text-foreground">{feedbackContextAssignment.title}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-muted-foreground">Due</dt>
+                    <dd className="mt-1 font-semibold text-foreground">
+                      {feedbackContextAssignment.dueAt ? formatDateLabel(feedbackContextAssignment.dueAt) : 'No due date'}
+                    </dd>
+                  </div>
+                </>
+              ) : null}
+            </dl>
+          ) : null}
 
+          <div className="mt-5 rounded-[1.4rem] bg-card/80 px-4 py-4">
+            {feedbackContextSubmission ? (
+              <div className="space-y-4">
+                <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                  <div className="min-w-0">
+                    <div className="text-base font-semibold text-foreground">{feedbackContextSubmission.title}</div>
+                    <div className="mt-1 text-sm text-muted-foreground">
+                      {formatSubmissionTypeLabel(feedbackContextSubmission.submissionType)}
+                      {feedbackContextSubmission.codeLanguage
+                        ? ` | ${formatBenchmarkLanguageLabel(feedbackContextSubmission.codeLanguage)}`
+                        : ''}
+                      {feedbackContextSubmission.submittedByName ? ` | Logged by ${feedbackContextSubmission.submittedByName}` : ''}
+                    </div>
+                  </div>
+
+                  <div className="w-full max-w-[220px]">
+                    <ReviewField label="Submission state">
+                      <select
+                        value={feedbackContextSubmission.status}
+                        onChange={(event) =>
+                          void handleUpdateSubmissionStatus(
+                            feedbackContextSubmission.id,
+                            event.target.value as TeamSubmissionStatus
+                          )
+                        }
+                        disabled={
+                          !canManageWorkspace || submittingKey === `submission-status-${feedbackContextSubmission.id}`
+                        }
+                        className="h-11 w-full rounded-2xl border border-border bg-background px-4 text-sm font-semibold text-foreground outline-none transition focus:border-primary/40 disabled:opacity-60"
+                      >
+                        <option value="submitted">Submitted</option>
+                        <option value="needs_revision">Needs revision</option>
+                        <option value="reviewed">Reviewed</option>
+                      </select>
+                    </ReviewField>
+                  </div>
+                </div>
+
+                <div className="rounded-[1.2rem] bg-background px-4 py-4 text-sm leading-7 text-muted-foreground whitespace-pre-wrap">
+                  {feedbackContextSubmission.preview}
+                </div>
+              </div>
+            ) : feedbackComposerOpen && submissionAttachmentMode === 'new' ? (
+              <div className="space-y-3">
+                <div className="text-base font-semibold text-foreground">{submissionDraft.title || 'Untitled submission'}</div>
+                <div className="text-sm text-muted-foreground">
+                  {formatSubmissionTypeLabel(submissionDraft.submissionType)}
+                  {submissionDraft.submissionType === 'code' && submissionDraft.codeLanguage
+                    ? ` | ${formatBenchmarkLanguageLabel(submissionDraft.codeLanguage)}`
+                    : ''}
+                </div>
+                <div className="rounded-[1.2rem] bg-background px-4 py-4 text-sm leading-7 text-muted-foreground whitespace-pre-wrap">
+                  {submissionDraft.submissionType === 'link'
+                    ? submissionDraft.externalUrl || 'Add the learner link here.'
+                    : submissionDraft.body || 'Add the learner submission here.'}
+                </div>
+              </div>
+            ) : (
+              <EmptyState
+                title="No submission attached"
+                helper="Keep the review manual, link existing learner work, or create a snapshot when you need to anchor the note."
+                action={
+                  feedbackComposerOpen && canManageWorkspace ? (
+                    <div className="flex flex-wrap gap-2">
+                      {eligibleExistingSubmissions.length > 0 ? (
+                        <button
+                          type="button"
+                          onClick={() => setSubmissionAttachmentMode('existing')}
+                          className="inline-flex h-10 items-center justify-center rounded-xl border border-border bg-background px-4 text-sm font-semibold text-foreground transition hover:bg-secondary"
+                        >
+                          Use existing work
+                        </button>
+                      ) : null}
+                      <button
+                        type="button"
+                        onClick={() => setSubmissionAttachmentMode('new')}
+                        className="inline-flex h-10 items-center justify-center rounded-xl border border-border bg-background px-4 text-sm font-semibold text-foreground transition hover:bg-secondary"
+                      >
+                        Create snapshot
+                      </button>
+                    </div>
+                  ) : null
+                }
+              />
+            )}
+          </div>
+        </div>
+
+        {submissionHistory.length > 0 || feedbackHistory.length > 0 ? (
+          <div className="grid gap-5 lg:grid-cols-2">
+            {submissionHistory.length > 0 ? (
+              <div className="rounded-[1.6rem] border border-border/60 bg-background/70 p-5">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="text-base font-semibold text-foreground">Past attempts</div>
+                  <div className="text-xs text-muted-foreground">{submissionHistory.length} total</div>
+                </div>
+                <div className="mt-3 space-y-2">
+                  {visibleSubmissionHistory.map((submission) => (
+                    <button
+                      key={submission.id}
+                      type="button"
+                      onClick={() => {
+                        setSelectedReviewItemId(`submission:${submission.id}`);
+                        setSelectedFeedbackId(null);
+                        if (feedbackComposerOpen) {
+                          setSubmissionAttachmentMode('existing');
+                          setSelectedSubmissionId(submission.id);
+                        } else {
+                          setFeedbackComposerOpen(false);
+                        }
+                      }}
+                      className="w-full rounded-2xl bg-card/80 px-4 py-4 text-left transition hover:bg-card"
+                    >
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="text-sm font-semibold text-foreground">{submission.title}</div>
+                        <div className="text-xs text-muted-foreground">{formatRelativeActivityLabel(submission.updatedAt)}</div>
+                      </div>
+                      <div className="mt-1 text-sm text-muted-foreground">
+                        {formatSubmissionTypeLabel(submission.submissionType)} | Attempt {submission.attemptNumber} |{' '}
+                        {formatSubmissionStatusLabel(submission.status)}
+                      </div>
+                      <div className="mt-3 line-clamp-2 text-sm leading-6 text-muted-foreground">{submission.preview}</div>
+                    </button>
+                  ))}
+                </div>
+                {hiddenSubmissionHistoryCount > 0 ? (
+                  <button
+                    type="button"
+                    onClick={() => setShowAllSubmissionHistory(true)}
+                    className="mt-3 inline-flex h-10 items-center justify-center rounded-xl border border-border bg-card px-4 text-sm font-semibold text-foreground transition hover:bg-secondary"
+                  >
+                    Show {hiddenSubmissionHistoryCount} more attempt{hiddenSubmissionHistoryCount === 1 ? '' : 's'}
+                  </button>
+                ) : submissionHistory.length > 3 ? (
+                  <button
+                    type="button"
+                    onClick={() => setShowAllSubmissionHistory(false)}
+                    className="mt-3 inline-flex h-10 items-center justify-center rounded-xl border border-border bg-card px-4 text-sm font-semibold text-foreground transition hover:bg-secondary"
+                  >
+                    Show fewer attempts
+                  </button>
+                ) : null}
+              </div>
+            ) : null}
+
+            {feedbackHistory.length > 0 ? (
+              <div className="rounded-[1.6rem] border border-border/60 bg-background/70 p-5">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="text-base font-semibold text-foreground">Previous notes</div>
+                  <div className="text-xs text-muted-foreground">{feedbackHistory.length} total</div>
+                </div>
+                <div className="mt-3 space-y-2">
+                  {visibleFeedbackHistory.map((entry) => {
+                    const feedbackState = getFeedbackStateMeta(entry);
                     return (
                       <button
-                        key={item.id}
+                        key={entry.id}
                         type="button"
-                        onClick={() => openReviewItem(item)}
-                        className={`w-full px-4 py-4 text-left transition ${isSelected ? 'bg-primary/8' : 'hover:bg-card'}`}
+                        onClick={() => {
+                          runAfterFeedbackComposerClose(() => {
+                            setSelectedReviewItemId(entry.submissionId ? `submission:${entry.submissionId}` : `feedback:${entry.id}`);
+                            setSelectedFeedbackId(entry.id);
+                            setFeedbackComposerOpen(false);
+                          });
+                        }}
+                        className="w-full rounded-2xl bg-card/80 px-4 py-4 text-left transition hover:bg-card"
                       >
-                        <div className="flex items-start justify-between gap-4">
-                          <div className="min-w-0">
-                            <div className="truncate text-sm font-semibold text-foreground">{item.member?.name || 'Unknown learner'}</div>
-                            <div className="mt-1 truncate text-sm text-muted-foreground">{assignmentLabel}</div>
-                            <div className="mt-2 text-xs text-muted-foreground">{submissionMeta}</div>
+                        <div className="flex items-center justify-between gap-3">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <div className="text-sm font-semibold text-foreground">
+                              {entry.assignmentTitle || 'General coaching note'}
+                            </div>
+                            <ReviewStatePill label={feedbackState.label} tone={feedbackState.tone} />
                           </div>
-                          <div className="text-right">
-                            <div className="text-xs font-semibold uppercase tracking-[0.14em] text-primary">{stateMeta.label}</div>
-                            <div className="mt-1 text-xs text-muted-foreground">{formatRelativeActivityLabel(item.updatedAt)}</div>
-                          </div>
+                          <div className="text-xs text-muted-foreground">{formatRelativeActivityLabel(entry.updatedAt)}</div>
                         </div>
-                        <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                          <span>{item.score !== null ? `${item.score} score` : 'Unscored'}</span>
-                          <span>|</span>
-                          <span>{formatDateTimeLabel(item.submittedAt)}</span>
-                          {item.submission ? (
-                            <>
-                              <span>|</span>
-                              <span>{formatSubmissionStatusLabel(item.submission.status)}</span>
-                            </>
-                          ) : null}
-                          {item.historyCount > 1 ? (
-                            <>
-                              <span>|</span>
-                              <span>{item.historyCount} reviews</span>
-                            </>
-                          ) : null}
+                        <div className="mt-3 line-clamp-2 text-sm leading-6 text-muted-foreground">
+                          {entry.summary || entry.focusAreas || entry.strengths || 'Open coaching note'}
                         </div>
-                        <div className="mt-2 line-clamp-2 text-sm text-muted-foreground">{item.preview}</div>
                       </button>
                     );
                   })}
                 </div>
-              )}
-            </div>
-
-            <div className="rounded-2xl border border-border bg-background p-4">
-              {feedbackContextMember && selectedReviewItem ? (
-                <div className="space-y-4">
-                  <div>
-                    <div className="text-xs font-semibold uppercase tracking-[0.16em] text-primary">Submission context</div>
-                    <div className="mt-2 text-xl font-semibold text-foreground">{feedbackContextMember.name}</div>
-                    <div className="mt-1 text-sm text-muted-foreground">{feedbackContextMember.email || 'No email saved'}</div>
-                    <div className="mt-2 text-sm text-muted-foreground">
-                      Last active {formatRelativeActivityLabel(feedbackContextMember.lastActiveAt)} | Queue updated{' '}
-                      {formatRelativeActivityLabel(selectedReviewItem.updatedAt)}
-                    </div>
-                  </div>
-
-                  <div className="grid gap-3 sm:grid-cols-2 2xl:grid-cols-4">
-                    <MetricCard label="Review state" value={selectedReviewState?.label || 'Needs review'} />
-                    <MetricCard
-                      label="Submission"
-                      value={selectedReviewItem.submission ? `Attempt ${selectedReviewItem.submission.attemptNumber}` : 'No submission'}
-                    />
-                    <MetricCard label="Role" value={formatTeamRoleLabel(feedbackContextMember.role)} />
-                    <MetricCard
-                      label="Latest benchmark"
-                      value={
-                        feedbackContextMember.latestBenchmarkScore !== null
-                          ? `${feedbackContextMember.latestBenchmarkScore}`
-                          : '--'
-                        }
-                      helper={feedbackContextMember.latestBenchmarkAt ? formatDateLabel(feedbackContextMember.latestBenchmarkAt) : 'No benchmark yet'}
-                    />
-                  </div>
-
-                  <div className="rounded-2xl border border-border bg-card px-4 py-4">
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="text-sm font-semibold text-foreground">Linked assignment</div>
-                      {feedbackContextAssignment ? (
-                        <div className="text-xs text-muted-foreground">
-                          {feedbackContextAssignment.eligibleLearnerCount} learners | {feedbackContextAssignment.completionRate}% complete
-                        </div>
-                      ) : null}
-                    </div>
-                    {feedbackContextAssignment ? (
-                      <div className="mt-3 space-y-2">
-                        <div className="font-semibold text-foreground">{feedbackContextAssignment.title}</div>
-                        <div className="text-sm text-muted-foreground">
-                          {formatAssignmentTypeLabel(feedbackContextAssignment.assignmentType)} |{' '}
-                          {feedbackContextAssignment.assignmentType === 'roadmap'
-                            ? trackTitleById.get(feedbackContextAssignment.trackId || '') || 'Roadmap'
-                            : formatBenchmarkLanguageLabel(feedbackContextAssignment.benchmarkLanguage)}
-                        </div>
-                        <div className="text-sm text-muted-foreground">
-                          Due {feedbackContextAssignment.dueAt ? formatDateLabel(feedbackContextAssignment.dueAt) : 'No due date'}
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="mt-3 text-sm text-muted-foreground">
-                        No assignment is linked yet. This review is anchored to the learner rather than a tracked assignment.
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="rounded-2xl border border-border bg-card px-4 py-4">
-                    <div className="flex items-center justify-between gap-3">
-                      <div className="text-sm font-semibold text-foreground">Submission preview</div>
-                      {feedbackContextSubmission ? (
-                        <div className="text-xs text-muted-foreground">
-                          Attempt {feedbackContextSubmission.attemptNumber} | {formatSubmissionStatusLabel(feedbackContextSubmission.status)}
-                        </div>
-                      ) : submissionAttachmentMode === 'new' && feedbackComposerOpen ? (
-                        <div className="text-xs text-muted-foreground">New snapshot</div>
-                      ) : null}
-                    </div>
-                    {feedbackContextSubmission ? (
-                      <div className="mt-3 space-y-3">
-                        <div>
-                          <div className="font-semibold text-foreground">{feedbackContextSubmission.title}</div>
-                          <div className="mt-1 text-sm text-muted-foreground">
-                            {formatSubmissionTypeLabel(feedbackContextSubmission.submissionType)}
-                            {feedbackContextSubmission.codeLanguage ? ` | ${formatBenchmarkLanguageLabel(feedbackContextSubmission.codeLanguage)}` : ''}
-                            {feedbackContextSubmission.submittedByName ? ` | Logged by ${feedbackContextSubmission.submittedByName}` : ''}
-                          </div>
-                        </div>
-                        <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_200px]">
-                          <div className="rounded-2xl border border-border bg-background px-4 py-3 text-sm text-muted-foreground">
-                            {feedbackContextSubmission.preview}
-                          </div>
-                          <div className="rounded-2xl border border-border bg-background px-4 py-3">
-                            <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-primary">Review state</div>
-                            <div className="mt-2">
-                              <select
-                                value={feedbackContextSubmission.status}
-                                onChange={(event) =>
-                                  void handleUpdateSubmissionStatus(
-                                    feedbackContextSubmission.id,
-                                    event.target.value as TeamSubmissionStatus
-                                  )
-                                }
-                                disabled={!canManageWorkspace || submittingKey === `submission-status-${feedbackContextSubmission.id}`}
-                                className="h-11 w-full rounded-2xl border border-border bg-card px-4 text-sm font-semibold text-foreground outline-none transition focus:border-primary/40 disabled:opacity-60"
-                              >
-                                <option value="submitted">Submitted</option>
-                                <option value="needs_revision">Needs revision</option>
-                                <option value="reviewed">Reviewed</option>
-                              </select>
-                            </div>
-                            <div className="mt-2 text-xs text-muted-foreground">
-                              Update the learner-facing review state directly from the queue.
-                            </div>
-                          </div>
-                        </div>
-                        {feedbackContextSubmission.externalUrl ? (
-                          <a
-                            href={feedbackContextSubmission.externalUrl}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="inline-flex items-center gap-2 text-sm font-semibold text-primary"
-                          >
-                            <ExternalLink className="h-4 w-4" />
-                            Open submitted link
-                          </a>
-                        ) : null}
-                      </div>
-                    ) : submissionAttachmentMode === 'new' && feedbackComposerOpen ? (
-                      <div className="mt-3 space-y-3">
-                        <div className="text-sm font-semibold text-foreground">{submissionDraft.title || 'Untitled submission'}</div>
-                        <div className="text-sm text-muted-foreground">
-                          {formatSubmissionTypeLabel(submissionDraft.submissionType)}
-                          {submissionDraft.submissionType === 'code' && submissionDraft.codeLanguage
-                            ? ` | ${formatBenchmarkLanguageLabel(submissionDraft.codeLanguage)}`
-                            : ''}
-                        </div>
-                        <div className="rounded-2xl border border-border bg-background px-4 py-3 text-sm text-muted-foreground">
-                          {submissionDraft.submissionType === 'link'
-                            ? submissionDraft.externalUrl || 'Add the learner link here.'
-                            : submissionDraft.body || 'Add the learner submission here.'}
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="mt-3 text-sm text-muted-foreground">
-                        No learner submission is attached yet. Start a review to anchor coaching to an existing attempt or create a new snapshot.
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="rounded-2xl border border-border bg-card px-4 py-4">
-                    <div className="text-sm font-semibold text-foreground">Previous attempts</div>
-                    {submissionHistory.length > 0 ? (
-                      <div className="mt-3 space-y-3">
-                        {submissionHistory.map((submission) => (
-                          <button
-                            key={submission.id}
-                            type="button"
-                            onClick={() => {
-                              setSelectedReviewItemId(`submission:${submission.id}`);
-                              setSelectedFeedbackId(null);
-                              if (feedbackComposerOpen) {
-                                setSubmissionAttachmentMode('existing');
-                                setSelectedSubmissionId(submission.id);
-                              } else {
-                                setFeedbackComposerOpen(false);
-                              }
-                            }}
-                            className="w-full rounded-2xl border border-border bg-background px-4 py-3 text-left transition hover:bg-secondary"
-                          >
-                            <div className="flex items-center justify-between gap-3">
-                              <div className="text-sm font-semibold text-foreground">{submission.title}</div>
-                              <div className="text-xs text-muted-foreground">{formatDateLabel(submission.updatedAt)}</div>
-                            </div>
-                            <div className="mt-1 text-sm text-muted-foreground">
-                              {formatSubmissionTypeLabel(submission.submissionType)} | Attempt {submission.attemptNumber} |{' '}
-                              {formatSubmissionStatusLabel(submission.status)}
-                            </div>
-                            <div className="mt-2 line-clamp-2 text-sm text-muted-foreground">{submission.preview}</div>
-                          </button>
-                        ))}
-                      </div>
-                    ) : (
-                      <div className="mt-3 text-sm text-muted-foreground">No previous attempts for this learner in this assignment yet.</div>
-                    )}
-                  </div>
-
-                  <div className="rounded-2xl border border-border bg-card px-4 py-4">
-                    <div className="text-sm font-semibold text-foreground">Review history</div>
-                    {!feedbackComposerOpen && selectedReviewFeedback ? (
-                      <div className="mt-3 space-y-3">
-                        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-                          <MetricCard label="State" value={selectedFeedbackState?.label || 'Draft'} />
-                          <MetricCard
-                            label="Visibility"
-                            value={selectedReviewFeedback.sharedWithMember ? 'Shared' : 'Private'}
-                          />
-                          <MetricCard
-                            label="Score"
-                            value={selectedReviewFeedback.rubricScore !== null ? `${selectedReviewFeedback.rubricScore}` : '--'}
-                          />
-                        </div>
-                        <div className="space-y-3 text-sm text-muted-foreground">
-                          <div>
-                            <div className="font-semibold text-foreground">Summary</div>
-                            <div className="mt-1">{selectedReviewFeedback.summary || 'No summary yet.'}</div>
-                          </div>
-                          <div>
-                            <div className="font-semibold text-foreground">Strengths</div>
-                            <div className="mt-1">{selectedReviewFeedback.strengths || 'No strengths captured yet.'}</div>
-                          </div>
-                          <div>
-                            <div className="font-semibold text-foreground">Focus areas</div>
-                            <div className="mt-1">{selectedReviewFeedback.focusAreas || 'No focus areas captured yet.'}</div>
-                          </div>
-                        </div>
-                      </div>
-                    ) : feedbackHistory.length > 0 ? (
-                      <div className="mt-3 space-y-3">
-                        {feedbackHistory.map((entry) => {
-                          const feedbackState = getFeedbackStateMeta(entry);
-                          return (
-                            <button
-                              key={entry.id}
-                              type="button"
-                              onClick={() => {
-                                setSelectedReviewItemId(entry.submissionId ? `submission:${entry.submissionId}` : `feedback:${entry.id}`);
-                                setSelectedFeedbackId(entry.id);
-                                setFeedbackComposerOpen(false);
-                              }}
-                              className="w-full rounded-2xl border border-border bg-background px-4 py-3 text-left transition hover:bg-secondary"
-                            >
-                              <div className="flex items-center justify-between gap-3">
-                                <div className="text-sm font-semibold text-foreground">{feedbackState.label}</div>
-                                <div className="text-xs text-muted-foreground">{formatDateLabel(entry.updatedAt)}</div>
-                              </div>
-                              <div className="mt-1 text-sm text-muted-foreground">
-                                {entry.assignmentTitle || 'General coaching note'}
-                              </div>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    ) : (
-                      <div className="mt-3 text-sm text-muted-foreground">
-                        No previous coaching notes for this learner yet.
-                      </div>
-                    )}
-                  </div>
-                </div>
-              ) : (
-                <EmptyState
-                  title="Select a review item"
-                  helper="Choose a learner submission or coaching note from the queue to load context here."
-                />
-              )}
-            </div>
-
-            <div className="rounded-2xl border border-border bg-background p-4">
-              {feedbackComposerOpen ? (
-                <div className="space-y-4">
-                  <div>
-                    <div className="text-sm font-semibold text-foreground">{feedbackDraft.id ? 'Edit review' : 'Score and coach'}</div>
-                    <div className="mt-1 text-sm text-muted-foreground">
-                      Use the rubric first, then publish learner-facing feedback once the review is ready.
-                    </div>
-                  </div>
-
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    <FormField label="Learner">
-                      <select
-                        value={feedbackDraft.memberUserId}
-                        onChange={(event) => setFeedbackDraft((current) => ({ ...current, memberUserId: event.target.value }))}
-                        className="h-11 w-full rounded-2xl border border-border bg-card px-4 text-sm text-foreground outline-none transition focus:border-primary/40"
-                      >
-                        <option value="">Select learner</option>
-                        {learnerMembers.map((member) => (
-                          <option key={member.userId} value={member.userId}>
-                            {member.name}
-                          </option>
-                        ))}
-                      </select>
-                    </FormField>
-
-                    <FormField label="Assignment link" helper="Optional">
-                      <select
-                        value={feedbackDraft.assignmentId}
-                        onChange={(event) => setFeedbackDraft((current) => ({ ...current, assignmentId: event.target.value }))}
-                        className="h-11 w-full rounded-2xl border border-border bg-card px-4 text-sm text-foreground outline-none transition focus:border-primary/40"
-                      >
-                        <option value="">General coaching note</option>
-                        {(teamDetail.assignments || []).map((assignment) => (
-                          <option key={assignment.id} value={assignment.id}>
-                            {assignment.title}
-                          </option>
-                        ))}
-                      </select>
-                    </FormField>
-                  </div>
-
-                  <div className="rounded-2xl border border-border bg-card p-4">
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <div className="text-xs font-semibold uppercase tracking-[0.16em] text-primary">Rubric</div>
-                        <div className="mt-1 text-sm text-muted-foreground">Score the work before you write the coaching note.</div>
-                      </div>
-                      <div className="text-right">
-                        <div className="text-lg font-semibold text-foreground">
-                          {composerRubricPercent !== null ? `${composerRubricPercent}` : '--'}
-                        </div>
-                        <div className="text-xs text-muted-foreground">
-                          {composerRubricPercent !== null ? `${composerRubricTotal}/40 total` : 'Unscored'}
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                      {([
-                        ['correctness', 'Correctness'],
-                        ['codeQuality', 'Code quality'],
-                        ['problemSolving', 'Problem solving'],
-                        ['communication', 'Communication'],
-                      ] as Array<[keyof FeedbackRubricDraft, string]>).map(([field, label]) => (
-                        <FormField key={field} label={label} helper="/10">
-                          <input
-                            value={feedbackRubricDraft[field]}
-                            onChange={(event) =>
-                              setFeedbackRubricDraft((current) => ({
-                                ...current,
-                                [field]: event.target.value,
-                              }))
-                            }
-                            placeholder="0-10"
-                            className="h-11 w-full rounded-2xl border border-border bg-background px-4 text-sm text-foreground outline-none transition focus:border-primary/40"
-                          />
-                        </FormField>
-                      ))}
-                    </div>
-                  </div>
-
-                  <FormField label="Submission anchor" helper="Attach the note to real learner work when available.">
-                    <div className="space-y-3">
-                      <div className="grid gap-2 sm:grid-cols-3">
-                        {([
-                          ['none', 'No submission'],
-                          ['existing', 'Use existing'],
-                          ['new', 'Create snapshot'],
-                        ] as Array<[SubmissionAttachmentMode, string]>).map(([value, label]) => (
-                          <button
-                            key={value}
-                            type="button"
-                            onClick={() => {
-                              setSubmissionAttachmentMode(value);
-                              if (value === 'none') {
-                                setSelectedSubmissionId(null);
-                                setSubmissionDraft(emptySubmissionDraft());
-                              }
-                              if (value === 'new') {
-                                setSelectedSubmissionId(null);
-                              }
-                            }}
-                            className={`rounded-2xl border px-4 py-3 text-sm font-semibold transition ${
-                              submissionAttachmentMode === value
-                                ? 'border-primary/30 bg-primary/10 text-primary'
-                                : 'border-border bg-card text-foreground hover:bg-secondary'
-                            }`}
-                          >
-                            {label}
-                          </button>
-                        ))}
-                      </div>
-
-                      {submissionAttachmentMode === 'existing' ? (
-                        <select
-                          value={selectedSubmissionId || ''}
-                          onChange={(event) => setSelectedSubmissionId(event.target.value || null)}
-                          className="h-11 w-full rounded-2xl border border-border bg-card px-4 text-sm text-foreground outline-none transition focus:border-primary/40"
-                        >
-                          <option value="">Select submission</option>
-                          {eligibleExistingSubmissions.map((submission) => (
-                            <option key={submission.id} value={submission.id}>
-                              {submission.title} | Attempt {submission.attemptNumber} | {formatSubmissionStatusLabel(submission.status)}
-                            </option>
-                          ))}
-                        </select>
-                      ) : null}
-
-                      {submissionAttachmentMode === 'new' ? (
-                        <div className="space-y-3 rounded-2xl border border-border bg-card p-4">
-                          <div className="grid gap-3 sm:grid-cols-2">
-                            <FormField label="Submission title">
-                              <input
-                                value={submissionDraft.title}
-                                onChange={(event) => setSubmissionDraft((current) => ({ ...current, title: event.target.value }))}
-                                placeholder="Benchmark retry #2"
-                                className="h-11 w-full rounded-2xl border border-border bg-background px-4 text-sm text-foreground outline-none transition focus:border-primary/40"
-                              />
-                            </FormField>
-                            <FormField label="Submission type">
-                              <select
-                                value={submissionDraft.submissionType}
-                                onChange={(event) =>
-                                  setSubmissionDraft((current) => ({
-                                    ...current,
-                                    submissionType: event.target.value as TeamSubmissionType,
-                                  }))
-                                }
-                                className="h-11 w-full rounded-2xl border border-border bg-background px-4 text-sm text-foreground outline-none transition focus:border-primary/40"
-                              >
-                                <option value="written">Written response</option>
-                                <option value="code">Code snapshot</option>
-                                <option value="link">External link</option>
-                              </select>
-                            </FormField>
-                          </div>
-
-                          <div className="grid gap-3 sm:grid-cols-2">
-                            <FormField label="Submission status">
-                              <select
-                                value={submissionDraft.status}
-                                onChange={(event) =>
-                                  setSubmissionDraft((current) => ({
-                                    ...current,
-                                    status: event.target.value as TeamSubmissionStatus,
-                                  }))
-                                }
-                                className="h-11 w-full rounded-2xl border border-border bg-background px-4 text-sm text-foreground outline-none transition focus:border-primary/40"
-                              >
-                                <option value="submitted">Submitted</option>
-                                <option value="needs_revision">Needs revision</option>
-                                <option value="reviewed">Reviewed</option>
-                              </select>
-                            </FormField>
-                            <FormField label="Submission score" helper="Optional">
-                              <input
-                                value={submissionDraft.rubricScore}
-                                onChange={(event) => setSubmissionDraft((current) => ({ ...current, rubricScore: event.target.value }))}
-                                placeholder="74"
-                                className="h-11 w-full rounded-2xl border border-border bg-background px-4 text-sm text-foreground outline-none transition focus:border-primary/40"
-                              />
-                            </FormField>
-                          </div>
-
-                          {submissionDraft.submissionType === 'code' ? (
-                            <FormField label="Code language">
-                              <select
-                                value={submissionDraft.codeLanguage}
-                                onChange={(event) =>
-                                  setSubmissionDraft((current) => ({
-                                    ...current,
-                                    codeLanguage: event.target.value as BenchmarkLanguage,
-                                  }))
-                                }
-                                className="h-11 w-full rounded-2xl border border-border bg-background px-4 text-sm text-foreground outline-none transition focus:border-primary/40"
-                              >
-                                <option value="python">Python</option>
-                                <option value="javascript">JavaScript</option>
-                                <option value="java">Java</option>
-                                <option value="cpp">C++</option>
-                              </select>
-                            </FormField>
-                          ) : null}
-
-                          {submissionDraft.submissionType === 'link' ? (
-                            <FormField label="Submission link">
-                              <input
-                                value={submissionDraft.externalUrl}
-                                onChange={(event) => setSubmissionDraft((current) => ({ ...current, externalUrl: event.target.value }))}
-                                placeholder="https://github.com/..."
-                                className="h-11 w-full rounded-2xl border border-border bg-background px-4 text-sm text-foreground outline-none transition focus:border-primary/40"
-                              />
-                            </FormField>
-                          ) : (
-                            <FormField label={submissionDraft.submissionType === 'code' ? 'Code' : 'Submission body'}>
-                              <textarea
-                                value={submissionDraft.body}
-                                onChange={(event) => setSubmissionDraft((current) => ({ ...current, body: event.target.value }))}
-                                rows={6}
-                                placeholder={
-                                  submissionDraft.submissionType === 'code'
-                                    ? 'Paste the learner code snapshot here.'
-                                    : 'Paste the learner answer or submission here.'
-                                }
-                                className="w-full rounded-2xl border border-border bg-background px-4 py-3 text-sm text-foreground outline-none transition focus:border-primary/40"
-                              />
-                            </FormField>
-                          )}
-                        </div>
-                      ) : null}
-                    </div>
-                  </FormField>
-
-                  <FormField label="Workflow state">
-                    <div className="grid gap-2 sm:grid-cols-3">
-                      {([
-                        ['draft', 'Draft'],
-                        ['shared', 'Shared'],
-                        ['resolved', 'Resolved'],
-                      ] as Array<['draft' | 'shared' | 'resolved', string]>).map(([value, label]) => {
-                        const active =
-                          value === 'draft'
-                            ? feedbackDraft.status === 'draft' && !feedbackDraft.sharedWithMember
-                            : value === 'shared'
-                            ? feedbackDraft.status === 'shared' && feedbackDraft.sharedWithMember
-                            : feedbackDraft.status === 'resolved';
-
-                        return (
-                          <button
-                            key={value}
-                            type="button"
-                            onClick={() => setFeedbackWorkflowState(value)}
-                            className={`rounded-2xl border px-4 py-3 text-sm font-semibold transition ${
-                              active
-                                ? 'border-primary/30 bg-primary/10 text-primary'
-                                : 'border-border bg-card text-foreground hover:bg-secondary'
-                            }`}
-                          >
-                            {label}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </FormField>
-
-                  <FormField label="Quick feedback">
-                    <div className="flex flex-wrap gap-2">
-                      {FEEDBACK_SNIPPETS.map((snippet) => (
-                        <button
-                          key={snippet.id}
-                          type="button"
-                          onClick={() => applyFeedbackSnippet(snippet.id)}
-                          className="inline-flex h-9 items-center rounded-full border border-border bg-card px-4 text-sm font-semibold text-foreground transition hover:bg-secondary"
-                        >
-                          {snippet.label}
-                        </button>
-                      ))}
-                    </div>
-                  </FormField>
-
-                  <FormField label="Summary">
-                    <textarea
-                      value={feedbackDraft.summary}
-                      onChange={(event) => setFeedbackDraft((current) => ({ ...current, summary: event.target.value }))}
-                      rows={3}
-                      placeholder="Strong baseline on syntax and iteration."
-                      className="w-full rounded-2xl border border-border bg-card px-4 py-3 text-sm text-foreground outline-none transition focus:border-primary/40"
-                    />
-                  </FormField>
-
-                  <FormField label="Strengths">
-                    <textarea
-                      value={feedbackDraft.strengths}
-                      onChange={(event) => setFeedbackDraft((current) => ({ ...current, strengths: event.target.value }))}
-                      rows={3}
-                      placeholder="Clear control flow and readable variable names."
-                      className="w-full rounded-2xl border border-border bg-card px-4 py-3 text-sm text-foreground outline-none transition focus:border-primary/40"
-                    />
-                  </FormField>
-
-                  <FormField label="Focus areas">
-                    <textarea
-                      value={feedbackDraft.focusAreas}
-                      onChange={(event) => setFeedbackDraft((current) => ({ ...current, focusAreas: event.target.value }))}
-                      rows={3}
-                      placeholder="Edge cases and output formatting need more consistency."
-                      className="w-full rounded-2xl border border-border bg-card px-4 py-3 text-sm text-foreground outline-none transition focus:border-primary/40"
-                    />
-                  </FormField>
-
-                  <FormField label="Private coach notes" helper="Internal only">
-                    <textarea
-                      value={feedbackDraft.coachNotes}
-                      onChange={(event) => setFeedbackDraft((current) => ({ ...current, coachNotes: event.target.value }))}
-                      rows={4}
-                      placeholder="Use the next session to walk through debugging strategy."
-                      className="w-full rounded-2xl border border-border bg-card px-4 py-3 text-sm text-foreground outline-none transition focus:border-primary/40"
-                    />
-                  </FormField>
-
-                  <div className="flex flex-wrap gap-3 pt-1">
-                    <button
-                      type="button"
-                      onClick={handleSaveFeedback}
-                      disabled={!canManageWorkspace || submittingKey === 'save-feedback'}
-                      className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl bg-primary px-5 text-sm font-semibold text-primary-foreground transition hover:bg-primary/90 disabled:opacity-60"
-                    >
-                      {submittingKey === 'save-feedback' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
-                      {feedbackDraft.status === 'resolved'
-                        ? 'Resolve feedback'
-                        : feedbackDraft.sharedWithMember
-                        ? 'Share feedback'
-                        : feedbackDraft.id
-                        ? 'Save draft'
-                        : 'Create feedback'}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={closeFeedbackComposer}
-                      className="inline-flex h-11 items-center justify-center rounded-2xl border border-border bg-card px-4 text-sm font-semibold text-foreground transition hover:bg-secondary"
-                    >
-                      Cancel
-                    </button>
-                  </div>
-                </div>
-              ) : selectedReviewFeedback ? (
-                <div className="space-y-4">
-                  <div>
-                    <div className="text-xs font-semibold uppercase tracking-[0.16em] text-primary">Feedback detail</div>
-                    <div className="mt-2 text-xl font-semibold text-foreground">{selectedReviewFeedback.memberName}</div>
-                    <div className="mt-1 text-sm text-muted-foreground">
-                      {selectedReviewFeedback.assignmentTitle || 'General coaching note'} | {selectedReviewFeedback.authorName}
-                    </div>
-                  </div>
-
-                  <div className="grid gap-3 sm:grid-cols-2 2xl:grid-cols-4">
-                    <MetricCard label="State" value={selectedFeedbackState?.label || 'Draft'} />
-                    <MetricCard label="Visibility" value={selectedReviewFeedback.sharedWithMember ? 'Shared' : 'Private'} />
-                    <MetricCard
-                      label="Score"
-                      value={selectedReviewFeedback.rubricScore !== null ? `${selectedReviewFeedback.rubricScore}` : '--'}
-                    />
-                    <MetricCard label="Updated" value={formatRelativeActivityLabel(selectedReviewFeedback.updatedAt)} />
-                  </div>
-
-                  {selectedReviewFeedback.rubricBreakdown ? (
-                    <div className="grid gap-3 sm:grid-cols-2">
-                      <MetricCard
-                        label="Correctness"
-                        value={
-                          selectedReviewFeedback.rubricBreakdown.correctness !== null
-                            ? `${selectedReviewFeedback.rubricBreakdown.correctness}/10`
-                            : '--'
-                        }
-                      />
-                      <MetricCard
-                        label="Code quality"
-                        value={
-                          selectedReviewFeedback.rubricBreakdown.codeQuality !== null
-                            ? `${selectedReviewFeedback.rubricBreakdown.codeQuality}/10`
-                            : '--'
-                        }
-                      />
-                      <MetricCard
-                        label="Problem solving"
-                        value={
-                          selectedReviewFeedback.rubricBreakdown.problemSolving !== null
-                            ? `${selectedReviewFeedback.rubricBreakdown.problemSolving}/10`
-                            : '--'
-                        }
-                      />
-                      <MetricCard
-                        label="Communication"
-                        value={
-                          selectedReviewFeedback.rubricBreakdown.communication !== null
-                            ? `${selectedReviewFeedback.rubricBreakdown.communication}/10`
-                            : '--'
-                        }
-                      />
-                    </div>
-                  ) : null}
-
-                  <div className="space-y-4 rounded-2xl border border-border bg-card px-4 py-4 text-sm text-muted-foreground">
-                    <div>
-                      <div className="font-semibold text-foreground">Summary</div>
-                      <div className="mt-1">{selectedReviewFeedback.summary || 'No summary yet.'}</div>
-                    </div>
-                    <div>
-                      <div className="font-semibold text-foreground">Strengths</div>
-                      <div className="mt-1">{selectedReviewFeedback.strengths || 'No strengths captured yet.'}</div>
-                    </div>
-                    <div>
-                      <div className="font-semibold text-foreground">Focus areas</div>
-                      <div className="mt-1">{selectedReviewFeedback.focusAreas || 'No focus areas captured yet.'}</div>
-                    </div>
-                    <div>
-                      <div className="font-semibold text-foreground">Private coach notes</div>
-                      <div className="mt-1">{selectedReviewFeedback.coachNotes || 'No private coach notes yet.'}</div>
-                    </div>
-                  </div>
-
-                  <div className="flex flex-wrap gap-3 pt-1">
-                    <button
-                      type="button"
-                      onClick={() => startFeedbackEdit(selectedReviewFeedback)}
-                      disabled={!canManageWorkspace}
-                      className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl border border-border bg-card px-4 text-sm font-semibold text-foreground transition hover:bg-secondary disabled:opacity-60"
-                    >
-                      <Pencil className="h-4 w-4" />
-                      Edit feedback
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => openNewFeedbackComposer(selectedReviewFeedback.memberUserId, selectedReviewFeedback.assignmentId || undefined)}
-                      disabled={!canManageWorkspace}
-                      className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl border border-border bg-card px-4 text-sm font-semibold text-foreground transition hover:bg-secondary disabled:opacity-60"
-                    >
-                      <Plus className="h-4 w-4" />
-                      Follow-up note
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (filteredReviewItems.length === 0) return;
-                        const nextIndex =
-                          selectedReviewItemIndex >= 0 ? Math.min(selectedReviewItemIndex + 1, filteredReviewItems.length - 1) : 0;
-                        setSelectedReviewItemId(filteredReviewItems[nextIndex]?.id || null);
-                        setFeedbackComposerOpen(false);
-                      }}
-                      disabled={!selectedReviewItem || filteredReviewItems.length <= 1}
-                      className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl border border-border bg-card px-4 text-sm font-semibold text-foreground transition hover:bg-secondary disabled:opacity-60"
-                    >
-                      <ArrowRight className="h-4 w-4" />
-                      Next learner
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => requestDeleteFeedback(selectedReviewFeedback)}
-                      disabled={!canManageWorkspace || submittingKey === `delete-feedback-${selectedReviewFeedback.id}`}
-                      className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl border border-destructive/20 bg-destructive/10 px-4 text-sm font-semibold text-destructive transition hover:bg-destructive/15 disabled:opacity-60"
-                    >
-                      {submittingKey === `delete-feedback-${selectedReviewFeedback.id}` ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                      ) : (
-                        <Trash2 className="h-4 w-4" />
-                      )}
-                      Delete
-                    </button>
-                  </div>
-                </div>
-              ) : selectedReviewItem ? (
-                <div className="space-y-4">
-                  <div>
-                    <div className="text-xs font-semibold uppercase tracking-[0.16em] text-primary">Ready to review</div>
-                    <div className="mt-2 text-xl font-semibold text-foreground">
-                      {selectedReviewItem.member?.name || 'Learner submission'}
-                    </div>
-                    <div className="mt-1 text-sm text-muted-foreground">
-                      {selectedReviewItem.assignment?.title || selectedReviewItem.submission?.assignmentTitle || 'Unlinked submission'}
-                    </div>
-                  </div>
-
-                  <div className="rounded-2xl border border-border bg-card px-4 py-4 text-sm text-muted-foreground">
-                    <div className="font-semibold text-foreground">No coaching note yet</div>
-                    <div className="mt-2">
-                      This submission is in the queue but has not been scored or coached yet. Start the review to create a rubric-backed note and decide whether it stays private, is shared, or gets resolved.
-                    </div>
-                  </div>
-
-                  <div className="grid gap-3 sm:grid-cols-3">
-                    <MetricCard label="Queue state" value={selectedReviewState?.label || 'Needs review'} />
-                    <MetricCard label="Submitted" value={formatRelativeActivityLabel(selectedReviewItem.submittedAt)} />
-                    <MetricCard
-                      label="History"
-                      value={selectedReviewItem.historyCount > 1 ? `${selectedReviewItem.historyCount} reviews` : 'First review'}
-                    />
-                  </div>
-
-                  <div className="flex flex-wrap gap-3 pt-1">
-                    <button
-                      type="button"
-                      onClick={() => startReviewForItem(selectedReviewItem)}
-                      disabled={!canManageWorkspace}
-                      className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl bg-primary px-5 text-sm font-semibold text-primary-foreground transition hover:bg-primary/90 disabled:opacity-60"
-                    >
-                      <Check className="h-4 w-4" />
-                      Start review
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (filteredReviewItems.length === 0) return;
-                        const nextIndex =
-                          selectedReviewItemIndex >= 0 ? Math.min(selectedReviewItemIndex + 1, filteredReviewItems.length - 1) : 0;
-                        setSelectedReviewItemId(filteredReviewItems[nextIndex]?.id || null);
-                      }}
-                      disabled={filteredReviewItems.length <= 1}
-                      className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl border border-border bg-card px-4 text-sm font-semibold text-foreground transition hover:bg-secondary disabled:opacity-60"
-                    >
-                      <ArrowRight className="h-4 w-4" />
-                      Next learner
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                <EmptyState
-                  title="Select a review"
-                  helper="Choose a learner from the queue to inspect work, score it, and publish coaching feedback here."
-                />
-              )}
-            </div>
+                {hiddenFeedbackHistoryCount > 0 ? (
+                  <button
+                    type="button"
+                    onClick={() => setShowAllFeedbackHistory(true)}
+                    className="mt-3 inline-flex h-10 items-center justify-center rounded-xl border border-border bg-card px-4 text-sm font-semibold text-foreground transition hover:bg-secondary"
+                  >
+                    Show {hiddenFeedbackHistoryCount} more note{hiddenFeedbackHistoryCount === 1 ? '' : 's'}
+                  </button>
+                ) : feedbackHistory.length > 3 ? (
+                  <button
+                    type="button"
+                    onClick={() => setShowAllFeedbackHistory(false)}
+                    className="mt-3 inline-flex h-10 items-center justify-center rounded-xl border border-border bg-card px-4 text-sm font-semibold text-foreground transition hover:bg-secondary"
+                  >
+                    Show fewer notes
+                  </button>
+                ) : null}
+              </div>
+            ) : null}
           </div>
-        </div>
-      </ModalShell>
+        ) : null}
+      </div>
+      );
+    };
+
+    const selectComposerHistoryEntry = (entry: TeamFeedback) => {
+      runAfterFeedbackComposerClose(() => {
+        setSelectedReviewItemId(entry.submissionId ? 'submission:' + entry.submissionId : 'feedback:' + entry.id);
+        setSelectedFeedbackId(entry.id);
+      });
+    };
+
+    const reviewSidebar = (
+      <GradeAndCoachReviewSidebar
+        feedbackComposerOpen={feedbackComposerOpen}
+        activeReviewState={activeReviewState}
+        composerModeTitle={composerModeTitle}
+        activeReviewTitle={activeReviewTitle}
+        composerModeHelper={composerModeHelper}
+        reviewTypeLabel={reviewTypeLabel}
+        evidenceStatusLabel={evidenceStatusLabel}
+        hasAnchoredEvidence={composerHasAnchoredEvidence}
+        manualReviewWarning={manualReviewWarning}
+        composerRubricHeading={composerRubricHeading}
+        composerRubricHelper={composerRubricHelper}
+        composerQueueLabel={composerQueueLabel}
+        composerLastActiveLabel={feedbackContextMember ? formatRelativeActivityLabel(feedbackContextMember.lastActiveAt) : null}
+        composerRubricPercent={composerRubricPercent}
+        composerRubricTotal={composerRubricTotal}
+        composerHistoryEntries={composerHistoryEntries}
+        feedbackHistoryCount={feedbackHistory.length}
+        selectedReviewFeedbackId={visibleSelectedFeedback?.id || null}
+        getFeedbackStateMeta={getFeedbackStateMeta}
+        onSelectComposerHistoryEntry={selectComposerHistoryEntry}
+        hiddenComposerHistoryCount={hiddenComposerHistoryCount}
+        onShowAllComposerHistory={() => setShowAllComposerHistory(true)}
+        onShowLessComposerHistory={() => setShowAllComposerHistory(false)}
+        isEditingFeedback={isEditingFeedback}
+        feedbackDraft={feedbackDraft}
+        setFeedbackDraft={setFeedbackDraft}
+        learnerMembers={learnerMembers}
+        assignmentOptions={teamDetail.assignments || []}
+        rubricFields={composerRubricFields}
+        feedbackRubricDraft={feedbackRubricDraft}
+        setFeedbackRubricDraft={setFeedbackRubricDraft}
+        onApplyFeedbackSnippet={applyFeedbackSnippet}
+        workflowOptions={FEEDBACK_WORKFLOW_OPTIONS}
+        onSetFeedbackWorkflowState={setFeedbackWorkflowState}
+        onSaveFeedback={handleSaveFeedback}
+        canManageWorkspace={canManageWorkspace}
+        submittingKey={submittingKey}
+        onCancelComposer={closeFeedbackComposer}
+        selectedReviewFeedback={visibleSelectedFeedback}
+        selectedFeedbackState={selectedFeedbackState}
+        noteSections={noteSections}
+        formatRelativeActivityLabel={formatRelativeActivityLabel}
+        onStartFeedbackEdit={requestStartFeedbackEdit}
+        onRequestDeleteFeedback={requestDeleteFeedback}
+        hasSelectedReviewItem={Boolean(selectedReviewItem)}
+        onStartReviewForSelectedItem={() => {
+          if (visibleSelectedFeedback) {
+            requestStartFeedbackEdit(visibleSelectedFeedback);
+            return;
+          }
+          if (selectedReviewItem) startReviewForItem(selectedReviewItem);
+        }}
+        onOpenManualFeedbackComposer={openManualFeedbackComposer}
+        composerContextPanel={renderComposerContextPanel()}
+      />
+    );
+
+    return (
+      <GradeAndCoachModal
+        feedbackComposerOpen={feedbackComposerOpen}
+        onClose={requestCloseFeedbackModal}
+        reviewSidebar={reviewSidebar}
+        workContextPane={renderWorkContextPane()}
+        queuePane={renderQueuePane()}
+        hasSelectedReviewItem={Boolean(selectedReviewItem)}
+        canManageWorkspace={canManageWorkspace}
+        onOpenManualFeedbackComposer={openManualFeedbackComposer}
+        onStartOrEditReview={() => {
+          if (selectedReviewItem) startReviewForItem(selectedReviewItem);
+        }}
+        onMoveToNextReviewItem={moveToNextReviewItem}
+        hasNextReviewItem={hasNextReviewItem}
+        hasSelectedReviewFeedback={Boolean(visibleSelectedFeedback)}
+        activeReviewState={activeReviewState}
+        activeReviewHeading={activeReviewHeading}
+        activeReviewTitle={activeReviewTitle}
+        activeSubmissionLabel={activeSubmissionLabel}
+        lastActiveLabel={feedbackContextMember ? formatRelativeActivityLabel(feedbackContextMember.lastActiveAt) : null}
+        queueUpdatedLabel={selectedReviewItem ? formatRelativeActivityLabel(selectedReviewItem.updatedAt) : null}
+        latestBenchmarkLabel={
+          feedbackContextMember?.latestBenchmarkScore !== null
+            ? String(feedbackContextMember.latestBenchmarkScore) + (feedbackContextMember.latestBenchmarkAt ? ' | ' + formatDateLabel(feedbackContextMember.latestBenchmarkAt) : '')
+            : null
+        }
+      />
     );
   };
-
   const teamSelectorValue = selectedTeamId || TEAM_WORKSPACE_OVERVIEW_VALUE;
   const isBusy = loadingTeams || loadingDetail;
   const createCardDisabled = !isSignedIn || !canCreateTeams;
@@ -5106,7 +5477,7 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
                           </div>
                         )}
                         <div
-                          title={`${activityIndicator.description} • ${activityIndicator.label}`}
+                          title={`${activityIndicator.description} | ${activityIndicator.label}`}
                           className="flex h-11 items-center justify-start gap-3 rounded-2xl border border-border bg-card px-4 text-sm font-semibold text-foreground"
                         >
                           <span className={`h-3.5 w-3.5 rounded-full ${activityIndicator.className}`} />
@@ -5318,7 +5689,7 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
                               <div className="min-w-0">
                                 <div className="font-semibold text-foreground">{request.userName}</div>
                                 <div className="mt-2 text-sm text-muted-foreground">
-                                  {request.userEmail || 'No public email'} {request.inviteCode ? `• ${request.inviteCode}` : ''}
+                                  {request.userEmail || 'No public email'} {request.inviteCode ? `| ${request.inviteCode}` : ''}
                                 </div>
                                 <div className="mt-3 flex flex-wrap gap-2">
                                   <StatusPill>{request.requestedRole}</StatusPill>
@@ -5473,7 +5844,7 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
                   <div className="rounded-2xl border border-border bg-card px-4 py-3">
                     <div className="text-xs uppercase tracking-[0.16em] text-primary">Assignments</div>
                     <div className="mt-2 text-sm text-foreground">
-                      {teamAnalytics.assignmentStats.active} active • {teamAnalytics.assignmentStats.pastDue} past due • {teamAnalytics.assignmentStats.archived} archived
+                      {teamAnalytics.assignmentStats.active} active | {teamAnalytics.assignmentStats.pastDue} past due | {teamAnalytics.assignmentStats.archived} archived
                     </div>
                     <div className="mt-1 text-xs text-muted-foreground">
                       {teamAnalytics.assignmentStats.averageCompletionRate}% average completion
@@ -5481,11 +5852,11 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
                   </div>
                   <div className="rounded-2xl border border-border bg-card px-4 py-3">
                     <div className="text-xs uppercase tracking-[0.16em] text-primary">Invites</div>
-                    <div className="mt-2 text-sm text-foreground">{teamAnalytics.inviteStats.active} active • {teamAnalytics.inviteStats.uses} uses</div>
+                    <div className="mt-2 text-sm text-foreground">{teamAnalytics.inviteStats.active} active | {teamAnalytics.inviteStats.uses} uses</div>
                   </div>
                   <div className="rounded-2xl border border-border bg-card px-4 py-3">
                     <div className="text-xs uppercase tracking-[0.16em] text-primary">Feedback</div>
-                    <div className="mt-2 text-sm text-foreground">{teamAnalytics.feedbackStats.total} total • {teamAnalytics.feedbackStats.shared} shared</div>
+                    <div className="mt-2 text-sm text-foreground">{teamAnalytics.feedbackStats.total} total | {teamAnalytics.feedbackStats.shared} shared</div>
                   </div>
                 </div>
               </div>
@@ -5661,9 +6032,18 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
           onConfirm={() => void handleConfirmWorkspaceAction()}
         />
       ) : null}
+      {feedbackDiscardPrompt ? (
+        <ConfirmActionDialog
+          title={feedbackDiscardPrompt.title}
+          description={feedbackDiscardPrompt.description}
+          confirmLabel={feedbackDiscardPrompt.confirmLabel}
+          tone="destructive"
+          onCancel={cancelFeedbackDiscard}
+          onConfirm={confirmFeedbackDiscard}
+        />
+      ) : null}
     </div>
   );
 };
 
 export default TeamsWorkspace;
-

@@ -7,8 +7,9 @@ import { usePlanAccess } from '../hooks/usePlanAccess';
 import {
   createCustomerPortalSession,
   createPlanCheckoutSession,
-  formatPlanRenewalDate,
+  formatPlanAccessWindowLabel,
   getSelfServePlanProductByPlanName,
+  isAdminOverridePlanEntitlement,
   isRecurringPlanEntitlement,
   isRecurringPlanProduct,
   type PlanStoreProduct,
@@ -307,16 +308,14 @@ function PlanCard({
   plan,
   onCheckout,
   isActive,
-  activeUntilLabel,
   isCheckoutProcessing,
 }: {
   plan: PricingPlanView;
   onCheckout: (product: PlanStoreProduct) => void;
   isActive: boolean;
-  activeUntilLabel?: string | null;
   isCheckoutProcessing: boolean;
 }) {
-  const highlighted = plan.badge === 'Most popular';
+  const highlighted = plan.name === 'Pro';
   const isIncluded = plan.name === 'Free';
   const isTeamPlan = plan.name === 'Teams' || plan.name === 'Teams Growth' || plan.name === 'Custom';
   const selfServeProduct = getSelfServePlanProductByPlanName(plan.name);
@@ -346,15 +345,7 @@ function PlanCard({
           : 'border-border bg-card shadow-card hover:border-primary/20'
       }`}
     >
-      {plan.badge ? (
-        <div className="absolute -top-3 left-1/2 -translate-x-1/2">
-          <span className="type-label rounded-full border border-primary/20 bg-primary/10 px-4 py-1 text-primary">
-            {plan.badge}
-          </span>
-        </div>
-      ) : null}
-
-      <div className="space-y-2">
+      <div>
         <div className="flex items-center justify-between gap-3">
           <div className="type-label text-muted-foreground">{plan.name}</div>
           {isTeamPlan ? <Users className="h-4 w-4 text-primary" /> : null}
@@ -363,7 +354,6 @@ function PlanCard({
           <span className="type-stat text-foreground">{plan.price}</span>
           <span className="type-body-sm pb-1 text-muted-foreground">{plan.cadence}</span>
         </div>
-        <p className="type-body-sm text-muted-foreground">{plan.description}</p>
       </div>
 
       <ul className="my-6 flex-1 space-y-3">
@@ -375,22 +365,14 @@ function PlanCard({
         ))}
       </ul>
 
-      {!isIncluded ? (
-        <div className="mb-4 rounded-xl border border-border bg-background/70 px-3 py-2 text-xs leading-6 text-muted-foreground">
-          {isActive
-            ? `Active now${activeUntilLabel ? ` until ${activeUntilLabel}` : ''}.`
-            : selfServeProduct
-            ? 'Activate here.'
-            : isTeamPlan
-            ? 'Talk with sales for a custom rollout.'
-            : 'Use the pricing page.'}
-        </div>
-      ) : null}
-
       {isIncluded ? (
-        <div className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-primary/20 bg-primary/10 px-4 py-3 text-sm font-semibold text-primary">
-          Included in your account
-        </div>
+        <Link
+          to="/app?section=practice"
+          className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-primary/20 bg-primary/10 px-4 py-3 text-sm font-semibold text-primary transition hover:bg-primary/15"
+        >
+          <span>Open starter workspace</span>
+          <ArrowRight className="h-4 w-4" />
+        </Link>
       ) : isActive ? (
         <Link
           to={activeWorkspaceHref}
@@ -653,8 +635,11 @@ const Store: React.FC = () => {
               {primaryPlan ? (
                 <div className="mt-4 rounded-2xl border border-primary/20 bg-primary/10 px-4 py-4 text-sm text-foreground">
                   Active plan: <span className="font-semibold">{primaryPlan.planName}</span>
-                  {primaryPlan.currentPeriodEnd ? (
-                    <span className="text-foreground/75"> until {formatPlanRenewalDate(primaryPlan.currentPeriodEnd) || 'your renewal date'}</span>
+                  {formatPlanAccessWindowLabel(primaryPlan) ? (
+                    <span className="text-foreground/75"> {formatPlanAccessWindowLabel(primaryPlan)}</span>
+                  ) : null}
+                  {isAdminOverridePlanEntitlement(primaryPlan) ? (
+                    <span className="text-foreground/75"> via admin access</span>
                   ) : null}
                 </div>
               ) : null}
@@ -734,7 +719,6 @@ const Store: React.FC = () => {
                 plan={plan}
                 onCheckout={handlePlanCheckout}
                 isActive={Boolean(entitlement)}
-                activeUntilLabel={formatPlanRenewalDate(entitlement?.currentPeriodEnd)}
                 isCheckoutProcessing={
                   processingItemId === product?.id ||
                   (selectedCheckout?.kind === 'plan' && product?.id === selectedCheckout.itemId)

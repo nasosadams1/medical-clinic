@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { listPlanEntitlements, type PlanEntitlement, type SelfServePlanId } from '../lib/billing';
 
@@ -6,6 +6,11 @@ export function usePlanEntitlements() {
   const { user } = useAuth();
   const [entitlements, setEntitlements] = useState<PlanEntitlement[]>([]);
   const [loading, setLoading] = useState(false);
+  const entitlementsRef = useRef<PlanEntitlement[]>([]);
+
+  useEffect(() => {
+    entitlementsRef.current = entitlements;
+  }, [entitlements]);
 
   const refresh = useCallback(async () => {
     if (!user?.id) {
@@ -19,8 +24,7 @@ export function usePlanEntitlements() {
       setEntitlements(nextEntitlements);
       return nextEntitlements;
     } catch {
-      setEntitlements([]);
-      return [];
+      return entitlementsRef.current;
     } finally {
       setLoading(false);
     }

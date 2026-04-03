@@ -1,0 +1,75 @@
+{
+  "success": true,
+  "seed": {
+    "teamName": "Smoke Team 1775223302370",
+    "teamId": "92f03188-5ba9-458f-bc44-b3242eaadceb",
+    "assignmentId": "358ee20c-b365-408e-b74b-50bad4d223b3"
+  },
+  "steps": [
+    {
+      "step": "opened app"
+    },
+    {
+      "step": "opened teams section"
+    },
+    {
+      "step": "selected smoke team"
+    },
+    {
+      "step": "opened grade and coach"
+    },
+    {
+      "step": "verified accessible close label"
+    },
+    {
+      "step": "keyboard j changed focused learner",
+      "from": "Smoke Learner B",
+      "to": "Smoke Learner A"
+    },
+    {
+      "step": "keyboard k changed focused learner again",
+      "to": "Smoke Learner B"
+    },
+    {
+      "step": "returned to learner A for review"
+    },
+    {
+      "step": "opened existing review composer"
+    },
+    {
+      "step": "dismissed in-app discard dialog and kept draft"
+    },
+    {
+      "step": "filled rubric and note fields"
+    },
+    {
+      "step": "updated draft feedback"
+    },
+    {
+      "step": "accepted in-app discard dialog from edit mode"
+    },
+    {
+      "step": "discarded edit did not persist"
+    },
+    {
+      "step": "shared feedback"
+    },
+    {
+      "step": "resolved feedback"
+    },
+    {
+      "step": "deleted feedback and returned to queue state"
+    }
+  ],
+  "apiFailures": [],
+  "pageErrors": [],
+  "details": {
+    "closeButtonLabel": "Close Grade and coach",
+    "discardPromptText": "DISCARD THIS DRAFT REVIEW?\nYour unsaved rubric, learner-facing note, and private coach notes will be lost.\nCancel\nDiscard draft",
+    "editTargetLocked": {
+      "learner": true,
+      "assignment": true
+    },
+    "summaryAfterReopen": "Draft summary baseline for smoke test 1775233648719."
+  }
+}

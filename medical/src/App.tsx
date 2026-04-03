@@ -5,6 +5,7 @@ import { UserProvider } from './context/UserContext';
 import AppShell from './components/AppShell';
 import { lazyWithPreload } from './lib/lazyWithPreload';
 import { useActivityHeartbeat } from './hooks/useActivityHeartbeat';
+import { getLastWorkspaceHref } from './lib/appNavigation';
 import {
   BenchmarkPage,
   CompilerLandingPage,
@@ -52,7 +53,7 @@ function AppRoutes() {
   useEffect(() => {
     setNavigationCallback(() => {
       setShowAuthModal(false);
-      navigate('/app', { replace: true });
+      navigate(getLastWorkspaceHref(), { replace: true });
     });
   }, [navigate, setNavigationCallback]);
 

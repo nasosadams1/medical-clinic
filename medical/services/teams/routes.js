@@ -376,17 +376,18 @@ const buildStarterAssignments = (useCase, userId) => {
 const isManagerRole = (role) => role === 'owner' || role === 'admin' || role === 'coach';
 
 const loadActiveMembershipsForUser = async (supabaseAdmin, userId) => {
-  const { data, error } = await supabaseAdmin
-    .from('skill_team_memberships')
-    .select('team_id, role, status')
-    .eq('user_id', userId)
-    .eq('status', 'active');
+  const [memberships, ownedTeams] = await Promise.all([
+    runMembershipQueryWithCompatibility({
+      supabaseAdmin,
+      mode: 'many',
+      userId,
+    }),
+    loadOwnedTeamsForUser(supabaseAdmin, userId),
+  ]);
 
-  if (error) {
-    throw new Error(error.message || 'Could not load active team memberships.');
-  }
-
-  return data || [];
+  return mergeOwnedTeamMemberships(memberships, ownedTeams, userId).filter(
+    (membership) => membership.status === 'active'
+  );
 };
 
 const countUserMembershipsByRole = (memberships, excludeTeamId = null) =>
@@ -406,6 +407,193 @@ const countUserMembershipsByRole = (memberships, excludeTeamId = null) =>
     },
     { learner: 0, manager: 0 }
   );
+
+const getSupabaseErrorMessage = (error) =>
+  String(error?.message || error?.details || error?.hint || '').trim();
+
+const isSchemaCompatibilityError = (error) => {
+  const message = getSupabaseErrorMessage(error).toLowerCase();
+  return (
+    message.includes('does not exist') ||
+    message.includes('schema cache') ||
+    message.includes('could not find the') ||
+    message.includes('column ') ||
+    message.includes('relation ')
+  );
+};
+
+const normalizeEntitlementStatus = (value) => String(value || 'active').trim().toLowerCase();
+
+const getEntitlementMetadata = (entry) =>
+  typeof entry?.metadata === 'object' && entry.metadata ? entry.metadata : {};
+
+const getEntitlementExpiryTimestamp = (entry) => {
+  const metadata = getEntitlementMetadata(entry);
+  const candidates = [
+    entry?.current_period_end,
+    entry?.currentPeriodEnd,
+    entry?.expires_at,
+    entry?.expiresAt,
+    metadata.current_period_end,
+    metadata.currentPeriodEnd,
+    metadata.expires_at,
+    metadata.expiresAt,
+  ];
+
+  for (const candidate of candidates) {
+    const timestamp = new Date(candidate || '').getTime();
+    if (Number.isFinite(timestamp) && timestamp > 0) {
+      return timestamp;
+    }
+  }
+
+  return null;
+};
+
+const isActiveEntitlementRow = (entry) => {
+  const status = normalizeEntitlementStatus(entry?.status);
+  if (status && status !== 'active') {
+    return false;
+  }
+
+  const expiryTimestamp = getEntitlementExpiryTimestamp(entry);
+  if (expiryTimestamp !== null) {
+    return expiryTimestamp > Date.now();
+  }
+
+  const metadata = getEntitlementMetadata(entry);
+  if (metadata.admin_override === true) {
+    return true;
+  }
+
+  return Boolean(String(entry?.plan_name || entry?.item_id || '').trim());
+};
+
+const runMembershipQueryWithCompatibility = async ({ supabaseAdmin, mode, userId, teamId }) => {
+  const candidates = [
+    { select: 'team_id, user_id, role, status, joined_at', orderColumn: 'joined_at', includeStatus: true, joinedAtField: 'joined_at' },
+    { select: 'team_id, user_id, role, joined_at', orderColumn: 'joined_at', includeStatus: false, joinedAtField: 'joined_at' },
+    { select: 'team_id, user_id, role, status, created_at', orderColumn: 'created_at', includeStatus: true, joinedAtField: 'created_at' },
+    { select: 'team_id, user_id, role, created_at', orderColumn: 'created_at', includeStatus: false, joinedAtField: 'created_at' },
+    { select: 'team_id, user_id, role, status', orderColumn: null, includeStatus: true, joinedAtField: null },
+    { select: 'team_id, user_id, role', orderColumn: null, includeStatus: false, joinedAtField: null },
+  ];
+
+  let lastError = null;
+
+  for (const candidate of candidates) {
+    let query = supabaseAdmin.from('skill_team_memberships').select(candidate.select);
+    if (userId) query = query.eq('user_id', userId);
+    if (teamId) query = query.eq('team_id', teamId);
+    if (mode === 'many' && candidate.orderColumn) {
+      query = query.order(candidate.orderColumn, { ascending: true });
+    }
+    if (mode === 'single') {
+      query = query.maybeSingle();
+    }
+
+    const { data, error } = await query;
+    if (!error) {
+      const normalizeRow = (row) =>
+        row
+          ? {
+              team_id: row.team_id,
+              user_id: row.user_id,
+              role: row.role,
+              status: candidate.includeStatus ? row.status || 'active' : 'active',
+              joined_at: candidate.joinedAtField ? row[candidate.joinedAtField] || null : null,
+            }
+          : null;
+
+      if (mode === 'single') {
+        return normalizeRow(data);
+      }
+
+      return (data || []).map(normalizeRow).filter(Boolean);
+    }
+
+    lastError = error;
+    if (!isSchemaCompatibilityError(error)) {
+      break;
+    }
+  }
+
+  throw new Error(getSupabaseErrorMessage(lastError) || 'Could not load team memberships.');
+};
+
+const loadOwnedTeamsForUser = async (supabaseAdmin, userId) => {
+  const { data, error } = await supabaseAdmin
+    .from('skill_teams')
+    .select('id, created_at')
+    .eq('created_by', userId)
+    .order('created_at', { ascending: true });
+
+  if (error) {
+    throw new Error(error.message || 'Could not load owned teams.');
+  }
+
+  return data || [];
+};
+
+const mergeOwnedTeamMemberships = (memberships, ownedTeams, userId) => {
+  const nextMemberships = [...(memberships || [])];
+  const seenTeamIds = new Set(nextMemberships.map((membership) => membership.team_id));
+
+  (ownedTeams || []).forEach((team) => {
+    if (seenTeamIds.has(team.id)) return;
+    nextMemberships.push({
+      team_id: team.id,
+      user_id: userId,
+      role: 'owner',
+      status: 'active',
+      joined_at: team.created_at || null,
+    });
+    seenTeamIds.add(team.id);
+  });
+
+  return nextMemberships.sort((left, right) => {
+    const leftTime = new Date(left.joined_at || 0).getTime();
+    const rightTime = new Date(right.joined_at || 0).getTime();
+    return leftTime - rightTime;
+  });
+};
+
+const loadMembershipCountsByTeamId = async (supabaseAdmin, teamIds = null) => {
+  const candidates = [
+    { select: 'team_id, status', includeStatus: true },
+    { select: 'team_id', includeStatus: false },
+  ];
+
+  let lastError = null;
+
+  for (const candidate of candidates) {
+    let query = supabaseAdmin.from('skill_team_memberships').select(candidate.select);
+    if (Array.isArray(teamIds)) {
+      if (teamIds.length === 0) return new Map();
+      query = query.in('team_id', teamIds);
+    }
+
+    const { data, error } = await query;
+    if (!error) {
+      const countsByTeamId = new Map();
+      (data || []).forEach((membership) => {
+        if (candidate.includeStatus && membership.status !== 'active') {
+          return;
+        }
+        const current = countsByTeamId.get(membership.team_id) || 0;
+        countsByTeamId.set(membership.team_id, current + 1);
+      });
+      return countsByTeamId;
+    }
+
+    lastError = error;
+    if (!isSchemaCompatibilityError(error)) {
+      break;
+    }
+  }
+
+  throw new Error(getSupabaseErrorMessage(lastError) || 'Could not load team membership counts.');
+};
 
 const ensureMembershipLimitAvailable = async ({
   supabaseAdmin,
@@ -434,18 +622,45 @@ const ensureMembershipLimitAvailable = async ({
 };
 
 const loadMembership = async (supabaseAdmin, teamId, userId) => {
-  const { data, error } = await supabaseAdmin
-    .from('skill_team_memberships')
-    .select('team_id, user_id, role, status, joined_at')
-    .eq('team_id', teamId)
-    .eq('user_id', userId)
-    .maybeSingle();
+  try {
+    const membership = await runMembershipQueryWithCompatibility({
+      supabaseAdmin,
+      mode: 'single',
+      teamId,
+      userId,
+    });
 
-  if (error) {
-    throw new Error(error.message || 'Could not load team membership.');
+    if (membership) {
+      return membership;
+    }
+  } catch (error) {
+    if (!isSchemaCompatibilityError(error)) {
+      throw error;
+    }
   }
 
-  return data;
+  const { data: ownedTeam, error: ownedTeamError } = await supabaseAdmin
+    .from('skill_teams')
+    .select('id, created_at')
+    .eq('id', teamId)
+    .eq('created_by', userId)
+    .maybeSingle();
+
+  if (ownedTeamError) {
+    throw new Error(ownedTeamError.message || 'Could not load team membership.');
+  }
+
+  if (!ownedTeam) {
+    return null;
+  }
+
+  return {
+    team_id: ownedTeam.id,
+    user_id: userId,
+    role: 'owner',
+    status: 'active',
+    joined_at: ownedTeam.created_at || null,
+  };
 };
 
 const ensureTeamAccess = async (supabaseAdmin, teamId, userId, authenticatedUser = null) => {
@@ -1286,22 +1501,40 @@ const createUniqueTeamSlug = async (supabaseAdmin, name) => {
 };
 
 const loadActiveTeamEntitlements = async (supabaseAdmin, userId) => {
-  const { data, error } = await supabaseAdmin
-    .from('plan_entitlements')
-    .select('plan_name, item_id, status, current_period_end')
-    .eq('user_id', userId)
-    .eq('status', 'active');
+  const selectCandidates = [
+    'plan_name, item_id, status, current_period_end, metadata',
+    'plan_name, item_id, status, current_period_end',
+    'plan_name, item_id, current_period_end, metadata',
+    'plan_name, item_id, status, metadata',
+    '*',
+  ];
 
-  if (error) {
-    throw new Error(error.message || 'Could not load team plan entitlements.');
+  let lastError = null;
+
+  for (const select of selectCandidates) {
+    const { data, error } = await supabaseAdmin.from('plan_entitlements').select(select).eq('user_id', userId);
+
+    if (!error) {
+      return (data || []).filter(isActiveEntitlementRow);
+    }
+
+    lastError = error;
+    if (!isSchemaCompatibilityError(error)) {
+      break;
+    }
   }
 
-  const activeRows = (data || []).filter((entry) => {
-    const expiresAt = new Date(entry.current_period_end || '').getTime();
-    return Number.isFinite(expiresAt) && expiresAt > Date.now();
-  });
+  throw new Error(getSupabaseErrorMessage(lastError) || 'Could not load team plan entitlements.');
+};
 
-  return activeRows;
+const deleteTeamSilently = async (supabaseAdmin, teamId) => {
+  if (!teamId) return;
+
+  try {
+    await supabaseAdmin.from('skill_teams').delete().eq('id', teamId);
+  } catch {
+    // Best-effort cleanup only.
+  }
 };
 
 const resolveUserTeamPlanPolicy = async (supabaseAdmin, authenticatedUser) => {
@@ -1803,20 +2036,19 @@ export const createTeamsRouter = ({ supabaseAdmin }) => {
   router.get('/', requireAuth, async (req, res) => {
     try {
       if (isPrivilegedAdmin(req.authenticatedUser)) {
-        const [{ data: teams, error: teamsError }, { data: allMemberships, error: membershipError }] = await Promise.all([
+        const [{ data: teams, error: teamsError }, countsByTeamId] = await Promise.all([
           supabaseAdmin.from('skill_teams').select('*').order('created_at', { ascending: true }),
-          supabaseAdmin.from('skill_team_memberships').select('team_id, status'),
+          loadMembershipCountsByTeamId(supabaseAdmin).catch((error) => {
+            if (!isSchemaCompatibilityError(error)) {
+              throw error;
+            }
+            return new Map();
+          }),
         ]);
 
-        if (teamsError || membershipError) {
-          throw new Error(teamsError?.message || membershipError?.message || 'Could not load team summaries.');
+        if (teamsError) {
+          throw new Error(teamsError?.message || 'Could not load team summaries.');
         }
-
-        const countsByTeamId = new Map();
-        (allMemberships || []).forEach((membership) => {
-          const current = countsByTeamId.get(membership.team_id) || 0;
-          countsByTeamId.set(membership.team_id, current + (membership.status === 'active' ? 1 : 0));
-        });
 
         return res.json({
           teams: (teams || []).map((team) => ({
@@ -1836,38 +2068,48 @@ export const createTeamsRouter = ({ supabaseAdmin }) => {
         });
       }
 
-      const { data: memberships, error } = await supabaseAdmin
-        .from('skill_team_memberships')
-        .select('team_id, role, status, joined_at')
-        .eq('user_id', req.authenticatedUser.id)
-        .order('joined_at', { ascending: true });
+      const [memberships, ownedTeams] = await Promise.all([
+        runMembershipQueryWithCompatibility({
+          supabaseAdmin,
+          mode: 'many',
+          userId: req.authenticatedUser.id,
+        }).catch((error) => {
+          if (!isSchemaCompatibilityError(error)) {
+            throw error;
+          }
+          return [];
+        }),
+        loadOwnedTeamsForUser(supabaseAdmin, req.authenticatedUser.id).catch((error) => {
+          if (!isSchemaCompatibilityError(error)) {
+            throw error;
+          }
+          return [];
+        }),
+      ]);
 
-      if (error) {
-        throw new Error(error.message || 'Could not load teams.');
-      }
+      const effectiveMemberships = mergeOwnedTeamMemberships(memberships, ownedTeams, req.authenticatedUser.id);
 
-      const teamIds = (memberships || []).map((membership) => membership.team_id);
+      const teamIds = effectiveMemberships.map((membership) => membership.team_id);
       if (teamIds.length === 0) {
         return res.json({ teams: [] });
       }
 
-      const [{ data: teams, error: teamsError }, { data: allMemberships, error: membershipError }] = await Promise.all([
+      const [{ data: teams, error: teamsError }, countsByTeamId] = await Promise.all([
         supabaseAdmin.from('skill_teams').select('*').in('id', teamIds).order('created_at', { ascending: true }),
-        supabaseAdmin.from('skill_team_memberships').select('team_id, status').in('team_id', teamIds),
+        loadMembershipCountsByTeamId(supabaseAdmin, teamIds).catch((error) => {
+          if (!isSchemaCompatibilityError(error)) {
+            throw error;
+          }
+          return new Map();
+        }),
       ]);
 
-      if (teamsError || membershipError) {
-        throw new Error(teamsError?.message || membershipError?.message || 'Could not load team summaries.');
+      if (teamsError) {
+        throw new Error(teamsError?.message || 'Could not load team summaries.');
       }
 
-      const countsByTeamId = new Map();
-      (allMemberships || []).forEach((membership) => {
-        const current = countsByTeamId.get(membership.team_id) || 0;
-        countsByTeamId.set(membership.team_id, current + (membership.status === 'active' ? 1 : 0));
-      });
-
       const teamsById = new Map((teams || []).map((team) => [team.id, team]));
-      const response = (memberships || [])
+      const response = effectiveMemberships
         .map((membership) => {
           const team = teamsById.get(membership.team_id);
           if (!team) return null;
@@ -1890,11 +2132,16 @@ export const createTeamsRouter = ({ supabaseAdmin }) => {
 
       return res.json({ teams: response });
     } catch (error) {
+      if (isSchemaCompatibilityError(error)) {
+        return res.json({ teams: [] });
+      }
       return res.status(400).json({ error: error.message || 'Could not load teams.' });
     }
   });
 
   router.post('/', requireAuth, async (req, res) => {
+    let createdTeamId = null;
+
     try {
       const parsed = CreateTeamSchema.parse(req.body || {});
       const planPolicy = await ensureWorkspaceCreationAllowed(supabaseAdmin, req.authenticatedUser);
@@ -1916,34 +2163,68 @@ export const createTeamsRouter = ({ supabaseAdmin }) => {
       if (teamError || !team) {
         throw new Error(teamError?.message || 'Could not create team.');
       }
+      createdTeamId = team.id;
 
-      const { error: membershipError } = await supabaseAdmin.from('skill_team_memberships').insert({
-        team_id: team.id,
-        user_id: req.authenticatedUser.id,
-        role: 'owner',
-        status: 'active',
-      });
+      const { error: membershipError } = await supabaseAdmin.from('skill_team_memberships').upsert(
+        {
+          team_id: team.id,
+          user_id: req.authenticatedUser.id,
+          role: 'owner',
+          status: 'active',
+        },
+        {
+          onConflict: 'team_id,user_id',
+        }
+      );
 
-      if (membershipError) {
+      if (membershipError && !isSchemaCompatibilityError(membershipError)) {
         throw new Error(membershipError.message || 'Could not create the team owner membership.');
       }
 
-      const { error: assignmentError } = await supabaseAdmin.from('skill_team_assignments').insert(
-        buildStarterAssignments(parsed.useCase, req.authenticatedUser.id).map((assignment) => ({
-          team_id: team.id,
-          ...assignment,
-        }))
-      );
-
-      if (assignmentError) {
-        throw new Error(assignmentError.message || 'Could not create starter assignments.');
+      if (membershipError) {
+        console.warn('[teams] create team owner membership fallback', {
+          teamId: team.id,
+          userId: req.authenticatedUser.id,
+          error: getSupabaseErrorMessage(membershipError),
+        });
       }
 
-      await createDefaultJoinInvite(supabaseAdmin, {
-        teamId: team.id,
-        createdBy: req.authenticatedUser.id,
-        maxUses: Math.min(planPolicy.inviteMaxUses, team.seat_limit),
-      });
+      const starterAssignments = buildStarterAssignments(parsed.useCase, req.authenticatedUser.id).map((assignment) => ({
+        team_id: team.id,
+        ...assignment,
+      }));
+
+      if (starterAssignments.length > 0) {
+        const { error: assignmentError } = await supabaseAdmin.from('skill_team_assignments').insert(starterAssignments);
+
+        if (assignmentError && !isSchemaCompatibilityError(assignmentError)) {
+          throw new Error(assignmentError.message || 'Could not create starter assignments.');
+        }
+
+        if (assignmentError) {
+          console.warn('[teams] starter assignment provisioning skipped', {
+            teamId: team.id,
+            error: getSupabaseErrorMessage(assignmentError),
+          });
+        }
+      }
+
+      try {
+        await createDefaultJoinInvite(supabaseAdmin, {
+          teamId: team.id,
+          createdBy: req.authenticatedUser.id,
+          maxUses: Math.min(planPolicy.inviteMaxUses, team.seat_limit),
+        });
+      } catch (error) {
+        if (!isSchemaCompatibilityError(error)) {
+          throw error;
+        }
+
+        console.warn('[teams] default invite provisioning skipped', {
+          teamId: team.id,
+          error: getSupabaseErrorMessage(error),
+        });
+      }
 
       return res.status(201).json({
         team: {
@@ -1961,6 +2242,14 @@ export const createTeamsRouter = ({ supabaseAdmin }) => {
         },
       });
     } catch (error) {
+      if (createdTeamId) {
+        await deleteTeamSilently(supabaseAdmin, createdTeamId);
+      }
+
+      console.error('[teams] create team failed', {
+        userId: req.authenticatedUser?.id || null,
+        error: error?.message || String(error),
+      });
       return res.status(400).json({ error: error.message || 'Could not create team.' });
     }
   });

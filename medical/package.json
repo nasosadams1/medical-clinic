@@ -23,6 +23,7 @@
     "test:feedback": "node scripts/test-feedback.js",
     "test:store": "node scripts/test-store.js",
     "test:legal": "node scripts/test-legal.js",
+    "test:teams-grade-and-coach": "node scripts/test-teams-grade-and-coach-smoke.mjs",
     "test:duel-anticheat": "node scripts/test-duel-anticheat.js",
     "test:benchmark-bank": "node scripts/audit-benchmark-bank.mjs"
   },
@@ -73,6 +74,7 @@
     "globals": "^15.9.0",
     "nodemon": "^3.0.3",
     "npm-run-all": "^4.1.5",
+    "playwright": "^1.54.2",
     "postcss": "^8.4.35",
     "tailwindcss": "^3.4.1",
     "typescript": "^5.5.3",

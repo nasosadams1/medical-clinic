@@ -16,19 +16,18 @@ import TeamsWorkspace from './teams/TeamsWorkspace';
 import { useAuth } from '../context/AuthContext';
 import { usePlanEntitlements } from '../hooks/usePlanEntitlements';
 import { preloadLessonsModule } from '../data/lessonsLoader';
+import {
+  APP_SECTION_STORAGE_KEY,
+  DEFAULT_APP_SECTION,
+  getStoredAppSection,
+  isValidAppSection,
+  type AppSectionId,
+} from '../lib/appNavigation';
 import { lazyWithPreload } from '../lib/lazyWithPreload';
 import mascot from '../assets/design/mascot.png';
 
 type AuthModalView = 'login' | 'signup';
-type SectionId =
-  | 'benchmark'
-  | 'practice'
-  | 'duels'
-  | 'teams'
-  | 'store'
-  | 'leaderboard'
-  | 'profile'
-  | 'account';
+type SectionId = AppSectionId;
 
 interface AppShellProps {
   openAuthModal: (view?: AuthModalView) => void;
@@ -48,23 +47,13 @@ const SectionFallback = () => (
 
 const withSuspense = (node: React.ReactNode) => <Suspense fallback={<SectionFallback />}>{node}</Suspense>;
 
-const defaultSection: SectionId = 'practice';
+const defaultSection: SectionId = DEFAULT_APP_SECTION;
 const TASKBAR_STORAGE_KEY = 'codhak-taskbar-visible';
-
-const isValidSection = (value: string | null): value is SectionId =>
-  value === 'benchmark' ||
-  value === 'practice' ||
-  value === 'duels' ||
-  value === 'teams' ||
-  value === 'store' ||
-  value === 'leaderboard' ||
-  value === 'profile' ||
-  value === 'account';
 
 export default function AppShell({ openAuthModal }: AppShellProps) {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const [currentSection, setCurrentSection] = useState<SectionId>(defaultSection);
+  const [currentSection, setCurrentSection] = useState<SectionId>(() => getStoredAppSection() ?? defaultSection);
   const [sidebarOpen, setSidebarOpen] = useState<boolean>(() => {
     if (typeof window === 'undefined') return false;
     return window.localStorage.getItem(TASKBAR_STORAGE_KEY) === '1';
@@ -95,6 +84,11 @@ export default function AppShell({ openAuthModal }: AppShellProps) {
   }, [sidebarOpen]);
 
   useEffect(() => {
+    if (typeof window === 'undefined') return;
+    window.localStorage.setItem(APP_SECTION_STORAGE_KEY, currentSection);
+  }, [currentSection]);
+
+  useEffect(() => {
     if (previouslyAuthenticatedRef.current && !isAuthenticated) {
       navigate('/', { replace: true });
     }
@@ -110,10 +104,13 @@ export default function AppShell({ openAuthModal }: AppShellProps) {
 
   useEffect(() => {
     const requestedSection = searchParams.get('section');
+    const storedSection = getStoredAppSection();
+    const fallbackSection =
+      storedSection && (isAuthenticated || isGuestSection(storedSection)) ? storedSection : defaultSection;
     const nextSection =
-      isValidSection(requestedSection) && (isAuthenticated || isGuestSection(requestedSection))
+      isValidAppSection(requestedSection) && (isAuthenticated || isGuestSection(requestedSection))
         ? requestedSection
-        : defaultSection;
+        : fallbackSection;
 
     if (currentSection !== nextSection) {
       setCurrentSection(nextSection);

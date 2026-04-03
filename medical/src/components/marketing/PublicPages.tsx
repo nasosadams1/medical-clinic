@@ -44,8 +44,8 @@ import {
 import {
   createCustomerPortalSession,
   createPlanCheckoutSession,
+  formatPlanAccessWindowLabel,
   finalizePlanCheckoutSession,
-  formatPlanRenewalDate,
   getSelfServePlanProductByPlanName,
   isRecurringPlanEntitlement,
   isRecurringPlanProduct,
@@ -291,9 +291,7 @@ function PricingGrid({
           setErrorMessage(null);
           setSuccessMessage(
             `${activeEntitlement.planName} is now active${
-              activeEntitlement.currentPeriodEnd
-                ? ` through ${formatPlanRenewalDate(activeEntitlement.currentPeriodEnd) || 'your current billing window'}`
-                : ''
+              formatPlanAccessWindowLabel(activeEntitlement) ? ` and ${formatPlanAccessWindowLabel(activeEntitlement)}` : ''
             }.`
           );
         } catch (error: any) {
@@ -398,7 +396,7 @@ function PricingGrid({
 
       <div className="grid gap-6 xl:grid-cols-3">
         {plans.map((plan) => {
-          const highlighted = plan.badge === 'Most popular';
+          const highlighted = plan.name === 'Pro';
           const selfServeProduct = getSelfServePlanProductByPlanName(plan.name);
           const activeEntitlement = selfServeProduct ? getPlanEntitlement(selfServeProduct.id) : null;
           const isRecurringPlan = isRecurringPlanProduct(selfServeProduct);
@@ -412,21 +410,12 @@ function PricingGrid({
                   : 'border-border bg-card shadow-card hover:border-primary/20'
               }`}
             >
-              {plan.badge ? (
-                <div className="absolute -top-3 left-1/2 -translate-x-1/2">
-                  <span className="rounded-full bg-primary px-4 py-1 text-xs font-bold uppercase tracking-[0.18em] text-primary-foreground">
-                    {plan.badge}
-                  </span>
-                </div>
-              ) : null}
-
-              <div className="space-y-2">
+              <div>
                 <div className="text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground">{plan.name}</div>
                 <div className="flex items-end gap-2">
                   <span className="text-4xl font-bold font-display text-foreground">{plan.price}</span>
                   <span className="pb-1 text-sm text-muted-foreground">{plan.cadence}</span>
                 </div>
-                <p className="text-sm leading-7 text-muted-foreground">{plan.description}</p>
               </div>
 
               <ul className="my-6 flex-1 space-y-3">
@@ -437,12 +426,6 @@ function PricingGrid({
                   </li>
                 ))}
               </ul>
-
-              {activeEntitlement ? (
-                <div className="mb-4 rounded-xl border border-primary/20 bg-primary/10 px-3 py-2 text-xs leading-6 text-foreground">
-                  Active until {formatPlanRenewalDate(activeEntitlement.currentPeriodEnd) || 'your renewal date'}.
-                </div>
-              ) : null}
 
               <button
                 type="button"
@@ -506,9 +489,7 @@ function PricingGrid({
             setErrorMessage(null);
             setSuccessMessage(
               `${selectedPlanProduct.planName} is now active${
-                activeEntitlement?.currentPeriodEnd
-                  ? ` through ${formatPlanRenewalDate(activeEntitlement.currentPeriodEnd) || 'your current plan window'}`
-                  : ''
+                formatPlanAccessWindowLabel(activeEntitlement) ? ` and ${formatPlanAccessWindowLabel(activeEntitlement)}` : ''
               }.`
             );
             setSelectedPlanProduct(null);
@@ -1402,6 +1383,8 @@ export function PricingPage({ openAuthModal }: PublicPageProps) {
   const leadIntent = searchParams.get('intent');
   const learnerPlans = pricingPlans.filter((plan) => learnerPricingPlanNames.has(plan.name));
   const teamPlans = pricingPlans.filter((plan) => teamPricingPlanNames.has(plan.name));
+  const freePlan = learnerPlans.find((plan) => plan.name === 'Free') ?? null;
+  const proPlan = learnerPlans.find((plan) => plan.name === 'Pro') ?? null;
   const pricingLeadIntent =
     leadIntent === 'custom_plan' || leadIntent === 'interview_sprint'
       ? leadIntent
@@ -1442,9 +1425,9 @@ export function PricingPage({ openAuthModal }: PublicPageProps) {
 
           <div className="mt-10 grid gap-6 lg:grid-cols-2">
             <div className="rounded-2xl border border-border bg-card p-6 shadow-card">
-              <div className="text-sm font-semibold uppercase tracking-[0.18em] text-primary">Free gives you</div>
+              <div className="text-sm font-semibold uppercase tracking-[0.18em] text-primary">Free utility</div>
               <ul className="mt-4 space-y-3">
-                {['Guided lessons', 'Starter practice path', 'Limited duels', 'One free skill check'].map((item) => (
+                {(freePlan?.features ?? []).slice(0, 4).map((item) => (
                   <li key={item} className="flex items-start gap-2 text-sm text-foreground">
                     <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-xp" />
                     <span>{item}</span>
@@ -1454,14 +1437,9 @@ export function PricingPage({ openAuthModal }: PublicPageProps) {
             </div>
 
             <div className="rounded-2xl border border-border bg-card p-6 shadow-card">
-              <div className="text-sm font-semibold uppercase tracking-[0.18em] text-primary">Pro unlocks</div>
+              <div className="text-sm font-semibold uppercase tracking-[0.18em] text-primary">Pro utility</div>
               <ul className="mt-4 space-y-3">
-                {[
-                  'Unlimited assessed practice',
-                  'Full skill reports and roadmap',
-                  'Progress history and retakes',
-                  'Interview tracks and advanced duel analytics',
-                ].map((item) => (
+                {(proPlan?.features ?? []).slice(0, 4).map((item) => (
                   <li key={item} className="flex items-start gap-2 text-sm text-foreground">
                     <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
                     <span>{item}</span>
@@ -1485,9 +1463,8 @@ export function PricingPage({ openAuthModal }: PublicPageProps) {
                     {plan.price}
                     <span className="ml-1 text-sm font-normal text-muted-foreground">{plan.cadence}</span>
                   </div>
-                  <p className="mt-3 text-sm leading-7 text-muted-foreground">{plan.description}</p>
                   <ul className="mt-4 space-y-2">
-                    {plan.features.slice(0, 3).map((feature) => (
+                    {plan.features.slice(0, 4).map((feature) => (
                       <li key={feature} className="flex items-start gap-2 text-sm text-foreground">
                         <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
                         <span>{feature}</span>

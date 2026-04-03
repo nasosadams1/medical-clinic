@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { ArrowRight, Menu, X } from 'lucide-react';
 import { Link } from 'react-router-dom';
+import { getLastWorkspaceHref } from '../../lib/appNavigation';
 import mascot from '../../assets/design/mascot.png';
 
 type AuthModalView = 'login' | 'signup';
@@ -23,6 +24,7 @@ const navItems = [
 
 export default function MarketingLayout({ children, openAuthModal, isAuthenticated }: MarketingLayoutProps) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const workspaceHref = getLastWorkspaceHref();
 
   return (
     <div className="min-h-[100dvh] overflow-x-clip bg-background text-foreground">
@@ -53,7 +55,7 @@ export default function MarketingLayout({ children, openAuthModal, isAuthenticat
           <div className="hidden items-center gap-3 md:flex">
             {isAuthenticated ? (
               <Link
-                to="/app"
+                to={workspaceHref}
                 className="inline-flex items-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground shadow-glow transition hover:bg-primary/90"
               >
                 <span>Open workspace</span>
@@ -105,7 +107,7 @@ export default function MarketingLayout({ children, openAuthModal, isAuthenticat
               ))}
               {isAuthenticated ? (
                 <Link
-                  to="/app"
+                  to={workspaceHref}
                   onClick={() => setMobileMenuOpen(false)}
                   className="inline-flex items-center justify-center gap-2 rounded-xl bg-primary px-4 py-3 text-sm font-semibold text-primary-foreground"
                 >
