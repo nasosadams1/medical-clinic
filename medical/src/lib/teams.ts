@@ -289,6 +289,22 @@ const getAuthToken = async () => {
   return accessToken;
 };
 
+const isLegacyCapabilitiesRouteError = (message: string) => {
+  const normalized = String(message || '');
+  return (
+    normalized.includes('"teamId"') &&
+    normalized.includes('Invalid UUID')
+  );
+};
+
+const normalizeTeamsApiErrorMessage = (message: string, path: string) => {
+  if (path === '/capabilities' && isLegacyCapabilitiesRouteError(message)) {
+    return 'The live Teams API is outdated and needs redeploying before team creation can work.';
+  }
+
+  return message;
+};
+
 const teamsFetch = async <T>(path: string, init: RequestInit = {}) => {
   try {
     const response = await fetch(buildTeamsApiUrl(path), {
@@ -301,7 +317,8 @@ const teamsFetch = async <T>(path: string, init: RequestInit = {}) => {
 
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) {
-      throw new Error((payload as { error?: string }).error || 'Teams request failed.');
+      const rawMessage = (payload as { error?: string }).error || 'Teams request failed.';
+      throw new Error(normalizeTeamsApiErrorMessage(rawMessage, path));
     }
 
     return payload as T;
@@ -327,7 +344,8 @@ const teamsFetchRaw = async (path: string, init: RequestInit = {}) => {
 
     if (!response.ok) {
       const payload = await response.json().catch(() => ({}));
-      throw new Error((payload as { error?: string }).error || 'Teams request failed.');
+      const rawMessage = (payload as { error?: string }).error || 'Teams request failed.';
+      throw new Error(normalizeTeamsApiErrorMessage(rawMessage, path));
     }
 
     return response;
