@@ -591,7 +591,10 @@ const buildCodeFeedback = (result: CodeAssessmentResult | null, languageLabel = 
   if (feedbackKind === 'passed') {
     tone = "success";
     title = "Ready to continue";
-    summary = "Output and structure checks both passed.";
+    summary =
+      result.evaluationSource === "execution"
+        ? "All lesson checks passed."
+        : "Output and structure checks both passed.";
     nextAction = "Move to the next step.";
   } else if (feedbackKind === 'empty') {
     tone = "warning";
@@ -1279,11 +1282,7 @@ const LessonModal: React.FC<LessonModalProps> = ({
     ) {
       const shouldStayLocal =
         preflightAssessment.feedbackKind === "empty" ||
-        preflightAssessment.feedbackKind === "starter" ||
-        (preflightAssessment.feedbackKind === "structure_missing" &&
-          (preflightAssessment.missingSnippets?.length ?? 0) > 0) ||
-        (preflightAssessment.feedbackKind === "cleanup" &&
-          (preflightAssessment.flaggedPatterns?.length ?? 0) > 0);
+        preflightAssessment.feedbackKind === "starter";
 
       if (shouldStayLocal) {
         return {

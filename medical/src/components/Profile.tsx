@@ -83,8 +83,8 @@ const languageTone: Record<
 > = {
   python: { label: 'Python', chip: 'bg-sky-500/15 text-sky-200', progress: 'from-sky-500 to-cyan-400' },
   javascript: { label: 'JavaScript', chip: 'bg-amber-500/15 text-amber-200', progress: 'from-amber-400 to-yellow-300' },
-  cpp: { label: 'C++', chip: 'bg-fuchsia-500/15 text-fuchsia-200', progress: 'from-fuchsia-500 to-violet-400' },
-  java: { label: 'Java', chip: 'bg-rose-500/15 text-rose-200', progress: 'from-rose-500 to-orange-400' },
+  cpp: { label: 'C++', chip: 'bg-sky-500/15 text-sky-200', progress: 'from-sky-500 to-blue-500' },
+  java: { label: 'Java', chip: 'bg-rose-500/15 text-rose-200', progress: 'from-rose-500 to-red-500' },
 };
 
 function formatCountdown(expiresAt: number, currentTime: number) {

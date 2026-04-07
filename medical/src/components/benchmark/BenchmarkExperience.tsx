@@ -25,8 +25,9 @@ import {
   getBenchmarkAttemptIndex,
   getBenchmarkBlueprintSummary,
   getBenchmarkPackDefinition,
-  getProvisionalDifficultyFromAnswers,
-  getRetakeTargetWeaknesses,
+  getBenchmarkRetakePlan,
+  getBenchmarkRetakePlanFromReport,
+  hydrateBenchmarkReport,
   readBenchmarkSetupPreset,
   readSavedBenchmarkHistory,
   saveBenchmarkReport,
@@ -36,6 +37,7 @@ import {
   type BenchmarkFormat,
   type BenchmarkGoal,
   type BenchmarkQuestion,
+  type BenchmarkRetakePlan,
   type BenchmarkReport,
   type BenchmarkRoleLevel,
   type BenchmarkSkillBucket,
@@ -57,6 +59,7 @@ import {
 import { getLastWorkspaceHref } from '../../lib/appNavigation';
 import { formatPlanRenewalDate } from '../../lib/billing';
 import { trackEvent } from '../../lib/analytics';
+import { savePracticeLaunchPreset } from '../../lib/practiceLaunch';
 import BenchmarkReportCard from './BenchmarkReportCard';
 import CodeTypingEditor from '../CodeTypingEditor';
 import {
@@ -97,6 +100,8 @@ type BenchmarkSessionSnapshot = {
   questionRunCounts: Record<string, number>;
   questionLatencies: Record<string, number>;
   telemetrySummary: BenchmarkTelemetrySummary;
+  retakePlan?: BenchmarkRetakePlan | null;
+  deadlineAt?: number;
   secondsLeft: number;
   updatedAt: string;
 };
@@ -152,6 +157,29 @@ const formatDuration = (seconds: number) => {
   return `${minutes}:${remaining.toString().padStart(2, '0')}`;
 };
 
+const getRemainingBenchmarkSeconds = (deadlineAt: number | null, fallbackSeconds: number) => {
+  if (deadlineAt === null || !Number.isFinite(deadlineAt)) {
+    return Math.max(0, fallbackSeconds);
+  }
+
+  return Math.max(0, Math.ceil((deadlineAt - Date.now()) / 1000));
+};
+
+const deriveBenchmarkSessionDeadlineAt = (
+  snapshot: Pick<BenchmarkSessionSnapshot, 'deadlineAt' | 'secondsLeft' | 'updatedAt'>
+) => {
+  if (typeof snapshot.deadlineAt === 'number' && Number.isFinite(snapshot.deadlineAt)) {
+    return snapshot.deadlineAt;
+  }
+
+  const updatedAt = new Date(snapshot.updatedAt).getTime();
+  if (Number.isNaN(updatedAt)) {
+    return null;
+  }
+
+  return updatedAt + Math.max(0, snapshot.secondsLeft) * 1000;
+};
+
 const surfaceCardClassName = 'rounded-[1.5rem] border border-border bg-card p-5 shadow-card sm:p-6';
 const mutedPanelClassName = 'rounded-[1.35rem] border border-border bg-background/70';
 const primaryButtonClassName =
@@ -180,6 +208,20 @@ const mergeReports = (...reportGroups: Array<Array<BenchmarkReport | null | unde
 const formatReportDate = (value: string) =>
   new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric' }).format(new Date(value));
 
+const formatReportTimestamp = (value: string) =>
+  new Intl.DateTimeFormat(undefined, {
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  }).format(new Date(value));
+
+const getTrendEntryLabel = (index: number) => {
+  if (index === 0) return 'Latest';
+  if (index === 1) return 'Previous';
+  return `Earlier ${index}`;
+};
+
 const benchmarkDifficultyLabels: Record<BenchmarkQuestion['difficulty'], string> = {
   beginner: 'Easy',
   intermediate: 'Medium',
@@ -203,7 +245,10 @@ const formatQuestionDurationLabel = (seconds: number) => {
   return `~${minutes} min`;
 };
 
-const createBenchmarkSelectionSeed = () => `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+const createBenchmarkSelectionSeed = () =>
+  typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+    ? crypto.randomUUID()
+    : `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 
 const looksLikeBenchmarkCode = (value: string) => {
   const normalized = value.replace(/\r\n/g, '\n').trim();
@@ -446,7 +491,7 @@ export default function BenchmarkExperience({
     roleLevel: 'junior',
   });
   const [benchmarkFormat, setBenchmarkFormat] = useState<BenchmarkFormat>('quick');
-  const [assessmentStage, setAssessmentStage] = useState<BenchmarkStage>('baseline');
+  const [assessmentStage, setAssessmentStage] = useState<BenchmarkStage>('full');
   const [assessmentQuestions, setAssessmentQuestions] = useState<BenchmarkQuestion[]>([]);
   const [assessmentAttemptIndex, setAssessmentAttemptIndex] = useState(0);
   const [assessmentSelectionSeed, setAssessmentSelectionSeed] = useState('');
@@ -458,6 +503,8 @@ export default function BenchmarkExperience({
   const [questionRunCounts, setQuestionRunCounts] = useState<Record<string, number>>({});
   const [questionLatencies, setQuestionLatencies] = useState<Record<string, number>>({});
   const [telemetrySummary, setTelemetrySummary] = useState<BenchmarkTelemetrySummary>(createEmptyTelemetrySummary);
+  const [retakePlanOverride, setRetakePlanOverride] = useState<BenchmarkRetakePlan | null>(null);
+  const [assessmentDeadlineAt, setAssessmentDeadlineAt] = useState<number | null>(null);
   const [secondsLeft, setSecondsLeft] = useState(getBenchmarkDurationSeconds('quick'));
   const [report, setReport] = useState<BenchmarkReport | null>(null);
   const [isFinishing, setIsFinishing] = useState(false);
@@ -475,9 +522,24 @@ export default function BenchmarkExperience({
   const questionStartedAtRef = useRef<number | null>(null);
   const lastTypingAtRef = useRef<number | null>(null);
   const nextAttemptIndex = useMemo(() => getBenchmarkAttemptIndex(setup, reportHistory), [reportHistory, setup]);
+  const defaultRetakePlan = useMemo(
+    () => getBenchmarkRetakePlan(setup, reportHistory),
+    [reportHistory, setup]
+  );
+  const availableRetakePlan = useMemo(
+    () =>
+      retakePlanOverride && retakePlanOverride.packId === getBenchmarkPackDefinition(setup).id
+        ? retakePlanOverride
+        : defaultRetakePlan,
+    [defaultRetakePlan, retakePlanOverride, setup]
+  );
+  const activeRetakePlan = useMemo(
+    () => (benchmarkFormat === 'retake' ? availableRetakePlan : null),
+    [availableRetakePlan, benchmarkFormat]
+  );
   const retakeTargetWeaknesses = useMemo(
-    () => (benchmarkFormat === 'retake' ? getRetakeTargetWeaknesses(setup, reportHistory) : []),
-    [benchmarkFormat, reportHistory, setup]
+    () => activeRetakePlan?.targetWeaknesses || [],
+    [activeRetakePlan]
   );
   const blueprintSummary = useMemo(
     () => getBenchmarkBlueprintSummary(setup, benchmarkFormat, retakeTargetWeaknesses),
@@ -485,7 +547,7 @@ export default function BenchmarkExperience({
   );
   const buildQuestionSet = (
     selectionSeed: string,
-    stage: 'baseline' | 'followup' | 'full' = 'baseline',
+    stage: 'baseline' | 'full' = 'full',
     options: {
       attemptIndex?: number;
       excludedTemplateIds?: string[];
@@ -529,10 +591,68 @@ export default function BenchmarkExperience({
   const primaryTrack = report?.recommendedTrackIds[0]
     ? interviewTracks.find((track) => track.id === report.recommendedTrackIds[0])
     : undefined;
-  const reportSuggestedLessons = useMemo(
-    () => (report?.suggestedLessonIds || []).map((lessonId) => getLessonCatalogEntry(lessonId)).filter(Boolean).slice(0, 3),
-    [report?.suggestedLessonIds]
-  );
+  const hydratedReport = useMemo(() => (report ? hydrateBenchmarkReport(report) : null), [report]);
+  const reportDiagnosisRows = useMemo(() => {
+    if (!hydratedReport) return [];
+
+    const answerLookup = new Map(
+      (hydratedReport.answerRecords || []).map((answer) => [answer.questionId, answer])
+    );
+    const totalWeight = hydratedReport.questions.reduce(
+      (total, question) => total + Math.max(question.weight || 0, 0),
+      0
+    );
+    const questionInsights = hydratedReport.questions.map((question) => {
+      const answer = answerLookup.get(question.id);
+      const scorePercent =
+        typeof answer?.scorePercent === 'number'
+          ? Math.max(0, Math.min(100, answer.scorePercent))
+          : answer?.isCorrect
+          ? 100
+          : 0;
+      const answered =
+        typeof answer?.selectedAnswer === 'number' ||
+        Boolean(answer?.submittedCode?.trim()) ||
+        typeof answer?.isCorrect === 'boolean';
+      const pointsLost =
+        totalWeight > 0
+          ? Math.round((Math.max(question.weight || 0, 0) * (100 - scorePercent)) / totalWeight)
+          : 0;
+      return { question, scorePercent, answered, pointsLost };
+    });
+
+    return (hydratedReport.topicBreakdown || [])
+      .map((topic) => {
+        const relatedQuestions = questionInsights.filter(
+          (entry) => entry.question.skillBucket === topic.bucket
+        );
+        const primaryMiss =
+          [...relatedQuestions]
+            .filter((entry) => entry.scorePercent < 100 || !entry.answered)
+            .sort(
+              (left, right) =>
+                right.pointsLost - left.pointsLost || left.scorePercent - right.scorePercent
+            )[0] || null;
+        const nextLesson =
+          (primaryMiss?.question.remediationLessonIds || [])
+            .map((lessonId) => getLessonCatalogEntry(lessonId)?.title)
+            .find(Boolean) ||
+          primaryMiss?.question.lessonTitle ||
+          null;
+
+        return {
+          bucket: topic.bucket,
+          label: topic.label,
+          pointsLost: relatedQuestions.reduce((total, entry) => total + entry.pointsLost, 0),
+          nextLesson,
+          nextAction:
+            primaryMiss?.question.remediationPracticeLabel ||
+            `Run one short ${topic.label.toLowerCase()} drill before the retake.`,
+        };
+      })
+      .sort((left, right) => right.pointsLost - left.pointsLost)
+      .slice(0, 3);
+  }, [hydratedReport]);
   const scoreDelta = report?.deltaFromLastAttempt ?? null;
   const reportComparisonMessage =
     report && scoreDelta === null && !report.comparisonSignal.deltaEligible
@@ -547,7 +667,8 @@ export default function BenchmarkExperience({
         minute: '2-digit',
       }).format(new Date(new Date(report.createdAt).getTime() + 48 * 60 * 60 * 1000))
     : null;
-  const upgradeRecommendation = useMemo(() => buildUpgradeRecommendation(report), [report]);
+  const activeUpgradeReport = report ?? savedReport ?? null;
+  const upgradeRecommendation = useMemo(() => buildUpgradeRecommendation(activeUpgradeReport), [activeUpgradeReport]);
   const activeRecommendedEntitlement = useMemo(() => {
     if (!upgradeRecommendation) return null;
     if (upgradeRecommendation.plan === 'Pro') return getPlanEntitlement('pro_monthly');
@@ -563,12 +684,16 @@ export default function BenchmarkExperience({
   const canViewReportHistory = hasPaidLearnerAccess;
   const canRetakeBenchmark = hasPaidLearnerAccess;
   const canShareBenchmarkReport = hasPaidLearnerAccess;
+  const shouldShowUnlockCta = !hasFreeSkillCheckRemaining || !canAccessSelectedFormat || !canAccessSelectedGoal;
   const setupRestrictionMessage = useMemo(() => {
     if (!hasFreeSkillCheckRemaining) {
       return 'Free includes one skill check. Upgrade to unlock more attempts, full history, and retakes.';
     }
     if (!canAccessSelectedFormat) {
       return 'Full benchmarks and retakes unlock with Pro or Interview Sprint.';
+    }
+    if (benchmarkFormat === 'retake' && !availableRetakePlan) {
+      return 'Run one trusted quick or full benchmark in this pack before starting a retake.';
     }
     if (!canAccessSelectedGoal && setup.goal === 'interview_prep') {
       return 'Interview-focused skill checks unlock with Pro or Interview Sprint.';
@@ -577,7 +702,7 @@ export default function BenchmarkExperience({
       return 'Class improvement skill checks unlock with a Teams plan.';
     }
     return null;
-  }, [canAccessSelectedFormat, canAccessSelectedGoal, hasFreeSkillCheckRemaining, setup.goal]);
+  }, [availableRetakePlan, benchmarkFormat, canAccessSelectedFormat, canAccessSelectedGoal, hasFreeSkillCheckRemaining, setup.goal]);
   const benchmarkSessionKey = useMemo(
     () => getBenchmarkSessionStorageKey(mode, user?.id),
     [mode, user?.id]
@@ -612,6 +737,14 @@ export default function BenchmarkExperience({
   }, [benchmarkFormat, hasPaidLearnerAccess]);
 
   useEffect(() => {
+    setRetakePlanOverride((current) => {
+      if (!current) return null;
+      if (benchmarkFormat !== 'retake') return null;
+      return current.packId === getBenchmarkPackDefinition(setup).id ? current : null;
+    });
+  }, [benchmarkFormat, setup]);
+
+  useEffect(() => {
     if (setup.goal === 'interview_prep' && !hasPaidLearnerAccess) {
       setSetup((current) => ({ ...current, goal: 'skill_growth', roleLevel: 'beginner' }));
       return;
@@ -624,6 +757,7 @@ export default function BenchmarkExperience({
 
   useEffect(() => {
     if (view === 'setup') {
+      setAssessmentDeadlineAt(null);
       setSecondsLeft(getBenchmarkDurationSeconds(benchmarkFormat));
     }
   }, [benchmarkFormat, view]);
@@ -653,6 +787,7 @@ export default function BenchmarkExperience({
 
     const updatedAt = new Date(storedSession.updatedAt).getTime();
     const isExpired = Number.isNaN(updatedAt) || Date.now() - updatedAt > BENCHMARK_SESSION_TTL_MS;
+    const restoredDeadlineAt = deriveBenchmarkSessionDeadlineAt(storedSession);
     const restoredQuestions =
       storedSession.questions?.length > 0
         ? storedSession.questions.map((question) => ({
@@ -671,7 +806,7 @@ export default function BenchmarkExperience({
         : buildBenchmarkQuestions(storedSession.setup, {
             attemptIndex: storedSession.attemptIndex ?? 0,
             format: storedSession.format || 'quick',
-            stage: storedSession.stage || 'baseline',
+            stage: storedSession.stage || 'full',
             globalItemSignals: globalCalibrationSignals,
             selectionSeed: storedSession.selectionSeed || `restore:${storedSession.attemptIndex ?? 0}`,
           });
@@ -691,6 +826,7 @@ export default function BenchmarkExperience({
     setAssessmentAttemptIndex(storedSession.attemptIndex ?? 0);
     setAssessmentSelectionSeed(storedSession.selectionSeed || '');
     setAssessmentQuestions(restoredQuestions);
+    setRetakePlanOverride(storedSession.retakePlan ?? null);
     setQuestionIndex(storedSession.questionIndex);
     setSelectedAnswers(storedSession.selectedAnswers);
     setCodeAnswers(storedSession.codeAnswers ?? {});
@@ -699,10 +835,14 @@ export default function BenchmarkExperience({
     setQuestionRunCounts(storedSession.questionRunCounts ?? {});
     setQuestionLatencies(storedSession.questionLatencies ?? {});
     setTelemetrySummary(storedSession.telemetrySummary ?? createEmptyTelemetrySummary());
+    setAssessmentDeadlineAt(restoredDeadlineAt);
     setSecondsLeft(
       Math.max(
-        1,
-        Math.min(getBenchmarkDurationSeconds(storedSession.format || 'quick'), storedSession.secondsLeft)
+        0,
+        Math.min(
+          getBenchmarkDurationSeconds(storedSession.format || 'quick'),
+          getRemainingBenchmarkSeconds(restoredDeadlineAt, storedSession.secondsLeft)
+        )
       )
     );
     setView('assessment');
@@ -841,19 +981,23 @@ export default function BenchmarkExperience({
   useEffect(() => {
     if (view !== 'assessment') return;
     if (isFinishing) return;
-    if (secondsLeft <= 0) {
+    const nextSecondsLeft = getRemainingBenchmarkSeconds(assessmentDeadlineAt, secondsLeft);
+    if (nextSecondsLeft !== secondsLeft) {
+      setSecondsLeft(nextSecondsLeft);
+      return;
+    }
+    if (nextSecondsLeft <= 0) {
       void finishBenchmark();
       return;
     }
-    const timer = window.setTimeout(() => setSecondsLeft((current) => current - 1), 1000);
+    const timer = window.setTimeout(() => {
+      setSecondsLeft(getRemainingBenchmarkSeconds(assessmentDeadlineAt, secondsLeft - 1));
+    }, 1000);
     return () => window.clearTimeout(timer);
-  }, [isFinishing, secondsLeft, view]);
+  }, [assessmentDeadlineAt, isFinishing, secondsLeft, view]);
 
   useEffect(() => {
-    if (view !== 'assessment') {
-      clearBenchmarkSession(benchmarkSessionKey);
-      return;
-    }
+    if (view !== 'assessment') return;
 
     writeBenchmarkSession(benchmarkSessionKey, {
       setup,
@@ -869,11 +1013,14 @@ export default function BenchmarkExperience({
       questionRunCounts,
       questionLatencies,
       telemetrySummary,
+      retakePlan: activeRetakePlan,
+      deadlineAt: assessmentDeadlineAt ?? Date.now() + Math.max(0, secondsLeft) * 1000,
       secondsLeft,
       updatedAt: new Date().toISOString(),
     });
   }, [
     assessmentAttemptIndex,
+    assessmentDeadlineAt,
     assessmentSelectionSeed,
     assessmentQuestions,
     assessmentStage,
@@ -884,6 +1031,7 @@ export default function BenchmarkExperience({
     questionIndex,
     questionLatencies,
     questionRunCounts,
+    activeRetakePlan,
     secondsLeft,
     selectedAnswers,
     setup,
@@ -1114,46 +1262,15 @@ export default function BenchmarkExperience({
     return toTypingEvaluation(submittedCode, setup.language, question);
   };
 
-  const appendAdaptiveFollowupIfNeeded = () => {
-    if (assessmentStage !== 'baseline') {
-      return false;
-    }
-
-    const baselineAnswers = buildAnswerRecordsForQuestions(assessmentQuestions);
-    const provisionalDifficulty = getProvisionalDifficultyFromAnswers(assessmentQuestions, baselineAnswers);
-    const followupQuestions = buildQuestionSet(
-      assessmentSelectionSeed || `followup:${assessmentAttemptIndex}`,
-      'followup',
-      {
-        attemptIndex: assessmentAttemptIndex,
-        provisionalDifficulty,
-        excludedTemplateIds: assessmentQuestions.map((question) => question.templateId),
-      }
-    );
-
-    if (followupQuestions.length === 0) {
-      setAssessmentStage('full');
-      return false;
-    }
-
-    setAssessmentQuestions((current) => [...current, ...followupQuestions]);
-    setAssessmentStage('full');
-    trackEvent('benchmark_branch_established', {
-      format: benchmarkFormat,
-      language: setup.language,
-      provisionalDifficulty,
-      followupCount: followupQuestions.length,
-    });
-    return true;
-  };
-
   const resetBenchmark = (nextFormat: BenchmarkFormat = benchmarkFormat) => {
     clearBenchmarkSession(benchmarkSessionKey);
     setView('setup');
     setAssessmentQuestions([]);
-    setAssessmentStage('baseline');
+    setAssessmentStage('full');
     setAssessmentAttemptIndex(0);
     setAssessmentSelectionSeed('');
+    setRetakePlanOverride((current) => (nextFormat === 'retake' ? current : null));
+    setAssessmentDeadlineAt(null);
     setQuestionIndex(0);
     setSelectedAnswers({});
     setCodeAnswers({});
@@ -1191,18 +1308,26 @@ export default function BenchmarkExperience({
       navigate(setup.goal === 'class_improvement' ? '/teams' : '/pricing?intent=interview_sprint');
       return;
     }
+    if (benchmarkFormat === 'retake' && (!activeRetakePlan || activeRetakePlan.targetWeaknesses.length === 0)) {
+      toast.error('Run one trusted quick or full benchmark in this pack before starting a retake.');
+      return;
+    }
 
     const nextSelectionSeed = createBenchmarkSelectionSeed();
-    const nextQuestions = buildQuestionSet(nextSelectionSeed, 'baseline');
+    const nextQuestions = buildQuestionSet(nextSelectionSeed, 'full');
     if (nextQuestions.length === 0) {
       toast.error('Benchmark questions are unavailable right now.');
       return;
     }
+    const nextDurationSeconds = getBenchmarkDurationSeconds(benchmarkFormat);
+    const nextDeadlineAt = Date.now() + nextDurationSeconds * 1000;
 
     setAssessmentQuestions(nextQuestions);
-    setAssessmentStage('baseline');
+    setAssessmentStage('full');
     setAssessmentAttemptIndex(nextAttemptIndex);
     setAssessmentSelectionSeed(nextSelectionSeed);
+    setRetakePlanOverride(benchmarkFormat === 'retake' ? activeRetakePlan : null);
+    setAssessmentDeadlineAt(nextDeadlineAt);
     setQuestionIndex(0);
     setSelectedAnswers({});
     setCodeAnswers(
@@ -1220,7 +1345,7 @@ export default function BenchmarkExperience({
     setTelemetrySummary(createEmptyTelemetrySummary());
     questionStartedAtRef.current = Date.now();
     lastTypingAtRef.current = null;
-    setSecondsLeft(getBenchmarkDurationSeconds(benchmarkFormat));
+    setSecondsLeft(nextDurationSeconds);
     setReport(null);
     setIsFinishing(false);
     setView('assessment');
@@ -1239,6 +1364,7 @@ export default function BenchmarkExperience({
   const finishBenchmark = async () => {
     if (isFinishing) return;
     if (assessmentQuestions.length === 0) {
+      clearBenchmarkSession(benchmarkSessionKey);
       toast.error('Benchmark questions are unavailable right now.');
       setView('setup');
       return;
@@ -1305,6 +1431,8 @@ export default function BenchmarkExperience({
       attemptIndex: assessmentAttemptIndex,
       format: benchmarkFormat,
       recentReports: reportHistory,
+      retakeSourceReportId: activeRetakePlan?.sourceReportId ?? null,
+      retakeTargetWeaknesses: activeRetakePlan?.targetWeaknesses ?? [],
       telemetrySummary: nextTelemetrySummary,
     });
     setHistoryMessage(null);
@@ -1313,6 +1441,7 @@ export default function BenchmarkExperience({
       saveBenchmarkReport(nextReport, user.id);
     }
 
+    clearBenchmarkSession(benchmarkSessionKey);
     setSavedReport(nextReport);
     setReport(nextReport);
     setReportHistory((current) => mergeReports([nextReport], current));
@@ -1366,10 +1495,6 @@ export default function BenchmarkExperience({
         return;
       }
       if (questionIndex === assessmentQuestions.length - 1) {
-        if (appendAdaptiveFollowupIfNeeded()) {
-          setQuestionIndex((current) => current + 1);
-          return;
-        }
         void finishBenchmark();
         return;
       }
@@ -1381,10 +1506,6 @@ export default function BenchmarkExperience({
       return;
     }
     if (questionIndex === assessmentQuestions.length - 1) {
-      if (appendAdaptiveFollowupIfNeeded()) {
-        setQuestionIndex((current) => current + 1);
-        return;
-      }
       void finishBenchmark();
       return;
     }
@@ -1470,12 +1591,56 @@ export default function BenchmarkExperience({
   };
 
   const openPracticePath = () => {
+    const sourceReport = report ?? savedReport;
+    const hydratedPracticeReport = sourceReport ? hydrateBenchmarkReport(sourceReport) : null;
+    const recommendedLessonIds = hydratedPracticeReport
+      ? Array.from(
+          new Set(
+            [
+              ...(hydratedPracticeReport.nextStepPlan.recommendedLessonIds || []),
+              ...(hydratedPracticeReport.suggestedLessonIds || []),
+              ...hydratedPracticeReport.questions.flatMap((question) =>
+                Array.isArray(question.remediationLessonIds) && question.remediationLessonIds.length > 0
+                  ? question.remediationLessonIds
+                  : [question.lessonId]
+              ),
+            ].filter(
+              (lessonId): lessonId is string =>
+                typeof lessonId === 'string' &&
+                getLessonCatalogEntry(lessonId)?.language === hydratedPracticeReport.setup.language
+            )
+          )
+        ).slice(0, 4)
+      : [];
+
     if (mode === 'app' || user) {
+      if (hydratedPracticeReport && recommendedLessonIds.length > 0) {
+        savePracticeLaunchPreset({
+          source: 'benchmark_report',
+          createdAt: new Date().toISOString(),
+          language: hydratedPracticeReport.setup.language,
+          lessonIds: recommendedLessonIds,
+          reportId: hydratedPracticeReport.id,
+          trackId: hydratedPracticeReport.recommendedTrackIds[0] ?? null,
+        });
+      }
+
+      trackEvent('benchmark_corrective_plan_started', {
+        mode,
+        language: hydratedPracticeReport?.setup.language ?? setup.language,
+        goal: hydratedPracticeReport?.setup.goal ?? setup.goal,
+        roleLevel: hydratedPracticeReport?.setup.roleLevel ?? setup.roleLevel,
+        recommendedLessonCount: recommendedLessonIds.length,
+      });
       navigate('/app?section=practice');
       return;
     }
 
-    navigate(primaryTrack?.id ? `/tracks/${primaryTrack.id}` : `/languages/${report?.setup.language ?? setup.language}`);
+    navigate(
+      primaryTrack?.id
+        ? `/tracks/${primaryTrack.id}`
+        : `/languages/${hydratedPracticeReport?.setup.language ?? report?.setup.language ?? setup.language}`
+    );
   };
 
   const openUpgradePath = () => {
@@ -1615,6 +1780,89 @@ export default function BenchmarkExperience({
   const latestHistoryEntry = historyPreview[0] ?? null;
   const benchmarkTopicsPreview = blueprintSummary.topics.slice(0, 4);
   const benchmarkQuestionMixPreview = blueprintSummary.questionMixLabels.slice(0, 4);
+  const comparableHistoryPreview = historyPreview.filter(
+    (entry) =>
+      entry.setup.language === report?.setup.language &&
+      entry.setup.goal === report?.setup.goal &&
+      entry.setup.roleLevel === report?.setup.roleLevel
+  );
+  const trendHistoryEntries =
+    comparableHistoryPreview.length > 0 ? comparableHistoryPreview : historyPreview;
+  const historyTrendEntries = [...trendHistoryEntries].reverse();
+  const historyChartWidth = 360;
+  const historyChartHeight = 136;
+  const historyChartPaddingX = 18;
+  const historyChartPaddingY = 18;
+  const historyChartPoints = historyTrendEntries.map((entry, index) => ({
+    entry,
+    x:
+      historyTrendEntries.length <= 1
+        ? historyChartWidth / 2
+        : historyChartPaddingX +
+          (index * (historyChartWidth - historyChartPaddingX * 2)) / (historyTrendEntries.length - 1),
+    y:
+      historyChartHeight -
+      historyChartPaddingY -
+      ((entry.overallScore / 100) * (historyChartHeight - historyChartPaddingY * 2)),
+  }));
+  const historyChartPath = historyChartPoints
+    .map((point, index) => `${index === 0 ? 'M' : 'L'} ${point.x} ${point.y}`)
+    .join(' ');
+  const historyChartAreaPath =
+    historyChartPoints.length > 0
+      ? [
+          `M ${historyChartPoints[0].x} ${historyChartHeight - historyChartPaddingY}`,
+          ...historyChartPoints.map((point, index) => `${index === 0 ? 'L' : 'L'} ${point.x} ${point.y}`),
+          `L ${historyChartPoints[historyChartPoints.length - 1].x} ${historyChartHeight - historyChartPaddingY}`,
+          'Z',
+        ].join(' ')
+      : '';
+  const previousTrendEntry =
+    historyTrendEntries.length > 1 ? historyTrendEntries[historyTrendEntries.length - 2] : null;
+  const currentTrendEntry = historyTrendEntries[historyTrendEntries.length - 1] ?? null;
+  const bestTrendEntry =
+    trendHistoryEntries.length > 0
+      ? trendHistoryEntries.reduce((best, entry) => (entry.overallScore > best.overallScore ? entry : best), trendHistoryEntries[0])
+      : null;
+  const historyTrendDelta =
+    currentTrendEntry && previousTrendEntry
+      ? currentTrendEntry.overallScore - previousTrendEntry.overallScore
+      : null;
+  const trendIsPlateau =
+    trendHistoryEntries.length > 1 &&
+    historyTrendEntries.every((entry) => entry.overallScore === historyTrendEntries[0].overallScore);
+  const trendHeadline =
+    historyTrendDelta === null
+      ? 'One more run will make the trend trustworthy'
+      : historyTrendDelta > 0
+      ? `+${historyTrendDelta} vs previous run`
+      : historyTrendDelta < 0
+      ? `${historyTrendDelta} vs previous run`
+      : 'No lift vs previous run';
+  const trendSummary =
+    historyTrendDelta === null
+      ? reportComparisonMessage || 'Take one more benchmark in this same pack to get a stable trend.'
+      : historyTrendDelta > 0
+      ? 'The corrective block is lifting the score. Keep the same fix sequence and retake again.'
+      : historyTrendDelta < 0
+      ? 'The score dropped after the last run. Go back to the corrective plan before benchmarking again.'
+      : trendIsPlateau
+      ? 'Plateau detected. The last retake did not move the score, so finish the full repair block before testing again.'
+      : 'The last retake did not lift the score yet. Finish the corrective block before testing again.';
+  const trendUsesComparableSubset =
+    comparableHistoryPreview.length > 0 && comparableHistoryPreview.length !== historyPreview.length;
+  const reportIsWeak = (report?.overallScore ?? 100) < 45;
+  const reportActionBlockMinutes = Math.max(
+    12,
+    reportDiagnosisRows.length * 6 + Math.min(2, report?.nextStepPlan.shortPracticeSet.length ?? 0) * 4
+  );
+  const reportActionBlockLabel = `${reportActionBlockMinutes}-${reportActionBlockMinutes + 6} min`;
+  const reportActionSteps =
+    reportDiagnosisRows.map((row) => ({
+      title: row.label,
+      lessonTitle: row.nextLesson,
+      detail: row.nextAction,
+    }));
   const assessmentQuestionStates = assessmentQuestions.map((question) => {
     if (question.kind === 'multiple_choice') {
       return selectedAnswers[question.id] !== undefined ? 'answered' : 'skipped';
@@ -1645,18 +1893,26 @@ export default function BenchmarkExperience({
   const queueWeakAreaRetake = (sourceReport?: BenchmarkReport | null) => {
     const nextReport = sourceReport ?? savedReport ?? latestHistoryEntry ?? report;
     if (!nextReport) return;
+    const nextRetakePlan =
+      getBenchmarkRetakePlanFromReport(nextReport) ||
+      getBenchmarkRetakePlan(nextReport.setup, reportHistory, nextReport.retakeSourceReportId ?? null);
 
-    clearBenchmarkSession(benchmarkSessionKey);
+    if (!nextRetakePlan) {
+      toast.error('Run one trusted quick or full benchmark in this pack before starting a retake.');
+      return;
+    }
+
     setSetup({
       goal: nextReport.setup.goal,
       language: nextReport.setup.language,
       roleLevel: nextReport.setup.roleLevel,
     });
     setBenchmarkFormat('retake');
-    setView('setup');
-    setReport(null);
-    updateReportSearchParam(null);
-    setHistoryMessage('Weak-area retake ready.');
+    resetBenchmark('retake');
+    setRetakePlanOverride(nextRetakePlan);
+    setHistoryMessage(
+      `Weak-area retake ready from your ${benchmarkFormatLabels[nextRetakePlan.sourceFormat].toLowerCase()} benchmark.`
+    );
   };
 
   const restartInFormat = (nextFormat: BenchmarkFormat) => {
@@ -1763,6 +2019,10 @@ export default function BenchmarkExperience({
                               if (isLocked) {
                                 toast.error('Full benchmarks and retakes unlock with Pro or Interview Sprint.');
                                 navigate('/pricing?intent=pro');
+                                return;
+                              }
+                              if (option.value === 'retake' && !availableRetakePlan) {
+                                toast.error('Run one trusted quick or full benchmark in this pack before starting a retake.');
                                 return;
                               }
                               setBenchmarkFormat(option.value);
@@ -1919,6 +2179,7 @@ export default function BenchmarkExperience({
                   {benchmarkFormat === 'retake' && retakeTargetWeaknesses.length > 0 ? (
                     <div className="mt-4 rounded-2xl border border-primary/15 bg-primary/10 px-4 py-3 text-sm text-foreground">
                       Retake focus: {retakeTargetWeaknesses.map((bucket) => bucket.replace(/_/g, ' ')).join(', ')}.
+                      {activeRetakePlan ? ` Based on your ${benchmarkFormatLabels[activeRetakePlan.sourceFormat].toLowerCase()} benchmark from ${formatReportDate(activeRetakePlan.sourceCreatedAt)} (${activeRetakePlan.sourceOverallScore}/100).` : ''}
                     </div>
                   ) : null}
 
@@ -1950,13 +2211,18 @@ export default function BenchmarkExperience({
 
                   <div className="mt-4 flex flex-col gap-2 sm:flex-row">
                     <button type="button" onClick={startBenchmark} className={`${primaryButtonClassName} min-w-[220px] sm:flex-1`}>
-                      <span>{setupRestrictionMessage ? 'Unlock to continue' : 'Start benchmark'}</span>
+                      <span>{shouldShowUnlockCta ? 'Unlock to continue' : 'Start benchmark'}</span>
                       <Play className="h-4 w-4" />
                     </button>
-                    {savedReport ? (
+                    {savedReport && canRetakeBenchmark ? (
                       <button type="button" onClick={() => queueWeakAreaRetake(savedReport)} className={`${secondaryButtonClassName} min-w-[180px]`}>
                         <RefreshCcw className="h-4 w-4" />
                         <span>Retry weak areas</span>
+                      </button>
+                    ) : savedReport ? (
+                      <button type="button" onClick={openUpgradePath} className={`${secondaryButtonClassName} min-w-[180px]`}>
+                        <LockKeyhole className="h-4 w-4" />
+                        <span>Unlock retakes</span>
                       </button>
                     ) : (
                       <button type="button" onClick={() => setBenchmarkFormat('quick')} className={`${secondaryButtonClassName} min-w-[160px]`}>
@@ -2062,10 +2328,17 @@ export default function BenchmarkExperience({
                     <span>Open latest report</span>
                     <ArrowRight className="h-4 w-4" />
                   </button>
-                  <button type="button" onClick={() => queueWeakAreaRetake(savedReport)} className={secondaryButtonClassName}>
-                    <RefreshCcw className="h-4 w-4" />
-                    <span>Retry weak areas</span>
-                  </button>
+                  {canRetakeBenchmark ? (
+                    <button type="button" onClick={() => queueWeakAreaRetake(savedReport)} className={secondaryButtonClassName}>
+                      <RefreshCcw className="h-4 w-4" />
+                      <span>Retry weak areas</span>
+                    </button>
+                  ) : (
+                    <button type="button" onClick={openUpgradePath} className={secondaryButtonClassName}>
+                      <LockKeyhole className="h-4 w-4" />
+                      <span>Unlock retakes</span>
+                    </button>
+                  )}
                 </div>
               ) : null}
 
@@ -2355,26 +2628,24 @@ export default function BenchmarkExperience({
                   {isCheckingCode ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
                 </button>
               ) : null}
+              <button
+                type="button"
+                onClick={() => void finishBenchmark()}
+                disabled={isFinishing || isCheckingCode}
+                className={secondaryButtonClassName}
+              >
+                {isFinishing ? 'Generating report...' : 'Finish now'}
+              </button>
               {questionIndex === assessmentQuestions.length - 1 && nextSkippedQuestionIndex !== undefined ? (
-                <>
-                  <button
-                    type="button"
-                    onClick={() => void finishBenchmark()}
-                    disabled={isFinishing || isCheckingCode}
-                    className={secondaryButtonClassName}
-                  >
-                    Finish now
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => goToQuestion(nextSkippedQuestionIndex)}
-                    disabled={isFinishing || isCheckingCode}
-                    className={primaryButtonClassName}
-                  >
-                    <span>Review skipped</span>
-                    <ArrowRight className="h-4 w-4" />
-                  </button>
-                </>
+                <button
+                  type="button"
+                  onClick={() => goToQuestion(nextSkippedQuestionIndex)}
+                  disabled={isFinishing || isCheckingCode}
+                  className={primaryButtonClassName}
+                >
+                  <span>Review skipped</span>
+                  <ArrowRight className="h-4 w-4" />
+                </button>
               ) : (
                 <button
                   type="button"
@@ -2411,196 +2682,284 @@ export default function BenchmarkExperience({
         }
       >
         <div className="space-y-4">
-          <section className={surfaceCardClassName}>
-            <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
-              <div>
-                <div className="inline-flex items-center gap-2 rounded-full border border-primary/25 bg-primary/10 px-3 py-1 type-kicker text-primary">
-                  <Sparkles className="h-3.5 w-3.5" />
-                  <span>Skill check result</span>
-                </div>
-                <h1 className="mt-3 text-[1.45rem] font-semibold tracking-[-0.04em] text-foreground sm:text-[1.72rem]">
-                  Score, weak spots, and the next corrective step.
-                </h1>
-                <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">
-                  Use this result to fix the weak areas, then retake with purpose instead of guessing what to study.
-                </p>
+          <div className="rounded-2xl border border-border bg-background/60 px-4 py-3">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <div className="inline-flex items-center gap-2 rounded-full border border-primary/25 bg-primary/10 px-3 py-1 type-kicker text-primary">
+                <Sparkles className="h-3.5 w-3.5" />
+                <span>Skill check result</span>
               </div>
-              <div className="grid gap-2 sm:grid-cols-3">
-                <div className="rounded-2xl border border-border bg-background/70 px-4 py-3">
-                  <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Score</div>
-                  <div className="mt-1 text-lg font-semibold text-foreground">{report.overallScore}/100</div>
-                </div>
-                <div className="rounded-2xl border border-border bg-background/70 px-4 py-3">
-                  <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Format</div>
-                  <div className="mt-1 text-lg font-semibold text-foreground">{benchmarkFormatLabels[report.format || 'quick']}</div>
-                </div>
-                <div className="rounded-2xl border border-border bg-background/70 px-4 py-3">
-                  <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Taken</div>
-                  <div className="mt-1 text-lg font-semibold text-foreground">{formatReportDate(report.createdAt)}</div>
-                </div>
+              <div className="text-sm text-muted-foreground">
+                {benchmarkFormatLabels[report.format || 'quick']} / {report.setup.language.toUpperCase()} / {formatReportDate(report.createdAt)}
               </div>
             </div>
-          </section>
+          </div>
 
           <BenchmarkReportCard
             report={report}
             accessLevel={canViewFullReport ? 'full' : 'starter'}
             actions={
-              <div className="flex flex-col gap-4">
-                <div className="rounded-[1.5rem] border border-border bg-background/70 p-5">
-                  <div className="text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground">Next actions</div>
-                  <div className="mt-3 text-xl font-semibold text-foreground">Fix, retake, then move up.</div>
-                  <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                    Use the weak areas from this benchmark to drive the next practice block instead of guessing what to study.
-                  </p>
-                  {reportSuggestedLessons.length > 0 ? (
-                    <div className="mt-4 grid gap-2.5 sm:grid-cols-3">
-                      {reportSuggestedLessons.map((lesson) => (
-                        <div key={lesson!.id} className="rounded-2xl border border-border bg-card px-4 py-3">
-                          <div className="text-sm font-semibold text-foreground">{lesson!.title}</div>
-                          <div className="mt-1 text-xs uppercase tracking-[0.16em] text-muted-foreground">
-                            {lesson!.language.toUpperCase()} / {lesson!.difficulty}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  ) : null}
-                  <div className="mt-4 grid gap-3 lg:grid-cols-3">
-                    <button type="button" onClick={openPracticePath} className={primaryButtonClassName}>
-                      <span>Open lesson plan</span>
-                      <ArrowRight className="h-4 w-4" />
-                    </button>
-                    {canRetakeBenchmark ? (
-                      <button
-                        type="button"
-                        onClick={() => queueWeakAreaRetake(report)}
-                        className={secondaryButtonClassName}
-                      >
-                        <RefreshCcw className="h-4 w-4" />
-                        <span>{report.nextStepPlan.retryWeakAreasLabel}</span>
-                      </button>
-                    ) : (
-                      <button type="button" onClick={openUpgradePath} className={secondaryButtonClassName}>
-                        <LockKeyhole className="h-4 w-4" />
-                        <span>Unlock retakes</span>
-                      </button>
-                    )}
-                    <button type="button" onClick={() => restartInFormat('full')} className={secondaryButtonClassName}>
-                      <Play className="h-4 w-4" />
-                      <span>{report.nextStepPlan.fullRetakeLabel}</span>
-                    </button>
-                    {report.nextStepPlan.duelReadinessLabel ? (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (mode === 'app' || user) {
-                            navigate('/app?section=duels');
-                            return;
-                          }
-                          openAuthModal?.('signup');
-                        }}
-                        className={secondaryButtonClassName}
-                      >
-                        <Trophy className="h-4 w-4" />
-                        <span>Prepare for duels</span>
-                      </button>
-                    ) : null}
-                  </div>
-                </div>
-
-                <div
-                  className={`rounded-[1.5rem] p-5 ${
-                    scoreDelta !== null ? 'border border-xp/20 bg-xp/10' : 'border border-border bg-background/70'
-                  }`}
-                >
-                  <div
-                    className={`text-sm font-semibold uppercase tracking-[0.18em] ${
-                      scoreDelta !== null ? 'text-xp' : 'text-muted-foreground'
-                    }`}
-                  >
-                    Retake loop
-                  </div>
-                  <div className="mt-3 text-2xl font-semibold text-foreground">
-                    {scoreDelta !== null
-                      ? `${scoreDelta > 0 ? '+' : ''}${scoreDelta} points vs last similar run`
-                      : 'Turn weak areas into the next review block'}
-                  </div>
-                  <p className={`mt-2 text-sm leading-6 ${scoreDelta !== null ? 'text-foreground/80' : 'text-muted-foreground'}`}>
-                    {canRetakeBenchmark
-                      ? scoreDelta !== null
-                        ? `Do the corrective lessons, then retake around ${retakeSuggestionLabel || 'your next review window'}.`
-                        : reportComparisonMessage ||
-                          `Do the corrective lessons, then retake around ${retakeSuggestionLabel || 'your next review window'}.`
-                      : 'Upgrade to unlock retakes and a full corrective loop.'}
-                  </p>
-                </div>
-
-                {historyPreview.length > 0 ? (
+              <div className="space-y-4">
+                <div className={`grid items-start gap-4 ${historyPreview.length > 0 ? 'xl:grid-cols-[1.08fr_0.92fr]' : ''}`}>
                   <div className="rounded-[1.5rem] border border-border bg-background/70 p-5">
-                    <div className="flex items-center justify-between gap-3">
-                      <div>
-                        <div className="text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground">Recent benchmarks</div>
-                        <div className="mt-2 text-xl font-semibold text-foreground">Compare progress over time.</div>
-                      </div>
-                      {historyLoading ? <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /> : null}
+                    <div className="text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                      Start here
                     </div>
-                    <div className="mt-4 grid gap-2.5">
-                      {historyPreview.slice(0, 3).map((entry) => (
-                        <div key={entry.id} className="flex items-center justify-between gap-4 rounded-2xl border border-border bg-card px-4 py-4 text-left">
+                    <div className="mt-3 text-xl font-semibold text-foreground">
+                      {reportIsWeak
+                        ? 'Fix these three misses before another benchmark.'
+                        : 'Run this repair block, then retake the same pack.'}
+                    </div>
+                    <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                      Estimated repair block: {reportActionBlockLabel}. Finish these lessons first, then rerun{' '}
+                      {report.nextStepPlan.retryWeakAreasLabel.toLowerCase()}.
+                    </p>
+                    <div className="mt-4 rounded-2xl border border-border bg-card">
+                      {reportActionSteps.map((step, index) => (
+                        <div
+                          key={`${step.title}-${index}`}
+                          className={`grid gap-2 px-4 py-3 sm:grid-cols-[auto_minmax(0,0.9fr)_minmax(0,1.1fr)] sm:items-start ${
+                            index > 0 ? 'border-t border-border' : ''
+                          }`}
+                        >
+                          <div className="pt-0.5 text-[11px] font-semibold uppercase tracking-[0.16em] text-primary">
+                            Step {index + 1}
+                          </div>
                           <div>
-                            <div className="text-sm font-semibold text-foreground">{entry.setup.language.toUpperCase()} benchmark</div>
-                            <div className="mt-1 text-sm text-muted-foreground">
-                              {entry.setup.goal.replace(/_/g, ' ')} / {formatReportDate(entry.createdAt)}
+                            <div className="text-sm font-semibold text-foreground">{step.title}</div>
+                            <div className="mt-1 text-sm text-foreground/88">
+                              {step.lessonTitle ? `Start with ${step.lessonTitle}` : `Repair ${step.title}`}
                             </div>
                           </div>
-                          <div className="text-right">
-                            <div className="text-lg font-semibold text-foreground">{entry.overallScore}/100</div>
-                            <div className="mt-1 text-xs uppercase tracking-[0.18em] text-muted-foreground">{entry.duelReadiness.label}</div>
+                          <div className="text-sm leading-6 text-muted-foreground sm:text-right">
+                            {step.detail || `Run one short ${step.title.toLowerCase()} drill before the retake.`}
                           </div>
                         </div>
                       ))}
                     </div>
-                  </div>
-                ) : null}
-
-                {canViewFullReport ? (
-                  <div className="rounded-[1.5rem] border border-xp/20 bg-xp/10 p-5">
-                    <div className="flex items-center gap-2 text-sm font-semibold uppercase tracking-[0.18em] text-xp">
-                      <CheckCircle2 className="h-4 w-4" />
-                      Saved to your workspace
-                    </div>
-                    <p className="mt-2 text-sm leading-6 text-foreground/80">Saved to your benchmark history.</p>
-                    <div className="mt-4 rounded-2xl border border-border bg-background/70 px-4 py-3 text-sm text-foreground">
-                      {sharedReportUrl ? (
-                        <>
-                          Public link is live.
-                          <span className="text-foreground/75"> Anyone with the link can view it.</span>
-                        </>
-                      ) : (
-                        <>Private by default. Publish when ready.</>
-                      )}
-                    </div>
-                    <div className="mt-4 flex flex-col gap-3 sm:flex-row">
-                      <button
-                        type="button"
-                        onClick={sharedReportUrl ? copySharedReportLink : handlePublishReport}
-                        disabled={sharingReportId === report.id}
-                        className={primaryButtonClassName}
-                      >
-                        {sharingReportId === report.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
-                        <span>{sharedReportUrl ? 'Copy public report link' : 'Publish public report'}</span>
+                    <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:flex-wrap">
+                      <button type="button" onClick={openPracticePath} className={primaryButtonClassName}>
+                        <span>Start corrective plan</span>
+                        <ArrowRight className="h-4 w-4" />
                       </button>
-                      {sharedReportUrl ? (
+                      {canRetakeBenchmark ? (
                         <button
                           type="button"
-                          onClick={handleUnshareReport}
-                          disabled={unsharingReportId === report.id}
+                          onClick={() => queueWeakAreaRetake(report)}
                           className={secondaryButtonClassName}
                         >
-                          {unsharingReportId === report.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCcw className="h-4 w-4" />}
-                          <span>Disable public link</span>
+                          <RefreshCcw className="h-4 w-4" />
+                          <span>{report.nextStepPlan.retryWeakAreasLabel}</span>
+                        </button>
+                      ) : (
+                        <button type="button" onClick={openUpgradePath} className={secondaryButtonClassName}>
+                          <LockKeyhole className="h-4 w-4" />
+                          <span>Unlock retakes</span>
+                        </button>
+                      )}
+                      {!reportIsWeak ? (
+                        <button
+                          type="button"
+                          onClick={() => restartInFormat('full')}
+                          className={`${secondaryButtonClassName} text-muted-foreground`}
+                        >
+                          <Play className="h-4 w-4" />
+                          <span>{report.nextStepPlan.fullRetakeLabel}</span>
                         </button>
                       ) : null}
+                    </div>
+                    {reportIsWeak ? (
+                      <div className="mt-3">
+                        <button
+                          type="button"
+                          onClick={() => restartInFormat('full')}
+                          className="inline-flex items-center gap-2 text-sm text-muted-foreground transition hover:text-foreground"
+                        >
+                          <Play className="h-4 w-4" />
+                          <span>{report.nextStepPlan.fullRetakeLabel}</span>
+                        </button>
+                      </div>
+                    ) : null}
+                  </div>
+
+                  {historyPreview.length > 0 ? (
+                    <div className="rounded-[1.5rem] border border-border bg-background/70 p-5">
+                      <div className="flex items-center justify-between gap-3">
+                        <div>
+                          <div className="text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                            Progress trend
+                          </div>
+                          <div className="mt-2 text-xl font-semibold text-foreground">{trendHeadline}</div>
+                        </div>
+                        {historyLoading ? <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /> : null}
+                      </div>
+                      <p className="mt-2 text-sm leading-6 text-muted-foreground">{trendSummary}</p>
+                      {trendUsesComparableSubset ? (
+                        <div className="mt-3 rounded-2xl border border-border bg-card px-4 py-3 text-sm text-muted-foreground">
+                          Showing comparable runs only: {report.setup.goal.replace(/_/g, ' ')} / {report.setup.language.toUpperCase()} / {report.setup.roleLevel}.
+                        </div>
+                      ) : null}
+                      <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                        <div className="rounded-2xl border border-border bg-card px-4 py-4">
+                          <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                            Latest
+                          </div>
+                          <div className="mt-2 text-xl font-semibold text-foreground">{currentTrendEntry?.overallScore ?? report.overallScore}/100</div>
+                          <div className="mt-1 text-sm text-muted-foreground">
+                            {formatReportDate((currentTrendEntry ?? report).createdAt)}
+                          </div>
+                        </div>
+                        <div className="rounded-2xl border border-border bg-card px-4 py-4">
+                          <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                            Best recent
+                          </div>
+                          <div className="mt-2 text-xl font-semibold text-foreground">{bestTrendEntry?.overallScore ?? report.overallScore}/100</div>
+                          <div className="mt-1 text-sm text-muted-foreground">
+                            {bestTrendEntry ? formatReportDate(bestTrendEntry.createdAt) : 'This run'}
+                          </div>
+                        </div>
+                      </div>
+                      <div className="mt-4 rounded-2xl border border-border bg-card p-4">
+                        <svg
+                          viewBox={`0 0 ${historyChartWidth} ${historyChartHeight}`}
+                          className="h-36 w-full"
+                          role="img"
+                          aria-label="Benchmark score trend"
+                        >
+                          <path
+                            d={`M ${historyChartPaddingX} ${historyChartHeight - historyChartPaddingY} H ${
+                              historyChartWidth - historyChartPaddingX
+                            }`}
+                            stroke="currentColor"
+                            strokeWidth="1"
+                            className="text-border"
+                            fill="none"
+                          />
+                          <path
+                            d={`M ${historyChartPaddingX} ${historyChartPaddingY} V ${
+                              historyChartHeight - historyChartPaddingY
+                            }`}
+                            stroke="currentColor"
+                            strokeWidth="1"
+                            className="text-border"
+                            fill="none"
+                          />
+                          {historyChartAreaPath ? (
+                            <path d={historyChartAreaPath} className="fill-primary/12" />
+                          ) : null}
+                          {historyChartPath ? (
+                            <path
+                              d={historyChartPath}
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="3"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              className="text-primary"
+                            />
+                          ) : null}
+                          {historyChartPoints.map((point) => (
+                            <g key={point.entry.id}>
+                              <circle cx={point.x} cy={point.y} r="4.5" className="fill-primary" />
+                              <text
+                                x={point.x}
+                                y={point.y - 10}
+                                textAnchor="middle"
+                                className="fill-foreground text-[10px] font-semibold"
+                              >
+                                {point.entry.overallScore}
+                              </text>
+                            </g>
+                          ))}
+                        </svg>
+                      </div>
+                      <div className="mt-4 space-y-2">
+                        {trendHistoryEntries.map((entry, index) => {
+                          const previousEntry = trendHistoryEntries[index + 1];
+                          const delta = previousEntry ? entry.overallScore - previousEntry.overallScore : null;
+                          return (
+                            <div
+                              key={entry.id}
+                              className="flex items-center justify-between gap-4 rounded-2xl border border-border bg-card px-4 py-3"
+                            >
+                              <div>
+                                <div className="text-sm font-semibold text-foreground">
+                                  {getTrendEntryLabel(index)} run
+                                </div>
+                                <div className="mt-1 text-sm text-muted-foreground">
+                                  {formatReportTimestamp(entry.createdAt)}
+                                </div>
+                                <div className="mt-1 text-sm text-muted-foreground">
+                                  {entry.setup.goal.replace(/_/g, ' ')} / {entry.setup.language.toUpperCase()}
+                                </div>
+                              </div>
+                              <div className="text-right">
+                                <div className="text-base font-semibold text-foreground">{entry.overallScore}/100</div>
+                                <div className="mt-1 text-xs uppercase tracking-[0.18em] text-muted-foreground">
+                                  {delta === null
+                                    ? 'Comparable baseline'
+                                    : delta > 0
+                                    ? `+${delta} vs prior`
+                                    : delta < 0
+                                    ? `${delta} vs prior`
+                                    : 'No lift yet'}
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
+
+                {canViewFullReport ? (
+                  <div className="rounded-[1.5rem] border border-border bg-background/60 px-5 py-4">
+                    <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                      <div>
+                        <div className="text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                          Benchmark history
+                        </div>
+                        <div className="mt-2 text-sm font-medium text-foreground">
+                          {reportIsWeak && !sharedReportUrl
+                            ? 'Private for now. Publish after the retake if the next result is cleaner.'
+                            : 'Saved privately to your benchmark history.'}
+                        </div>
+                        <div className="mt-1 text-sm leading-6 text-muted-foreground">
+                          {sharedReportUrl
+                            ? 'Public link is live. Anyone with the link can view this report.'
+                            : reportIsWeak
+                            ? 'The useful next move is corrective practice, not sharing. This report is already saved locally in your history.'
+                            : 'Keep it private unless you want to share the result outside your workspace.'}
+                        </div>
+                      </div>
+                      <div className="flex flex-col gap-3 sm:flex-row">
+                        <button
+                          type="button"
+                          onClick={sharedReportUrl ? copySharedReportLink : handlePublishReport}
+                          disabled={sharingReportId === report.id}
+                          className={sharedReportUrl || !reportIsWeak ? primaryButtonClassName : secondaryButtonClassName}
+                        >
+                          {sharingReportId === report.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+                          <span>
+                            {sharedReportUrl
+                              ? 'Copy public report link'
+                              : reportIsWeak
+                              ? 'Publish anyway'
+                              : 'Publish public report'}
+                          </span>
+                        </button>
+                        {sharedReportUrl ? (
+                          <button
+                            type="button"
+                            onClick={handleUnshareReport}
+                            disabled={unsharingReportId === report.id}
+                            className={secondaryButtonClassName}
+                          >
+                            {unsharingReportId === report.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCcw className="h-4 w-4" />}
+                            <span>Disable public link</span>
+                          </button>
+                        ) : null}
+                      </div>
                     </div>
                   </div>
                 ) : (
@@ -2610,7 +2969,7 @@ export default function BenchmarkExperience({
                       Starter report saved
                     </div>
                     <p className="mt-2 text-sm leading-6 text-foreground/80">
-                      Free saves one starter report. Upgrade to unlock the full roadmap, benchmark history, retakes, and public sharing.
+                      Free saves one starter report. Upgrade to unlock full history, retakes, and public sharing.
                     </p>
                     <button type="button" onClick={() => navigate('/pricing?intent=pro')} className={`${primaryButtonClassName} mt-4`}>
                       <span>Unlock Pro</span>

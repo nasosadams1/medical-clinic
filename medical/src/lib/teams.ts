@@ -3,13 +3,72 @@ import { supabase } from './supabase';
 
 export type TeamUseCase = 'bootcamps' | 'universities' | 'coding-clubs' | 'upskilling' | 'general';
 export type TeamRole = 'owner' | 'admin' | 'coach' | 'learner';
-export type TeamAssignmentType = 'benchmark' | 'challenge_pack' | 'roadmap';
+export type TeamAssignmentType = 'benchmark' | 'duel_activity' | 'roadmap';
+export type TeamAssignmentAudienceType = 'team_wide';
+export type TeamAssignmentStatus = 'active' | 'archived';
 export type TeamAssignmentLifecycleState = 'active' | 'past_due' | 'archived';
 export type BenchmarkLanguage = 'python' | 'javascript' | 'java' | 'cpp';
 export type TeamFeedbackStatus = 'draft' | 'shared' | 'resolved';
 export type TeamJoinMode = 'open_code' | 'code_domain' | 'code_approval' | 'invite_only';
 export type TeamSubmissionType = 'written' | 'code' | 'link';
 export type TeamSubmissionStatus = 'submitted' | 'reviewed' | 'needs_revision';
+
+export interface TeamAssignmentSnapshotBase {
+  snapshotVersion: number;
+  snapshotState: 'captured' | 'legacy_backfill';
+  capturedAt: string;
+  assignmentType: TeamAssignmentType;
+  summary: string;
+  requiredCompletionCount: number;
+  progressUnitLabel: string;
+}
+
+export interface TeamAssignmentBenchmarkSnapshot extends TeamAssignmentSnapshotBase {
+  assignmentType: 'benchmark';
+  benchmarkLanguage: BenchmarkLanguage;
+}
+
+export interface TeamAssignmentRoadmapSnapshot extends TeamAssignmentSnapshotBase {
+  assignmentType: 'roadmap';
+  track: {
+    id: string;
+    title: string;
+    language: BenchmarkLanguage | 'multi';
+    version: number;
+    requiredLessonIds: string[];
+    requiredLessonCount: number;
+    lessonItems: Array<{
+      lessonId: string;
+      title: string;
+    }>;
+  };
+}
+
+export interface TeamAssignmentDuelActivitySnapshot extends TeamAssignmentSnapshotBase {
+  assignmentType: 'duel_activity';
+  requiredMatchCount: number;
+}
+
+export type TeamAssignmentDefinitionSnapshot =
+  | TeamAssignmentBenchmarkSnapshot
+  | TeamAssignmentRoadmapSnapshot
+  | TeamAssignmentDuelActivitySnapshot;
+
+export type TeamAssignmentCompletionRule =
+  | {
+      mode: 'benchmark_completion_since_assignment_start';
+      language: BenchmarkLanguage | null;
+      requiredCount: number;
+    }
+  | {
+      mode: 'lesson_completion_since_assignment_start';
+      requiredLessonIds: string[];
+      requiredCount: number;
+    }
+  | {
+      mode: 'completed_duel_matches_since_assignment_start';
+      requiredCount: number;
+    };
 
 export interface TeamRubricBreakdown {
   correctness: number | null;
@@ -45,8 +104,11 @@ export interface TeamInvite {
   maxUses: number;
   useCount: number;
   expiresAt: string | null;
+  lastUsedAt?: string | null;
   status: 'active' | 'expired' | 'revoked';
   createdAt: string;
+  createdByUserId?: string | null;
+  createdByName?: string | null;
 }
 
 export interface TeamAssignment {
@@ -54,14 +116,19 @@ export interface TeamAssignment {
   title: string;
   description: string;
   assignmentType: TeamAssignmentType;
+  status: TeamAssignmentStatus;
   benchmarkLanguage: BenchmarkLanguage | null;
   trackId: string | null;
   dueAt: string | null;
   createdAt: string;
   updatedAt: string | null;
+  createdByUserId: string | null;
+  createdByName: string | null;
   lifecycleState: TeamAssignmentLifecycleState;
   archivedAt: string | null;
   archivedByUserId: string | null;
+  audienceType: TeamAssignmentAudienceType;
+  audienceLabel: string;
   eligibleLearnerCount: number;
   completedLearnerCount: number;
   inProgressLearnerCount: number;
@@ -70,6 +137,10 @@ export interface TeamAssignment {
   averageProgressPercent: number;
   requiredCompletionCount: number;
   progressUnitLabel: string;
+  scopeLabel: string;
+  definitionSnapshot: TeamAssignmentDefinitionSnapshot;
+  completionRule: TeamAssignmentCompletionRule;
+  completionRuleSummary: string;
   metadata?: Record<string, unknown>;
 }
 
@@ -162,7 +233,7 @@ export interface TeamWorkspaceDetail {
     needsAttentionCount: number;
     retakeReadyCount: number;
     topPerformer: { name: string; score: number | null; streak: number } | null;
-    progressTimeline: Array<{ label: string; value: number | null }>;
+    progressTimeline: Array<{ label: string; value: number | null; count: number }>;
   };
   members: TeamMember[];
   assignments: TeamAssignment[];
@@ -184,53 +255,77 @@ export interface TeamCapabilities {
 }
 
 export interface TeamAnalytics {
-  scoreBands: Array<{ label: string; count: number }>;
-  roleDistribution: Record<TeamRole, number>;
-  recency: {
-    recent: number;
-    warm: number;
-    stale: number;
-    missing: number;
+  summary: {
+    needsReviewNow: number;
+    quietLearners7d: number;
+    offTrackAssignments: number;
+    medianLatestScore: number | null;
+    benchmarkCoverageRate: number;
+    benchmarkedLearners: number;
+    totalLearners: number;
   };
-  inviteStats: {
-    total: number;
-    active: number;
-    expired: number;
-    revoked: number;
-    uses: number;
+  health: {
+    activeLearners: number;
+    noBenchmarkYet: number;
+    dueNext7d: number;
+    pastDueAssignments: number;
+    pendingJoinRequests: number;
   };
-  assignmentStats: {
-    total: number;
-    active: number;
-    pastDue: number;
-    archived: number;
-    benchmark: number;
-    challengePack: number;
-    roadmap: number;
-    dueSoon: number;
-    averageCompletionRate: number;
+  movement: {
+    averageLatestScore: number | null;
+    medianLatestScore: number | null;
+    improvingLearners: number;
+    plateauLearners: number;
+    decliningLearners: number;
+    readyForRetake: number;
+    averageImprovement: number | null;
   };
-  streakStats: {
-    average: number | null;
-    highest: number;
-  };
-  benchmarkStats: {
-    average: number | null;
-    median: number | null;
-    completionRate: number;
-  };
-  feedbackStats: {
-    total: number;
-    shared: number;
-    resolved: number;
-    drafts: number;
-  };
-  submissionStats?: {
-    total: number;
-    submitted: number;
-    reviewed: number;
+  workflow: {
+    needsReviewNow: number;
     needsRevision: number;
+    feedbackDrafts: number;
+    feedbackResolved: number;
+    quietLearners3d: number;
+    quietLearners7d: number;
+    offTrackAssignments: number;
   };
+  trend: {
+    points: Array<{ label: string; value: number | null; count: number }>;
+    deltaFromPrevious: number | null;
+    status: 'up' | 'flat' | 'down' | 'insufficient';
+    summary: string;
+  };
+  actionSignals: Array<{
+    title: string;
+    detail: string;
+    tone: 'critical' | 'watch' | 'positive';
+  }>;
+  priorityLearners: Array<{
+    userId: string;
+    name: string;
+    signal: string;
+    reason: string;
+    latestScore: number | null;
+    improvementDelta: number | null;
+    lastActiveAt: string | null;
+    recommendedAction: string;
+    tone: 'critical' | 'watch' | 'positive';
+  }>;
+  priorityAssignments: Array<{
+    id: string;
+    title: string;
+    signal: string;
+    reason: string;
+    dueAt: string | null;
+    completionRate: number;
+    lifecycleState: TeamAssignmentLifecycleState;
+    learnerCount: number;
+    reviewBacklog: number;
+  }>;
+  highlights: Array<{
+    title: string;
+    detail: string;
+  }>;
 }
 
 export interface PublicTeamProof {
@@ -244,7 +339,7 @@ export interface PublicTeamProof {
     publicSharedAt: string | null;
   };
   metrics: TeamWorkspaceDetail['metrics'];
-  assignments: Array<Pick<TeamAssignment, 'id' | 'title' | 'assignmentType' | 'benchmarkLanguage' | 'dueAt'>>;
+  assignments: Array<Pick<TeamAssignment, 'id' | 'title' | 'assignmentType' | 'benchmarkLanguage' | 'dueAt' | 'scopeLabel'>>;
   improvementLeaders: Array<{
     userId: string;
     publicName: string;
@@ -297,9 +392,26 @@ const isLegacyCapabilitiesRouteError = (message: string) => {
   );
 };
 
+const isLegacyBulkAssignmentDeleteRouteError = (message: string, path: string) => {
+  const normalizedPath = String(path || '');
+  const normalizedMessage = String(message || '');
+
+  return (
+    normalizedPath.includes('/assignments/bulk') &&
+    normalizedMessage.includes('Invalid option') &&
+    normalizedMessage.includes('archive') &&
+    normalizedMessage.includes('restore') &&
+    normalizedMessage.includes('set_due_date')
+  );
+};
+
 const normalizeTeamsApiErrorMessage = (message: string, path: string) => {
   if (path === '/capabilities' && isLegacyCapabilitiesRouteError(message)) {
     return 'The live Teams API is outdated and needs redeploying before team creation can work.';
+  }
+
+  if (isLegacyBulkAssignmentDeleteRouteError(message, path)) {
+    return 'The local Teams API is outdated and needs a restart before permanent assignment deletion can work.';
   }
 
   return message;
@@ -477,6 +589,7 @@ export const createTeamAssignment = async (
     assignmentType: TeamAssignmentType;
     benchmarkLanguage?: BenchmarkLanguage | null;
     trackId?: string | null;
+    duelTargetCount?: number;
     dueAt?: string | null;
   }
 ) => {
@@ -496,6 +609,7 @@ export const updateTeamAssignment = async (
     assignmentType: TeamAssignmentType;
     benchmarkLanguage: BenchmarkLanguage | null;
     trackId: string | null;
+    duelTargetCount: number;
     dueAt: string | null;
     archived: boolean;
   }>
@@ -507,11 +621,18 @@ export const updateTeamAssignment = async (
   return payload.assignment;
 };
 
+export const duplicateTeamAssignment = async (teamId: string, assignmentId: string) => {
+  const payload = await teamsFetch<{ assignment: TeamAssignment }>(`/${teamId}/assignments/${assignmentId}/duplicate`, {
+    method: 'POST',
+  });
+  return payload.assignment;
+};
+
 export const bulkUpdateTeamAssignments = async (
   teamId: string,
   input: {
     assignmentIds: string[];
-    action: 'archive' | 'restore' | 'set_due_date';
+    action: 'archive' | 'restore' | 'set_due_date' | 'delete';
     dueAt?: string | null;
   }
 ) => {

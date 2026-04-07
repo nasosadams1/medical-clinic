@@ -1,4 +1,8 @@
-import { supabase, UserProfile } from './supabase';
+import {
+  getValidAccessToken,
+  recoverFromSupabaseSessionError,
+  UserProfile,
+} from './supabase';
 import { hasConfiguredApiBaseUrl, resolveApiBaseUrl } from './apiBase';
 
 const apiBaseUrl = resolveApiBaseUrl();
@@ -99,8 +103,7 @@ export const isProgressionApiUnavailableError = (
 ): error is ProgressionApiUnavailableError => error instanceof ProgressionApiUnavailableError;
 
 async function getAuthHeaders() {
-  const { data } = await supabase.auth.getSession();
-  const accessToken = data.session?.access_token;
+  const accessToken = await getValidAccessToken();
 
   if (!accessToken) {
     throw new Error('You must be signed in to sync progression.');
@@ -144,6 +147,12 @@ async function authorizedProgressionFetch<T>(path: string, init: RequestInit = {
 
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) {
+        if (response.status === 401 || response.status === 403) {
+          await recoverFromSupabaseSessionError({
+            status: response.status,
+            message: (payload as any)?.error || response.statusText,
+          });
+        }
         throw new Error((payload as any)?.error || 'Progression request failed.');
       }
 

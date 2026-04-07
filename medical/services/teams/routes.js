@@ -11,17 +11,25 @@ import {
   getTeamPlanPolicyFromSeatLimit,
   resolveTeamPlanPolicy,
 } from '../../shared/team-plan-policy.js';
-import { getTeamAssignmentTrack } from '../../shared/team-assignment-tracks.js';
+import { TEAM_ASSIGNMENT_INPUT_TYPES } from '../../shared/team-assignments.js';
+import {
+  buildAssignmentCreateRecord,
+  buildAssignmentProgressByUser,
+  buildAssignmentUpdateRecord,
+  buildDuplicatedAssignmentRecord,
+  ensureAssignmentPayloadIsValid,
+  ensureTeamAssignmentCapacityAvailable,
+  getAssignmentLifecycleState,
+  serializeTeamAssignment,
+} from './assignment-domain.js';
 
 const TEAM_USE_CASES = ['bootcamps', 'universities', 'coding-clubs', 'upskilling', 'general'];
-const ASSIGNMENT_TYPES = ['benchmark', 'challenge_pack', 'roadmap'];
+const ASSIGNMENT_TYPES = TEAM_ASSIGNMENT_INPUT_TYPES;
 const BENCHMARK_LANGUAGES = ['python', 'javascript', 'java', 'cpp'];
 const TEAM_FEEDBACK_STATUSES = ['draft', 'shared', 'resolved'];
 const TEAM_SUBMISSION_TYPES = ['written', 'code', 'link'];
 const TEAM_SUBMISSION_STATUSES = ['submitted', 'reviewed', 'needs_revision'];
 const TEAM_JOIN_MODES = ['open_code', 'code_domain', 'code_approval', 'invite_only'];
-const CHALLENGE_PACK_DEFAULT_COMPLETION_TARGET = 3;
-const MATCH_COMPLETION_STATUSES = new Set(['completed', 'ended', 'finished']);
 
 const RubricBreakdownSchema = z.object({
   correctness: z.union([z.number().min(0).max(10), z.null()]).optional().default(null),
@@ -73,6 +81,7 @@ const CreateAssignmentSchema = z.object({
   assignmentType: z.enum(ASSIGNMENT_TYPES),
   benchmarkLanguage: z.union([z.enum(BENCHMARK_LANGUAGES), z.null()]).optional().default(null),
   trackId: z.union([z.string().trim().min(1).max(120), z.null()]).optional().default(null),
+  duelTargetCount: z.number().int().min(1).max(20).optional().default(3),
   dueAt: z.union([z.string().trim().min(1).max(80), z.null()]).optional().default(null),
 });
 
@@ -83,6 +92,7 @@ const UpdateAssignmentSchema = z
     assignmentType: z.enum(ASSIGNMENT_TYPES).optional(),
     benchmarkLanguage: z.union([z.enum(BENCHMARK_LANGUAGES), z.null()]).optional(),
     trackId: z.union([z.string().trim().min(1).max(120), z.null()]).optional(),
+    duelTargetCount: z.number().int().min(1).max(20).optional(),
     dueAt: z.union([z.string().trim().min(1).max(80), z.null()]).optional(),
     archived: z.boolean().optional(),
   })
@@ -197,7 +207,7 @@ const UpdateSubmissionSchema = z
 const BulkUpdateAssignmentsSchema = z
   .object({
     assignmentIds: z.array(z.string().uuid()).min(1).max(100),
-    action: z.enum(['archive', 'restore', 'set_due_date']),
+    action: z.enum(['archive', 'restore', 'set_due_date', 'delete']),
     dueAt: z.union([z.string().trim().min(1).max(80), z.null()]).optional().default(null),
   })
   .superRefine((value, ctx) => {
@@ -341,7 +351,7 @@ const formatPublicMemberName = (name) => {
   return `${parts[0]} ${parts[parts.length - 1].charAt(0).toUpperCase()}.`;
 };
 
-const buildStarterAssignments = (useCase, userId) => {
+const buildStarterAssignments = (useCase, teamId, userId) => {
   const benchmarkTitle =
     useCase === 'upskilling'
       ? 'Junior screening benchmark'
@@ -350,26 +360,36 @@ const buildStarterAssignments = (useCase, userId) => {
       : 'Initial cohort benchmark';
 
   return [
-    {
-      title: benchmarkTitle,
-      description: 'Run the first benchmark to establish a shared baseline and identify who needs a guided path first.',
-      assignment_type: 'benchmark',
-      benchmark_language: 'python',
-      track_id: null,
-      due_at: null,
-      created_by: userId,
+    buildAssignmentCreateRecord({
+      teamId,
+      createdByUserId: userId,
+      capturedAt: new Date().toISOString(),
+      input: {
+        title: benchmarkTitle,
+        description: 'Run the first benchmark to establish a shared baseline and identify who needs a guided path first.',
+        assignmentType: 'benchmark',
+        benchmarkLanguage: 'python',
+        trackId: null,
+        duelTargetCount: 3,
+        dueAt: null,
+      },
       metadata: { seeded: true },
-    },
-    {
-      title: 'Roadmap follow-up',
-      description: 'Assign the recommended practice path after the first benchmark report is in.',
-      assignment_type: 'roadmap',
-      benchmark_language: null,
-      track_id: 'junior-developer-screening',
-      due_at: null,
-      created_by: userId,
+    }),
+    buildAssignmentCreateRecord({
+      teamId,
+      createdByUserId: userId,
+      capturedAt: new Date().toISOString(),
+      input: {
+        title: 'Roadmap follow-up',
+        description: 'Assign the recommended practice path after the first benchmark report is in.',
+        assignmentType: 'roadmap',
+        benchmarkLanguage: null,
+        trackId: 'junior-developer-screening',
+        duelTargetCount: 3,
+        dueAt: null,
+      },
       metadata: { seeded: true },
-    },
+    }),
   ];
 };
 
@@ -743,31 +763,6 @@ const ensureRoleTransitionAllowed = (actorMembership, targetMembership, nextRole
   }
 };
 
-const ensureAssignmentPayloadIsValid = (payload) => {
-  const isRoadmap = payload.assignmentType === 'roadmap';
-
-  if (!isValidDateInput(payload.dueAt)) {
-    throw new Error('Assignment due date is invalid.');
-  }
-
-  if (isRoadmap) {
-    if (!payload.trackId) {
-      throw new Error('Roadmap assignments require a track.');
-    }
-    if (payload.benchmarkLanguage) {
-      throw new Error('Roadmap assignments cannot also set a benchmark language.');
-    }
-    return;
-  }
-
-  if (!payload.benchmarkLanguage) {
-    throw new Error('Benchmark and challenge assignments require a language.');
-  }
-  if (payload.trackId) {
-    throw new Error('Only roadmap assignments can include a track.');
-  }
-};
-
 const loadTeamAssignment = async (supabaseAdmin, teamId, assignmentId) => {
   const { data, error } = await supabaseAdmin
     .from('skill_team_assignments')
@@ -781,6 +776,30 @@ const loadTeamAssignment = async (supabaseAdmin, teamId, assignmentId) => {
   }
 
   return data;
+};
+
+const detachAssignmentsFromHistory = async (supabaseAdmin, teamId, assignmentIds) => {
+  if (!assignmentIds.length) return;
+
+  const { error: submissionsError } = await supabaseAdmin
+    .from('skill_team_submissions')
+    .update({ assignment_id: null })
+    .eq('team_id', teamId)
+    .in('assignment_id', assignmentIds);
+
+  if (submissionsError) {
+    throw new Error(submissionsError.message || 'Could not detach assignment submissions before deletion.');
+  }
+
+  const { error: feedbackError } = await supabaseAdmin
+    .from('skill_team_feedback')
+    .update({ assignment_id: null })
+    .eq('team_id', teamId)
+    .in('assignment_id', assignmentIds);
+
+  if (feedbackError) {
+    throw new Error(feedbackError.message || 'Could not detach assignment feedback before deletion.');
+  }
 };
 
 const loadTeamSubmission = async (supabaseAdmin, teamId, submissionId) => {
@@ -826,85 +845,6 @@ const normalizeRubricBreakdown = (value) => {
   return parsed.data;
 };
 
-const getAssignmentLifecycleState = (assignment) => {
-  if (assignment?.archived_at) {
-    return 'archived';
-  }
-
-  if (assignment?.due_at) {
-    const dueAt = new Date(assignment.due_at).getTime();
-    if (Number.isFinite(dueAt) && dueAt < Date.now()) {
-      return 'past_due';
-    }
-  }
-
-  return 'active';
-};
-
-const getAssignmentProgressDefinition = (assignment) => {
-  if (assignment.assignment_type === 'roadmap') {
-    const track = getTeamAssignmentTrack(assignment.track_id);
-    const lessonIds = Array.isArray(track?.recommendedLessonIds) ? track.recommendedLessonIds.filter(Boolean) : [];
-    return {
-      unitLabel: 'lessons',
-      requiredCount: lessonIds.length,
-      lessonIds,
-    };
-  }
-
-  if (assignment.assignment_type === 'challenge_pack') {
-    return {
-      unitLabel: 'matches',
-      requiredCount: clampInteger(assignment?.metadata?.requiredChallengeCount ?? CHALLENGE_PACK_DEFAULT_COMPLETION_TARGET, 1, 20),
-      lessonIds: [],
-    };
-  }
-
-  return {
-    unitLabel: 'benchmarks',
-    requiredCount: 1,
-    lessonIds: [],
-  };
-};
-
-const serializeAssignment = (assignment, learnerProgress) => {
-  const lifecycleState = getAssignmentLifecycleState(assignment);
-  const eligibleLearnerCount = learnerProgress.length;
-  const completedLearnerCount = learnerProgress.filter((entry) => entry.status === 'completed').length;
-  const inProgressLearnerCount = learnerProgress.filter((entry) => entry.status === 'in_progress').length;
-  const notStartedLearnerCount = learnerProgress.filter((entry) => entry.status === 'not_started').length;
-  const completionRate = eligibleLearnerCount > 0 ? Math.round((completedLearnerCount / eligibleLearnerCount) * 100) : 0;
-  const averageProgressPercent =
-    eligibleLearnerCount > 0
-      ? Math.round(learnerProgress.reduce((total, entry) => total + entry.progressPercent, 0) / eligibleLearnerCount)
-      : 0;
-  const progressDefinition = getAssignmentProgressDefinition(assignment);
-
-  return {
-    id: assignment.id,
-    title: assignment.title,
-    description: assignment.description,
-    assignmentType: assignment.assignment_type,
-    benchmarkLanguage: assignment.benchmark_language,
-    trackId: assignment.track_id,
-    dueAt: assignment.due_at,
-    createdAt: assignment.created_at,
-    updatedAt: assignment.updated_at || assignment.created_at,
-    lifecycleState,
-    archivedAt: assignment.archived_at || null,
-    archivedByUserId: assignment.archived_by || null,
-    eligibleLearnerCount,
-    completedLearnerCount,
-    inProgressLearnerCount,
-    notStartedLearnerCount,
-    completionRate,
-    averageProgressPercent,
-    requiredCompletionCount: progressDefinition.requiredCount,
-    progressUnitLabel: progressDefinition.unitLabel,
-    metadata: assignment.metadata || {},
-  };
-};
-
 const serializeSubmission = (submission, profileMap, assignmentMap) => ({
   id: submission.id,
   memberUserId: submission.member_user_id,
@@ -927,118 +867,6 @@ const serializeSubmission = (submission, profileMap, assignmentMap) => ({
   createdAt: submission.created_at,
   updatedAt: submission.updated_at || submission.created_at,
 });
-
-const buildAssignmentProgressByUser = ({ assignment, learnerMembers, reports, lessonCompletionEvents, duelMatches }) => {
-  const assignmentCreatedAt = new Date(assignment.created_at).getTime();
-  const reportsByUser = new Map();
-  const lessonEventsByUser = new Map();
-  const matchesByUser = new Map();
-
-  (reports || []).forEach((report) => {
-    const existing = reportsByUser.get(report.user_id) || [];
-    existing.push(report);
-    reportsByUser.set(report.user_id, existing);
-  });
-
-  (lessonCompletionEvents || []).forEach((entry) => {
-    const existing = lessonEventsByUser.get(entry.user_id) || [];
-    existing.push(entry);
-    lessonEventsByUser.set(entry.user_id, existing);
-  });
-
-  (duelMatches || []).forEach((match) => {
-    const normalizedStatus = String(match.status || '').trim().toLowerCase();
-    if (!MATCH_COMPLETION_STATUSES.has(normalizedStatus)) {
-      return;
-    }
-
-    const completionTimestamp =
-      new Date(match.completed_at || match.ended_at || match.created_at || '').getTime();
-    if (!Number.isFinite(completionTimestamp) || completionTimestamp < assignmentCreatedAt) {
-      return;
-    }
-
-    [match.player_a_id, match.player_b_id]
-      .filter(Boolean)
-      .forEach((userId) => {
-        const existing = matchesByUser.get(userId) || [];
-        existing.push(match);
-        matchesByUser.set(userId, existing);
-      });
-  });
-
-  const progressDefinition = getAssignmentProgressDefinition(assignment);
-
-  return learnerMembers.map((member) => {
-    let completedCount = 0;
-    let requiredCount = progressDefinition.requiredCount;
-    let completedAt = null;
-
-    if (assignment.assignment_type === 'benchmark') {
-      const matchingReports = (reportsByUser.get(member.userId) || []).filter((report) => {
-        const createdAt = new Date(report.created_at).getTime();
-        if (!Number.isFinite(createdAt) || createdAt < assignmentCreatedAt) {
-          return false;
-        }
-
-        if (!assignment.benchmark_language) {
-          return true;
-        }
-
-        return report.language === assignment.benchmark_language;
-      });
-
-      completedCount = matchingReports.length > 0 ? 1 : 0;
-      completedAt =
-        matchingReports.length > 0
-          ? [...matchingReports]
-              .sort((left, right) => new Date(left.created_at).getTime() - new Date(right.created_at).getTime())[0]?.created_at || null
-          : null;
-    } else if (assignment.assignment_type === 'roadmap') {
-      const lessonIds = progressDefinition.lessonIds;
-      const matchingCompletions = (lessonEventsByUser.get(member.userId) || []).filter((entry) => {
-        const completedAtTime = new Date(entry.completed_at).getTime();
-        return Number.isFinite(completedAtTime) && completedAtTime >= assignmentCreatedAt && lessonIds.includes(entry.lesson_id);
-      });
-      const completedLessonIds = Array.from(new Set(matchingCompletions.map((entry) => entry.lesson_id)));
-      completedCount = completedLessonIds.length;
-      completedAt =
-        completedCount >= requiredCount && requiredCount > 0
-          ? matchingCompletions
-              .map((entry) => entry.completed_at)
-              .sort((left, right) => new Date(right).getTime() - new Date(left).getTime())[0] || null
-          : null;
-    } else {
-      const completedMatches = matchesByUser.get(member.userId) || [];
-      completedCount = completedMatches.length;
-      completedAt =
-        completedMatches.length > 0
-          ? [...completedMatches]
-              .map((match) => match.completed_at || match.ended_at || match.created_at)
-              .sort((left, right) => new Date(right).getTime() - new Date(left).getTime())[0] || null
-          : null;
-    }
-
-    const cappedCompletedCount = requiredCount > 0 ? Math.min(completedCount, requiredCount) : 0;
-    const progressPercent =
-      requiredCount > 0 ? Math.round((cappedCompletedCount / Math.max(1, requiredCount)) * 100) : 0;
-    const status =
-      cappedCompletedCount >= requiredCount && requiredCount > 0
-        ? 'completed'
-        : cappedCompletedCount > 0
-        ? 'in_progress'
-        : 'not_started';
-
-    return {
-      userId: member.userId,
-      status,
-      progressPercent,
-      completedCount: cappedCompletedCount,
-      requiredCount,
-      completedAt,
-    };
-  });
-};
 
 const ensureSubmissionTargetsAreValid = async (supabaseAdmin, teamId, memberUserId, assignmentId = null) => {
   const targetMembership = await loadMembership(supabaseAdmin, teamId, memberUserId);
@@ -1137,6 +965,7 @@ const buildProgressTimeline = (reports) => {
     return {
       label: `Week ${index + 1}`,
       value: average,
+      count: bucketReports.length,
     };
   });
 };
@@ -1347,7 +1176,11 @@ const buildTeamDetail = ({
       duelMatches,
     });
 
-    return serializeAssignment(assignment, learnerProgress);
+    return serializeTeamAssignment(
+      assignment,
+      learnerProgress,
+      profileMap.get(assignment.created_by)?.name || profileMap.get(assignment.created_by)?.email || null
+    );
   });
 
   return {
@@ -1399,8 +1232,11 @@ const buildTeamDetail = ({
       maxUses: invite.max_uses,
       useCount: invite.use_count,
       expiresAt: invite.expires_at,
+      lastUsedAt: invite.last_used_at || null,
       status: invite.status,
       createdAt: invite.created_at,
+      createdByUserId: invite.created_by || null,
+      createdByName: profileMap.get(invite.created_by)?.name || profileMap.get(invite.created_by)?.email || null,
     })),
     submissions: submissions
       .slice()
@@ -1479,6 +1315,7 @@ const buildPublicTeamProof = ({ detail }) => ({
       title: assignment.title,
       assignmentType: assignment.assignmentType,
       benchmarkLanguage: assignment.benchmarkLanguage,
+      scopeLabel: assignment.scopeLabel,
       dueAt: assignment.dueAt,
     })),
   improvementLeaders: [...detail.members]
@@ -1709,6 +1546,7 @@ const loadTeamWorkspaceResources = async (supabaseAdmin, teamId) => {
     new Set(
       [
         ...(memberships || []).map((entry) => entry.user_id),
+        ...(invites || []).map((entry) => entry.created_by).filter(Boolean),
         ...(submissions || []).flatMap((entry) => [entry.member_user_id, entry.submitted_by_user_id].filter(Boolean)),
         ...(feedback || []).flatMap((entry) => [entry.member_user_id, entry.author_user_id].filter(Boolean)),
         ...(joinRequests || []).flatMap((entry) => [entry.user_id, entry.reviewed_by_user_id].filter(Boolean)),
@@ -1807,108 +1645,368 @@ const loadTeamWorkspaceResources = async (supabaseAdmin, teamId) => {
 };
 
 const buildTeamAnalytics = ({ detail }) => {
-  const scoreBands = [
-    { label: '0-54', count: 0 },
-    { label: '55-69', count: 0 },
-    { label: '70-84', count: 0 },
-    { label: '85-100', count: 0 },
-  ];
-  const roleDistribution = {
-    owner: 0,
-    admin: 0,
-    coach: 0,
-    learner: 0,
+  const now = Date.now();
+  const learnerMembers = detail.members.filter((member) => member.role === 'learner' && member.status === 'active');
+  const benchmarkedLearners = learnerMembers.filter((member) => typeof member.latestBenchmarkScore === 'number');
+  const noBenchmarkYet = learnerMembers.length - benchmarkedLearners.length;
+  const averageLatestScore = getAverage(
+    benchmarkedLearners.map((member) => Number(member.latestBenchmarkScore || 0))
+  );
+  const medianLatestScore = benchmarkedLearners.length
+    ? getMedian(benchmarkedLearners.map((member) => Number(member.latestBenchmarkScore || 0)))
+    : null;
+  const benchmarkCoverageRate = learnerMembers.length
+    ? Math.round((benchmarkedLearners.length / learnerMembers.length) * 100)
+    : 0;
+
+  const isOlderThanDays = (value, days) => {
+    if (!value) return true;
+    const parsed = new Date(value).getTime();
+    if (!Number.isFinite(parsed)) return true;
+    return now - parsed >= days * 24 * 60 * 60 * 1000;
   };
-  const recency = {
-    recent: 0,
-    warm: 0,
-    stale: 0,
-    missing: 0,
+
+  const isDueWithinDays = (value, days) => {
+    if (!value) return false;
+    const parsed = new Date(value).getTime();
+    if (!Number.isFinite(parsed)) return false;
+    return parsed >= now && parsed <= now + days * 24 * 60 * 60 * 1000;
   };
 
-  detail.members.forEach((member) => {
-    roleDistribution[member.role] += 1;
+  const quietLearners3d = learnerMembers.filter((member) => isOlderThanDays(member.lastActiveAt, 3)).length;
+  const quietLearners7d = learnerMembers.filter((member) => isOlderThanDays(member.lastActiveAt, 7)).length;
+  const improvingLearners = learnerMembers.filter(
+    (member) => typeof member.improvementDelta === 'number' && member.improvementDelta > 0
+  ).length;
+  const plateauLearners = learnerMembers.filter(
+    (member) => typeof member.improvementDelta === 'number' && member.improvementDelta === 0
+  ).length;
+  const decliningLearners = learnerMembers.filter(
+    (member) => typeof member.improvementDelta === 'number' && member.improvementDelta < 0
+  ).length;
+  const readyForRetake = learnerMembers.filter((member) => member.recommendedAction === 'Ready for retake').length;
+  const repeatedLowScores = learnerMembers.filter(
+    (member) =>
+      typeof member.latestBenchmarkScore === 'number' &&
+      member.latestBenchmarkScore < 55 &&
+      member.benchmarkCount >= 2 &&
+      (member.improvementDelta === null || member.improvementDelta <= 0)
+  ).length;
 
-    const score = member.latestBenchmarkScore;
-    if (typeof score === 'number') {
-      if (score < 55) scoreBands[0].count += 1;
-      else if (score < 70) scoreBands[1].count += 1;
-      else if (score < 85) scoreBands[2].count += 1;
-      else scoreBands[3].count += 1;
+  const feedbackDrafts = detail.feedback.filter((entry) => entry.status === 'draft').length;
+  const feedbackResolved = detail.feedback.filter((entry) => entry.status === 'resolved').length;
+  const needsReviewNow = detail.submissions.filter((entry) => entry.status === 'submitted').length;
+  const needsRevision = detail.submissions.filter((entry) => entry.status === 'needs_revision').length;
+  const pendingJoinRequests = detail.joinRequests.filter((request) => request.status === 'pending').length;
+
+  const assignmentSubmissionBacklog = new Map();
+  detail.submissions.forEach((entry) => {
+    if (!entry.assignmentId) return;
+    const existing = assignmentSubmissionBacklog.get(entry.assignmentId) || { submitted: 0 };
+    if (entry.status === 'submitted') {
+      existing.submitted += 1;
     }
-
-    if (!member.latestBenchmarkAt) {
-      recency.missing += 1;
-      return;
-    }
-
-    const ageDays = Math.floor((Date.now() - new Date(member.latestBenchmarkAt).getTime()) / (1000 * 60 * 60 * 24));
-    if (ageDays <= 7) recency.recent += 1;
-    else if (ageDays <= 30) recency.warm += 1;
-    else recency.stale += 1;
+    assignmentSubmissionBacklog.set(entry.assignmentId, existing);
   });
 
-  const inviteStats = {
-    total: detail.invites.length,
-    active: detail.invites.filter((invite) => invite.status === 'active').length,
-    expired: detail.invites.filter((invite) => invite.status === 'expired').length,
-    revoked: detail.invites.filter((invite) => invite.status === 'revoked').length,
-    uses: detail.invites.reduce((total, invite) => total + Number(invite.useCount || 0), 0),
-  };
+  const pastDueAssignments = detail.assignments.filter((assignment) => assignment.lifecycleState === 'past_due').length;
+  const dueNext7d = detail.assignments.filter(
+    (assignment) => assignment.lifecycleState !== 'archived' && isDueWithinDays(assignment.dueAt, 7)
+  ).length;
+  const offTrackAssignmentIds = new Set(
+    detail.assignments
+      .filter((assignment) => {
+        if (assignment.lifecycleState === 'archived') return false;
+        if (assignment.lifecycleState === 'past_due') return true;
+        return isDueWithinDays(assignment.dueAt, 7) && Number(assignment.completionRate || 0) < 60;
+      })
+      .map((assignment) => assignment.id)
+  );
 
-  const assignmentStats = {
-    total: detail.assignments.length,
-    active: detail.assignments.filter((assignment) => assignment.lifecycleState === 'active').length,
-    pastDue: detail.assignments.filter((assignment) => assignment.lifecycleState === 'past_due').length,
-    archived: detail.assignments.filter((assignment) => assignment.lifecycleState === 'archived').length,
-    benchmark: detail.assignments.filter((assignment) => assignment.assignmentType === 'benchmark').length,
-    challengePack: detail.assignments.filter((assignment) => assignment.assignmentType === 'challenge_pack').length,
-    roadmap: detail.assignments.filter((assignment) => assignment.assignmentType === 'roadmap').length,
-    dueSoon: detail.assignments.filter((assignment) => {
-      if (assignment.lifecycleState === 'archived' || !assignment.dueAt) return false;
-      const dueAt = new Date(assignment.dueAt).getTime();
-      return dueAt >= Date.now() && dueAt <= Date.now() + 7 * 24 * 60 * 60 * 1000;
-    }).length,
-    averageCompletionRate: detail.assignments.length
-      ? Math.round(
-          detail.assignments.reduce((total, assignment) => total + Number(assignment.completionRate || 0), 0) /
-            detail.assignments.length
-        )
-      : 0,
-  };
+  const priorityAssignments = detail.assignments
+    .filter((assignment) => assignment.lifecycleState !== 'archived')
+    .map((assignment) => {
+      const reviewBacklog = assignmentSubmissionBacklog.get(assignment.id)?.submitted || 0;
+      const noLearnerStarted =
+        assignment.eligibleLearnerCount > 0 && assignment.notStartedLearnerCount === assignment.eligibleLearnerCount;
+      const dueSoon = isDueWithinDays(assignment.dueAt, 7);
+      let severity = 0;
+      let signal = '';
+      let reason = '';
 
-  const streakValues = detail.members.map((member) => Number(member.currentStreak || 0));
-  const benchmarkValues = detail.members
-    .map((member) => member.latestBenchmarkScore)
-    .filter((value) => typeof value === 'number');
+      if (assignment.lifecycleState === 'past_due') {
+        severity = 4;
+        signal = 'Past due';
+        reason = `${assignment.completionRate}% complete with ${assignment.notStartedLearnerCount} not started.`;
+      } else if (dueSoon && Number(assignment.completionRate || 0) < 60) {
+        severity = 3;
+        signal = 'Due soon with low completion';
+        reason = `${assignment.completionRate}% complete before the due window closes.`;
+      } else if (reviewBacklog > 0) {
+        severity = 2;
+        signal = 'Coach review backlog';
+        reason = `${reviewBacklog} submission${reviewBacklog === 1 ? '' : 's'} waiting on review.`;
+      } else if (noLearnerStarted) {
+        severity = 1;
+        signal = 'No learner has started';
+        reason = `${assignment.eligibleLearnerCount} learner${assignment.eligibleLearnerCount === 1 ? '' : 's'} are in scope and none have started yet.`;
+      }
+
+      return severity > 0
+        ? {
+            id: assignment.id,
+            title: assignment.title,
+            signal,
+            reason,
+            dueAt: assignment.dueAt,
+            completionRate: Number(assignment.completionRate || 0),
+            lifecycleState: assignment.lifecycleState,
+            learnerCount: assignment.eligibleLearnerCount,
+            reviewBacklog,
+            severity,
+          }
+        : null;
+    })
+    .filter(Boolean)
+    .sort((left, right) => {
+      const severityDifference = right.severity - left.severity;
+      if (severityDifference !== 0) return severityDifference;
+      return Number(left.completionRate || 0) - Number(right.completionRate || 0);
+    })
+    .slice(0, 4)
+    .map(({ severity, ...assignment }) => assignment);
+
+  const priorityLearners = learnerMembers
+    .map((member) => {
+      const quiet7d = isOlderThanDays(member.lastActiveAt, 7);
+      const quiet3d = isOlderThanDays(member.lastActiveAt, 3);
+      let severity = 0;
+      let tone = 'watch';
+      let signal = '';
+      let reason = '';
+
+      if (member.latestBenchmarkScore === null && quiet7d) {
+        severity = 4;
+        tone = 'critical';
+        signal = 'No benchmark and quiet';
+        reason = 'No benchmark signal yet and no workspace activity in 7+ days.';
+      } else if (
+        typeof member.latestBenchmarkScore === 'number' &&
+        member.latestBenchmarkScore < 55 &&
+        (member.improvementDelta === null || member.improvementDelta <= 0)
+      ) {
+        severity = 4;
+        tone = 'critical';
+        signal = 'Low score with no lift';
+        reason = `Latest benchmark ${member.latestBenchmarkScore}/100${quiet7d ? ' and quiet for 7+ days.' : '.'}`;
+      } else if (typeof member.latestBenchmarkScore === 'number' && member.latestBenchmarkScore < 55) {
+        severity = 3;
+        tone = 'watch';
+        signal = 'Needs guided practice';
+        reason = `Latest benchmark ${member.latestBenchmarkScore}/100. ${member.recommendedAction}.`;
+      } else if (quiet7d) {
+        severity = 2;
+        tone = 'watch';
+        signal = 'Quiet 7d+';
+        reason = 'No workspace activity in 7+ days while active in the team.';
+      } else if (member.latestBenchmarkScore === null || quiet3d) {
+        severity = 1;
+        tone = 'watch';
+        signal = member.latestBenchmarkScore === null ? 'Needs first benchmark' : 'Quiet 3d+';
+        reason =
+          member.latestBenchmarkScore === null
+            ? 'Still no benchmark signal for this learner.'
+            : 'No recent workspace activity in the last 3 days.';
+      }
+
+      return severity > 0
+        ? {
+            userId: member.userId,
+            name: member.name,
+            signal,
+            reason,
+            latestScore: member.latestBenchmarkScore,
+            improvementDelta: member.improvementDelta,
+            lastActiveAt: member.lastActiveAt,
+            recommendedAction: member.recommendedAction,
+            tone,
+            severity,
+          }
+        : null;
+    })
+    .filter(Boolean)
+    .sort((left, right) => {
+      const severityDifference = right.severity - left.severity;
+      if (severityDifference !== 0) return severityDifference;
+      return Number(left.latestScore ?? Infinity) - Number(right.latestScore ?? Infinity);
+    })
+    .slice(0, 4)
+    .map(({ severity, ...member }) => member);
+
+  const trendPoints = detail.metrics.progressTimeline.map((point, index, points) => {
+    const distance = points.length - index - 1;
+    return {
+      label: distance === 0 ? 'This week' : distance === 1 ? 'Last week' : `${distance}w ago`,
+      value: point.value,
+      count: point.count,
+    };
+  });
+  const latestTrendIndex = [...trendPoints].map((point) => point.value).findLastIndex((value) => typeof value === 'number');
+  const previousTrendIndex =
+    latestTrendIndex > 0
+      ? trendPoints
+          .slice(0, latestTrendIndex)
+          .map((point) => point.value)
+          .findLastIndex((value) => typeof value === 'number')
+      : -1;
+  const latestTrendValue =
+    latestTrendIndex >= 0 && typeof trendPoints[latestTrendIndex]?.value === 'number'
+      ? Number(trendPoints[latestTrendIndex].value)
+      : null;
+  const previousTrendValue =
+    previousTrendIndex >= 0 && typeof trendPoints[previousTrendIndex]?.value === 'number'
+      ? Number(trendPoints[previousTrendIndex].value)
+      : null;
+  const deltaFromPrevious =
+    latestTrendValue !== null && previousTrendValue !== null ? latestTrendValue - previousTrendValue : null;
+  const trendStatus =
+    deltaFromPrevious === null
+      ? 'insufficient'
+      : deltaFromPrevious > 0
+      ? 'up'
+      : deltaFromPrevious < 0
+      ? 'down'
+      : 'flat';
+  const trendSummary =
+    trendStatus === 'up'
+      ? `+${deltaFromPrevious} vs previous tracked week. The team is moving in the right direction.`
+      : trendStatus === 'down'
+      ? `${Math.abs(deltaFromPrevious || 0)} down vs previous tracked week. Check follow-through before the next retake.`
+      : trendStatus === 'flat'
+      ? 'No lift vs previous tracked week. Finish the corrective work before testing again.'
+      : latestTrendValue !== null
+      ? 'Useful first read, but confirm it with another comparable benchmark.'
+      : 'No comparable benchmark movement yet.';
+
+  const actionSignals = [];
+  if (needsReviewNow > 0) {
+    actionSignals.push({
+      title: 'Coach review backlog',
+      detail: `${needsReviewNow} submission${needsReviewNow === 1 ? '' : 's'} are waiting on coach review right now.`,
+      tone: 'critical',
+    });
+  }
+  if (quietLearners7d > 0) {
+    actionSignals.push({
+      title: 'Quiet learners',
+      detail: `${quietLearners7d} learner${quietLearners7d === 1 ? '' : 's'} have gone quiet for 7+ days.`,
+      tone: 'watch',
+    });
+  }
+  if (offTrackAssignmentIds.size > 0) {
+    actionSignals.push({
+      title: 'Assignments drifting',
+      detail: `${offTrackAssignmentIds.size} assignment${offTrackAssignmentIds.size === 1 ? '' : 's'} are past due or due soon with low completion.`,
+      tone: 'critical',
+    });
+  }
+  if (noBenchmarkYet > 0) {
+    actionSignals.push({
+      title: 'Missing benchmark signal',
+      detail: `${noBenchmarkYet} learner${noBenchmarkYet === 1 ? '' : 's'} still have no benchmark signal.`,
+      tone: 'watch',
+    });
+  }
+  if (!actionSignals.length) {
+    actionSignals.push({
+      title: 'No urgent follow-up right now',
+      detail: 'The current queue is clear enough to focus on the next benchmark and coaching loop.',
+      tone: 'positive',
+    });
+  }
+
+  const activeAssignments = detail.assignments.filter((assignment) => assignment.lifecycleState !== 'archived').length;
+  const onTrackAssignments = Math.max(0, activeAssignments - offTrackAssignmentIds.size);
+  const highlights = [];
+  if (readyForRetake > 0) {
+    highlights.push({
+      title: 'Retake-ready learners',
+      detail: `${readyForRetake} learner${readyForRetake === 1 ? '' : 's'} are ready for a benchmark retake after corrective work.`,
+    });
+  }
+  if (improvingLearners > 0) {
+    highlights.push({
+      title: 'Scores are lifting',
+      detail: `${improvingLearners} learner${improvingLearners === 1 ? '' : 's'} have a positive benchmark delta from their earlier baseline.`,
+    });
+  }
+  if (onTrackAssignments > 0) {
+    highlights.push({
+      title: 'Assignments still moving',
+      detail: `${onTrackAssignments} active assignment${onTrackAssignments === 1 ? '' : 's'} are not showing risk signals right now.`,
+    });
+  }
+  if (feedbackResolved > 0) {
+    highlights.push({
+      title: 'Coaching loops resolved',
+      detail:
+        feedbackResolved === 1
+          ? '1 coaching note has already been closed cleanly.'
+          : `${feedbackResolved} coaching notes have already been closed cleanly.`,
+    });
+  }
+  if (!highlights.length) {
+    highlights.push({
+      title: 'No stable positive signal yet',
+      detail: 'The team needs a fuller benchmark and coaching loop before momentum is clear.',
+    });
+  }
 
   return {
-    scoreBands,
-    roleDistribution,
-    recency,
-    inviteStats,
-    assignmentStats,
-    streakStats: {
-      average: getAverage(streakValues),
-      highest: streakValues.length ? Math.max(...streakValues) : 0,
+    summary: {
+      needsReviewNow,
+      quietLearners7d,
+      offTrackAssignments: offTrackAssignmentIds.size,
+      medianLatestScore,
+      benchmarkCoverageRate,
+      benchmarkedLearners: benchmarkedLearners.length,
+      totalLearners: learnerMembers.length,
     },
-    benchmarkStats: {
-      average: getAverage(benchmarkValues),
-      median: detail.metrics.medianScore,
-      completionRate: detail.metrics.benchmarkCompletionRate,
+    health: {
+      activeLearners: learnerMembers.length,
+      noBenchmarkYet,
+      dueNext7d,
+      pastDueAssignments,
+      pendingJoinRequests,
     },
-    feedbackStats: {
-      total: detail.feedback.length,
-      shared: detail.feedback.filter((entry) => entry.status === 'shared').length,
-      resolved: detail.feedback.filter((entry) => entry.status === 'resolved').length,
-      drafts: detail.feedback.filter((entry) => entry.status === 'draft').length,
+    movement: {
+      averageLatestScore,
+      medianLatestScore,
+      improvingLearners,
+      plateauLearners,
+      decliningLearners,
+      readyForRetake,
+      averageImprovement: detail.metrics.averageImprovement,
     },
-    submissionStats: {
-      total: detail.submissions.length,
-      submitted: detail.submissions.filter((entry) => entry.status === 'submitted').length,
-      reviewed: detail.submissions.filter((entry) => entry.status === 'reviewed').length,
-      needsRevision: detail.submissions.filter((entry) => entry.status === 'needs_revision').length,
+    workflow: {
+      needsReviewNow,
+      needsRevision,
+      feedbackDrafts,
+      feedbackResolved,
+      quietLearners3d,
+      quietLearners7d,
+      offTrackAssignments: offTrackAssignmentIds.size,
     },
+    trend: {
+      points: trendPoints,
+      deltaFromPrevious,
+      status: trendStatus,
+      summary: trendSummary,
+    },
+    actionSignals: actionSignals.slice(0, 3),
+    priorityLearners,
+    priorityAssignments,
+    highlights: highlights.slice(0, 3),
   };
 };
 
@@ -1954,9 +2052,9 @@ const buildTeamCsvExport = ({ detail, analytics }) =>
       [
         'title',
         'type',
+        'scope',
+        'audience',
         'lifecycle_state',
-        'language',
-        'track_id',
         'due_at',
         'completion_rate',
         'eligible_learners',
@@ -1966,9 +2064,9 @@ const buildTeamCsvExport = ({ detail, analytics }) =>
       ...detail.assignments.map((assignment) => [
         assignment.title,
         assignment.assignmentType,
+        assignment.scopeLabel,
+        assignment.audienceLabel,
         assignment.lifecycleState,
-        assignment.benchmarkLanguage || '',
-        assignment.trackId || '',
         assignment.dueAt || '',
         assignment.completionRate,
         assignment.eligibleLearnerCount,
@@ -2019,20 +2117,30 @@ const buildTeamCsvExport = ({ detail, analytics }) =>
     ]),
     createCsvSection('analytics', [
       ['metric', 'value'],
-      ['active_invites', analytics.inviteStats.active],
-      ['invite_uses', analytics.inviteStats.uses],
-      ['assignments_active', analytics.assignmentStats.active],
-      ['assignments_past_due', analytics.assignmentStats.pastDue],
-      ['assignments_archived', analytics.assignmentStats.archived],
-      ['assignments_average_completion_rate', analytics.assignmentStats.averageCompletionRate],
-      ['recent_benchmarks', analytics.recency.recent],
-      ['warm_benchmarks', analytics.recency.warm],
-      ['stale_benchmarks', analytics.recency.stale],
-      ['missing_benchmarks', analytics.recency.missing],
-      ['feedback_shared', analytics.feedbackStats.shared],
-      ['submissions_total', analytics.submissionStats.total],
-      ['submissions_reviewed', analytics.submissionStats.reviewed],
-      ['submissions_needs_revision', analytics.submissionStats.needsRevision],
+      ['needs_review_now', analytics.summary.needsReviewNow],
+      ['quiet_learners_7d', analytics.summary.quietLearners7d],
+      ['off_track_assignments', analytics.summary.offTrackAssignments],
+      ['median_latest_score', analytics.summary.medianLatestScore ?? ''],
+      ['benchmark_coverage_rate', analytics.summary.benchmarkCoverageRate],
+      ['benchmarked_learners', analytics.summary.benchmarkedLearners],
+      ['total_learners', analytics.summary.totalLearners],
+      ['active_learners', analytics.health.activeLearners],
+      ['no_benchmark_yet', analytics.health.noBenchmarkYet],
+      ['due_next_7d', analytics.health.dueNext7d],
+      ['past_due_assignments', analytics.health.pastDueAssignments],
+      ['pending_join_requests', analytics.health.pendingJoinRequests],
+      ['average_latest_score', analytics.movement.averageLatestScore ?? ''],
+      ['improving_learners', analytics.movement.improvingLearners],
+      ['plateau_learners', analytics.movement.plateauLearners],
+      ['declining_learners', analytics.movement.decliningLearners],
+      ['ready_for_retake', analytics.movement.readyForRetake],
+      ['average_improvement', analytics.movement.averageImprovement ?? ''],
+      ['needs_revision', analytics.workflow.needsRevision],
+      ['feedback_drafts', analytics.workflow.feedbackDrafts],
+      ['feedback_resolved', analytics.workflow.feedbackResolved],
+      ['quiet_learners_3d', analytics.workflow.quietLearners3d],
+      ['trend_delta_from_previous', analytics.trend.deltaFromPrevious ?? ''],
+      ['trend_status', analytics.trend.status],
     ]),
   ].join('\n');
 
@@ -2260,10 +2368,10 @@ export const createTeamsRouter = ({ supabaseAdmin }) => {
         });
       }
 
-      const starterAssignments = buildStarterAssignments(parsed.useCase, req.authenticatedUser.id).map((assignment) => ({
-        team_id: team.id,
-        ...assignment,
-      }));
+      const starterAssignments = buildStarterAssignments(parsed.useCase, team.id, req.authenticatedUser.id).slice(
+        0,
+        Math.max(0, Number(planPolicy.assignmentLimit || 0))
+      );
 
       if (starterAssignments.length > 0) {
         const { error: assignmentError } = await supabaseAdmin.from('skill_team_assignments').insert(starterAssignments);
@@ -3016,50 +3124,24 @@ export const createTeamsRouter = ({ supabaseAdmin }) => {
       ensureTeamRole(membership, ['owner', 'admin', 'coach']);
       const parsed = CreateAssignmentSchema.parse(req.body || {});
       ensureAssignmentPayloadIsValid(parsed);
-      const { data: teamSummary, error: teamSummaryError } = await supabaseAdmin
-        .from('skill_teams')
-        .select('id, seat_limit, join_mode')
-        .eq('id', teamId)
-        .single();
-
-      if (teamSummaryError || !teamSummary) {
-        throw new Error(teamSummaryError?.message || 'Could not load team plan limits.');
-      }
-
-      const teamPolicy = getTeamPlanPolicyFromSeatLimit(teamSummary.seat_limit);
-      const { count: assignmentCount, error: assignmentCountError } = await supabaseAdmin
-        .from('skill_team_assignments')
-        .select('id', { count: 'exact', head: true })
-        .eq('team_id', teamId)
-        .is('archived_at', null);
-
-      if (assignmentCountError) {
-        throw new Error(assignmentCountError.message || 'Could not validate assignment limits.');
-      }
-
-      if (Number(assignmentCount || 0) >= teamPolicy.assignmentLimit) {
-        throw new Error(
-          `${teamPolicy.label} includes up to ${teamPolicy.assignmentLimit} active assignments per team.`
-        );
-      }
+      await ensureTeamAssignmentCapacityAvailable({
+        supabaseAdmin,
+        teamId,
+        additionalActiveCount: 1,
+        actionLabel: 'create',
+      });
 
       const { data, error } = await supabaseAdmin
         .from('skill_team_assignments')
-        .insert({
-          team_id: teamId,
-          title: parsed.title,
-          description: parsed.description,
-          assignment_type: parsed.assignmentType,
-          benchmark_language: parsed.benchmarkLanguage,
-          track_id: parsed.trackId,
-          due_at: parsed.dueAt,
-          created_by: req.authenticatedUser.id,
-          metadata: {
-            seeded: false,
-            requiredChallengeCount:
-              parsed.assignmentType === 'challenge_pack' ? CHALLENGE_PACK_DEFAULT_COMPLETION_TARGET : undefined,
-          },
-        })
+        .insert(
+          buildAssignmentCreateRecord({
+            teamId,
+            createdByUserId: req.authenticatedUser.id,
+            input: parsed,
+            metadata: { seeded: false },
+            capturedAt: new Date().toISOString(),
+          })
+        )
         .select('*')
         .single();
 
@@ -3068,7 +3150,7 @@ export const createTeamsRouter = ({ supabaseAdmin }) => {
       }
 
       return res.status(201).json({
-        assignment: serializeAssignment(data, []),
+        assignment: serializeTeamAssignment(data, []),
       });
     } catch (error) {
       return res.status(400).json({ error: error.message || 'Could not create assignment.' });
@@ -3102,11 +3184,34 @@ export const createTeamsRouter = ({ supabaseAdmin }) => {
         throw new Error('One or more selected assignments do not belong to this team.');
       }
 
+      if (parsed.action === 'delete') {
+        await detachAssignmentsFromHistory(supabaseAdmin, teamId, assignmentIds);
+
+        const { error } = await supabaseAdmin
+          .from('skill_team_assignments')
+          .delete()
+          .eq('team_id', teamId)
+          .in('id', assignmentIds);
+
+        if (error) {
+          throw new Error(error.message || 'Could not delete the selected assignments.');
+        }
+
+        return res.json({ assignments: [] });
+      }
+
       const updatePayload = {};
       if (parsed.action === 'archive') {
         updatePayload.archived_at = new Date().toISOString();
         updatePayload.archived_by = req.authenticatedUser.id;
       } else if (parsed.action === 'restore') {
+        const assignmentsToRestore = existingAssignments.filter((assignment) => assignment.archived_at);
+        await ensureTeamAssignmentCapacityAvailable({
+          supabaseAdmin,
+          teamId,
+          additionalActiveCount: assignmentsToRestore.length,
+          actionLabel: 'restore',
+        });
         updatePayload.archived_at = null;
         updatePayload.archived_by = null;
       } else {
@@ -3150,20 +3255,25 @@ export const createTeamsRouter = ({ supabaseAdmin }) => {
         benchmarkLanguage:
           parsed.benchmarkLanguage !== undefined ? parsed.benchmarkLanguage : existingAssignment.benchmark_language,
         trackId: parsed.trackId !== undefined ? parsed.trackId : existingAssignment.track_id,
+        duelTargetCount: parsed.duelTargetCount,
         dueAt: parsed.dueAt !== undefined ? parsed.dueAt : existingAssignment.due_at,
       });
 
-      const updatePayload = {};
-      if (parsed.title !== undefined) updatePayload.title = parsed.title;
-      if (parsed.description !== undefined) updatePayload.description = parsed.description;
-      if (parsed.assignmentType !== undefined) updatePayload.assignment_type = parsed.assignmentType;
-      if (parsed.benchmarkLanguage !== undefined) updatePayload.benchmark_language = parsed.benchmarkLanguage;
-      if (parsed.trackId !== undefined) updatePayload.track_id = parsed.trackId;
-      if (parsed.dueAt !== undefined) updatePayload.due_at = parsed.dueAt;
-      if (parsed.archived !== undefined) {
-        updatePayload.archived_at = parsed.archived ? new Date().toISOString() : null;
-        updatePayload.archived_by = parsed.archived ? req.authenticatedUser.id : null;
+      if (parsed.archived === false && existingAssignment.archived_at) {
+        await ensureTeamAssignmentCapacityAvailable({
+          supabaseAdmin,
+          teamId,
+          additionalActiveCount: 1,
+          actionLabel: 'restore',
+        });
       }
+
+      const updatePayload = buildAssignmentUpdateRecord({
+        existingAssignment,
+        input: parsed,
+        actorUserId: req.authenticatedUser.id,
+        capturedAt: new Date().toISOString(),
+      });
 
       const { data, error } = await supabaseAdmin
         .from('skill_team_assignments')
@@ -3178,10 +3288,63 @@ export const createTeamsRouter = ({ supabaseAdmin }) => {
       }
 
       return res.json({
-        assignment: serializeAssignment(data, []),
+        assignment: serializeTeamAssignment(data, []),
       });
     } catch (error) {
       return res.status(400).json({ error: error.message || 'Could not update assignment.' });
+    }
+  });
+
+  router.post('/:teamId/assignments/:assignmentId/duplicate', requireAuth, async (req, res) => {
+    try {
+      const { teamId, assignmentId } = TeamAssignmentRouteParamsSchema.parse(req.params || {});
+      const membership = await getActorMembership(teamId, req);
+      ensureTeamRole(membership, ['owner', 'admin', 'coach']);
+
+      const existingAssignment = await loadTeamAssignment(supabaseAdmin, teamId, assignmentId);
+      if (!existingAssignment) {
+        throw new Error('Could not find that assignment.');
+      }
+
+      const { data: teamAssignments, error: teamAssignmentsError } = await supabaseAdmin
+        .from('skill_team_assignments')
+        .select('id, title')
+        .eq('team_id', teamId);
+
+      if (teamAssignmentsError) {
+        throw new Error(teamAssignmentsError.message || 'Could not load assignment titles for duplication.');
+      }
+
+      await ensureTeamAssignmentCapacityAvailable({
+        supabaseAdmin,
+        teamId,
+        additionalActiveCount: 1,
+        actionLabel: 'duplicate',
+      });
+
+      const duplicateRecord = buildDuplicatedAssignmentRecord({
+        teamId,
+        sourceAssignment: existingAssignment,
+        actorUserId: req.authenticatedUser.id,
+        existingAssignments: teamAssignments || [],
+        capturedAt: new Date().toISOString(),
+      });
+
+      const { data, error } = await supabaseAdmin
+        .from('skill_team_assignments')
+        .insert(duplicateRecord)
+        .select('*')
+        .single();
+
+      if (error || !data) {
+        throw new Error(error?.message || 'Could not duplicate assignment.');
+      }
+
+      return res.status(201).json({
+        assignment: serializeTeamAssignment(data, []),
+      });
+    } catch (error) {
+      return res.status(400).json({ error: error.message || 'Could not duplicate assignment.' });
     }
   });
 
@@ -3196,22 +3359,21 @@ export const createTeamsRouter = ({ supabaseAdmin }) => {
         throw new Error('Could not find that assignment.');
       }
 
+      await detachAssignmentsFromHistory(supabaseAdmin, teamId, [assignmentId]);
+
       const { error } = await supabaseAdmin
         .from('skill_team_assignments')
-        .update({
-          archived_at: new Date().toISOString(),
-          archived_by: req.authenticatedUser.id,
-        })
+        .delete()
         .eq('id', assignmentId)
         .eq('team_id', teamId);
 
       if (error) {
-        throw new Error(error.message || 'Could not archive assignment.');
+        throw new Error(error.message || 'Could not delete assignment.');
       }
 
       return res.status(204).send();
     } catch (error) {
-      return res.status(400).json({ error: error.message || 'Could not archive assignment.' });
+      return res.status(400).json({ error: error.message || 'Could not delete assignment.' });
     }
   });
 

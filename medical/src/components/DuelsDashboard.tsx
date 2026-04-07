@@ -16,6 +16,10 @@ type View = "queue" | "arena" | "results";
 const DEVICE_CLUSTER_STORAGE_KEY = "codhak-device-cluster-id";
 const REGISTRATION_ACK_TIMEOUT_MS = 10_000;
 const isDuelDebugEnabled = import.meta.env.DEV && import.meta.env.VITE_DEBUG_DUELS === "1";
+const isDisconnectedSocketError = (value: unknown) =>
+  String((value as any)?.message || value || "")
+    .toLowerCase()
+    .includes("disconnected");
 
 const getOrCreateDeviceClusterId = () => {
   if (typeof window === "undefined") return null;
@@ -75,8 +79,55 @@ export default function DuelsDashboard() {
     registrationPromiseRef.current = null;
   }, []);
 
+  const ensureSocketConnected = useCallback(async () => {
+    if (socket.connected) {
+      return true;
+    }
+
+    return new Promise<boolean>((resolve) => {
+      let settled = false;
+      let timeoutId: number | null = null;
+
+      const cleanup = () => {
+        socket.off("connect", handleConnect);
+        socket.off("connect_error", handleConnectError);
+        if (timeoutId !== null) {
+          window.clearTimeout(timeoutId);
+        }
+      };
+
+      const finish = (value: boolean) => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        resolve(value);
+      };
+
+      const handleConnect = () => finish(true);
+      const handleConnectError = () => finish(false);
+
+      socket.on("connect", handleConnect);
+      socket.on("connect_error", handleConnectError);
+      timeoutId = window.setTimeout(() => finish(false), REGISTRATION_ACK_TIMEOUT_MS);
+
+      try {
+        socket.connect();
+      } catch {
+        finish(false);
+      }
+    });
+  }, []);
+
   const ensureSocketRegistered = useCallback(async ({ silent = false }: { silent?: boolean } = {}) => {
-    if (!duelUser?.id || !socket?.connected) return false;
+    if (!duelUser?.id) return false;
+
+    const isConnected = await ensureSocketConnected();
+    if (!isConnected || !socket?.connected) {
+      if (!silent) {
+        toast.error("Could not connect to the duel server. Try again in a moment.");
+      }
+      return false;
+    }
 
     const registrationKey = `${socket.id}:${duelUser.id}`;
     if (registeredSocketKeyRef.current === registrationKey) {
@@ -112,6 +163,15 @@ export default function DuelsDashboard() {
           },
           (err: any, res: any) => {
             if (err) {
+              if (isDisconnectedSocketError(err)) {
+                resetSocketRegistration();
+                if (!socket.connected) {
+                  socket.connect();
+                }
+                resolve(false);
+                return;
+              }
+
               console.error("register_player failed", err);
               if (!silent) {
                 toast.error("No response from the duel server. Try again in a moment.");
@@ -138,7 +198,7 @@ export default function DuelsDashboard() {
     });
 
     return registrationPromiseRef.current;
-  }, [duelUser?.id, duelUser?.username]);
+  }, [duelUser?.id, duelUser?.username, ensureSocketConnected, resetSocketRegistration]);
 
   useEffect(() => {
     resetSocketRegistration();

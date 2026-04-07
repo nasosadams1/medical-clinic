@@ -342,6 +342,15 @@ export interface BenchmarkBlueprintSummary {
   unlockLabel: string;
 }
 
+export interface BenchmarkRetakePlan {
+  sourceReportId: string;
+  packId: BenchmarkPackId;
+  sourceFormat: Extract<BenchmarkFormat, 'quick' | 'full'>;
+  sourceCreatedAt: string;
+  sourceOverallScore: number;
+  targetWeaknesses: BenchmarkSkillBucket[];
+}
+
 export interface BenchmarkReport {
   id: string;
   benchmarkVersion: string;
@@ -381,6 +390,8 @@ export interface BenchmarkReport {
   summary: string;
   readinessVerdict: BenchmarkReadinessVerdict;
   deltaFromLastAttempt: number | null;
+  retakeSourceReportId?: string | null;
+  retakeTargetWeaknesses?: BenchmarkSkillBucket[];
   scoreComponents: {
     accuracy: number;
     difficultyWeighted: number;
@@ -396,6 +407,18 @@ const BENCHMARK_SETUP_PRESET_STORAGE_KEY = 'codhak-benchmark-setup-preset';
 const BENCHMARK_HISTORY_STORAGE_KEY = 'codhak-benchmark-history-v4';
 const LEGACY_BENCHMARK_HISTORY_STORAGE_KEY = 'codhak-benchmark-history';
 const BENCHMARK_VERSION = 'v4-diagnostic-packs';
+
+const benchmarkGoalValues: BenchmarkGoal[] = ['interview_prep', 'class_improvement', 'skill_growth'];
+const benchmarkLanguageValues: LanguageSlug[] = ['python', 'javascript', 'java', 'cpp'];
+const benchmarkRoleLevelValues: BenchmarkRoleLevel[] = ['beginner', 'intern', 'junior', 'general_practice'];
+
+const isBenchmarkSetupShape = (setup: Partial<BenchmarkSetup> | null | undefined): setup is BenchmarkSetup =>
+  Boolean(
+    setup &&
+      benchmarkGoalValues.includes(setup.goal as BenchmarkGoal) &&
+      benchmarkLanguageValues.includes(setup.language as LanguageSlug) &&
+      benchmarkRoleLevelValues.includes(setup.roleLevel as BenchmarkRoleLevel)
+  );
 
 const skillBucketLabels: Record<BenchmarkSkillBucket, string> = {
   syntax_fluency: 'Syntax fluency',
@@ -423,6 +446,70 @@ const clamp = (value: number, min: number, max: number) => Math.min(max, Math.ma
 
 const hashString = (value: string) =>
   Array.from(value).reduce((total, char) => ((total << 5) - total + char.charCodeAt(0)) | 0, 0);
+
+const createSeededRandom = (seedValue: string) => {
+  let state = Math.abs(hashString(seedValue)) || 1;
+  return () => {
+    state = (state * 1664525 + 1013904223) >>> 0;
+    return state / 0x100000000;
+  };
+};
+
+const shuffleWithSeed = <Value>(items: Value[], seedValue: string) => {
+  const shuffled = [...items];
+  const nextRandom = createSeededRandom(seedValue);
+
+  for (let index = shuffled.length - 1; index > 0; index -= 1) {
+    const swapIndex = Math.floor(nextRandom() * (index + 1));
+    [shuffled[index], shuffled[swapIndex]] = [shuffled[swapIndex], shuffled[index]];
+  }
+
+  return shuffled;
+};
+
+const QUICK_BENCHMARK_QUESTION_COUNT = 5;
+const FULL_BENCHMARK_QUESTION_COUNT = 12;
+const RETAKE_BENCHMARK_QUESTION_COUNT = 4;
+const benchmarkDifficultyRank: Record<BenchmarkQuestionDifficulty, number> = {
+  beginner: 0,
+  intermediate: 1,
+  advanced: 2,
+};
+
+const normalizeQuestionIdentityValue = (value: string | null | undefined) =>
+  (value || '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
+
+const buildTemplateQuestionIdentity = (
+  template: Pick<BenchmarkSeedQuestionTemplate, 'language' | 'kind' | 'prompt' | 'options' | 'starterCode'>
+) => {
+  const answerSurface =
+    template.kind === 'multiple_choice'
+      ? (template.options || []).map((option) => normalizeQuestionIdentityValue(option)).join('|')
+      : normalizeQuestionIdentityValue(template.starterCode);
+
+  return [
+    normalizeQuestionIdentityValue(template.language),
+    normalizeQuestionIdentityValue(template.kind),
+    normalizeQuestionIdentityValue(template.prompt),
+    answerSurface,
+  ].join('::');
+};
+
+const dedupeTemplatesByQuestionIdentity = (templates: BenchmarkSeedQuestionTemplate[] = []) => {
+  const seenQuestionIdentities = new Set<string>();
+  return templates.filter((template) => {
+    const questionIdentity = buildTemplateQuestionIdentity(template);
+    if (seenQuestionIdentities.has(questionIdentity)) {
+      return false;
+    }
+
+    seenQuestionIdentities.add(questionIdentity);
+    return true;
+  });
+};
 
 const difficultyWeightsBase: Record<BenchmarkQuestionDifficulty, number> = {
   beginner: 1,
@@ -594,6 +681,14 @@ const beginnerFullBlueprint = (): BenchmarkBlueprintSlot[] => [
     expectedDurationSeconds: 80,
     promptLabel: 'Read the data structure',
   }),
+  buildSlot('flow-trace-2', 'code_tracing', 'control_flow', 'intermediate', {
+    preferredKind: 'multiple_choice',
+    assessmentType: 'comprehension',
+    section: 'comprehension',
+    weight: 1.07,
+    expectedDurationSeconds: 75,
+    promptLabel: 'Trace the loop state',
+  }),
   buildSlot('function-completion', 'code_completion', 'functions_methods', 'intermediate', {
     preferredKind: 'code',
     assessmentType: 'implementation',
@@ -633,6 +728,14 @@ const beginnerFullBlueprint = (): BenchmarkBlueprintSlot[] => [
     weight: 1.24,
     expectedDurationSeconds: 220,
     promptLabel: 'Applied mini-problem',
+  }),
+  buildSlot('mini-problem-2', 'applied_mini_problem', 'problem_solving', 'intermediate', {
+    preferredKind: 'code',
+    assessmentType: 'implementation',
+    section: 'implementation',
+    weight: 1.22,
+    expectedDurationSeconds: 210,
+    promptLabel: 'Second applied problem',
   }),
   buildSlot('pressure-read', 'output_prediction', 'speed_under_pressure', 'intermediate', {
     preferredKind: 'multiple_choice',
@@ -785,6 +888,22 @@ const juniorFullBlueprint = (): BenchmarkBlueprintSlot[] => [
     promptLabel: 'Fast fix',
   }),
 ];
+
+const rankRetakeSlotCandidate = (slot: BenchmarkBlueprintSlot) =>
+  Math.round(slot.weight * 100) +
+  benchmarkDifficultyRank[slot.difficulty] * 8 +
+  (slot.preferredKind === 'code' ? 10 : 0) +
+  (slot.section === 'baseline' ? -18 : 0);
+
+const sortSlotsForRetake = (slots: BenchmarkBlueprintSlot[]) =>
+  [...slots].sort(
+    (left, right) =>
+      rankRetakeSlotCandidate(right) - rankRetakeSlotCandidate(left) ||
+      benchmarkDifficultyRank[right.difficulty] - benchmarkDifficultyRank[left.difficulty] ||
+      right.weight - left.weight ||
+      left.expectedDurationSeconds - right.expectedDurationSeconds ||
+      left.slotId.localeCompare(right.slotId)
+  );
 
 const beginnerTopicWeights = createBucketWeights({
   syntax_fluency: 20,
@@ -1639,35 +1758,48 @@ const launchPackMeta: PackMeta[] = [
   },
 ];
 
-const buildPackDefinition = (meta: PackMeta): BenchmarkPackDefinition => ({
-  ...meta,
-  questionCount: {
-    quick: 5,
-    full: meta.roleLevel === 'junior' ? 12 : 10,
-    retake: 4,
-  },
-  durationMinutes: {
-    quick: 12,
-    full: 35,
-    retake: 10,
-  },
-  topicWeights:
-    packTopicWeightOverrides[meta.id] ||
-    (meta.roleLevel === 'junior' ? juniorTopicWeights : beginnerTopicWeights),
-  difficultyWeights: meta.roleLevel === 'junior' ? juniorDifficultyWeights : beginnerDifficultyWeights,
-  questionBlueprint: {
-    quick: meta.roleLevel === 'junior' ? juniorQuickBlueprint() : beginnerQuickBlueprint(),
-    full: meta.roleLevel === 'junior' ? juniorFullBlueprint() : beginnerFullBlueprint(),
-  },
-  retakeBlueprintBuckets:
-    packRetakeBlueprintOverrides[meta.id] ||
-    (meta.roleLevel === 'junior'
-      ? ['debugging', 'problem_solving', 'code_reading', 'functions_methods']
-      : ['debugging', 'functions_methods', 'problem_solving', 'control_flow']),
-  scoringRules: { accuracyWeight: 70, difficultyWeight: 20, speedWeight: 10 },
-  remediationMapping: packRemediationOverrides[meta.id] || {},
-  unlockRules: meta.roleLevel === 'junior' ? juniorUnlockRules : beginnerUnlockRules,
-});
+const buildPackDefinition = (meta: PackMeta): BenchmarkPackDefinition => {
+  const quickBlueprint = meta.roleLevel === 'junior' ? juniorQuickBlueprint() : beginnerQuickBlueprint();
+  const fullBlueprint = meta.roleLevel === 'junior' ? juniorFullBlueprint() : beginnerFullBlueprint();
+
+  if (quickBlueprint.length !== QUICK_BENCHMARK_QUESTION_COUNT) {
+    throw new Error(`Quick benchmark blueprint must contain ${QUICK_BENCHMARK_QUESTION_COUNT} slots.`);
+  }
+
+  if (fullBlueprint.length !== FULL_BENCHMARK_QUESTION_COUNT) {
+    throw new Error(`Full benchmark blueprint must contain ${FULL_BENCHMARK_QUESTION_COUNT} slots.`);
+  }
+
+  return {
+    ...meta,
+    questionCount: {
+      quick: QUICK_BENCHMARK_QUESTION_COUNT,
+      full: FULL_BENCHMARK_QUESTION_COUNT,
+      retake: RETAKE_BENCHMARK_QUESTION_COUNT,
+    },
+    durationMinutes: {
+      quick: 12,
+      full: 35,
+      retake: 10,
+    },
+    topicWeights:
+      packTopicWeightOverrides[meta.id] ||
+      (meta.roleLevel === 'junior' ? juniorTopicWeights : beginnerTopicWeights),
+    difficultyWeights: meta.roleLevel === 'junior' ? juniorDifficultyWeights : beginnerDifficultyWeights,
+    questionBlueprint: {
+      quick: quickBlueprint,
+      full: fullBlueprint,
+    },
+    retakeBlueprintBuckets:
+      packRetakeBlueprintOverrides[meta.id] ||
+      (meta.roleLevel === 'junior'
+        ? ['debugging', 'problem_solving', 'code_reading', 'functions_methods']
+        : ['debugging', 'functions_methods', 'problem_solving', 'control_flow']),
+    scoringRules: { accuracyWeight: 70, difficultyWeight: 20, speedWeight: 10 },
+    remediationMapping: packRemediationOverrides[meta.id] || {},
+    unlockRules: meta.roleLevel === 'junior' ? juniorUnlockRules : beginnerUnlockRules,
+  };
+};
 
 const benchmarkPackDefinitions: BenchmarkPackDefinition[] = launchPackMeta.map(buildPackDefinition);
 const packLookup = new Map(benchmarkPackDefinitions.map((pack) => [pack.id, pack]));
@@ -1736,6 +1868,13 @@ const mapQuestionToDimensions = (question: BenchmarkQuestion): BenchmarkDimensio
 };
 
 const benchmarkSeedExecutionCases: Record<string, BenchmarkExecutionCase[]> = {
+  'bench-python-beginner-function-completion-1': [
+    { label: 'Basic name', input: 'Ada', expected: 'Hi Ada' },
+    { label: 'Another name', input: 'Mina', expected: 'Hi Mina' },
+    { label: 'Hidden empty string', input: '', expected: 'Hi ', hidden: true },
+    { label: 'Hidden short name', input: 'Q', expected: 'Hi Q', hidden: true },
+    { label: 'Hidden preserve spacing', input: 'Neo', expected: 'Hi Neo', hidden: true },
+  ],
   'bench-python-beginner-function-write-1': [
     { label: 'Basic word', input: 'Ada', expected: 3 },
     { label: 'Longer word', input: 'hooks', expected: 5 },
@@ -1761,6 +1900,13 @@ const benchmarkSeedExecutionCases: Record<string, BenchmarkExecutionCase[]> = {
     { label: 'No positives', input: [-2, 0], expected: [] },
     { label: 'Hidden preserve order', input: [5, 6, -1, 2], expected: [5, 6, 2], hidden: true },
   ],
+  'bench-python-junior-debug-code-1': [
+    { label: 'Mixed values', input: [5, 1, 9, 2], expected: 9 },
+    { label: 'Already descending', input: [9, 8, 7], expected: 9 },
+    { label: 'Hidden negatives', input: [-4, -1, -7], expected: -1, hidden: true },
+    { label: 'Hidden single value', input: [3], expected: 3, hidden: true },
+    { label: 'Hidden zero and positives', input: [0, 4, 2], expected: 4, hidden: true },
+  ],
   'bench-python-junior-problem-1': [
     { label: 'Target present', input: [[1, 2, 3], 2], expected: true },
     { label: 'Target missing', input: [[4, 5], 1], expected: false },
@@ -1775,6 +1921,13 @@ const benchmarkSeedExecutionCases: Record<string, BenchmarkExecutionCase[]> = {
     { label: 'Basic word', input: 'Ada', expected: 3 },
     { label: 'Longer word', input: 'hooks', expected: 5 },
     { label: 'Hidden empty string', input: '', expected: 0, hidden: true },
+  ],
+  'bench-js-beginner-function-completion-1': [
+    { label: 'Basic name', input: 'Ada', expected: 'Hi Ada' },
+    { label: 'Another name', input: 'Mina', expected: 'Hi Mina' },
+    { label: 'Hidden empty string', input: '', expected: 'Hi ', hidden: true },
+    { label: 'Hidden short name', input: 'Q', expected: 'Hi Q', hidden: true },
+    { label: 'Hidden preserve spacing', input: 'Neo', expected: 'Hi Neo', hidden: true },
   ],
   'bench-js-beginner-debug-code-1': [
     { label: 'Mixed values', input: [1, -2, 3, 0], expected: 2 },
@@ -1795,6 +1948,13 @@ const benchmarkSeedExecutionCases: Record<string, BenchmarkExecutionCase[]> = {
     { label: 'Keep positives', input: [3, -1, 4, 0], expected: [3, 4] },
     { label: 'No positives', input: [-2, 0], expected: [] },
     { label: 'Hidden preserve order', input: [5, 6, -1, 2], expected: [5, 6, 2], hidden: true },
+  ],
+  'bench-js-junior-debug-code-1': [
+    { label: 'Mixed values', input: [5, 1, 9, 2], expected: 9 },
+    { label: 'Already descending', input: [9, 8, 7], expected: 9 },
+    { label: 'Hidden negatives', input: [-4, -1, -7], expected: -1, hidden: true },
+    { label: 'Hidden single value', input: [3], expected: 3, hidden: true },
+    { label: 'Hidden zero and positives', input: [0, 4, 2], expected: 4, hidden: true },
   ],
   'bench-js-junior-mini-problem-1': [
     { label: 'Target present', input: [[1, 2, 3], 2], expected: true },
@@ -1969,6 +2129,9 @@ const pythonSeedQuestions: BenchmarkSeedQuestionTemplate[] = [
     prompt: 'Complete `solution(name)` so it returns `\"Hi \" + name`.',
     starterCode: 'def solution(name):\n    return \n',
     referenceCode: 'def solution(name):\n    return "Hi " + name\n',
+    evaluationStrategy: 'execution',
+    executionCases: getSeedExecutionCases('bench-python-beginner-function-completion-1'),
+    publicTestCases: getSeedPublicTestCases('bench-python-beginner-function-completion-1'),
     validationMode: 'includes_all',
     requiredSnippets: ['return', '"Hi "', 'name'],
     explanation: 'Return the greeting string instead of printing it.',
@@ -2250,6 +2413,9 @@ const pythonSeedQuestions: BenchmarkSeedQuestionTemplate[] = [
       'def solution(values):\n    largest = 0\n    for value in values:\n        if value < largest:\n            largest = value\n    return largest\n',
     referenceCode:
       'def solution(values):\n    largest = values[0]\n    for value in values:\n        if value > largest:\n            largest = value\n    return largest\n',
+    evaluationStrategy: 'execution',
+    executionCases: getSeedExecutionCases('bench-python-junior-debug-code-1'),
+    publicTestCases: getSeedPublicTestCases('bench-python-junior-debug-code-1'),
     validationMode: 'includes_all',
     requiredSnippets: ['for value in values', 'if value > largest', 'return largest'],
     explanation: 'The current solution compares in the wrong direction and starts from a brittle initial value.',
@@ -2465,6 +2631,9 @@ const javascriptSeedQuestions: BenchmarkSeedQuestionTemplate[] = [
     prompt: 'Complete `solution(name)` so it returns `"Hi " + name`.',
     starterCode: 'function solution(name) {\n  return ;\n}\n',
     referenceCode: 'function solution(name) {\n  return "Hi " + name;\n}\n',
+    evaluationStrategy: 'execution',
+    executionCases: getSeedExecutionCases('bench-js-beginner-function-completion-1'),
+    publicTestCases: getSeedPublicTestCases('bench-js-beginner-function-completion-1'),
     validationMode: 'includes_all',
     requiredSnippets: ['return', '"Hi "', 'name'],
     explanation: 'Return the greeting string instead of logging it.',
@@ -2645,6 +2814,9 @@ const javascriptSeedQuestions: BenchmarkSeedQuestionTemplate[] = [
     prompt: 'Fix `solution(values)` so it returns the largest number in the array.',
     starterCode: 'function solution(values) {\n  let largest = 0;\n  for (const value of values) {\n    if (value < largest) {\n      largest = value;\n    }\n  }\n  return largest;\n}\n',
     referenceCode: 'function solution(values) {\n  let largest = values[0];\n  for (const value of values) {\n    if (value > largest) {\n      largest = value;\n    }\n  }\n  return largest;\n}\n',
+    evaluationStrategy: 'execution',
+    executionCases: getSeedExecutionCases('bench-js-junior-debug-code-1'),
+    publicTestCases: getSeedPublicTestCases('bench-js-junior-debug-code-1'),
     validationMode: 'includes_all',
     requiredSnippets: ['for (const value of values)', 'if (value > largest)', 'return largest'],
     explanation: 'The current solution compares in the wrong direction and starts from a brittle initial value.',
@@ -3725,7 +3897,9 @@ const seededTemplatesByLanguage: Partial<Record<LanguageSlug, BenchmarkSeedQuest
 
 export const getQuestionTemplatesForPack = (pack: BenchmarkPackDefinition) => {
   const seeded = (seededTemplatesByLanguage[pack.language] || []).filter(
-    (template) => !template.packIds || template.packIds.includes(pack.id)
+    (template) =>
+      (!template.packIds || template.packIds.includes(pack.id)) &&
+      (template.kind !== 'code' || (template.executionCases?.length ?? 0) > 0)
   );
   return dedupeTemplatesById(seeded);
 };
@@ -3735,31 +3909,37 @@ const buildRetakeBlueprint = (
   targetWeaknesses: BenchmarkSkillBucket[]
 ): BenchmarkBlueprintSlot[] => {
   const fullBlueprint = pack.questionBlueprint.full;
-  const priority = targetWeaknesses.length > 0 ? targetWeaknesses : pack.retakeBlueprintBuckets;
+  const priority = Array.from(
+    new Set((targetWeaknesses.length > 0 ? targetWeaknesses : pack.retakeBlueprintBuckets).filter(Boolean))
+  );
   const selected: BenchmarkBlueprintSlot[] = [];
 
   priority.forEach((bucket) => {
-    const slot = fullBlueprint.find(
-      (candidate) =>
-        candidate.skillBucket === bucket &&
-        !selected.some((existing) => existing.slotId === candidate.slotId)
-    );
+    const slot = sortSlotsForRetake(
+      fullBlueprint.filter(
+        (candidate) =>
+          candidate.skillBucket === bucket &&
+          !selected.some((existing) => existing.slotId === candidate.slotId)
+      )
+    )[0];
     if (slot) {
       selected.push({ ...slot, slotId: `${slot.slotId}-retake` });
     }
   });
 
-  const fallbackSlots = fullBlueprint.filter(
-    (slot) => !selected.some((existing) => existing.slotId.replace(/-retake$/, '') === slot.slotId)
+  const fallbackSlots = sortSlotsForRetake(
+    fullBlueprint.filter(
+      (slot) => !selected.some((existing) => existing.slotId.replace(/-retake(?:-\d+)?$/, '') === slot.slotId)
+    )
   );
 
-  while (selected.length < 4 && fallbackSlots.length > 0) {
+  while (selected.length < pack.questionCount.retake && fallbackSlots.length > 0) {
     const fallback = fallbackSlots.shift();
     if (!fallback) break;
     selected.push({ ...fallback, slotId: `${fallback.slotId}-retake-${selected.length + 1}` });
   }
 
-  return selected.slice(0, 4);
+  return selected.slice(0, pack.questionCount.retake);
 };
 
 const getBlueprintForFormat = (
@@ -3813,24 +3993,91 @@ const isTrustedReportBaseline = (
   );
 };
 
+const buildBenchmarkRetakePlanFromReport = (
+  packId: BenchmarkPackId,
+  report: BenchmarkReport | null | undefined
+): BenchmarkRetakePlan | null => {
+  if (!report || getPackIdForReport(report) !== packId) {
+    return null;
+  }
+
+  const hydratedReport = hydrateBenchmarkReport(report);
+  if (hydratedReport.format !== 'quick' && hydratedReport.format !== 'full') {
+    return null;
+  }
+
+  if (
+    !isTrustedReportBaseline(hydratedReport, {
+      allowRetake: false,
+      minimumEvidence: 70,
+      minimumTrust: 62,
+    })
+  ) {
+    return null;
+  }
+
+  const targetWeaknesses = (hydratedReport.topicBreakdown || [])
+    .slice()
+    .sort((left, right) => left.score - right.score)
+    .slice(0, 4)
+    .map((entry) => entry.bucket)
+    .filter(Boolean);
+
+  if (targetWeaknesses.length === 0) {
+    return null;
+  }
+
+  return {
+    sourceReportId: hydratedReport.id,
+    packId,
+    sourceFormat: hydratedReport.format,
+    sourceCreatedAt: hydratedReport.createdAt,
+    sourceOverallScore: hydratedReport.overallScore,
+    targetWeaknesses,
+  };
+};
+
+export const getBenchmarkRetakePlanFromReport = (
+  report: BenchmarkReport | null | undefined
+): BenchmarkRetakePlan | null => {
+  if (!report) return null;
+  return buildBenchmarkRetakePlanFromReport(getPackIdForReport(report), report);
+};
+
+export const getBenchmarkRetakePlan = (
+  setup: BenchmarkSetup,
+  reports: BenchmarkReport[] = [],
+  preferredSourceReportId?: string | null
+): BenchmarkRetakePlan | null => {
+  const packId = mapSetupToPackId(setup);
+  const packReports = getPackReports(setup, reports);
+
+  if (preferredSourceReportId) {
+    const preferredPlan = buildBenchmarkRetakePlanFromReport(
+      packId,
+      packReports.find((report) => report.id === preferredSourceReportId) || null
+    );
+    if (preferredPlan) {
+      return preferredPlan;
+    }
+  }
+
+  for (const report of packReports) {
+    const plan = buildBenchmarkRetakePlanFromReport(packId, report);
+    if (plan) {
+      return plan;
+    }
+  }
+
+  return null;
+};
+
 export const getRetakeTargetWeaknesses = (
   setup: BenchmarkSetup,
-  reports: BenchmarkReport[] = []
+  reports: BenchmarkReport[] = [],
+  preferredSourceReportId?: string | null
 ): BenchmarkSkillBucket[] =>
-  getPackReports(setup, reports)
-    .find((report) =>
-      isTrustedReportBaseline(report, {
-        allowRetake: false,
-        requireFormat: report.format === 'full' ? 'full' : 'quick',
-        minimumEvidence: 70,
-        minimumTrust: 62,
-      })
-    )
-    ?.topicBreakdown
-    ?.slice()
-    .sort((a, b) => a.score - b.score)
-    .slice(0, 4)
-    .map((entry) => entry.bucket) || [];
+  getBenchmarkRetakePlan(setup, reports, preferredSourceReportId)?.targetWeaknesses || [];
 
 export const getBenchmarkDurationSeconds = (format: BenchmarkFormat, setup?: BenchmarkSetup) => {
   if (setup) {
@@ -4000,54 +4247,20 @@ const buildObservedItemSignalMap = (reports: BenchmarkReport[] = []) => {
   );
 };
 
-const templateSelectionPreference = (template: BenchmarkSeedQuestionTemplate) => {
-  const cheapDistractorCount =
-    template.kind === 'multiple_choice'
-      ? (template.options || []).filter((option, index) => {
-          if (index === template.correctAnswer) return false;
-          const normalized = option.trim().toLowerCase();
-          return ['error', 'nothing', 'undefined', 'nan', 'null'].includes(normalized);
-        }).length
-      : 0;
-  const sourceScore =
-    template.sourceType === 'curated'
-      ? 4.6
-      : template.sourceType === 'seeded'
-      ? 2.1
-      : template.sourceType === 'generated'
-      ? 0.6
-      : -3;
-  const calibrationScore =
-    template.calibrationState === 'validated'
-      ? 6
-      : template.calibrationState === 'calibrating'
-      ? 4
-      : 1;
-  const executionScore = template.executionCases?.length ? 4 : template.kind === 'code' ? 1 : 0;
-  const discriminationScore = Math.max(0, Math.min(0.35, (template.discrimination ?? 0.68) - 0.55)) * 4;
-  const promptDepthScore = Math.min(1.2, ((template.prompt.match(/\n/g) || []).length || 0) * 0.08);
-  const distractorPenalty = cheapDistractorCount * 1.4;
-  return (
-    sourceScore +
-    calibrationScore +
-    executionScore +
-    discriminationScore +
-    promptDepthScore -
-    distractorPenalty
-  );
-};
-
 const pickTemplateForSlot = (
   pack: BenchmarkPackDefinition,
+  availableTemplates: BenchmarkSeedQuestionTemplate[],
   slot: BenchmarkBlueprintSlot,
   slotIndex: number,
   format: BenchmarkFormat,
   selectionSeed: string,
   usedTemplateIds: Set<string>,
+  usedQuestionIdentities: Set<string>,
   recentlyUsedTemplateIds: Set<string>
 ) => {
-  const allTemplates = getQuestionTemplatesForPack(pack);
-  const packScopedTemplates = allTemplates.filter((template) => template.packIds?.includes(pack.id));
+  const packScopedTemplates = availableTemplates.filter((template) => template.packIds?.includes(pack.id));
+  const scopedTemplates = packScopedTemplates.length > 0 ? packScopedTemplates : availableTemplates;
+  const isRetakeFormat = format === 'retake';
   const difficultyMatches = (template: BenchmarkSeedQuestionTemplate) =>
     template.difficulty === slot.difficulty ||
     (slot.difficulty === 'advanced' && template.difficulty === 'intermediate') ||
@@ -4076,19 +4289,38 @@ const pickTemplateForSlot = (
         difficultyMatches(template) &&
         kindMatches(template)
     );
+    const difficultyOnlyMatches = templates.filter(
+      (template) => difficultyMatches(template) && kindMatches(template)
+    );
     const allKindMatches = templates.filter((template) => kindMatches(template));
-    return [exactBlueprintMatches, exactBucketMatches, exactTypeMatches, allKindMatches];
+    return [
+      exactBlueprintMatches,
+      exactBucketMatches,
+      exactTypeMatches,
+      difficultyOnlyMatches,
+      allKindMatches,
+    ];
   };
 
-  const minimumPoolSize = format === 'full' ? 4 : 3;
-  const poolLevels = [...buildMatchLevels(packScopedTemplates), ...buildMatchLevels(allTemplates)];
-  const pool = poolLevels
-    .reduce<BenchmarkSeedQuestionTemplate[]>((selected, level) => {
-      if (selected.length >= minimumPoolSize) return selected;
-      return dedupeTemplatesById([...selected, ...level]);
-    }, [])
-    .filter((template) => !usedTemplateIds.has(template.templateId))
-    .sort((left, right) => left.templateId.localeCompare(right.templateId));
+  const poolLevels = buildMatchLevels(scopedTemplates);
+  const prioritizedLevels = poolLevels.slice(0, isRetakeFormat ? 3 : 4);
+  const fallbackLevels = poolLevels.slice(isRetakeFormat ? 3 : 4);
+  const minimumPoolSize = isRetakeFormat ? 4 : 12;
+  const prioritizedPool = dedupeTemplatesById(prioritizedLevels.flatMap((level) => level));
+  const expandedPool =
+    prioritizedPool.length >= minimumPoolSize
+      ? prioritizedPool
+      : dedupeTemplatesById([...prioritizedPool, ...fallbackLevels.flatMap((level) => level)]);
+  const pool = dedupeTemplatesByQuestionIdentity(
+    shuffleWithSeed(
+      expandedPool,
+      `${pack.id}:${format}:${slot.slotId}:${slotIndex}:${selectionSeed}:candidate-pool`
+    )
+  ).filter(
+    (template) =>
+      !usedTemplateIds.has(template.templateId) &&
+      !usedQuestionIdentities.has(buildTemplateQuestionIdentity(template))
+  );
   const freshPool = pool.filter((template) => !recentlyUsedTemplateIds.has(template.templateId));
   const activePool = freshPool.length > 0 ? freshPool : pool;
   if (activePool.length === 0) return null;
@@ -4101,28 +4333,23 @@ const pickTemplateForSlot = (
       : [];
   const assessmentFloorPool =
     slot.preferredKind === 'code' && executionBackedPool.length > 0 ? executionBackedPool : qualityFloorPool;
+  const supportedSourcePool = assessmentFloorPool.filter((template) => template.sourceType !== 'legacy');
   const curatedPool = assessmentFloorPool.filter((template) => template.sourceType === 'curated');
   const seededPool = assessmentFloorPool.filter((template) => template.sourceType === 'seeded');
   const authoredPool = curatedPool.length > 0 ? curatedPool : seededPool;
   const sourceFloorPool =
-    authoredPool.length > 0
-      ? authoredPool
-      : assessmentFloorPool.filter((template) => template.sourceType !== 'legacy');
+    isRetakeFormat
+      ? authoredPool.length > 0
+        ? authoredPool
+        : supportedSourcePool
+      : supportedSourcePool;
+  const finalPool = sourceFloorPool.length > 0 ? sourceFloorPool : assessmentFloorPool;
+  const randomizedPool = shuffleWithSeed(
+    finalPool,
+    `${pack.id}:${format}:${slot.slotId}:${slotIndex}:${selectionSeed}`
+  );
 
-  const rankedPool = sourceFloorPool
-    .map((template) => ({ template, score: templateSelectionPreference(template) }))
-    .sort((left, right) => {
-      if (right.score !== left.score) return right.score - left.score;
-      return left.template.templateId.localeCompare(right.template.templateId);
-    });
-  const bestScore = rankedPool[0]?.score ?? 0;
-  const preferredPool = rankedPool
-    .filter((entry) => entry.score >= bestScore - 1.35)
-    .map((entry) => entry.template);
-  const finalPool = preferredPool.length > 0 ? preferredPool : sourceFloorPool;
-
-  const seed = Math.abs(hashString(`${pack.id}:${format}:${slot.slotId}:${slotIndex}:${selectionSeed}`));
-  return finalPool[seed % finalPool.length];
+  return randomizedPool[0] ?? null;
 };
 
 export const buildBenchmarkQuestions = (
@@ -4132,7 +4359,7 @@ export const buildBenchmarkQuestions = (
     recentReports?: BenchmarkReport[];
     globalItemSignals?: BenchmarkCalibrationSignal[];
     format?: BenchmarkFormat;
-    stage?: 'baseline' | 'followup' | 'full';
+    stage?: 'baseline' | 'full';
     provisionalDifficulty?: BenchmarkQuestionDifficulty;
     targetWeaknesses?: BenchmarkSkillBucket[];
     telemetrySummary?: BenchmarkTelemetrySummary;
@@ -4144,10 +4371,19 @@ export const buildBenchmarkQuestions = (
   const format = options.format ?? 'quick';
   const attemptIndex = options.attemptIndex ?? 0;
   const blueprint = getBlueprintForFormat(pack, format, options.targetWeaknesses ?? []);
+  const availableTemplates = getQuestionTemplatesForPack(pack);
   const selectionSeed = String(
-    options.selectionSeed ?? `${attemptIndex}:${options.stage ?? 'baseline'}:${format}:${pack.id}`
+    options.selectionSeed ?? `${attemptIndex}:${options.stage ?? 'full'}:${format}:${pack.id}`
   );
   const usedTemplateIds = new Set<string>(options.excludedTemplateIds || []);
+  const templateQuestionIdentities = new Map(
+    availableTemplates.map((template) => [template.templateId, buildTemplateQuestionIdentity(template)])
+  );
+  const usedQuestionIdentities = new Set<string>(
+    (options.excludedTemplateIds || [])
+      .map((templateId) => templateQuestionIdentities.get(templateId) || '')
+      .filter(Boolean)
+  );
   const recentTemplateIds = recentlyUsedTemplateIdsForPack(pack.id, options.recentReports || []);
   const observedItemSignals = buildCalibrationSignalMap(options.globalItemSignals || []);
 
@@ -4155,15 +4391,20 @@ export const buildBenchmarkQuestions = (
     .map((slot, slotIndex) => {
       const template = pickTemplateForSlot(
         pack,
+        availableTemplates,
         slot,
         slotIndex,
         format,
         selectionSeed,
         usedTemplateIds,
+        usedQuestionIdentities,
         recentTemplateIds
       );
       if (!template) return null;
+      const questionIdentity =
+        templateQuestionIdentities.get(template.templateId) || buildTemplateQuestionIdentity(template);
       usedTemplateIds.add(template.templateId);
+      usedQuestionIdentities.add(questionIdentity);
       const observedSignal = observedItemSignals.get(template.templateId);
       const calibrationState =
         observedSignal?.calibrationState ?? template.calibrationState ?? 'calibrating';
@@ -4537,15 +4778,19 @@ const getTrustedComparisonBaseline = (
   pack: BenchmarkPackDefinition,
   format: BenchmarkFormat,
   questions: BenchmarkQuestion[],
-  reports: BenchmarkReport[] = []
+  reports: BenchmarkReport[] = [],
+  options: {
+    preferredSourceReportId?: string | null;
+  } = {}
 ) => {
+  const { preferredSourceReportId = null } = options;
   const candidates = reports
     .filter(
       (report) =>
         getPackIdForReport(report) === pack.id &&
         isTrustedReportBaseline(report, {
           allowRetake: format === 'retake',
-          requireFormat: format,
+          requireFormat: format === 'retake' ? null : format,
           minimumEvidence: 68,
           minimumTrust: 60,
         })
@@ -4558,6 +4803,9 @@ const getTrustedComparisonBaseline = (
     }))
     .filter((candidate) => candidate.comparisonSignal.deltaEligible)
     .sort((left, right) => {
+      const leftPreferred = preferredSourceReportId && left.report.id === preferredSourceReportId ? 1 : 0;
+      const rightPreferred = preferredSourceReportId && right.report.id === preferredSourceReportId ? 1 : 0;
+      if (rightPreferred !== leftPreferred) return rightPreferred - leftPreferred;
       const signalGap = right.comparisonSignal.percent - left.comparisonSignal.percent;
       if (signalGap !== 0) return signalGap;
       const evidenceGap = right.evidencePercent - left.evidencePercent;
@@ -4861,6 +5109,8 @@ export const buildBenchmarkReport = (
     attemptIndex?: number;
     recentReports?: BenchmarkReport[];
     format?: BenchmarkFormat;
+    retakeSourceReportId?: string | null;
+    retakeTargetWeaknesses?: BenchmarkSkillBucket[];
     telemetrySummary?: BenchmarkTelemetrySummary;
   } = {}
 ): BenchmarkReport => {
@@ -4935,7 +5185,9 @@ export const buildBenchmarkReport = (
   const weakestBuckets = topicBreakdown.slice(0, 3).map((entry) => entry.bucket);
   const strongestBuckets = topicBreakdown.slice().sort((a, b) => b.score - a.score).slice(0, 3).map((entry) => entry.bucket);
   const weakestTopicScore = topicBreakdown[0]?.score ?? overallScore;
-  const previousReport = getTrustedComparisonBaseline(pack, format, questions, options.recentReports || []);
+  const previousReport = getTrustedComparisonBaseline(pack, format, questions, options.recentReports || [], {
+    preferredSourceReportId: format === 'retake' ? options.retakeSourceReportId ?? null : null,
+  });
   const comparisonSignal = getComparisonSignal(pack, format, questions, previousReport);
   const deltaFromLastAttempt =
     previousReport && comparisonSignal.deltaEligible ? overallScore - previousReport.overallScore : null;
@@ -5073,6 +5325,9 @@ export const buildBenchmarkReport = (
     summary,
     readinessVerdict,
     deltaFromLastAttempt,
+    retakeSourceReportId: format === 'retake' ? options.retakeSourceReportId ?? null : null,
+    retakeTargetWeaknesses:
+      format === 'retake' ? (options.retakeTargetWeaknesses || weakestBuckets).slice(0, 4) : undefined,
     scoreComponents: {
       accuracy: accuracyComponent,
       difficultyWeighted: difficultyComponent,
@@ -5086,26 +5341,68 @@ export const buildBenchmarkReport = (
 };
 
 export const hydrateBenchmarkReport = (report: BenchmarkReport): BenchmarkReport => {
-  const pack = packLookup.get(report.packId || mapSetupToPackId(report.setup)) || getBenchmarkPackDefinition(report.setup);
+  if (!isBenchmarkSetupShape(report?.setup)) {
+    return report;
+  }
+
+  const attemptIndex = typeof report.attemptIndex === 'number' ? report.attemptIndex : 0;
+  const format = report.format || 'quick';
+  const questions =
+    Array.isArray(report.questions) && report.questions.length > 0
+      ? report.questions
+      : buildBenchmarkQuestions(report.setup, {
+          attemptIndex,
+          format,
+        });
+  const answerRecords = Array.isArray(report.answerRecords) ? report.answerRecords : [];
+  const fallback = buildBenchmarkReport(report.setup, questions, answerRecords, {
+    attemptIndex,
+    format,
+    telemetrySummary: report.telemetrySummary,
+  });
+  const pack = packLookup.get(report.packId || fallback.packId || mapSetupToPackId(report.setup)) || getBenchmarkPackDefinition(report.setup);
+
   return {
+    ...fallback,
     ...report,
     benchmarkVersion: report.benchmarkVersion || BENCHMARK_VERSION,
-    packId: report.packId || pack.id,
-    packTitle: report.packTitle || pack.title,
-    topicBreakdown: report.topicBreakdown || [],
+    attemptIndex,
+    format,
+    packId: report.packId || fallback.packId || pack.id,
+    packTitle: report.packTitle || fallback.packTitle || pack.title,
+    correctAnswers: Number.isFinite(report.correctAnswers) ? report.correctAnswers : fallback.correctAnswers,
+    totalQuestions: Number.isFinite(report.totalQuestions) ? report.totalQuestions : questions.length,
+    strengths: Array.isArray(report.strengths) && report.strengths.length > 0 ? report.strengths : fallback.strengths,
+    weaknesses: Array.isArray(report.weaknesses) && report.weaknesses.length > 0 ? report.weaknesses : fallback.weaknesses,
+    dimensionScores:
+      Array.isArray(report.dimensionScores) && report.dimensionScores.length > 0
+        ? report.dimensionScores
+        : fallback.dimensionScores,
+    sectionScores:
+      Array.isArray(report.sectionScores) && report.sectionScores.length > 0
+        ? report.sectionScores
+        : fallback.sectionScores,
+    topicBreakdown:
+      Array.isArray(report.topicBreakdown) && report.topicBreakdown.length > 0
+        ? report.topicBreakdown
+        : fallback.topicBreakdown,
+    confidenceBand: report.confidenceBand || fallback.confidenceBand,
+    confidenceInterval: report.confidenceInterval || fallback.confidenceInterval,
+    trustSignal: report.trustSignal || fallback.trustSignal,
     readinessVerdict:
       report.readinessVerdict ||
+      fallback.readinessVerdict ||
       getReadinessVerdict(pack, report.overallScore, report.confidenceBand?.percent || 55, report.trustSignal?.score || 70, report.topicBreakdown?.[0]?.score || report.overallScore, 1),
-    deltaFromLastAttempt: typeof report.deltaFromLastAttempt === 'number' ? report.deltaFromLastAttempt : null,
-    evidenceProfile: report.evidenceProfile || {
-      percent: report.confidenceBand?.percent || 55,
-      completionRatio: 1,
-      bucketCoverageRatio: 1,
-      anchorCoverageRatio: 1,
-      validatedRatio: 0.7,
-      executionCoverageRatio: 0.4,
-      averageDiscrimination: 0.68,
-    },
+    deltaFromLastAttempt: typeof report.deltaFromLastAttempt === 'number' ? report.deltaFromLastAttempt : fallback.deltaFromLastAttempt,
+    retakeSourceReportId:
+      typeof report.retakeSourceReportId === 'string' || report.retakeSourceReportId === null
+        ? report.retakeSourceReportId
+        : fallback.retakeSourceReportId,
+    retakeTargetWeaknesses:
+      Array.isArray(report.retakeTargetWeaknesses) && report.retakeTargetWeaknesses.length > 0
+        ? report.retakeTargetWeaknesses
+        : fallback.retakeTargetWeaknesses,
+    evidenceProfile: report.evidenceProfile || fallback.evidenceProfile,
     comparisonSignal: report.comparisonSignal || {
       percent: typeof report.deltaFromLastAttempt === 'number' ? 72 : 0,
       label: typeof report.deltaFromLastAttempt === 'number' ? 'Usable comparison baseline' : 'No trusted comparison baseline yet',
@@ -5115,20 +5412,21 @@ export const hydrateBenchmarkReport = (report: BenchmarkReport): BenchmarkReport
           : 'Take one more benchmark in the same pack to start a stable progress line.',
       deltaEligible: typeof report.deltaFromLastAttempt === 'number',
     },
-    scoreComponents: report.scoreComponents || {
-      accuracy: report.overallScore,
-      difficultyWeighted: report.overallScore,
-      speedUnderPressure: report.overallScore,
-    },
-    nextStepPlan:
-      report.nextStepPlan ||
-      buildQuestionDrivenRemediationPlan(
-        pack,
-        report.questions || [],
-        report.answerRecords || [],
-        report.topicBreakdown?.slice(0, 3).map((entry) => entry.bucket) || []
-      ),
-    questions: (report.questions || []).map((question) => ({
+    scoreComponents: report.scoreComponents || fallback.scoreComponents,
+    nextStepPlan: report.nextStepPlan || fallback.nextStepPlan,
+    suggestedLessonIds:
+      Array.isArray(report.suggestedLessonIds) && report.suggestedLessonIds.length > 0
+        ? report.suggestedLessonIds
+        : fallback.suggestedLessonIds,
+    suggestedDuelProblemTitles:
+      Array.isArray(report.suggestedDuelProblemTitles) && report.suggestedDuelProblemTitles.length > 0
+        ? report.suggestedDuelProblemTitles
+        : fallback.suggestedDuelProblemTitles,
+    duelReadiness: report.duelReadiness || fallback.duelReadiness,
+    estimation: report.estimation || fallback.estimation,
+    summary: report.summary || fallback.summary,
+    telemetrySummary: report.telemetrySummary || fallback.telemetrySummary,
+    questions: questions.map((question) => ({
       ...question,
       packId: question.packId || pack.id,
       packTitle: question.packTitle || pack.title,
@@ -5151,14 +5449,28 @@ export const hydrateBenchmarkReport = (report: BenchmarkReport): BenchmarkReport
         question.remediationProjectCheckpointId ??
         (question.lessonTitle?.toLowerCase().includes('project') ? question.lessonId : null),
     })),
+    answerRecords,
   };
 };
 
 const normalizeBenchmarkHistory = (reports: Array<BenchmarkReport | null | undefined>) =>
   reports
-    .filter((report): report is BenchmarkReport => Boolean(report?.id && report?.createdAt))
+    .filter(
+      (report): report is BenchmarkReport =>
+        Boolean(report?.id && report?.createdAt && isBenchmarkSetupShape(report.setup))
+    )
     .reduce((map, report) => {
-      map.set(report.id, hydrateBenchmarkReport(report));
+      const hydrated = hydrateBenchmarkReport(report);
+      if (
+        !Number.isFinite(hydrated.attemptIndex) ||
+        !hydrated.estimation ||
+        !Array.isArray(hydrated.questions) ||
+        hydrated.questions.length === 0 ||
+        !Array.isArray(hydrated.answerRecords)
+      ) {
+        return map;
+      }
+      map.set(report.id, hydrated);
       return map;
     }, new Map<string, BenchmarkReport>());
 
@@ -5175,9 +5487,14 @@ export const readSavedBenchmarkHistory = (userId?: string | null): BenchmarkRepo
   const value = window.localStorage.getItem(storageKey);
   if (value) {
     try {
-      return Array.from(normalizeBenchmarkHistory(JSON.parse(value) as BenchmarkReport[]).values()).sort(
+      const parsed = JSON.parse(value) as BenchmarkReport[];
+      const normalized = Array.from(normalizeBenchmarkHistory(parsed).values()).sort(
         (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
       );
+      if (normalized.length !== parsed.length) {
+        window.localStorage.setItem(storageKey, JSON.stringify(normalized));
+      }
+      return normalized;
     } catch {
       return [];
     }
@@ -5188,9 +5505,15 @@ export const readSavedBenchmarkHistory = (userId?: string | null): BenchmarkRepo
   if (!legacyValue) return [];
 
   try {
-    return Array.from(normalizeBenchmarkHistory(JSON.parse(legacyValue) as BenchmarkReport[]).values()).sort(
+    const parsed = JSON.parse(legacyValue) as BenchmarkReport[];
+    const normalized = Array.from(normalizeBenchmarkHistory(parsed).values()).sort(
       (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
     );
+    if (normalized.length > 0) {
+      window.localStorage.setItem(storageKey, JSON.stringify(normalized));
+    }
+    window.localStorage.removeItem(legacyKey);
+    return normalized;
   } catch {
     return [];
   }

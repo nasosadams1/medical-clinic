@@ -191,7 +191,7 @@ export const pricingPlans: PricingPlan[] = [
     description: 'Single-cohort team workspace.',
     features: [
       '1 team workspace with up to 25 seats',
-      'Benchmark, roadmap, and challenge pack assignments',
+      'Benchmark, roadmap, and duel activity assignments',
       'Review queue and coaching notes',
       'Cohort analytics and leaderboards',
       'Instructor and coach views',
@@ -223,7 +223,7 @@ export const pricingPlans: PricingPlan[] = [
     description: 'Large rollout and integration plan.',
     features: [
       'Up to 50 team workspaces and 1000 seats',
-      'Custom challenge packs',
+      'Custom assignment and duel activity templates',
       'Branding and rollout configuration',
       'Advanced analytics, JSON export, and CSV export',
       'Public proof pages',
@@ -282,7 +282,7 @@ export const teamUseCases: TeamUseCase[] = [
   {
     slug: 'coding-clubs',
     title: 'Coding clubs and communities',
-    description: 'Run competitions, set challenge packs, and coach learners between rounds.',
+    description: 'Run competitions, set duel activity goals, and coach learners between rounds.',
     outcomes: ['Friendly competition', 'Challenge-based practice', 'Coaching notes and shareable rankings'],
     primaryCta: 'Run a coding club season',
   },

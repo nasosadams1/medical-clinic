@@ -1,5 +1,5 @@
 import { buildApiUrl, isApiNetworkError } from './apiBase';
-import { supabase } from './supabase';
+import { getValidAccessToken, recoverFromSupabaseSessionError } from './supabase';
 
 export type ActivityHeartbeatReason = 'bootstrap' | 'interaction' | 'focus' | 'interval' | 'hidden';
 export type ActivityVisibilityState = 'visible' | 'hidden';
@@ -11,8 +11,7 @@ interface ActivityHeartbeatPayload {
 }
 
 async function getAccessToken() {
-  const { data } = await supabase.auth.getSession();
-  return data.session?.access_token || null;
+  return getValidAccessToken();
 }
 
 export async function sendActivityHeartbeat(payload: ActivityHeartbeatPayload) {
@@ -42,6 +41,12 @@ export async function sendActivityHeartbeat(payload: ActivityHeartbeatPayload) {
 
   const responsePayload = await response.json().catch(() => ({}));
   if (!response.ok) {
+    if (response.status === 401 || response.status === 403) {
+      await recoverFromSupabaseSessionError({
+        status: response.status,
+        message: (responsePayload as { error?: string }).error || response.statusText,
+      });
+    }
     throw new Error((responsePayload as { error?: string }).error || 'Activity heartbeat failed.');
   }
 

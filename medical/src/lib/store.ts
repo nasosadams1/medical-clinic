@@ -1,4 +1,4 @@
-import { supabase } from './supabase';
+import { getValidAccessToken, recoverFromSupabaseSessionError } from './supabase';
 import { resolveApiBaseUrl } from './apiBase';
 
 const STORE_SERVER_URL =
@@ -20,8 +20,7 @@ export interface StorePurchaseResponse {
 }
 
 async function getAuthHeaders() {
-  const { data } = await supabase.auth.getSession();
-  const accessToken = data.session?.access_token;
+  const accessToken = await getValidAccessToken();
 
   if (!accessToken) {
     throw new Error('You must be signed in to make store purchases.');
@@ -42,6 +41,12 @@ export async function purchaseStoreItem(itemId: string): Promise<StorePurchaseRe
 
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
+    if (response.status === 401 || response.status === 403) {
+      await recoverFromSupabaseSessionError({
+        status: response.status,
+        message: payload.error || response.statusText,
+      });
+    }
     throw new Error(payload.error || 'Store purchase failed.');
   }
 

@@ -86,6 +86,16 @@ export const feedbackConfig = {
 };
 
 const buildFeedbackApiUrl = (path = '') => buildApiUrl(`/api/feedback${path}`);
+const FEEDBACK_HISTORY_CACHE_MS = 15_000;
+const FEEDBACK_ADMIN_CAPABILITIES_CACHE_MS = 30_000;
+const FEEDBACK_ADMIN_QUEUE_CACHE_MS = 10_000;
+const feedbackReadCache = new Map<string, { fetchedAt: number; payload: unknown }>();
+const inFlightFeedbackRequests = new Map<string, Promise<unknown>>();
+
+type FeedbackReadRequestOptions = {
+  force?: boolean;
+  maxAgeMs?: number;
+};
 
 const toBase64 = (file: File) =>
   new Promise<string>((resolve, reject) => {
@@ -159,19 +169,94 @@ const authorizedFetch = async (path: string, sessionToken: string, init: Request
   return payload;
 };
 
-export const fetchFeedbackEntries = async (sessionToken: string): Promise<FeedbackHistoryEntry[]> => {
-  const payload = await authorizedFetch('', sessionToken, { method: 'GET' });
+const buildFeedbackReadRequestKey = (path: string, sessionToken: string, init: RequestInit = {}) =>
+  `${(init.method || 'GET').toUpperCase()} ${path}::${sessionToken}`;
+
+const invalidateFeedbackReadCache = (sessionToken: string, pathPrefixes: string[] = []) => {
+  const prefixes = pathPrefixes.length > 0 ? pathPrefixes : ['', '/admin', '/admin/capabilities'];
+  for (const requestKey of [...feedbackReadCache.keys()]) {
+    if (!requestKey.endsWith(`::${sessionToken}`)) {
+      continue;
+    }
+
+    const requestPath = requestKey.slice('GET '.length, requestKey.lastIndexOf('::'));
+    const matchesPrefix = prefixes.some((prefix) => {
+      if (!prefix) {
+        return requestPath === '';
+      }
+
+      return requestPath === prefix || requestPath.startsWith(`${prefix}?`) || requestPath.startsWith(`${prefix}/`);
+    });
+    if (matchesPrefix) {
+      feedbackReadCache.delete(requestKey);
+    }
+  }
+};
+
+const authorizedCachedReadFetch = async <T>(
+  path: string,
+  sessionToken: string,
+  options: FeedbackReadRequestOptions = {}
+): Promise<T> => {
+  const requestKey = buildFeedbackReadRequestKey(path, sessionToken, { method: 'GET' });
+  const maxAgeMs = options.maxAgeMs ?? 0;
+  const cached = feedbackReadCache.get(requestKey);
+
+  if (!options.force && cached && Date.now() - cached.fetchedAt <= maxAgeMs) {
+    return cached.payload as T;
+  }
+
+  const existingRequest = inFlightFeedbackRequests.get(requestKey);
+  if (existingRequest) {
+    return existingRequest as Promise<T>;
+  }
+
+  let requestPromise: Promise<T>;
+  requestPromise = (async () => {
+    try {
+      const payload = await authorizedFetch(path, sessionToken, { method: 'GET' });
+      feedbackReadCache.set(requestKey, {
+        fetchedAt: Date.now(),
+        payload,
+      });
+      return payload as T;
+    } finally {
+      if (inFlightFeedbackRequests.get(requestKey) === requestPromise) {
+        inFlightFeedbackRequests.delete(requestKey);
+      }
+    }
+  })();
+
+  inFlightFeedbackRequests.set(requestKey, requestPromise);
+  return requestPromise;
+};
+
+export const fetchFeedbackEntries = async (
+  sessionToken: string,
+  options: FeedbackReadRequestOptions = {}
+): Promise<FeedbackHistoryEntry[]> => {
+  const payload = await authorizedCachedReadFetch<{ entries?: FeedbackHistoryEntry[] }>('', sessionToken, {
+    maxAgeMs: FEEDBACK_HISTORY_CACHE_MS,
+    ...options,
+  });
   return payload.entries || [];
 };
 
-export const fetchFeedbackAdminCapabilities = async (sessionToken: string): Promise<{ canReview: boolean }> => {
-  const payload = await authorizedFetch('/admin/capabilities', sessionToken, { method: 'GET' });
+export const fetchFeedbackAdminCapabilities = async (
+  sessionToken: string,
+  options: FeedbackReadRequestOptions = {}
+): Promise<{ canReview: boolean }> => {
+  const payload = await authorizedCachedReadFetch<{ canReview?: boolean }>('/admin/capabilities', sessionToken, {
+    maxAgeMs: FEEDBACK_ADMIN_CAPABILITIES_CACHE_MS,
+    ...options,
+  });
   return { canReview: !!payload.canReview };
 };
 
 export const fetchAdminFeedbackEntries = async (
   sessionToken: string,
-  options: { status?: FeedbackStatus | 'all'; type?: FeedbackType | 'all'; limit?: number } = {}
+  options: { status?: FeedbackStatus | 'all'; type?: FeedbackType | 'all'; limit?: number } = {},
+  requestOptions: FeedbackReadRequestOptions = {}
 ): Promise<FeedbackAdminEntry[]> => {
   const searchParams = new URLSearchParams();
   if (options.status && options.status !== 'all') {
@@ -185,25 +270,38 @@ export const fetchAdminFeedbackEntries = async (
   }
 
   const query = searchParams.toString();
-  const payload = await authorizedFetch(`/admin${query ? `?${query}` : ''}`, sessionToken, { method: 'GET' });
+  const payload = await authorizedCachedReadFetch<{ entries?: FeedbackAdminEntry[] }>(
+    `/admin${query ? `?${query}` : ''}`,
+    sessionToken,
+    {
+      maxAgeMs: FEEDBACK_ADMIN_QUEUE_CACHE_MS,
+      ...requestOptions,
+    }
+  );
   return payload.entries || [];
 };
 
-export const submitFeedbackEntry = async (sessionToken: string, payload: FeedbackSubmissionPayload) =>
-  authorizedFetch('', sessionToken, {
+export const submitFeedbackEntry = async (sessionToken: string, payload: FeedbackSubmissionPayload) => {
+  const response = await authorizedFetch('', sessionToken, {
     method: 'POST',
     body: JSON.stringify(payload),
   });
+  invalidateFeedbackReadCache(sessionToken, ['']);
+  return response;
+};
 
 export const updateFeedbackEntryStatus = async (
   sessionToken: string,
   feedbackId: string,
   payload: { status: FeedbackStatus; note?: string }
-) =>
-  authorizedFetch(`/admin/${feedbackId}/status`, sessionToken, {
+) => {
+  const response = await authorizedFetch(`/admin/${feedbackId}/status`, sessionToken, {
     method: 'PATCH',
     body: JSON.stringify(payload),
   });
+  invalidateFeedbackReadCache(sessionToken, ['/admin']);
+  return response;
+};
 
 export const buildFeedbackDraftKey = (userId?: string) => `codhak-feedback-draft:${userId || 'anonymous'}`;
 export const buildFeedbackSubmissionFingerprint = (payload: Pick<FeedbackSubmissionPayload, 'type' | 'subject' | 'message'>) =>

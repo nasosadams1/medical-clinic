@@ -1,5 +1,5 @@
 import { buildApiUrl } from './apiBase';
-import { supabase } from './supabase';
+import { getValidAccessToken, recoverFromSupabaseSessionError } from './supabase';
 
 export type AnalyticsEventName =
   | 'homepage_visit'
@@ -100,8 +100,7 @@ const removeFlushedEvents = (count: number) => {
 
 const getAccessToken = async () => {
   try {
-    const { data } = await supabase.auth.getSession();
-    return data.session?.access_token || null;
+    return await getValidAccessToken();
   } catch {
     return null;
   }
@@ -135,6 +134,13 @@ export const flushAnalyticsEvents = async () => {
       });
 
       if (!response.ok) {
+        if (response.status === 401 || response.status === 403) {
+          const payload = await response.json().catch(() => ({}));
+          await recoverFromSupabaseSessionError({
+            status: response.status,
+            message: (payload as { error?: string }).error || response.statusText,
+          });
+        }
         analyticsBackoffUntil = Date.now() + ANALYTICS_FAILURE_BACKOFF_MS;
         return;
       }

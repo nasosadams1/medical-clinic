@@ -1,15 +1,20 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import ts from 'typescript';
 
 import { benchmarkExpandedSeedTemplatesByLanguage } from '../src/data/benchmarkExpandedSeedBank.js';
-import { buildDynamicBenchmarkExecutionDefinition } from '../services/benchmark/execution-bank.js';
+import {
+  buildDynamicBenchmarkExecutionDefinition,
+  getBenchmarkExecutionDefinition,
+} from '../services/benchmark/execution-bank.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const repoRoot = path.resolve(__dirname, '..');
 const enginePath = path.join(repoRoot, 'src', 'data', 'benchmarkEngine.ts');
 const expandedBankPath = path.join(repoRoot, 'src', 'data', 'benchmarkExpandedSeedBank.js');
+const experiencePath = path.join(repoRoot, 'src', 'components', 'benchmark', 'BenchmarkExperience.tsx');
 
 const issues = [];
 const cheapDistractors = new Set(['error', 'nothing', 'undefined', 'nan', 'null']);
@@ -120,6 +125,197 @@ const countByPackAndFamilyAndSource = (templates) =>
     return accumulator;
   }, {});
 
+const getPropertyNameText = (nameNode) => {
+  if (!nameNode) return null;
+  if (ts.isIdentifier(nameNode) || ts.isStringLiteral(nameNode) || ts.isNumericLiteral(nameNode)) {
+    return nameNode.text;
+  }
+  if (ts.isComputedPropertyName(nameNode) && ts.isStringLiteral(nameNode.expression)) {
+    return nameNode.expression.text;
+  }
+  return null;
+};
+
+const getObjectProperty = (objectNode, propertyName) =>
+  objectNode.properties.find(
+    (property) =>
+      ts.isPropertyAssignment(property) && getPropertyNameText(property.name) === propertyName
+  ) || null;
+
+const extractStaticValue = (node) => {
+  if (!node) return undefined;
+  if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) {
+    return node.text;
+  }
+  if (ts.isNumericLiteral(node)) {
+    return Number(node.text);
+  }
+  if (node.kind === ts.SyntaxKind.TrueKeyword) return true;
+  if (node.kind === ts.SyntaxKind.FalseKeyword) return false;
+  if (node.kind === ts.SyntaxKind.NullKeyword) return null;
+  if (
+    ts.isPrefixUnaryExpression(node) &&
+    node.operator === ts.SyntaxKind.MinusToken &&
+    ts.isNumericLiteral(node.operand)
+  ) {
+    return -Number(node.operand.text);
+  }
+  if (ts.isArrayLiteralExpression(node)) {
+    return node.elements.map((element) => extractStaticValue(element));
+  }
+  if (ts.isObjectLiteralExpression(node)) {
+    return Object.fromEntries(
+      node.properties
+        .filter(ts.isPropertyAssignment)
+        .map((property) => [getPropertyNameText(property.name), extractStaticValue(property.initializer)])
+        .filter(([key]) => Boolean(key))
+    );
+  }
+  return undefined;
+};
+
+const parseEngineSeedCodeTemplates = (sourceText) => {
+  const sourceFile = ts.createSourceFile(
+    enginePath,
+    sourceText,
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.TS
+  );
+  const executionCasesByTemplateId = new Map();
+  const codeTemplates = [];
+
+  const visit = (node) => {
+    if (
+      ts.isVariableDeclaration(node) &&
+      ts.isIdentifier(node.name) &&
+      node.name.text === 'benchmarkSeedExecutionCases' &&
+      node.initializer &&
+      ts.isObjectLiteralExpression(node.initializer)
+    ) {
+      node.initializer.properties
+        .filter(ts.isPropertyAssignment)
+        .forEach((property) => {
+          const templateId = getPropertyNameText(property.name);
+          const executionCases = extractStaticValue(property.initializer);
+          if (templateId && Array.isArray(executionCases)) {
+            executionCasesByTemplateId.set(templateId, executionCases);
+          }
+        });
+    }
+
+    if (
+      ts.isCallExpression(node) &&
+      ts.isIdentifier(node.expression) &&
+      (node.expression.text === 'defineSeedQuestion' || node.expression.text === 'defineCodeSeedQuestion')
+    ) {
+      const [argument] = node.arguments;
+      if (argument && ts.isObjectLiteralExpression(argument)) {
+        const templateId = extractStaticValue(getObjectProperty(argument, 'templateId')?.initializer);
+        const kind = extractStaticValue(getObjectProperty(argument, 'kind')?.initializer);
+        const isCode = node.expression.text === 'defineCodeSeedQuestion' || kind === 'code';
+
+        if (isCode && typeof templateId === 'string') {
+          codeTemplates.push({
+            templateId,
+            language: extractStaticValue(getObjectProperty(argument, 'language')?.initializer),
+            starterCode: extractStaticValue(getObjectProperty(argument, 'starterCode')?.initializer),
+            referenceCode: extractStaticValue(getObjectProperty(argument, 'referenceCode')?.initializer),
+            evaluationStrategy: extractStaticValue(
+              getObjectProperty(argument, 'evaluationStrategy')?.initializer
+            ),
+            hasExecutionCasesProp: Boolean(getObjectProperty(argument, 'executionCases')),
+            hasPublicTestCasesProp: Boolean(getObjectProperty(argument, 'publicTestCases')),
+          });
+        }
+      }
+    }
+
+    ts.forEachChild(node, visit);
+  };
+
+  visit(sourceFile);
+  return { executionCasesByTemplateId, codeTemplates };
+};
+
+const parseBlueprintSlotCounts = (sourceText) => {
+  const sourceFile = ts.createSourceFile(
+    enginePath,
+    sourceText,
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.TS
+  );
+  const counts = {};
+  const targetFunctions = new Set([
+    'beginnerQuickBlueprint',
+    'beginnerFullBlueprint',
+    'juniorQuickBlueprint',
+    'juniorFullBlueprint',
+  ]);
+
+  const countReturnedSlots = (body) => {
+    if (!body) return null;
+    if (ts.isArrayLiteralExpression(body)) {
+      return body.elements.length;
+    }
+    if (ts.isBlock(body)) {
+      const returnStatement = body.statements.find(
+        (statement) => ts.isReturnStatement(statement) && statement.expression && ts.isArrayLiteralExpression(statement.expression)
+      );
+      if (returnStatement && ts.isArrayLiteralExpression(returnStatement.expression)) {
+        return returnStatement.expression.elements.length;
+      }
+    }
+    return null;
+  };
+
+  const visit = (node) => {
+    if (
+      ts.isVariableDeclaration(node) &&
+      ts.isIdentifier(node.name) &&
+      targetFunctions.has(node.name.text) &&
+      node.initializer &&
+      ts.isArrowFunction(node.initializer)
+    ) {
+      const count = countReturnedSlots(node.initializer.body);
+      if (typeof count === 'number') {
+        counts[node.name.text] = count;
+      }
+    }
+
+    ts.forEachChild(node, visit);
+  };
+
+  visit(sourceFile);
+  return counts;
+};
+
+const extractConstFunctionSource = (sourceText, functionName) => {
+  const startToken = `const ${functionName} = (`;
+  const startIndex = sourceText.indexOf(startToken);
+  if (startIndex === -1) return '';
+
+  const bodyStart = sourceText.indexOf('{', startIndex);
+  if (bodyStart === -1) return '';
+
+  let depth = 0;
+  for (let index = bodyStart; index < sourceText.length; index += 1) {
+    const character = sourceText[index];
+    if (character === '{') {
+      depth += 1;
+    } else if (character === '}') {
+      depth -= 1;
+      if (depth === 0) {
+        const statementEnd = sourceText.indexOf(';', index);
+        return sourceText.slice(startIndex, statementEnd === -1 ? index + 1 : statementEnd + 1);
+      }
+    }
+  }
+
+  return sourceText.slice(startIndex);
+};
+
 for (const [language, templates] of Object.entries(benchmarkExpandedSeedTemplatesByLanguage)) {
   if (!Array.isArray(templates) || templates.length === 0) {
     recordIssue(`${language}: bank is empty.`);
@@ -209,11 +405,79 @@ for (const [language, templates] of Object.entries(benchmarkExpandedSeedTemplate
 
 const engineSource = fs.readFileSync(enginePath, 'utf8');
 const expandedBankSource = fs.readFileSync(expandedBankPath, 'utf8');
+const experienceSource = fs.readFileSync(experiencePath, 'utf8');
+const { executionCasesByTemplateId, codeTemplates } = parseEngineSeedCodeTemplates(engineSource);
+const blueprintSlotCounts = parseBlueprintSlotCounts(engineSource);
+const retakeBlueprintSource = extractConstFunctionSource(engineSource, 'buildRetakeBlueprint');
+
+const expectedBlueprintCounts = {
+  beginnerQuickBlueprint: 5,
+  beginnerFullBlueprint: 12,
+  juniorQuickBlueprint: 5,
+  juniorFullBlueprint: 12,
+};
+
+for (const [functionName, expectedCount] of Object.entries(expectedBlueprintCounts)) {
+  if (blueprintSlotCounts[functionName] !== expectedCount) {
+    recordIssue(
+      `${functionName} should contain ${expectedCount} slots but has ${blueprintSlotCounts[functionName] ?? 'none'}.`
+    );
+  }
+}
+
+for (const template of codeTemplates) {
+  const executionCases = executionCasesByTemplateId.get(template.templateId) || [];
+  const effectiveEvaluationStrategy =
+    template.evaluationStrategy || (executionCases.length > 0 ? 'execution' : 'typing');
+
+  if (!template.hasExecutionCasesProp) {
+    recordIssue(`seed:${template.templateId} is missing executionCases.`);
+  }
+  if (executionCases.length < 3) {
+    recordIssue(`seed:${template.templateId} has fewer than 3 execution cases.`);
+  }
+  if (effectiveEvaluationStrategy !== 'execution') {
+    recordIssue(`seed:${template.templateId} is not execution-backed.`);
+  }
+  if (!template.hasPublicTestCasesProp) {
+    recordIssue(`seed:${template.templateId} is missing publicTestCases.`);
+  }
+
+  const executionDefinition =
+    getBenchmarkExecutionDefinition(template.templateId) ||
+    buildDynamicBenchmarkExecutionDefinition({
+      language: template.language,
+      starterCode: template.starterCode,
+      referenceCode: template.referenceCode,
+      executionCases,
+    });
+
+  if (!executionDefinition) {
+    recordIssue(`seed:${template.templateId} does not build a backend execution definition.`);
+  }
+}
 
 const requiredEngineSnippets = [
+  'export interface BenchmarkRetakePlan {',
   "sourceType: template.sourceType ?? 'seeded'",
   "version: Math.max(3, template.version ?? 3)",
+  'const QUICK_BENCHMARK_QUESTION_COUNT = 5;',
+  'const FULL_BENCHMARK_QUESTION_COUNT = 12;',
+  'const RETAKE_BENCHMARK_QUESTION_COUNT = 4;',
+  'quick: QUICK_BENCHMARK_QUESTION_COUNT',
+  'full: FULL_BENCHMARK_QUESTION_COUNT',
+  'retake: RETAKE_BENCHMARK_QUESTION_COUNT',
+  "options.selectionSeed ?? `${attemptIndex}:${options.stage ?? 'full'}:${format}:${pack.id}`",
+  'selected.length < pack.questionCount.retake',
+  'return selected.slice(0, pack.questionCount.retake);',
   'return dedupeTemplatesById(seeded);',
+  'const buildTemplateQuestionIdentity =',
+  'const usedQuestionIdentities = new Set<string>(',
+  '!usedQuestionIdentities.has(buildTemplateQuestionIdentity(template))',
+  'export const getBenchmarkRetakePlanFromReport =',
+  'export const getBenchmarkRetakePlan =',
+  "requireFormat: format === 'retake' ? null : format,",
+  "retakeSourceReportId: format === 'retake' ? options.retakeSourceReportId ?? null : null,",
   'const authoredPool =',
   'const executionBackedPool =',
 ];
@@ -241,6 +505,49 @@ const forbiddenEngineSnippets = ['versionScore', 'template.version >= 3'];
 for (const snippet of forbiddenEngineSnippets) {
   if (engineSource.includes(snippet)) {
     recordIssue(`benchmarkEngine.ts still contains deprecated quality heuristic: ${snippet}`);
+  }
+}
+
+const forbiddenEngineCountSnippets = ['full: meta.roleLevel === \'junior\' ? 12 : 10'];
+for (const snippet of forbiddenEngineCountSnippets) {
+  if (engineSource.includes(snippet)) {
+    recordIssue(`benchmarkEngine.ts still contains deprecated format sizing logic: ${snippet}`);
+  }
+}
+
+const forbiddenRetakeSizingSnippets = ['while (selected.length < 4', 'slice(0, 4)'];
+for (const snippet of forbiddenRetakeSizingSnippets) {
+  if (retakeBlueprintSource.includes(snippet)) {
+    recordIssue(`buildRetakeBlueprint still contains deprecated retake sizing logic: ${snippet}`);
+  }
+}
+
+const requiredExperienceSnippets = [
+  "const [assessmentStage, setAssessmentStage] = useState<BenchmarkStage>('full');",
+  'const [retakePlanOverride, setRetakePlanOverride] = useState<BenchmarkRetakePlan | null>(null);',
+  'const availableRetakePlan = useMemo(',
+  "const nextQuestions = buildQuestionSet(nextSelectionSeed, 'full');",
+  "stage: storedSession.stage || 'full',",
+  'retakePlan: activeRetakePlan,',
+  'const nextRetakePlan =',
+  'getBenchmarkRetakePlan(nextReport.setup, reportHistory, nextReport.retakeSourceReportId ?? null);',
+  "if (option.value === 'retake' && !availableRetakePlan) {",
+  'Run one trusted quick or full benchmark in this pack before starting a retake.',
+];
+for (const snippet of requiredExperienceSnippets) {
+  if (!experienceSource.includes(snippet)) {
+    recordIssue(`BenchmarkExperience.tsx is missing expected fixed-count snippet: ${snippet}`);
+  }
+}
+
+const forbiddenExperienceSnippets = [
+  'appendAdaptiveFollowupIfNeeded',
+  "buildQuestionSet(\n      assessmentSelectionSeed || `followup:${assessmentAttemptIndex}`",
+  "stage: storedSession.stage || 'baseline',",
+];
+for (const snippet of forbiddenExperienceSnippets) {
+  if (experienceSource.includes(snippet)) {
+    recordIssue(`BenchmarkExperience.tsx still contains deprecated adaptive-count logic: ${snippet}`);
   }
 }
 

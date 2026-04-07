@@ -31,6 +31,7 @@ import {
 } from './shared/store-contract.js';
 import { createBillingRouter } from './services/billing/routes.js';
 
+dotenv.config({ path: '.env.local', override: true });
 dotenv.config();
 
 const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY || '';

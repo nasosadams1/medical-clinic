@@ -10,6 +10,13 @@ import React, {
 } from "react";
 import { User as SupabaseUser, Session } from "@supabase/supabase-js";
 import {
+  clearInvalidSupabaseSession,
+  clearPersistedSupabaseAuth,
+  getValidAccessToken,
+  getValidatedSession,
+  isSupabaseAuthSessionError,
+  isSupabaseSessionExpired,
+  recoverFromSupabaseSessionError,
   supabase,
   UserProfile,
   signUpWithEmail,
@@ -58,28 +65,11 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 // VITE_LEADERBOARD_API_URL=https://your-leaderboard-api
 const LEADERBOARD_API_URL =
   (import.meta.env.VITE_LEADERBOARD_API_URL as string | undefined)?.trim() || "";
-const AUTH_STORAGE_KEY = "codhak-auth";
 const isAuthDebugEnabled = import.meta.env.DEV && import.meta.env.VITE_DEBUG_AUTH === "1";
 
 const authLog = (...args: any[]) => {
   if (isAuthDebugEnabled) {
     console.log(...args);
-  }
-};
-
-const clearAuthStorage = () => {
-  if (typeof window === "undefined") return;
-
-  const shouldRemove = (key: string) =>
-    key === AUTH_STORAGE_KEY || key.startsWith("sb-") || key.toLowerCase().includes("supabase");
-
-  for (const storage of [window.localStorage, window.sessionStorage]) {
-    const keysToRemove: string[] = [];
-    for (let i = 0; i < storage.length; i += 1) {
-      const key = storage.key(i);
-      if (key && shouldRemove(key)) keysToRemove.push(key);
-    }
-    keysToRemove.forEach((key) => storage.removeItem(key));
   }
 };
 
@@ -104,15 +94,22 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     checkConnection();
   }, []);
 
+  const applySignedOutState = useCallback(() => {
+    setSession(null);
+    setUser(null);
+    setProfile(null);
+    lastSyncDataRef.current = "";
+    setLoading(false);
+  }, []);
+
   // Clear corrupted session
   const clearCorruptedSession = async () => {
     try {
-      clearAuthStorage();
-      await supabase.auth.signOut({ scope: "local" });
-      window.location.reload();
+      await clearInvalidSupabaseSession();
+      applySignedOutState();
     } catch (error) {
       console.error("Error clearing corrupted session:", error);
-      window.location.reload();
+      applySignedOutState();
     }
   };
 
@@ -184,8 +181,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           streak: payload.streak,
         });
 
-        const { data: sessionData } = await supabase.auth.getSession();
-        const accessToken = sessionData.session?.access_token;
+        const accessToken = await getValidAccessToken();
 
         if (!accessToken) {
           throw new Error('No active session token is available for leaderboard sync.');
@@ -203,6 +199,12 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
         if (!response.ok) {
           const errorText = await response.text().catch(() => "");
+          if (response.status === 401 || response.status === 403) {
+            await recoverFromSupabaseSessionError({
+              status: response.status,
+              message: errorText || response.statusText,
+            });
+          }
           throw new Error(`HTTP ${response.status}: ${errorText}`);
         }
 
@@ -228,7 +230,18 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         await new Promise((resolve) => setTimeout(resolve, 1000));
       }
 
-      const { data } = await getUserProfile(userId);
+      const { data, error } = await getUserProfile(userId);
+
+      if (error) {
+        if (await recoverFromSupabaseSessionError(error)) {
+          applySignedOutState();
+          return;
+        }
+
+        console.error("Error fetching profile:", error);
+        setLoading(false);
+        return;
+      }
 
       if (!data) {
         authLog("No profile data returned, creating new profile...");
@@ -278,7 +291,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       if (userError) {
         console.error("Error getting current user:", userError);
 
-        if (userError.message?.includes("User from sub claim in JWT does not exist")) {
+        if (await recoverFromSupabaseSessionError(userError)) {
           authLog("ðŸš¨ Detected corrupted JWT, clearing session...");
           await clearCorruptedSession();
           return;
@@ -388,27 +401,42 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   }, [user?.id, profile?.name]);
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      authLog("ðŸ”„ AuthContext: Initial session:", !!session);
-      setSession(session);
-      setUser(session?.user ?? null);
+    let isActive = true;
 
+    void (async () => {
+      const { session, error } = await getValidatedSession();
+      if (!isActive) return;
+      authLog("ðŸ”„ AuthContext: Initial session:", !!session);
       if (session?.user) {
+        setSession(session);
+        setUser(session.user);
+
         authLog(
           "ðŸ”„ AuthContext: Initial session found, fetching profile for user:",
           session.user.id
         );
         fetchProfile(session.user.id);
-      } else {
-        authLog("ðŸ”„ AuthContext: No initial session found");
-        setLoading(false);
+        return;
       }
-    });
+      if (error && isSupabaseAuthSessionError(error)) {
+        authLog("Expired local session cleared during bootstrap.");
+      } else {
+        authLog("Γ°ΕΈβ€β€ AuthContext: No initial session found");
+      }
+
+      applySignedOutState();
+    })();
 
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange(async (event, session) => {
       authLog("ðŸ”„ AuthContext: Auth state change:", event, session?.user?.id);
+      if (session && isSupabaseSessionExpired(session)) {
+        authLog("Expired auth session received from Supabase event.");
+        await clearCorruptedSession();
+        return;
+      }
+
       setSession(session);
       setUser(session?.user ?? null);
 
@@ -421,19 +449,18 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         }, 1000);
       } else if (event === "SIGNED_OUT") {
         authLog("ðŸ”„ AuthContext: User signed out, clearing profile");
-        setProfile(null);
-        lastSyncDataRef.current = "";
-        setLoading(false);
+        applySignedOutState();
       }
     });
 
     return () => {
+      isActive = false;
       subscription.unsubscribe();
       if (leaderboardSyncTimeoutRef.current) {
         clearTimeout(leaderboardSyncTimeoutRef.current);
       }
     };
-  }, []);
+  }, [applySignedOutState]);
 
   useEffect(() => {
     if (user?.id && profile) {
@@ -535,7 +562,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   const signOut = async () => {
     authLog("Signing out...");
-    clearAuthStorage();
+    clearPersistedSupabaseAuth();
     await supabaseSignOut();
   };
 

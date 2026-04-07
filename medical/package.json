@@ -4,7 +4,7 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "start:server": "node server.js",
+    "start:server": "nodemon server.js",
     "start:duel-server": "node duel-server.js",
     "start:frontend": "vite",
     "start:stripe": "node stripe-server.js",
@@ -24,8 +24,12 @@
     "test:store": "node scripts/test-store.js",
     "test:legal": "node scripts/test-legal.js",
     "test:teams-grade-and-coach": "node scripts/test-teams-grade-and-coach-smoke.mjs",
+    "test:teams-assignments": "node --test scripts/test-teams-assignments-domain.mjs",
+    "test:teams-assignments:smoke": "node scripts/test-teams-assignments-smoke.mjs",
     "test:duel-anticheat": "node scripts/test-duel-anticheat.js",
-    "test:benchmark-bank": "node scripts/audit-benchmark-bank.mjs"
+    "test:benchmark-bank": "node scripts/audit-benchmark-bank.mjs",
+    "test:lesson-practice": "node scripts/audit-lesson-practice-bank.mjs",
+    "backfill:teams-assignments": "node scripts/backfill-team-assignment-snapshots.mjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.1",

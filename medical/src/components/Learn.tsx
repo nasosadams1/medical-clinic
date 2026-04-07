@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowRight,
   BookOpen,
+  Braces,
   CheckCircle2,
   Code,
   Database,
@@ -27,6 +28,11 @@ import {
 } from '../data/lessonCatalog';
 import { loadLessonsModule } from '../data/lessonsLoader';
 import { STARTER_PATH_LANGUAGE, STARTER_PATH_LESSON_LIMIT } from '../lib/planAccess';
+import {
+  clearPracticeLaunchPreset,
+  readPracticeLaunchPreset,
+  type PracticeLaunchPreset,
+} from '../lib/practiceLaunch';
 import { forceUnlockAllLessons } from '../lib/lessonAccess';
 
 type Language = LessonLanguage;
@@ -77,21 +83,21 @@ const languageCatalog = [
     id: 'javascript' as Language,
     name: 'JavaScript',
     icon: Database,
-    gradient: 'from-accent to-primary',
+    gradient: 'from-amber-400 to-yellow-300',
     description: 'Interview-style practice for frontend logic, arrays, and functions.',
   },
   {
     id: 'cpp' as Language,
     name: 'C++',
-    icon: Globe,
-    gradient: 'from-destructive to-orange-500',
+    icon: Braces,
+    gradient: 'from-sky-500 to-blue-500',
     description: 'Structured logic and timed challenge fluency for competitive problem solving.',
   },
   {
     id: 'java' as Language,
     name: 'Java',
     icon: Globe,
-    gradient: 'from-coins to-orange-500',
+    gradient: 'from-rose-500 to-red-500',
     description: 'Class-ready OOP practice and junior developer backend preparation.',
   },
 ];
@@ -161,6 +167,7 @@ const Learn: React.FC<LearnProps> = ({ setCurrentSection, openAuthModal, isAuthe
   const [isLessonsLoading, setIsLessonsLoading] = useState(true);
   const [lessonsError, setLessonsError] = useState<string | null>(null);
   const [lessonsReloadKey, setLessonsReloadKey] = useState(0);
+  const [pendingPracticeLaunchPreset, setPendingPracticeLaunchPreset] = useState<PracticeLaunchPreset | null>(null);
 
   useEffect(() => {
     let isActive = true;
@@ -184,6 +191,10 @@ const Learn: React.FC<LearnProps> = ({ setCurrentSection, openAuthModal, isAuthe
       isActive = false;
     };
   }, [lessonsReloadKey]);
+
+  useEffect(() => {
+    setPendingPracticeLaunchPreset(readPracticeLaunchPreset());
+  }, []);
 
   const currentLessons = useMemo<VisibleLesson[]>(() => {
     if (!lessonsModule) return [];
@@ -224,6 +235,80 @@ const Learn: React.FC<LearnProps> = ({ setCurrentSection, openAuthModal, isAuthe
       },
     };
   }, [currentLessons, user.completedLessons]);
+
+  useEffect(() => {
+    if (!pendingPracticeLaunchPreset) return;
+
+    if (!forceUnlockAllLessons && !canAccessPracticeLanguage(pendingPracticeLaunchPreset.language)) {
+      clearPracticeLaunchPreset();
+      setPendingPracticeLaunchPreset(null);
+      toast.error('Unlock Pro or Interview Sprint to open this corrective plan.');
+      return;
+    }
+
+    if (selectedLanguage !== pendingPracticeLaunchPreset.language) {
+      setSelectedLanguage(pendingPracticeLaunchPreset.language);
+      return;
+    }
+
+    if (!lessonsModule) return;
+
+    const canLaunchLesson = (lesson: VisibleLesson | null | undefined) => {
+      if (!lesson || lesson.isLocked) return false;
+      if (!forceUnlockAllLessons && !canAccessPracticeLesson(lesson.language, lesson.languageIndex)) return false;
+      if (!forceUnlockAllLessons && !difficultyUnlocks[lesson.tier]) return false;
+      return true;
+    };
+
+    const preferredLesson =
+      pendingPracticeLaunchPreset.lessonIds
+        .map((lessonId) => currentLessons.find((lesson) => lesson.id === lessonId) || null)
+        .find((lesson): lesson is VisibleLesson => Boolean(lesson)) || null;
+    const launchableLesson =
+      pendingPracticeLaunchPreset.lessonIds
+        .map((lessonId) => currentLessons.find((lesson) => lesson.id === lessonId) || null)
+        .find((lesson): lesson is VisibleLesson => canLaunchLesson(lesson)) || null;
+
+    clearPracticeLaunchPreset();
+    setPendingPracticeLaunchPreset(null);
+    setFilter('All Paths');
+
+    if (!preferredLesson) {
+      toast.error('The corrective plan could not find its lesson. Practice is open so you can continue manually.');
+      lessonsSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      return;
+    }
+
+    if (!isAuthenticated) {
+      lessonsSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      return;
+    }
+
+    if (!isUnlimitedHeartsActive() && user.hearts <= 0) {
+      toast.error(`Corrective plan ready. Start with ${getVisibleLessonTitle(preferredLesson)} after hearts refill.`);
+      lessonsSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      return;
+    }
+
+    if (launchableLesson) {
+      setSelectedLesson({ ...launchableLesson, title: getVisibleLessonTitle(launchableLesson) });
+      return;
+    }
+
+    toast.error(`Corrective plan ready. Start with ${getVisibleLessonTitle(preferredLesson)} once it unlocks.`);
+    lessonsSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, [
+    canAccessPracticeLanguage,
+    canAccessPracticeLesson,
+    currentLessons,
+    difficultyUnlocks,
+    isAuthenticated,
+    isUnlimitedHeartsActive,
+    lessonsModule,
+    pendingPracticeLaunchPreset,
+    selectedLanguage,
+    user.hearts,
+  ]);
 
   const selectedLanguageCompletedCount = useMemo(
     () => countCompletedLessonsByLanguage(selectedLanguage, user.completedLessons),

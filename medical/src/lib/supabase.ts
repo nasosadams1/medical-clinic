@@ -1,5 +1,5 @@
 // supabase.ts (frontend client configuration)
-import { createClient } from '@supabase/supabase-js'
+import { createClient, type Session } from '@supabase/supabase-js'
 
 // Environment variables for the frontend
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string
@@ -8,6 +8,7 @@ const appUrl = (import.meta.env.VITE_APP_URL as string | undefined)?.trim()
 const normalizedAppUrl = appUrl?.replace(/\/+$/, '') || ''
 const authStorageKey = 'codhak-auth'
 const isSupabaseDebugEnabled = import.meta.env.DEV && import.meta.env.VITE_DEBUG_SUPABASE === '1'
+const AUTH_SESSION_EXPIRY_BUFFER_SECONDS = 30
 
 const supabaseDebugError = (...args: any[]) => {
   if (isSupabaseDebugEnabled) {
@@ -16,6 +17,42 @@ const supabaseDebugError = (...args: any[]) => {
 }
 
 const isLocalhostUrl = (value: string) => /^https?:\/\/(?:localhost|127\.0\.0\.1|0\.0\.0\.0)(?::\d+)?$/i.test(value)
+
+const decodeJwtPayload = (token: string) => {
+  try {
+    const payload = token.split('.')[1]
+    if (!payload) return null
+
+    const normalized = payload.replace(/-/g, '+').replace(/_/g, '/')
+    const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, '=')
+
+    if (typeof globalThis.atob !== 'function') {
+      return null
+    }
+
+    return JSON.parse(globalThis.atob(padded)) as Record<string, unknown>
+  } catch {
+    return null
+  }
+}
+
+const getSessionExpiryEpochSeconds = (
+  session: Pick<Session, 'expires_at' | 'access_token'> | null | undefined
+) => {
+  if (typeof session?.expires_at === 'number' && Number.isFinite(session.expires_at)) {
+    return session.expires_at
+  }
+
+  if (typeof session?.access_token === 'string' && session.access_token.length > 0) {
+    const payload = decodeJwtPayload(session.access_token)
+    const exp = Number(payload?.exp)
+    if (Number.isFinite(exp)) {
+      return exp
+    }
+  }
+
+  return null
+}
 
 const getBaseUrl = () => {
   const browserOrigin =
@@ -77,6 +114,99 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   }
 })
 
+export const clearPersistedSupabaseAuth = () => {
+  if (typeof window === 'undefined') return
+
+  const shouldRemove = (key: string) =>
+    key === authStorageKey || key.startsWith('sb-') || key.toLowerCase().includes('supabase')
+
+  for (const storage of [window.localStorage, window.sessionStorage]) {
+    try {
+      const keysToRemove: string[] = []
+      for (let index = 0; index < storage.length; index += 1) {
+        const key = storage.key(index)
+        if (key && shouldRemove(key)) {
+          keysToRemove.push(key)
+        }
+      }
+
+      keysToRemove.forEach((key) => storage.removeItem(key))
+    } catch (error) {
+      supabaseDebugError('Unable to clear persisted auth storage:', error)
+    }
+  }
+}
+
+export const isSupabaseSessionExpired = (
+  session: Pick<Session, 'expires_at' | 'access_token'> | null | undefined,
+  bufferSeconds = AUTH_SESSION_EXPIRY_BUFFER_SECONDS
+) => {
+  const expiryEpochSeconds = getSessionExpiryEpochSeconds(session)
+  if (!expiryEpochSeconds) return false
+
+  return expiryEpochSeconds <= Math.floor(Date.now() / 1000) + bufferSeconds
+}
+
+export const isSupabaseAuthSessionError = (error: unknown) => {
+  if (!error) return false
+
+  const candidate = error as { status?: number; code?: string; message?: string }
+  const message = String(candidate?.message || error).toLowerCase()
+
+  return (
+    candidate?.status === 401 ||
+    candidate?.status === 403 ||
+    candidate?.code === 'PGRST301' ||
+    /invalid jwt|jwt.*expired|token is expired|invalid or expired session token|refresh token|session token|unauthorized|forbidden|user from sub claim in jwt does not exist/.test(
+      message
+    )
+  )
+}
+
+export const clearInvalidSupabaseSession = async () => {
+  clearPersistedSupabaseAuth()
+
+  try {
+    await supabase.auth.signOut({ scope: 'local' })
+  } catch (error) {
+    supabaseDebugError('Error clearing invalid local Supabase session:', error)
+  }
+}
+
+export const recoverFromSupabaseSessionError = async (error: unknown) => {
+  if (!isSupabaseAuthSessionError(error)) {
+    return false
+  }
+
+  await clearInvalidSupabaseSession()
+  return true
+}
+
+export const getValidatedSession = async () => {
+  const { data, error } = await supabase.auth.getSession()
+
+  if (error) {
+    await recoverFromSupabaseSessionError(error)
+    return { session: null, error }
+  }
+
+  if (!data.session) {
+    return { session: null, error: null }
+  }
+
+  if (isSupabaseSessionExpired(data.session)) {
+    await clearInvalidSupabaseSession()
+    return { session: null, error: new Error('Stored session token has expired.') }
+  }
+
+  return { session: data.session, error: null }
+}
+
+export const getValidAccessToken = async () => {
+  const { session } = await getValidatedSession()
+  return session?.access_token || null
+}
+
 // UserProfile interface for consistent type definitions
 export interface UserProfile {
   id: string
@@ -126,6 +256,9 @@ export const getDisplayName = async (userId: string) => {
     const { data: { user }, error } = await supabase.auth.getUser()
     
     if (error || !user || user.id !== userId) {
+      if (error) {
+        await recoverFromSupabaseSessionError(error)
+      }
       console.error('Error fetching auth user or user mismatch:', error)
       return null
     }
@@ -357,6 +490,7 @@ export const getUserProfile = async (userId: string) => {
 
     // Handle specific error cases, excluding PGRST116 as it's now handled by maybeSingle
     if (error && error.code !== 'PGRST116') {
+      await recoverFromSupabaseSessionError(error)
       console.error('Database error getting profile:', error)
       return { data: null, error }
     }
@@ -727,7 +861,8 @@ export const signInWithGoogle = async () => {
 
 // Sign out the current user
 export const signOut = async () => {
-  const { error } = await supabase.auth.signOut()
+  clearPersistedSupabaseAuth()
+  const { error } = await supabase.auth.signOut({ scope: 'local' })
   return { error }
 }
 
@@ -762,13 +897,21 @@ export const updateEmail = async (email: string) => {
 
 // Get the current authenticated user
 export const getCurrentUser = async () => {
+  const { session, error: sessionError } = await getValidatedSession()
+  if (!session) {
+    return { user: null, error: sessionError }
+  }
+
   const { data: { user }, error } = await supabase.auth.getUser()
+  if (error) {
+    await recoverFromSupabaseSessionError(error)
+  }
   return { user, error }
 }
 
 // Get the current active session
 export const getCurrentSession = async () => {
-  const { data: { session }, error } = await supabase.auth.getSession()
+  const { session, error } = await getValidatedSession()
   return { session, error }
 }
 

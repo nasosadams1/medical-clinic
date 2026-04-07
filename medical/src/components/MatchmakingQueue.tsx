@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { ArrowRight, Loader2, LockKeyhole, Swords, Trophy, Users } from 'lucide-react';
+import { ArrowRight, Loader2, LockKeyhole, Swords, Trophy } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { Link } from 'react-router-dom';
 import MascotIcon from './branding/MascotIcon';
@@ -66,7 +66,6 @@ export default function MatchmakingQueue({
   const [activeMatchType, setActiveMatchType] = useState<MatchType>(initialMatchType);
   const [inQueue, setInQueue] = useState(false);
   const [isMatchStarting, setIsMatchStarting] = useState(false);
-  const [playersOnline, setPlayersOnline] = useState(0);
   const [queueWaitTime, setQueueWaitTime] = useState(0);
   const [isJoining, setIsJoining] = useState(false);
 
@@ -108,7 +107,6 @@ export default function MatchmakingQueue({
 
     const onQueueUpdate = (data: any) => {
       setActiveMatchType(normalizeMatchType(data?.matchType));
-      setPlayersOnline(data.onlinePlayers ?? data.queueSize ?? 0);
       setQueueWaitTime(data.waitTime ?? 0);
     };
 
@@ -327,7 +325,7 @@ export default function MatchmakingQueue({
             })}
           </div>
 
-          <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="mt-8 grid gap-4 sm:grid-cols-2">
             <div className="rounded-[1.35rem] border border-border bg-background px-5 py-5">
               <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10 text-primary">
                 {isRankedMode ? <Trophy className="h-5 w-5" /> : <Swords className="h-5 w-5" />}
@@ -341,14 +339,6 @@ export default function MatchmakingQueue({
             </div>
 
             <div className="rounded-[1.35rem] border border-border bg-background px-5 py-5">
-              <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-xl bg-xp/10 text-xp">
-                <Users className="h-5 w-5" />
-              </div>
-              <div className="type-stat mt-3 text-foreground">{playersOnline}</div>
-              <div className="type-body-sm mt-1 text-muted-foreground">Players online</div>
-            </div>
-
-            <div className="rounded-[1.35rem] border border-border bg-background px-5 py-5 sm:col-span-2 lg:col-span-1">
               <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-xl bg-coins/10 text-coins">
                 <ArrowRight className="h-5 w-5" />
               </div>

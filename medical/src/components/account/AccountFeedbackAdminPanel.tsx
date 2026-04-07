@@ -73,7 +73,7 @@ const AccountFeedbackAdminPanel: React.FC = () => {
     }
 
     try {
-      const capability = await fetchFeedbackAdminCapabilities(session.access_token);
+      const capability = await fetchFeedbackAdminCapabilities(session.access_token, { force: refresh });
       setCanReview(capability.canReview);
 
       if (!capability.canReview) {
@@ -95,7 +95,7 @@ const AccountFeedbackAdminPanel: React.FC = () => {
         status: statusFilter,
         type: typeFilter,
         limit: 50,
-      });
+      }, { force: refresh });
       setEntries(nextEntries);
     } catch (nextError: any) {
       setError(nextError?.message || 'Could not load the feedback review queue.');

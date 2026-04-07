@@ -20,6 +20,7 @@ import {
 import { useAuth } from '../context/AuthContext';
 import { useUser } from '../context/UserContext';
 import { avatars } from '../data/avatars';
+import { getLevelProgress } from '../hooks/levelSystem';
 import mascot from '../assets/design/mascot.png';
 
 interface SidebarProps {
@@ -85,6 +86,9 @@ export default function Sidebar({
   const activeBoosts = authUser && user ? getActiveBoosts() : {};
   const xpBoostExpiresAt = activeBoosts.xpBoost?.expiresAt ?? null;
   const unlimitedHeartsExpiresAt = activeBoosts.unlimitedHearts?.expiresAt ?? null;
+  const levelProgress = useMemo(() => getLevelProgress(user.xp), [user.xp]);
+  const xpNeededForNextLevel = Math.max(0, levelProgress.nextLevelXP - user.xp);
+  const xpSpanForLevel = Math.max(0, levelProgress.nextLevelXP - levelProgress.currentLevelXP);
 
   useEffect(() => {
     if (!xpBoostExpiresAt && !unlimitedHeartsExpiresAt) return;
@@ -183,7 +187,7 @@ export default function Sidebar({
                 </div>
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-semibold text-sidebar-accent-foreground">{user.name}</p>
-                  <p className="text-xs text-sidebar-foreground">Level {user.level}</p>
+                  <p className="text-xs text-sidebar-foreground">Level {levelProgress.currentLevel}</p>
                 </div>
               </div>
 
@@ -197,11 +201,18 @@ export default function Sidebar({
               </div>
 
               <div className="mt-2">
-                <div className="h-1.5 w-full overflow-hidden rounded-full bg-secondary">
-                  <div className="h-full rounded-full bg-xp" style={{ width: `${Math.min(100, ((user.xp % 1000) / 1000) * 100 || 65)}%` }} />
+                <div
+                  className="h-1.5 w-full overflow-hidden rounded-full bg-secondary"
+                  role="progressbar"
+                  aria-label={`Level ${levelProgress.currentLevel} progress`}
+                  aria-valuemin={0}
+                  aria-valuemax={xpSpanForLevel || 1}
+                  aria-valuenow={Math.min(xpSpanForLevel || 1, levelProgress.progressToNext)}
+                >
+                  <div className="h-full rounded-full bg-xp transition-[width] duration-300 ease-out" style={{ width: `${levelProgress.progressPercentage}%` }} />
                 </div>
                 <p className="mt-1 text-[10px] text-sidebar-foreground">
-                  {user.xp} XP in your skill workspace
+                  {xpNeededForNextLevel.toLocaleString()} XP to Level {(levelProgress.currentLevel + 1).toLocaleString()}
                 </p>
               </div>
 

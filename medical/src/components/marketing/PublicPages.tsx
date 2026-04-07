@@ -1252,7 +1252,7 @@ export function TeamsPage({ openAuthModal }: PublicPageProps) {
               {[
                 ['Bootcamps', 'Track readiness, assign follow-up work, and review submissions fast.', GraduationCap],
                 ['Universities', 'Assign practice by class and keep coaching visible.', Building2],
-                ['Coding clubs', 'Run competitions, challenge packs, and follow-up reviews.', Users],
+                ['Coding clubs', 'Run competitions, duel activity goals, and follow-up reviews.', Users],
                 ['Upskilling teams', 'Benchmark juniors and coach measurable progress.', Briefcase],
               ].map(([title, description, IconComponent]) => {
                 const Icon = IconComponent as typeof Users;

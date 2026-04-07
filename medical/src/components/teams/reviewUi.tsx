@@ -70,6 +70,7 @@ function DialogFrame({
   title,
   description,
   onClose,
+  headerActions,
   children,
   maxWidthClassName,
   bodyClassName,
@@ -77,10 +78,12 @@ function DialogFrame({
   showCloseButton = true,
   dialogRole = 'dialog',
   disableClose = false,
+  titlePresentation = 'eyebrow',
 }: {
   title: string;
   description?: string;
   onClose?: () => void;
+  headerActions?: React.ReactNode;
   children: React.ReactNode;
   maxWidthClassName: string;
   bodyClassName: string;
@@ -88,6 +91,7 @@ function DialogFrame({
   showCloseButton?: boolean;
   dialogRole?: 'dialog' | 'alertdialog';
   disableClose?: boolean;
+  titlePresentation?: 'eyebrow' | 'headline';
 }) {
   const titleId = useId();
   const descriptionId = useId();
@@ -161,29 +165,42 @@ function DialogFrame({
         onKeyDown={handleDialogKeyDown}
         className={`relative z-10 flex max-h-[calc(100dvh-2rem)] w-full flex-col overflow-hidden rounded-[1.5rem] border border-border bg-card shadow-elevated ${maxWidthClassName}`}
       >
-        <div className="flex items-start justify-between gap-4 border-b border-border px-5 py-4 sm:px-6">
-          <div>
-            <div id={titleId} className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">
+        <div className="flex items-start justify-between gap-4 border-b border-border px-5 py-3.5 sm:px-6">
+          <div className="min-w-0 flex-1">
+            <div
+              id={titleId}
+              className={
+                titlePresentation === 'headline'
+                  ? 'text-lg font-semibold text-foreground'
+                  : 'text-xs font-semibold uppercase tracking-[0.18em] text-primary'
+              }
+            >
               {title}
             </div>
             {description ? (
-              <div id={descriptionId} className="mt-2 text-sm text-muted-foreground">
+              <div
+                id={descriptionId}
+                className={titlePresentation === 'headline' ? 'mt-1.5 text-sm text-muted-foreground' : 'mt-2 text-sm text-muted-foreground'}
+              >
                 {description}
               </div>
             ) : null}
           </div>
-          {showCloseButton && onClose ? (
-            <button
-              ref={closeButtonRef}
-              type="button"
-              onClick={onClose}
-              disabled={disableClose}
-              aria-label={closeLabel}
-              className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-border bg-background text-muted-foreground transition hover:text-foreground disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              <X className="h-4 w-4" />
-            </button>
-          ) : null}
+          <div className="flex shrink-0 items-center gap-2">
+            {headerActions}
+            {showCloseButton && onClose ? (
+              <button
+                ref={closeButtonRef}
+                type="button"
+                onClick={onClose}
+                disabled={disableClose}
+                aria-label={closeLabel}
+                className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-border/70 bg-card text-muted-foreground transition hover:border-primary/20 hover:bg-background hover:text-foreground disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            ) : null}
+          </div>
         </div>
         <div className={bodyClassName}>{children}</div>
       </div>
@@ -195,23 +212,29 @@ export function ModalShell({
   title,
   subtitle,
   onClose,
+  headerActions,
   children,
   closeLabel,
+  titlePresentation = 'eyebrow',
 }: {
   title: string;
   subtitle?: string;
   onClose: () => void;
+  headerActions?: React.ReactNode;
   children: React.ReactNode;
   closeLabel?: string;
+  titlePresentation?: 'eyebrow' | 'headline';
 }) {
   return (
     <DialogFrame
       title={title}
       description={subtitle}
       onClose={onClose}
+      headerActions={headerActions}
       closeLabel={closeLabel || `Close ${title}`}
+      titlePresentation={titlePresentation}
       maxWidthClassName="max-w-[min(98vw,1680px)]"
-      bodyClassName="min-h-0 flex-1 overflow-y-auto px-5 py-5 sm:px-6"
+      bodyClassName="min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-5"
     >
       {children}
     </DialogFrame>
@@ -419,74 +442,51 @@ export function RubricScoreControl({
 }) {
   const numericValue = value === '' ? null : Number(value);
   const safeNumericValue = Number.isFinite(numericValue) ? Math.max(0, Math.min(10, numericValue as number)) : null;
-
-  const updateValue = (nextValue: number | null) => {
-    if (nextValue === null) {
-      onChange('');
-      return;
-    }
-
-    onChange(String(Math.max(0, Math.min(10, nextValue))));
-  };
+  const scoreOptions = Array.from({ length: 11 }, (_, index) => index);
 
   return (
-    <div className="rounded-2xl border border-border/60 bg-background/70 px-4 py-4">
-      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_320px] lg:items-center">
+    <div className="rounded-[1rem] border border-border/60 bg-background/60 px-3 py-2.5">
+      <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="min-w-0">
           <div className="text-sm font-semibold text-foreground">{label}</div>
-          <div className="mt-1 text-sm leading-6 text-muted-foreground">{helper}</div>
+          <div className="mt-1 text-xs leading-5 text-muted-foreground">{helper}</div>
         </div>
-        <div className="space-y-2">
-          <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2">
+          <div className="inline-flex h-7 min-w-[84px] items-center justify-center rounded-lg border border-border bg-card px-3 text-xs font-semibold text-foreground">
+            {safeNumericValue !== null ? `${safeNumericValue}/10` : 'Not scored'}
+          </div>
+          {safeNumericValue !== null ? (
             <button
               type="button"
-              onClick={() => updateValue(null)}
-              className="inline-flex h-9 shrink-0 items-center justify-center rounded-xl border border-border bg-card px-3 text-xs font-semibold text-muted-foreground transition hover:bg-secondary hover:text-foreground"
+              onClick={() => onChange('')}
+              className="inline-flex h-7 items-center justify-center rounded-lg border border-border bg-card px-3 text-[11px] font-semibold text-muted-foreground transition hover:bg-secondary hover:text-foreground"
             >
               Clear
             </button>
-            <input
-              type="range"
-              min={0}
-              max={10}
-              step={1}
-              value={safeNumericValue ?? 0}
-              aria-label={`${label} score`}
-              aria-valuetext={safeNumericValue === null ? 'Not scored' : `${safeNumericValue} out of 10`}
-              onChange={(event) => updateValue(Number(event.target.value))}
-              className="h-2 w-full cursor-pointer appearance-none rounded-full bg-card accent-primary"
-            />
-            <div className="inline-flex h-10 min-w-[64px] items-center justify-center rounded-xl border border-border bg-card px-3 text-sm font-semibold text-foreground">
-              {safeNumericValue !== null ? `${safeNumericValue}/10` : '--'}
-            </div>
-          </div>
-          <div className="flex items-center justify-between px-1 text-[11px] font-medium text-muted-foreground">
-            <span>0</span>
-            <span>5</span>
-            <span>10</span>
-          </div>
-          <div className="flex justify-end">
-            <div className="inline-flex items-center gap-1 rounded-full bg-card px-2 py-1 text-[11px] text-muted-foreground">
-              <button
-                type="button"
-                onClick={() => updateValue(Math.max(0, (safeNumericValue ?? 0) - 1))}
-                className="inline-flex h-6 w-6 items-center justify-center rounded-full text-sm transition hover:bg-secondary hover:text-foreground"
-                aria-label={`Decrease ${label} score`}
-              >
-                -
-              </button>
-              <span className="px-1">adjust</span>
-              <button
-                type="button"
-                onClick={() => updateValue(Math.min(10, (safeNumericValue ?? 0) + 1))}
-                className="inline-flex h-6 w-6 items-center justify-center rounded-full text-sm transition hover:bg-secondary hover:text-foreground"
-                aria-label={`Increase ${label} score`}
-              >
-                +
-              </button>
-            </div>
-          </div>
+          ) : null}
         </div>
+      </div>
+
+      <div className="mt-3 grid grid-cols-[repeat(6,minmax(0,1fr))] gap-1.5 sm:grid-cols-[repeat(11,minmax(0,1fr))]">
+        {scoreOptions.map((option) => {
+          const isActive = safeNumericValue === option;
+          return (
+            <button
+              key={option}
+              type="button"
+              onClick={() => onChange(String(option))}
+              aria-label={`${label} score ${option} out of 10`}
+              aria-pressed={isActive}
+              className={`inline-flex h-8 min-w-0 items-center justify-center rounded-lg border text-sm font-semibold transition ${
+                isActive
+                  ? 'border-primary/30 bg-primary text-primary-foreground shadow-[0_0_0_1px_rgba(59,130,246,0.12)]'
+                  : 'border-border bg-card text-muted-foreground hover:bg-secondary hover:text-foreground'
+              }`}
+            >
+              {option}
+            </button>
+          );
+        })}
       </div>
     </div>
   );

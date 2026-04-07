@@ -29,6 +29,7 @@ import {
   resolveAllowedOrigins,
 } from './services/allowed-origins.js';
 
+dotenv.config({ path: '.env.local', override: true });
 dotenv.config();
 
 const NODE_ENV = (process.env.NODE_ENV || 'development').toLowerCase();

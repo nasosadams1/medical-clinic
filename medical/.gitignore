@@ -1,53 +1,24 @@
-<<<<<<< HEAD
-=======
-<<<<<<< HEAD
 node_modules/
-=======
->>>>>>> 84ea45fef51cd088885f09ebdcaef30b242f2e46
-# Logs
-logs
-*.log
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-pnpm-debug.log*
-lerna-debug.log*
-
-<<<<<<< HEAD
-# Dependencies
-node_modules/
-
-# Builds
 dist/
 dist-ssr/
 *.local
 
 # Env
 .env
+.env.*
+!.env.example
+
+# Local tooling
+supabase/.temp/
+.tmp_smoke/
 
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
 .idea/
-=======
-node_modules
-dist
-dist-ssr
-*.local
-
-# Editor directories and files
-.vscode/*
-!.vscode/extensions.json
-.idea
->>>>>>> 84ea45fef51cd088885f09ebdcaef30b242f2e46
 .DS_Store
 *.suo
 *.ntvs*
 *.njsproj
 *.sln
 *.sw?
-<<<<<<< HEAD
-=======
->>>>>>> 1b76139cdb73458c617188951955724288a9b00b
-.env
->>>>>>> 84ea45fef51cd088885f09ebdcaef30b242f2e46

@@ -1,5 +1,5 @@
 import React from 'react';
-import { ArrowRight, Check, Loader2, Pencil, Plus, Trash2 } from 'lucide-react';
+import { ArrowRight, Check, Loader2, Pencil, Trash2 } from 'lucide-react';
 import type { TeamAssignment, TeamFeedback, TeamFeedbackStatus, TeamMember } from '../../lib/teams';
 import {
   COACHING_STARTERS,
@@ -48,6 +48,12 @@ type RubricField = {
   helper: string;
 };
 
+type QueueSnapshot = {
+  needsReview: number;
+  drafted: number;
+  resolved: number;
+};
+
 interface GradeAndCoachReviewSidebarProps {
   feedbackComposerOpen: boolean;
   activeReviewState: FeedbackStateMeta | null;
@@ -81,7 +87,9 @@ interface GradeAndCoachReviewSidebarProps {
   feedbackRubricDraft: FeedbackRubricDraftValue;
   setFeedbackRubricDraft: React.Dispatch<React.SetStateAction<FeedbackRubricDraftValue>>;
   coachingStarters?: CoachingStarter[];
+  activeFeedbackStarterId: string | null;
   onApplyFeedbackSnippet: (snippetId: string) => void;
+  onUpdateFeedbackNoteField: (field: 'summary' | 'strengths' | 'focusAreas', value: string) => void;
   workflowOptions: WorkflowOption[];
   onSetFeedbackWorkflowState: (value: WorkflowOption['value']) => void;
   onSaveFeedback: () => void;
@@ -96,8 +104,8 @@ interface GradeAndCoachReviewSidebarProps {
   onRequestDeleteFeedback: (entry: TeamFeedback) => void;
   hasSelectedReviewItem: boolean;
   onStartReviewForSelectedItem: () => void;
-  onOpenManualFeedbackComposer: () => void;
   composerContextPanel?: React.ReactNode;
+  queueSnapshot: QueueSnapshot;
 }
 
 export function GradeAndCoachReviewSidebar({
@@ -133,7 +141,9 @@ export function GradeAndCoachReviewSidebar({
   feedbackRubricDraft,
   setFeedbackRubricDraft,
   coachingStarters = COACHING_STARTERS,
+  activeFeedbackStarterId,
   onApplyFeedbackSnippet,
+  onUpdateFeedbackNoteField,
   workflowOptions,
   onSetFeedbackWorkflowState,
   onSaveFeedback,
@@ -148,8 +158,8 @@ export function GradeAndCoachReviewSidebar({
   onRequestDeleteFeedback,
   hasSelectedReviewItem,
   onStartReviewForSelectedItem,
-  onOpenManualFeedbackComposer,
   composerContextPanel,
+  queueSnapshot,
 }: GradeAndCoachReviewSidebarProps) {
   const saveBusy = submittingKey === 'save-feedback';
   const deleteBusy = selectedReviewFeedback ? submittingKey === `delete-feedback-${selectedReviewFeedback.id}` : false;
@@ -159,71 +169,83 @@ export function GradeAndCoachReviewSidebar({
       : feedbackDraft.sharedWithMember
       ? 'Share to learner'
       : 'Save draft';
-  const primarySaveLabel =
+  const queueNextAction =
+    queueSnapshot.needsReview > 0
+      ? 'Open the next waiting learner from the queue on the left.'
+      : queueSnapshot.drafted > 0
+      ? 'Reopen a draft and either share it or resolve it.'
+      : 'Use New review only when you are coaching outside the submission queue.';
+  const primarySaveLabel = currentOutcomeLabel;
+  const showEvidenceDetails = Boolean(composerContextPanel);
+  const outcomeSummary =
     feedbackDraft.status === 'resolved'
-      ? 'Resolve review'
+      ? 'The learner sees the note after save, and this coaching pass closes.'
       : feedbackDraft.sharedWithMember
-      ? 'Share to learner'
-      : feedbackDraft.id
-      ? 'Save draft'
-      : 'Save review';
+      ? 'The learner sees the note after save. Coach-only notes still stay private.'
+      : 'The note stays private after save so you can tighten it before sharing.';
 
   return (
     <div className="2xl:sticky 2xl:top-0 self-start">
-      <div className="rounded-[1.75rem] border border-border/60 bg-background/70 p-5">
+      <div className="space-y-4">
         {feedbackComposerOpen ? (
           <div className="mx-auto max-w-[1120px] space-y-4">
-            <div className="rounded-[1.45rem] border border-border/70 bg-card/70 p-4">
-              <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-                <div className="min-w-0">
-                  <div className="flex flex-wrap items-center gap-2">
-                    {activeReviewState ? <ReviewStatePill label={activeReviewState.label} tone={activeReviewState.tone} /> : null}
-                    <ReviewStatePill label={reviewTypeLabel} tone={hasAnchoredEvidence ? 'success' : 'warn'} />
-                    <span className="inline-flex items-center rounded-full border border-border bg-background px-3 py-1 text-xs font-semibold text-muted-foreground">
-                      {evidenceStatusLabel}
-                    </span>
-                  </div>
-                  <div className="mt-3 text-2xl font-semibold text-foreground">{composerModeTitle}</div>
-                  <div className="mt-2 text-sm leading-6 text-muted-foreground">{composerModeHelper}</div>
-                  <div className="mt-3 flex flex-wrap gap-2 text-xs text-muted-foreground">
-                    <span className="rounded-full bg-background px-3 py-1">{activeReviewTitle}</span>
-                    <span className="rounded-full bg-background px-3 py-1">{composerQueueLabel}</span>
-                    {composerLastActiveLabel ? (
-                      <span className="rounded-full bg-background px-3 py-1">Last active {composerLastActiveLabel}</span>
-                    ) : null}
-                  </div>
+            <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-2">
+                  {activeReviewState ? <ReviewStatePill label={activeReviewState.label} tone={activeReviewState.tone} /> : null}
                 </div>
-                <div className="min-w-[170px] rounded-[1.1rem] border border-border bg-background px-4 py-3 text-right">
-                  <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-primary">Progress</div>
-                  <div className="mt-2 text-2xl font-semibold leading-none text-foreground">
-                    {composerRubricPercent !== null ? `${composerRubricPercent}%` : '--'}
-                  </div>
-                  <div className="mt-1 text-xs text-muted-foreground">
-                    {composerRubricPercent !== null ? `${composerRubricTotal}/40 rubric total` : 'Not scored yet'}
-                  </div>
+                <div className="mt-3 text-2xl font-semibold text-foreground">{composerModeTitle}</div>
+                <div className="mt-2 max-w-3xl text-sm leading-6 text-muted-foreground">{composerModeHelper}</div>
+                <div className="mt-3 flex flex-wrap gap-2 text-xs text-muted-foreground">
+                  <span>{activeReviewTitle}</span>
+                  <span>{reviewTypeLabel}</span>
+                  <span>{evidenceStatusLabel}</span>
+                  <span>{composerQueueLabel}</span>
+                  {composerLastActiveLabel ? (
+                    <span>Last active {composerLastActiveLabel}</span>
+                  ) : null}
                 </div>
               </div>
 
-              {manualReviewWarning ? (
-                <div className="mt-4 rounded-[1.1rem] border border-amber-400/20 bg-amber-400/10 px-4 py-3 text-sm leading-6 text-amber-100">
-                  {manualReviewWarning}
+              <div className="flex flex-wrap items-center gap-x-5 gap-y-2 rounded-[1rem] border border-border/60 bg-background/70 px-4 py-3 text-sm">
+                <div>
+                  <span className="text-muted-foreground">Rubric</span>{' '}
+                  <span className="font-semibold text-foreground">
+                    {composerRubricPercent !== null ? `${composerRubricTotal}/40` : 'Not scored'}
+                  </span>
                 </div>
-              ) : null}
+                <div>
+                  <span className="text-muted-foreground">Outcome</span>{' '}
+                  <span className="font-semibold text-foreground">{currentOutcomeLabel}</span>
+                </div>
+                <div className="text-muted-foreground">
+                  {feedbackDraft.sharedWithMember ? 'Learner-facing on save' : 'Private until shared'}
+                </div>
+              </div>
             </div>
 
-            <div className="rounded-[1.45rem] border border-border/70 bg-card/70 p-4">
-              <div className="flex flex-col gap-1">
-                <div className="text-sm font-semibold text-foreground">1. Scope and evidence</div>
-                <div className="text-sm text-muted-foreground">
-                  {isEditingFeedback
-                    ? 'Confirm the original learner and evidence, then tighten the note instead of repointing it.'
-                    : 'Pick the learner, keep the assignment optional, and decide whether this note needs real evidence attached.'}
-                </div>
+            {manualReviewWarning ? (
+              <div className="rounded-[1.05rem] border border-amber-400/20 bg-amber-400/10 px-4 py-2.5 text-sm leading-6 text-amber-100">
+                {manualReviewWarning}
               </div>
+            ) : null}
 
-              <div className={`mt-4 grid gap-4 ${composerContextPanel ? 'xl:grid-cols-[minmax(0,1fr)_340px]' : ''}`}>
-                <div className="space-y-4">
-                  <div className="grid gap-3 sm:grid-cols-2">
+            <div className="grid gap-4 xl:grid-cols-[minmax(320px,0.86fr)_minmax(0,1.14fr)]">
+              <div className="space-y-4">
+                <div className="rounded-[1.25rem] border border-border/60 bg-card/65 p-4">
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                    <div>
+                      <div className="text-sm font-semibold text-foreground">1. Scope</div>
+                      <div className="mt-1 text-sm text-muted-foreground">
+                        {hasAnchoredEvidence
+                          ? 'Keep the learner and evidence aligned.'
+                          : 'Pick the learner first. Attach evidence only if it changes the review.'}
+                      </div>
+                    </div>
+                    <div className="text-xs text-muted-foreground">{hasAnchoredEvidence ? 'Evidence attached' : 'Manual note'}</div>
+                  </div>
+
+                  <div className="mt-4 grid gap-3 sm:grid-cols-2">
                     <ReviewField label="Learner" helper={isEditingFeedback ? 'Locked while editing this review.' : undefined}>
                       <select
                         value={feedbackDraft.memberUserId}
@@ -257,15 +279,34 @@ export function GradeAndCoachReviewSidebar({
                     </ReviewField>
                   </div>
 
-                  {composerHistoryEntries.length > 0 ? (
-                    <details open={isEditingFeedback} className="rounded-[1.2rem] border border-border bg-background/80">
+                  {showEvidenceDetails ? (
+                    <details className="mt-4 rounded-[1rem] border border-border bg-background/80">
                       <summary className="cursor-pointer list-none px-4 py-3">
-                        <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+                        <div className="flex items-start justify-between gap-3">
                           <div>
-                            <div className="text-sm font-semibold text-foreground">Earlier coaching context</div>
-                            <div className="text-sm text-muted-foreground">
-                              Reuse the last coaching direction instead of repeating it.
+                            <div className="text-sm font-semibold text-foreground">
+                              {hasAnchoredEvidence ? 'Evidence source' : 'Attach evidence only if needed'}
                             </div>
+                            <div className="mt-1 text-sm text-muted-foreground">
+                              {hasAnchoredEvidence
+                                ? 'Review or change the attached attempt only if another source should drive the note.'
+                                : 'Keep this manual unless an attempt should drive the score.'}
+                            </div>
+                          </div>
+                          <span className="text-xs font-medium text-muted-foreground">Advanced</span>
+                        </div>
+                      </summary>
+                      <div className="border-t border-border px-4 py-4">{composerContextPanel}</div>
+                    </details>
+                  ) : null}
+
+                  {composerHistoryEntries.length > 0 ? (
+                    <details className="mt-4 rounded-[1rem] border border-border bg-background/80">
+                      <summary className="cursor-pointer list-none px-4 py-3">
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <div className="text-sm font-semibold text-foreground">Previous coaching context</div>
+                            <div className="mt-1 text-sm text-muted-foreground">Use the last useful note instead of repeating it.</div>
                           </div>
                           <div className="text-xs text-muted-foreground">
                             {feedbackHistoryCount} earlier {feedbackHistoryCount === 1 ? 'note' : 'notes'}
@@ -334,192 +375,199 @@ export function GradeAndCoachReviewSidebar({
                   ) : null}
                 </div>
 
-                {composerContextPanel ? <div className="min-w-0">{composerContextPanel}</div> : null}
-              </div>
-            </div>
-
-            <div className="rounded-[1.45rem] border border-border/70 bg-card/70 p-4">
-              <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
-                <div>
-                  <div className="text-sm font-semibold text-foreground">2. Evaluation</div>
-                  <div className="text-sm text-muted-foreground">{composerRubricHelper}</div>
-                </div>
-                <div className="text-xs font-medium text-muted-foreground">{composerRubricHeading}</div>
-              </div>
-              <div className="mt-4 space-y-3">
-                {rubricFields.map(({ field, label, helper }) => (
-                  <RubricScoreControl
-                    key={field}
-                    label={label}
-                    helper={helper}
-                    value={feedbackRubricDraft[field]}
-                    onChange={(nextValue) =>
-                      setFeedbackRubricDraft((current) => ({
-                        ...current,
-                        [field]: nextValue,
-                      }))
-                    }
-                  />
-                ))}
-              </div>
-            </div>
-
-            <div className="rounded-[1.45rem] border border-border/70 bg-card/70 p-4">
-              <div className="flex flex-col gap-1">
-                <div className="text-sm font-semibold text-foreground">3. Learner-facing feedback</div>
-                <div className="text-sm text-muted-foreground">
-                  Write one calm summary, call out what is already working, and give one concrete next step.
-                </div>
-              </div>
-
-              <div className="mt-4 rounded-[1.1rem] border border-border bg-background/80 p-3">
-                <div className="text-xs font-semibold uppercase tracking-[0.16em] text-primary">Quick starter</div>
-                <div className="mt-1 text-sm text-muted-foreground">
-                  Click a starter only to seed blank fields. It will not overwrite text you already wrote.
-                </div>
-                <div className="mt-3 flex flex-wrap gap-2">
-                  {coachingStarters.map((snippet) => (
-                    <button
-                      key={snippet.id}
-                      type="button"
-                      title={snippet.useCase}
-                      onClick={() => onApplyFeedbackSnippet(snippet.id)}
-                      className="inline-flex items-center rounded-full border border-border bg-card px-3 py-2 text-sm font-medium text-foreground transition hover:bg-secondary"
-                    >
-                      {snippet.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div className="mt-4 space-y-3">
-                <ReviewField label="Summary" helper="What happened overall, in one or two sentences.">
-                  <textarea
-                    value={feedbackDraft.summary}
-                    onChange={(event) => setFeedbackDraft((current) => ({ ...current, summary: event.target.value }))}
-                    rows={3}
-                    placeholder="Strong baseline on syntax and iteration."
-                    className="w-full rounded-2xl border border-border bg-background px-4 py-3 text-sm text-foreground outline-none transition focus:border-primary/40"
-                  />
-                </ReviewField>
-
-                <div className="grid gap-3 xl:grid-cols-2">
-                  <ReviewField label="Strengths" helper="What the learner should keep doing.">
-                    <textarea
-                      value={feedbackDraft.strengths}
-                      onChange={(event) => setFeedbackDraft((current) => ({ ...current, strengths: event.target.value }))}
-                      rows={4}
-                      placeholder="Clear control flow and readable variable names."
-                      className="w-full rounded-2xl border border-border bg-background px-4 py-3 text-sm text-foreground outline-none transition focus:border-primary/40"
-                    />
-                  </ReviewField>
-
-                  <ReviewField label="Next focus" helper="The single most valuable fix or next habit to build.">
-                    <textarea
-                      value={feedbackDraft.focusAreas}
-                      onChange={(event) => setFeedbackDraft((current) => ({ ...current, focusAreas: event.target.value }))}
-                      rows={4}
-                      placeholder="Edge cases and output formatting need more consistency."
-                      className="w-full rounded-2xl border border-border bg-background px-4 py-3 text-sm text-foreground outline-none transition focus:border-primary/40"
-                    />
-                  </ReviewField>
-                </div>
-              </div>
-            </div>
-
-            <div className="rounded-[1.45rem] border border-border/70 bg-card/70 p-4">
-              <div className="text-sm font-semibold text-foreground">4. Internal note</div>
-              <div className="mt-1 text-sm text-muted-foreground">Keep this private. Use it for coach-only follow-up, not learner copy.</div>
-              <div className="mt-4">
-                <ReviewField label="Coach-only note" helper="Never shown to the learner.">
-                  <textarea
-                    value={feedbackDraft.coachNotes}
-                    onChange={(event) => setFeedbackDraft((current) => ({ ...current, coachNotes: event.target.value }))}
-                    rows={4}
-                    placeholder="Use the next session to walk through debugging strategy."
-                    className="w-full rounded-2xl border border-border bg-background px-4 py-3 text-sm text-foreground outline-none transition focus:border-primary/40"
-                  />
-                </ReviewField>
-              </div>
-            </div>
-
-            <div className="rounded-[1.45rem] border border-border/70 bg-card/70 p-4">
-              <div className="text-sm font-semibold text-foreground">5. Outcome</div>
-              <div className="mt-1 text-sm text-muted-foreground">
-                Pick the review state first, then run the single save action below.
-              </div>
-
-              <div className="mt-4 grid gap-3 lg:grid-cols-3">
-                {workflowOptions.map((option) => {
-                  const active =
-                    option.value === 'draft'
-                      ? feedbackDraft.status === 'draft' && !feedbackDraft.sharedWithMember
-                      : option.value === 'shared'
-                      ? feedbackDraft.status === 'shared' && feedbackDraft.sharedWithMember
-                      : feedbackDraft.status === 'resolved';
-
-                  return (
-                    <button
-                      key={option.value}
-                      type="button"
-                      onClick={() => onSetFeedbackWorkflowState(option.value)}
-                      className={`rounded-[1rem] border px-4 py-3 text-left transition ${
-                        active
-                          ? 'border-primary/30 bg-primary/10 text-foreground'
-                          : 'border-border bg-background text-foreground hover:bg-card'
-                      }`}
-                    >
-                      <div className="text-sm font-semibold">{option.label}</div>
-                      <div className="mt-1 text-sm leading-6 text-muted-foreground">{option.helper}</div>
-                    </button>
-                  );
-                })}
-              </div>
-
-              <div className="mt-4 grid gap-3 lg:grid-cols-2">
-                <div className="rounded-[1rem] bg-background px-4 py-3 text-sm">
-                  <div className="font-semibold text-foreground">Learner sees</div>
-                  <div className="mt-2 leading-6 text-muted-foreground">
-                    {feedbackDraft.sharedWithMember
-                      ? 'Summary, strengths, and next focus as soon as you save.'
-                      : 'Nothing yet. The learner note stays private until you choose a shared state.'}
+                <div className="rounded-[1.25rem] border border-border/60 bg-card/65 p-4">
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                    <div>
+                      <div className="text-sm font-semibold text-foreground">2. Evaluation</div>
+                      <div className="mt-1 text-sm text-muted-foreground">{composerRubricHelper}</div>
+                    </div>
+                    <div className="text-xs text-muted-foreground">{composerRubricHeading}</div>
+                  </div>
+                  <div className="mt-4 space-y-2.5">
+                    {rubricFields.map(({ field, label, helper }) => (
+                      <RubricScoreControl
+                        key={field}
+                        label={label}
+                        helper={helper}
+                        value={feedbackRubricDraft[field]}
+                        onChange={(nextValue) =>
+                          setFeedbackRubricDraft((current) => ({
+                            ...current,
+                            [field]: nextValue,
+                          }))
+                        }
+                      />
+                    ))}
                   </div>
                 </div>
-                <div className="rounded-[1rem] bg-background px-4 py-3 text-sm">
-                  <div className="font-semibold text-foreground">Coach-only stays private</div>
-                  <div className="mt-2 leading-6 text-muted-foreground">
-                    Internal notes never leave the coach view, even when you share or resolve the review.
-                  </div>
-                </div>
+
               </div>
 
-              <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-border pt-4">
-                <div className="text-sm text-muted-foreground">
-                  Current outcome: <span className="font-semibold text-foreground">{currentOutcomeLabel}</span>
+              <div className="space-y-4">
+                <div className="rounded-[1.25rem] border border-primary/15 bg-card/75 p-4">
+                  <div className="flex flex-col gap-1">
+                    <div className="text-sm font-semibold text-foreground">3. Feedback note</div>
+                    <div className="text-sm text-muted-foreground">Write the learner note first. Keep it short and concrete.</div>
+                  </div>
+
+                  <div className="mt-3 space-y-3">
+                    <ReviewField label="Summary" helper="What happened overall, in one or two sentences.">
+                      <textarea
+                        value={feedbackDraft.summary}
+                        onChange={(event) => onUpdateFeedbackNoteField('summary', event.target.value)}
+                        rows={2}
+                        placeholder="Strong baseline on syntax and iteration."
+                        className="w-full rounded-2xl border border-border bg-background px-4 py-3 text-sm text-foreground outline-none transition focus:border-primary/40"
+                      />
+                    </ReviewField>
+
+                    <div className="grid gap-3 xl:grid-cols-2">
+                      <ReviewField label="Strengths" helper="What the learner should keep doing.">
+                        <textarea
+                          value={feedbackDraft.strengths}
+                          onChange={(event) => onUpdateFeedbackNoteField('strengths', event.target.value)}
+                          rows={3}
+                          placeholder="Clear control flow and readable variable names."
+                          className="w-full rounded-2xl border border-border bg-background px-4 py-3 text-sm text-foreground outline-none transition focus:border-primary/40"
+                        />
+                      </ReviewField>
+
+                      <ReviewField label="Next focus" helper="The single most valuable fix or next habit to build.">
+                        <textarea
+                          value={feedbackDraft.focusAreas}
+                          onChange={(event) => onUpdateFeedbackNoteField('focusAreas', event.target.value)}
+                          rows={3}
+                          placeholder="Edge cases and output formatting need more consistency."
+                          className="w-full rounded-2xl border border-border bg-background px-4 py-3 text-sm text-foreground outline-none transition focus:border-primary/40"
+                        />
+                      </ReviewField>
+                    </div>
+
+                    <details className="rounded-[1rem] border border-border bg-background/80">
+                      <summary className="cursor-pointer list-none px-4 py-3">
+                        <div className="flex items-center justify-between gap-3">
+                          <div>
+                            <div className="text-sm font-semibold text-foreground">Need a starter?</div>
+                            <div className="mt-1 text-sm text-muted-foreground">Click one to replace the learner-note fields.</div>
+                          </div>
+                          <span className="text-xs text-muted-foreground">{activeFeedbackStarterId ? 'Active preset' : 'Optional'}</span>
+                        </div>
+                      </summary>
+                      <div className="border-t border-border px-4 py-4">
+                        <div className="flex flex-wrap gap-2">
+                          {coachingStarters.map((snippet) => {
+                            const active = activeFeedbackStarterId === snippet.id;
+                            return (
+                            <button
+                              key={snippet.id}
+                              type="button"
+                              title={snippet.useCase}
+                              aria-pressed={active}
+                              onClick={() => onApplyFeedbackSnippet(snippet.id)}
+                              className={`inline-flex items-center rounded-full border px-3 py-1.5 text-sm font-medium transition ${
+                                active
+                                  ? 'border-primary/30 bg-primary text-primary-foreground'
+                                  : 'border-border bg-card text-muted-foreground hover:bg-secondary hover:text-foreground'
+                              }`}
+                            >
+                              {snippet.label}
+                            </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    </details>
+
+                    <details className="rounded-[1rem] border border-border bg-background/80">
+                      <summary className="cursor-pointer list-none px-4 py-3">
+                        <div className="flex items-center justify-between gap-3">
+                          <div>
+                            <div className="text-sm font-semibold text-foreground">Coach-only note</div>
+                            <div className="mt-1 text-sm text-muted-foreground">Optional private follow-up.</div>
+                          </div>
+                          <span className="text-xs text-muted-foreground">{feedbackDraft.coachNotes.trim() ? 'Added' : 'Optional'}</span>
+                        </div>
+                      </summary>
+                      <div className="border-t border-border px-4 py-4">
+                        <textarea
+                          value={feedbackDraft.coachNotes}
+                          onChange={(event) => setFeedbackDraft((current) => ({ ...current, coachNotes: event.target.value }))}
+                          rows={2}
+                          placeholder="Use the next session to walk through debugging strategy."
+                          className="w-full rounded-2xl border border-border bg-background px-4 py-3 text-sm text-foreground outline-none transition focus:border-primary/40"
+                        />
+                      </div>
+                    </details>
+                  </div>
                 </div>
-                <div className="flex flex-wrap gap-3">
-                  <button
-                    type="button"
-                    onClick={onCancelComposer}
-                    className="inline-flex h-11 items-center justify-center rounded-2xl border border-border bg-background px-4 text-sm font-semibold text-foreground transition hover:bg-secondary"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="button"
-                    onClick={onSaveFeedback}
-                    disabled={!canManageWorkspace || saveBusy}
-                    className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl bg-primary px-5 text-sm font-semibold text-primary-foreground transition hover:bg-primary/90 disabled:opacity-60"
-                  >
-                    {saveBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
-                    {primarySaveLabel}
-                  </button>
+
+                <div className="rounded-[1.25rem] border border-border/60 bg-card/65 p-4">
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                    <div>
+                      <div className="text-sm font-semibold text-foreground">4. Outcome</div>
+                      <div className="mt-1 text-sm text-muted-foreground">Pick the state, then run one save action.</div>
+                    </div>
+                    <div className="text-xs text-muted-foreground">Current: {currentOutcomeLabel}</div>
+                  </div>
+
+                  <div className="mt-4 grid gap-2 lg:grid-cols-3">
+                    {workflowOptions.map((option) => {
+                      const active =
+                        option.value === 'draft'
+                          ? feedbackDraft.status === 'draft' && !feedbackDraft.sharedWithMember
+                          : option.value === 'shared'
+                          ? feedbackDraft.status === 'shared' && feedbackDraft.sharedWithMember
+                          : feedbackDraft.status === 'resolved';
+
+                      return (
+                        <button
+                          key={option.value}
+                          type="button"
+                          onClick={() => onSetFeedbackWorkflowState(option.value)}
+                          className={`rounded-[1rem] border px-4 py-3 text-left transition ${
+                            active
+                              ? 'border-primary/30 bg-primary/10 text-foreground'
+                              : 'border-border bg-background text-foreground hover:bg-card'
+                          }`}
+                        >
+                          <div className="text-sm font-semibold">{option.label}</div>
+                          <div className="mt-1 text-sm leading-6 text-muted-foreground">{option.helper}</div>
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  <div className="mt-3 rounded-[1rem] bg-background px-4 py-3 text-sm leading-6 text-muted-foreground">
+                    {outcomeSummary}
+                  </div>
+
+                  <div className="mt-3 flex flex-wrap items-center justify-between gap-3 border-t border-border pt-3">
+                    <div className="text-sm text-muted-foreground">Coach notes stay private.</div>
+                    <div className="flex flex-wrap gap-3">
+                      <button
+                        type="button"
+                        onClick={onCancelComposer}
+                        className="inline-flex h-11 items-center justify-center rounded-2xl border border-border bg-background px-4 text-sm font-semibold text-foreground transition hover:bg-secondary"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="button"
+                        onClick={onSaveFeedback}
+                        disabled={!canManageWorkspace || saveBusy}
+                        className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl bg-primary px-5 text-sm font-semibold text-primary-foreground transition hover:bg-primary/90 disabled:opacity-60"
+                      >
+                        {saveBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
+                        {primarySaveLabel}
+                      </button>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
           </div>
         ) : selectedReviewFeedback ? (
-          <div className="space-y-5">
+          <div className="rounded-[1.45rem] border border-border/60 bg-background/70 p-5 space-y-5">
             <div className="flex items-start justify-between gap-4">
               <div>
                 <ReviewStatePill label={selectedFeedbackState?.label || 'Draft'} tone={selectedFeedbackState?.tone || 'default'} />
@@ -590,24 +638,23 @@ export function GradeAndCoachReviewSidebar({
             </div>
           </div>
         ) : hasSelectedReviewItem ? (
-          <div className="space-y-5">
+          <div className="rounded-[1.45rem] border border-border/60 bg-background/70 p-5 space-y-5">
             <div>
-              <div className="text-lg font-semibold text-foreground">Finish this review</div>
-              <div className="mt-1 text-sm text-muted-foreground">
-                This learner is in the queue but does not have a coaching note yet.
-              </div>
+              <div className="text-lg font-semibold text-foreground">Ready to review</div>
+              <div className="mt-1 text-sm text-muted-foreground">No coaching note is attached yet.</div>
             </div>
 
-            <div className="space-y-3">
-              {[
-                'Score the work with the rubric instead of jumping straight to comments.',
-                'Write one concrete summary and one concrete next step.',
-                'Decide whether the note stays private, gets shared, or closes the loop.',
-              ].map((step, index) => (
-                <div key={step} className="rounded-2xl bg-card/80 px-4 py-4 text-sm leading-6 text-muted-foreground">
-                  <span className="font-semibold text-foreground">{index + 1}.</span> {step}
-                </div>
-              ))}
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="rounded-2xl bg-card/80 px-4 py-4 text-sm">
+                <div className="text-xs font-semibold uppercase tracking-[0.16em] text-primary">Evidence</div>
+                <div className="mt-2 font-semibold text-foreground">{evidenceStatusLabel}</div>
+                <div className="mt-1 text-muted-foreground">{activeReviewTitle}</div>
+              </div>
+              <div className="rounded-2xl bg-card/80 px-4 py-4 text-sm">
+                <div className="text-xs font-semibold uppercase tracking-[0.16em] text-primary">Next move</div>
+                <div className="mt-2 font-semibold text-foreground">Score first, then write one concrete learner note.</div>
+                <div className="mt-1 text-muted-foreground">Choose the final state only after the note is ready.</div>
+              </div>
             </div>
 
             <div className="flex flex-wrap gap-3 pt-2">
@@ -623,22 +670,35 @@ export function GradeAndCoachReviewSidebar({
             </div>
           </div>
         ) : (
-          <EmptyState
-            title="Choose the next learner"
-            helper="Select a row from the queue, or start a manual review if you need to coach outside the queue."
-            action={
-              canManageWorkspace ? (
-                <button
-                  type="button"
-                  onClick={onOpenManualFeedbackComposer}
-                  className="inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-primary px-4 text-sm font-semibold text-primary-foreground transition hover:bg-primary/90"
-                >
-                  <Plus className="h-4 w-4" />
-                  Start manual review
-                </button>
-              ) : null
-            }
-          />
+          <div className="rounded-[1.45rem] border border-border/60 bg-background/70 p-5">
+            <div className="grid gap-4 xl:grid-cols-[minmax(0,1.4fr)_280px]">
+              <div className="rounded-[1.1rem] border border-border bg-card/70 px-4 py-4 xl:col-span-2">
+                <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+                  <div className="min-w-0 xl:max-w-[64%]">
+                    <div className="text-base font-semibold text-foreground">
+                      {queueSnapshot.needsReview > 0 ? 'Queue ready' : queueSnapshot.drafted > 0 ? 'Drafts waiting' : 'No review open'}
+                    </div>
+                    <div className="mt-2 text-sm leading-6 text-muted-foreground">{queueNextAction}</div>
+                    <div className="mt-3 text-sm text-muted-foreground">
+                      <span className="font-semibold text-foreground">J / K</span> move through the queue.
+                    </div>
+                  </div>
+
+                  <div className="grid min-w-[260px] gap-2 sm:grid-cols-3 xl:grid-cols-1">
+                    <div className="rounded-xl bg-background px-3 py-3 text-sm text-muted-foreground">
+                      <span className="font-semibold text-foreground">{queueSnapshot.needsReview}</span> waiting
+                    </div>
+                    <div className="rounded-xl bg-background px-3 py-3 text-sm text-muted-foreground">
+                      <span className="font-semibold text-foreground">{queueSnapshot.drafted}</span> drafts
+                    </div>
+                    <div className="rounded-xl bg-background px-3 py-3 text-sm text-muted-foreground">
+                      <span className="font-semibold text-foreground">{queueSnapshot.resolved}</span> resolved
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
         )}
       </div>
     </div>
@@ -653,7 +713,6 @@ interface GradeAndCoachModalProps {
   queuePane: React.ReactNode;
   hasSelectedReviewItem: boolean;
   canManageWorkspace: boolean;
-  onOpenManualFeedbackComposer: () => void;
   onStartOrEditReview: () => void;
   onMoveToNextReviewItem: () => void;
   hasNextReviewItem: boolean;
@@ -665,6 +724,7 @@ interface GradeAndCoachModalProps {
   lastActiveLabel: string | null;
   queueUpdatedLabel: string | null;
   latestBenchmarkLabel: string | null;
+  queueSnapshot: QueueSnapshot;
 }
 
 export function GradeAndCoachModal({
@@ -675,7 +735,6 @@ export function GradeAndCoachModal({
   queuePane,
   hasSelectedReviewItem,
   canManageWorkspace,
-  onOpenManualFeedbackComposer,
   onStartOrEditReview,
   onMoveToNextReviewItem,
   hasNextReviewItem,
@@ -687,7 +746,15 @@ export function GradeAndCoachModal({
   lastActiveLabel,
   queueUpdatedLabel,
   latestBenchmarkLabel,
+  queueSnapshot,
 }: GradeAndCoachModalProps) {
+  const queueNextAction =
+    queueSnapshot.needsReview > 0
+      ? 'Open the next waiting learner from the queue on the left.'
+      : queueSnapshot.drafted > 0
+      ? 'Reopen a draft and either share it or resolve it.'
+      : 'Use New review only when you are coaching outside the submission queue.';
+
   return (
     <ModalShell
       title="Grade and coach"
@@ -752,22 +819,31 @@ export function GradeAndCoachModal({
               </>
             ) : (
               <div className="rounded-[1.75rem] border border-border/60 bg-background/70 p-5">
-                <EmptyState
-                  title="Choose the next learner"
-                  helper="Open a queue item on the left to inspect work and finish the coaching note here."
-                  action={
-                    canManageWorkspace ? (
-                      <button
-                        type="button"
-                        onClick={onOpenManualFeedbackComposer}
-                        className="inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-primary px-4 text-sm font-semibold text-primary-foreground transition hover:bg-primary/90"
-                      >
-                        <Plus className="h-4 w-4" />
-                        Start manual review
-                      </button>
-                    ) : null
-                  }
-                />
+                <div className="rounded-[1.1rem] border border-border bg-card/70 px-4 py-4">
+                  <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+                    <div className="min-w-0 xl:max-w-[64%]">
+                      <div className="text-base font-semibold text-foreground">
+                        {queueSnapshot.needsReview > 0 ? 'Queue ready' : queueSnapshot.drafted > 0 ? 'Drafts waiting' : 'No review open'}
+                      </div>
+                      <div className="mt-2 text-sm leading-6 text-muted-foreground">{queueNextAction}</div>
+                      <div className="mt-3 text-sm text-muted-foreground">
+                        <span className="font-semibold text-foreground">J / K</span> move through the queue.
+                      </div>
+                    </div>
+
+                    <div className="grid min-w-[260px] gap-2 sm:grid-cols-3 xl:grid-cols-1">
+                      <div className="rounded-xl bg-background px-3 py-3 text-sm text-muted-foreground">
+                        <span className="font-semibold text-foreground">{queueSnapshot.needsReview}</span> waiting
+                      </div>
+                      <div className="rounded-xl bg-background px-3 py-3 text-sm text-muted-foreground">
+                        <span className="font-semibold text-foreground">{queueSnapshot.drafted}</span> drafts
+                      </div>
+                      <div className="rounded-xl bg-background px-3 py-3 text-sm text-muted-foreground">
+                        <span className="font-semibold text-foreground">{queueSnapshot.resolved}</span> resolved
+                      </div>
+                    </div>
+                  </div>
+                </div>
               </div>
             )}
           </section>

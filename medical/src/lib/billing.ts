@@ -1,6 +1,6 @@
 import { getStoreItem, isPlanStoreItem } from '../../shared/store-catalog.js';
 import { isApiNetworkError, resolveApiBaseUrl } from './apiBase';
-import { supabase } from './supabase';
+import { getValidAccessToken, recoverFromSupabaseSessionError } from './supabase';
 
 export type SelfServePlanId =
   | 'pro_monthly'
@@ -134,8 +134,7 @@ export async function listPlanEntitlements(): Promise<PlanEntitlement[]> {
 }
 
 async function getAccessToken() {
-  const { data } = await supabase.auth.getSession();
-  return data.session?.access_token || null;
+  return getValidAccessToken();
 }
 
 async function authorizedBillingFetch(path: string, init: RequestInit = {}) {
@@ -164,6 +163,12 @@ async function authorizedBillingFetch(path: string, init: RequestInit = {}) {
 
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
+    if (response.status === 401 || response.status === 403) {
+      await recoverFromSupabaseSessionError({
+        status: response.status,
+        message: (payload as { error?: string }).error || response.statusText,
+      });
+    }
     throw new Error((payload as { error?: string }).error || 'Billing request failed.');
   }
 

@@ -1705,14 +1705,19 @@ export class LessonProgramJudgeService {
     const language = String(definition?.language || 'python');
     const usesCompiledSession = language === 'cpp' || language === 'java';
     const testCases = Array.isArray(definition?.testCases) ? definition.testCases : [];
-    const missingSnippets = checkRequiredSnippets(code, definition?.requiredSnippets || [], language);
-    const flaggedPatterns = checkFlaggedPatterns(code, definition?.forbiddenPatterns || [], language);
+    const rawMissingSnippets = checkRequiredSnippets(code, definition?.requiredSnippets || [], language);
+    const rawFlaggedPatterns = checkFlaggedPatterns(code, definition?.forbiddenPatterns || [], language);
     const testResults = [];
     let passed = 0;
     let sawRuntimeError = false;
     let sawSyntaxError = false;
     let sawTimeout = false;
     let stderr = '';
+
+    if (testCases.length === 0) {
+      throw new Error('This lesson does not have executable practice checks configured.');
+    }
+
     const runnerKind = await getLessonRunnerKind(language);
     let cppSession = null;
     let javaSession = null;
@@ -1805,42 +1810,32 @@ export class LessonProgramJudgeService {
       }
 
       const outputScore = testCases.length > 0 ? passed / testCases.length : 0;
-      const structurePenalty = missingSnippets.length > 0 ? Math.min(0.4, missingSnippets.length * 0.12) : 0;
-      const cleanupPenalty = flaggedPatterns.length > 0 ? Math.min(0.32, flaggedPatterns.length * 0.16) : 0;
-      const finalScore = Math.max(0, outputScore - structurePenalty - cleanupPenalty);
-      const passedAllTests = passed === testCases.length;
-      const passedStructure = missingSnippets.length === 0;
-      const passedCleanup = flaggedPatterns.length === 0;
-      const passedOverall = passedAllTests && passedStructure && passedCleanup;
+      const finalScore = outputScore;
+      const passedAllTests = testCases.length > 0 && passed === testCases.length;
+      const passedOverall = passedAllTests;
+      const missingSnippets = passedOverall ? [] : rawMissingSnippets;
+      const flaggedPatterns = passedOverall ? [] : rawFlaggedPatterns;
       const feedbackKind = passedOverall
         ? 'passed'
-        : !passedAllTests
-        ? sawTimeout
-          ? 'timeout'
-          : sawSyntaxError
-          ? 'syntax_error'
-          : sawRuntimeError
-          ? inferRuntimeFeedbackKind(stderr, language)
-          : 'wrong_output'
-        : missingSnippets.length > 0
-        ? 'structure_missing'
-        : 'cleanup';
+        : sawTimeout
+        ? 'timeout'
+        : sawSyntaxError
+        ? 'syntax_error'
+        : sawRuntimeError
+        ? inferRuntimeFeedbackKind(stderr, language)
+        : 'wrong_output';
 
       const message = passedOverall
-        ? 'The program produced the correct result and used the required lesson structure.'
-        : !passedAllTests
-        ? sawTimeout
-          ? 'The program timed out before it finished the lesson checks.'
-          : sawSyntaxError
-          ? usesCompiledSession
-            ? 'The program did not compile for the lesson checks.'
-            : 'The program could not run because of a syntax error.'
-          : sawRuntimeError
-          ? 'The program crashed during the lesson checks.'
-          : 'The program did not produce the expected result for every lesson check.'
-        : missingSnippets.length > 0
-        ? `One required lesson structure item is still missing: ${missingSnippets.join(', ')}`
-        : `One lesson cleanup rule still fails: avoid ${flaggedPatterns.join(', ')}`;
+        ? 'The program produced the correct result for every lesson check.'
+        : sawTimeout
+        ? 'The program timed out before it finished the lesson checks.'
+        : sawSyntaxError
+        ? usesCompiledSession
+          ? 'The program did not compile for the lesson checks.'
+          : 'The program could not run because of a syntax error.'
+        : sawRuntimeError
+        ? 'The program crashed during the lesson checks.'
+        : 'The program did not produce the expected result for every lesson check.';
 
       return {
         passed: passedOverall,
@@ -1850,7 +1845,7 @@ export class LessonProgramJudgeService {
         rubricBreakdown: {
           correctness: Math.round(outputScore * 100),
           edgeCaseHandling: Math.round(outputScore * 100),
-          codeQuality: Math.round((passedStructure && passedCleanup ? 1 : Math.max(0, 1 - structurePenalty - cleanupPenalty)) * 100),
+          codeQuality: passedOverall ? 100 : Math.round(Math.max(0.35, outputScore) * 100),
           efficiency: sawTimeout ? 20 : passedAllTests ? 85 : 60,
         },
         missingSnippets,

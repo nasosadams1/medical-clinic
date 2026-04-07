@@ -331,9 +331,11 @@ page.on('response', async (response) => {
 });
 
 const getBodyText = () => page.locator('body').innerText();
-const extractFocusedLearner = (bodyText) => {
-  const match = bodyText.match(/Learner\s*\n([^\n]+)/);
-  return match?.[1]?.trim() || null;
+const selectedQueueCard = () => page.locator('aside button[class*="bg-primary/10"]').first();
+const extractFocusedLearner = async () => {
+  const card = selectedQueueCard();
+  const text = (await card.innerText()).trim();
+  return text.split(/\r?\n/)[0]?.trim() || null;
 };
 
 const expectBodyIncludes = async (text) => {
@@ -348,20 +350,14 @@ const composerSummary = () => page.locator('textarea').nth(0);
 const composerStrengths = () => page.locator('textarea').nth(1);
 const composerFocusAreas = () => page.locator('textarea').nth(2);
 const composerCoachNotes = () => page.locator('textarea').nth(3);
-const rubricInputs = () => page.locator('input[type=range]');
+const coachNoteDetails = () => page.locator('details').filter({ hasText: 'Coach-only note' }).first();
+const rubricScoreButtons = () => page.locator('button[aria-pressed]');
 const closeComposerButton = () => page.getByRole('button', { name: 'Close Grade and coach' });
 const confirmDialog = () => page.locator('[role="alertdialog"]');
 const composerActionButton = (label) =>
   page.locator('button.inline-flex').filter({ hasText: label }).last();
 const setRubricScore = async (index, value) => {
-  await rubricInputs()
-    .nth(index)
-    .evaluate((element, nextValue) => {
-      const valueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set;
-      valueSetter?.call(element, String(nextValue));
-      element.dispatchEvent(new Event('input', { bubbles: true }));
-      element.dispatchEvent(new Event('change', { bubbles: true }));
-    }, value);
+  await rubricScoreButtons().nth(index * 11 + value).click();
 };
 
 try {
@@ -389,11 +385,11 @@ try {
   noteStep('verified accessible close label');
 
   let bodyText = await getBodyText();
-  const learnerBeforeJ = extractFocusedLearner(bodyText);
+  const learnerBeforeJ = await extractFocusedLearner();
   await page.keyboard.press('j');
   await page.waitForTimeout(800);
   bodyText = await getBodyText();
-  const learnerAfterJ = extractFocusedLearner(bodyText);
+  const learnerAfterJ = await extractFocusedLearner();
   if (!learnerBeforeJ || !learnerAfterJ || learnerBeforeJ === learnerAfterJ) {
     throw new Error('Keyboard J did not move the focused learner.');
   }
@@ -402,7 +398,7 @@ try {
   await page.keyboard.press('k');
   await page.waitForTimeout(800);
   bodyText = await getBodyText();
-  const learnerAfterK = extractFocusedLearner(bodyText);
+  const learnerAfterK = await extractFocusedLearner();
   if (!learnerAfterK || learnerAfterK === learnerAfterJ) {
     throw new Error('Keyboard K did not move the focused learner back.');
   }
@@ -422,7 +418,7 @@ try {
     await startReviewButton.click();
   }
   await page.waitForTimeout(1_200);
-  await expectBodyIncludes('1. Scope and evidence');
+  await expectBodyIncludes('1. Scope');
   noteStep(openedExistingDraft ? 'opened existing review composer' : 'opened review composer');
 
   await composerSummary().fill(draftSummary);
@@ -444,11 +440,12 @@ try {
   await setRubricScore(3, 6);
   await composerStrengths().fill('Readable structure and a workable baseline approach.');
   await composerFocusAreas().fill('Edge cases still need more consistent handling.');
+  await coachNoteDetails().locator('summary').click();
   await composerCoachNotes().fill('Use the next session to review boundary checks and final output polish.');
   await page.getByRole('button', { name: 'Save draft' }).first().click();
   noteStep('filled rubric and note fields');
 
-  await composerActionButton(openedExistingDraft ? 'Save draft' : 'Save review').click();
+  await composerActionButton('Save draft').click();
   await page.getByText('Latest coaching note').first().waitFor({ state: 'visible', timeout: 15_000 });
   await expectBodyIncludes('Latest coaching note');
   await expectBodyIncludes(draftSummary);
@@ -503,7 +500,7 @@ try {
   await page.waitForTimeout(1_000);
   await page.getByRole('button', { name: 'Mark resolved' }).click();
   await page.waitForTimeout(300);
-  await composerActionButton('Resolve review').click();
+  await composerActionButton('Mark resolved').click();
   await page.waitForFunction(() => {
     const text = document.body.innerText;
     return text.includes('Resolved') && text.includes('Smoke Learner A');
@@ -517,15 +514,16 @@ try {
   await page.getByRole('button', { name: 'Delete' }).click();
   await page.waitForTimeout(500);
   await page.getByRole('button', { name: 'Confirm delete' }).click();
-  await page.getByRole('button', { name: 'Start review' }).last().waitFor({ state: 'visible', timeout: 15_000 });
+  await page.waitForFunction(
+    (summary) => !document.body.innerText.includes(summary),
+    draftSummary,
+    { timeout: 15_000 }
+  );
   bodyText = await getBodyText();
-  if (!bodyText.includes('Start review')) {
-    throw new Error('Start review did not return after deleting feedback.');
+  if (bodyText.includes(draftSummary)) {
+    throw new Error('Deleted feedback summary was still visible after delete.');
   }
-  if (bodyText.includes('Latest coaching note')) {
-    throw new Error('Feedback detail still visible after delete.');
-  }
-  noteStep('deleted feedback and returned to queue state');
+  noteStep('deleted feedback');
 
   await page.screenshot({ path: path.join(outputDir, 'teams-grade-coach-smoke-success.png'), fullPage: true });
   result.success = true;

@@ -75,13 +75,13 @@ const createAdminOnlyMiddleware = () => (req, res, next) => {
   return next();
 };
 
-const createLimiter = (windowMs, max) =>
+const createLimiter = (windowMs, max, scope = 'feedback') =>
   rateLimit({
     windowMs,
     max,
     standardHeaders: true,
     legacyHeaders: false,
-    keyGenerator: (req) => req.feedbackUser?.id || ipKeyGenerator(req.ip || ''),
+    keyGenerator: (req) => `${scope}:${req.feedbackUser?.id || ipKeyGenerator(req.ip || '')}`,
     handler: (_req, res) => {
       res.status(429).json({ error: 'Too many feedback requests. Please slow down and try again shortly.' });
     },
@@ -126,14 +126,16 @@ export const createFeedbackRouter = ({ supabaseAdmin }) => {
   const router = express.Router();
   const requireAuth = createAuthenticatedUserMiddleware(supabaseAdmin);
   const requireAdmin = createAdminOnlyMiddleware();
-  const submitLimiter = createLimiter(FEEDBACK_REQUEST_WINDOW_MS, FEEDBACK_REQUEST_MAX);
-  const readLimiter = createLimiter(FEEDBACK_READ_WINDOW_MS, FEEDBACK_READ_MAX);
+  const submitLimiter = createLimiter(FEEDBACK_REQUEST_WINDOW_MS, FEEDBACK_REQUEST_MAX, 'feedback-submit');
+  const historyReadLimiter = createLimiter(FEEDBACK_READ_WINDOW_MS, FEEDBACK_READ_MAX, 'feedback-history');
+  const adminCapabilityLimiter = createLimiter(FEEDBACK_READ_WINDOW_MS, FEEDBACK_READ_MAX, 'feedback-admin-capabilities');
+  const adminReadLimiter = createLimiter(FEEDBACK_READ_WINDOW_MS, FEEDBACK_READ_MAX, 'feedback-admin');
 
   router.get('/health', (_req, res) => {
     res.json({ status: supabaseAdmin ? 'ok' : 'degraded' });
   });
 
-  router.get('/', requireAuth, readLimiter, async (req, res) => {
+  router.get('/', requireAuth, historyReadLimiter, async (req, res) => {
     try {
       const entries = await getUserFeedbackEntries({
         supabaseAdmin,
@@ -270,10 +272,10 @@ export const createFeedbackRouter = ({ supabaseAdmin }) => {
     }
   });
 
-  router.get('/admin/capabilities', requireAuth, readLimiter, async (req, res) => {
+  router.get('/admin/capabilities', requireAuth, adminCapabilityLimiter, async (req, res) => {
     return res.json({ canReview: isFeedbackAdmin(req.feedbackUser) });
   });
-  router.get('/admin', requireAuth, requireAdmin, readLimiter, async (req, res) => {
+  router.get('/admin', requireAuth, requireAdmin, adminReadLimiter, async (req, res) => {
     try {
       const status = typeof req.query.status === 'string' ? req.query.status : undefined;
       const type = typeof req.query.type === 'string' ? req.query.type : undefined;

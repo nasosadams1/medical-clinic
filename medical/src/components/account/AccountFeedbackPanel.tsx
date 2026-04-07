@@ -131,7 +131,7 @@ const AccountFeedbackPanel: React.FC = () => {
     return '';
   };
 
-  const loadHistory = async () => {
+  const loadHistory = async (force = false) => {
     if (!session?.access_token) {
       setHistoryEntries([]);
       setIsLoadingHistory(false);
@@ -142,7 +142,7 @@ const AccountFeedbackPanel: React.FC = () => {
     setHistoryError('');
 
     try {
-      const entries = await fetchFeedbackEntries(session.access_token);
+      const entries = await fetchFeedbackEntries(session.access_token, { force });
       setHistoryEntries(entries);
     } catch (error: any) {
       setHistoryError(error?.message || 'Could not load feedback history.');
@@ -351,7 +351,7 @@ const AccountFeedbackPanel: React.FC = () => {
         type: 'success',
         icon: '\u{2705}',
       });
-      await loadHistory();
+      await loadHistory(true);
     } catch (error: any) {
       const duplicate = error?.payload?.duplicate;
       setFormError(
@@ -581,7 +581,7 @@ const AccountFeedbackPanel: React.FC = () => {
             </div>
             <button
               type="button"
-              onClick={loadHistory}
+              onClick={() => loadHistory(true)}
               disabled={isLoadingHistory}
               className="inline-flex items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
             >

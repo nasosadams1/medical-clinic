@@ -33,7 +33,6 @@ import {
   createTeamFeedback,
   createTeamInvite,
   deleteTeamSubmission,
-  deleteTeamAssignment,
   deleteTeamFeedback,
   deleteTeamInvite,
   exportTeamReport,
@@ -64,6 +63,7 @@ import {
   TeamUseCase,
   TeamWorkspaceDetail,
   bulkUpdateTeamAssignments,
+  duplicateTeamAssignment,
   unshareTeamWorkspace,
   createTeamSubmission,
   updateTeamAssignment,
@@ -73,6 +73,14 @@ import {
   updateTeamMember,
   updateTeamSubmission,
 } from '../../lib/teams';
+import {
+  formatBenchmarkLanguageLabel as formatAssignmentLanguageLabel,
+  getAssignmentAuditSummary,
+  getAssignmentOperationalSignal,
+  getAssignmentScopeLabelFromSnapshot,
+  getTeamAssignmentTypeLabel,
+} from '../../../shared/team-assignments.js';
+import { getAssignmentDisplayTitle } from '../../../shared/team-assignments-ui-contract.js';
 import {
   ActionButton,
   COACHING_STARTERS,
@@ -87,6 +95,16 @@ import {
   StatusPill,
 } from './reviewUi';
 import { GradeAndCoachModal, GradeAndCoachReviewSidebar } from './gradeAndCoachUi';
+import { AssignmentDraft, createAssignmentDraftFromTemplate, emptyAssignmentDraft } from './assignments/model';
+import { AssignmentsWorkspace } from './assignments/AssignmentsWorkspace';
+import {
+  AssignmentDueInputState,
+  assignmentDueAtInputToIsoOrNull,
+  EMPTY_ASSIGNMENT_DUE_INPUT_STATE,
+  formatAssignmentDueAtInput,
+  getAssignmentDraftValidation,
+  getAssignmentDueInputStateFromValue,
+} from './assignments/editorContract';
 
 type TeamsWorkspaceMode = 'app' | 'public';
 type WorkspaceModal = null | 'members' | 'assignments' | 'invites' | 'feedback' | 'analytics' | 'reports';
@@ -108,16 +126,6 @@ interface InviteDraft {
   maxUses: string;
   expiresInDays: string;
   status: TeamInvite['status'];
-}
-
-interface AssignmentDraft {
-  id: string | null;
-  title: string;
-  description: string;
-  assignmentType: TeamAssignmentType;
-  benchmarkLanguage: TeamAssignment['benchmarkLanguage'];
-  trackId: string;
-  dueAt: string;
 }
 
 interface FeedbackDraft {
@@ -169,12 +177,8 @@ type MemberConfirmAction =
 
 type MemberActivityBand = 'active_now' | 'within_12h' | 'within_24h' | 'within_3d' | 'within_7d' | 'inactive';
 type MemberActivityFilter = 'all' | 'active_now' | 'last_24h' | 'last_7d' | 'inactive';
-type AssignmentDueBand = 'overdue' | 'due_soon' | 'scheduled' | 'no_due_date';
-type AssignmentLifecycleFilter = 'all' | TeamAssignmentLifecycleState;
 type FeedbackVisibilityFilter = 'all' | 'shared' | 'private';
-type AssignmentSortOption = 'priority' | 'due' | 'completion' | 'recent';
 type FeedbackSortOption = 'recent' | 'score' | 'learner';
-type AssignmentViewMode = 'list' | 'board' | 'calendar';
 type SubmissionAttachmentMode = 'none' | 'existing' | 'new';
 type ReviewStatusFilter = 'all' | 'needs_review' | TeamFeedbackStatus;
 
@@ -216,7 +220,11 @@ type WorkspaceConfirmAction =
   | null
   | {
       type: 'assignment_archive';
-      assignment: TeamAssignment;
+      assignment: Pick<TeamAssignment, 'id' | 'title'>;
+    }
+  | {
+      type: 'assignment_delete';
+      assignments: Array<Pick<TeamAssignment, 'id' | 'title'>>;
     }
   | {
       type: 'feedback_delete';
@@ -257,6 +265,66 @@ const TEAM_JOIN_MODE_OPTIONS: Array<{ value: TeamJoinMode; label: string; helper
   { value: 'invite_only', label: 'Invite-only', helper: 'Only direct email invites can be used.' },
 ];
 
+const TEAM_JOIN_MODE_META: Record<
+  TeamJoinMode,
+  {
+    riskLabel: string;
+    tone: 'default' | 'warn' | 'success';
+    summary: string;
+    audienceLabel: string;
+    audienceHelper: string;
+    approvalLabel: string;
+    approvalHelper: string;
+    exposureValue: string;
+    exposureHelper: string;
+  }
+> = {
+  open_code: {
+    riskLabel: 'Higher exposure',
+    tone: 'warn',
+    summary: 'Anyone holding a live code can join immediately, so code sharing needs tighter operational discipline.',
+    audienceLabel: 'Anyone with an active code',
+    audienceHelper: 'Best for tightly controlled cohorts where codes are shared directly by the team.',
+    approvalLabel: 'No approval step',
+    approvalHelper: 'The join happens as soon as the code is accepted.',
+    exposureValue: 'Instant code join',
+    exposureHelper: 'Fastest path in, but the code itself is the gate.',
+  },
+  code_domain: {
+    riskLabel: 'Domain guarded',
+    tone: 'default',
+    summary: 'Codes still move quickly, but the final join is limited to signed-in users on one approved email domain.',
+    audienceLabel: 'Users with a live code and the right domain',
+    audienceHelper: 'Useful for schools and internal teams where the email boundary is part of the access policy.',
+    approvalLabel: 'No approval step',
+    approvalHelper: 'The domain check is the gate before the member lands in the workspace.',
+    exposureValue: 'Code + domain check',
+    exposureHelper: 'Adds a second guard without creating an approval queue.',
+  },
+  code_approval: {
+    riskLabel: 'Approval queue',
+    tone: 'default',
+    summary: 'Invite codes create requests instead of direct joins, so owners and admins can control who actually enters the workspace.',
+    audienceLabel: 'Anyone with a live code can request access',
+    audienceHelper: 'Best when coaches want to keep code sharing easy but still hold the final approval.',
+    approvalLabel: 'Owner or admin approval',
+    approvalHelper: 'Every code join waits in the request queue until someone approves it.',
+    exposureValue: 'Code starts a request',
+    exposureHelper: 'Most reviewable code-based mode.',
+  },
+  invite_only: {
+    riskLabel: 'Tightest access',
+    tone: 'success',
+    summary: 'Only direct invites are accepted, which keeps the join surface small and makes invite ownership more explicit.',
+    audienceLabel: 'Only invited people',
+    audienceHelper: 'Best when the workspace is small and membership changes should stay fully intentional.',
+    approvalLabel: 'No open request path',
+    approvalHelper: 'Access is granted by issuing a direct invite, not by reviewing code joins later.',
+    exposureValue: 'Direct invite only',
+    exposureHelper: 'Smallest exposure surface for access control.',
+  },
+};
+
 const MEMBER_ACTIVITY_FILTER_OPTIONS: Array<{ value: MemberActivityFilter; label: string }> = [
   { value: 'all', label: 'All activity' },
   { value: 'active_now', label: 'Active now' },
@@ -265,50 +333,10 @@ const MEMBER_ACTIVITY_FILTER_OPTIONS: Array<{ value: MemberActivityFilter; label
   { value: 'inactive', label: 'Inactive' },
 ];
 
-const ASSIGNMENT_LIFECYCLE_FILTER_OPTIONS: Array<{ value: AssignmentLifecycleFilter; label: string }> = [
-  { value: 'all', label: 'All states' },
-  { value: 'active', label: 'Active' },
-  { value: 'past_due', label: 'Past due' },
-  { value: 'archived', label: 'Archived' },
-];
-
 const FEEDBACK_VISIBILITY_FILTER_OPTIONS: Array<{ value: FeedbackVisibilityFilter; label: string }> = [
   { value: 'all', label: 'All visibility' },
   { value: 'shared', label: 'Shared' },
   { value: 'private', label: 'Private' },
-];
-
-const CALENDAR_DAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-
-const ASSIGNMENT_TEMPLATES: Array<{
-  id: string;
-  title: string;
-  assignmentType: TeamAssignmentType;
-  benchmarkLanguage?: AssignmentDraft['benchmarkLanguage'];
-  trackId?: string;
-  description: string;
-}> = [
-  {
-    id: 'benchmark-python-screen',
-    title: 'Class benchmark',
-    assignmentType: 'benchmark',
-    benchmarkLanguage: 'python',
-    description: 'Measure baseline fluency before the next coaching sprint.',
-  },
-  {
-    id: 'challenge-pack-speed',
-    title: 'Timed challenge pack',
-    assignmentType: 'challenge_pack',
-    benchmarkLanguage: 'javascript',
-    description: 'Push timed problem solving and raise pressure-readiness.',
-  },
-  {
-    id: 'roadmap-junior',
-    title: 'Junior prep roadmap',
-    assignmentType: 'roadmap',
-    trackId: interviewTracks[0]?.id || '',
-    description: 'Assign a structured roadmap and review completion weekly.',
-  },
 ];
 
 const FEEDBACK_RUBRIC_FIELDS: Array<{
@@ -402,16 +430,6 @@ const emptyInviteDraft = (): InviteDraft => ({
   status: 'active',
 });
 
-const emptyAssignmentDraft = (): AssignmentDraft => ({
-  id: null,
-  title: '',
-  description: '',
-  assignmentType: 'benchmark',
-  benchmarkLanguage: 'python',
-  trackId: '',
-  dueAt: '',
-});
-
 const emptyFeedbackDraft = (): FeedbackDraft => ({
   id: null,
   memberUserId: '',
@@ -470,15 +488,25 @@ const EMPTY_FEEDBACK_COMPOSER_SNAPSHOT = serializeFeedbackComposerSnapshot({
   submissionDraft: emptySubmissionDraft(),
 });
 
+const ENGLISH_DATE_FORMATTER = new Intl.DateTimeFormat('en-US', {
+  month: 'short',
+  day: 'numeric',
+  year: 'numeric',
+});
+
+const ENGLISH_DATE_TIME_FORMATTER = new Intl.DateTimeFormat('en-US', {
+  month: 'short',
+  day: 'numeric',
+  year: 'numeric',
+  hour: 'numeric',
+  minute: '2-digit',
+});
+
 const formatDateLabel = (value: string | null | undefined) => {
   if (!value) return 'No date';
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) return 'No date';
-  return parsed.toLocaleDateString(undefined, {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-  });
+  return ENGLISH_DATE_FORMATTER.format(parsed);
 };
 
 const formatRelativeActivityLabel = (value: string | null | undefined) => {
@@ -501,17 +529,21 @@ const formatRelativeActivityLabel = (value: string | null | undefined) => {
   return formatDateLabel(value);
 };
 
+const isOlderThanHours = (value: string | null | undefined, hours: number) => {
+  if (!value) return false;
+
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return false;
+
+  return Date.now() - parsed.getTime() >= hours * 60 * 60 * 1000;
+};
+
 const formatAssignmentTypeLabel = (assignmentType: TeamAssignmentType) => {
-  if (assignmentType === 'challenge_pack') return 'Challenge pack';
-  if (assignmentType === 'roadmap') return 'Roadmap';
-  return 'Benchmark';
+  return getTeamAssignmentTypeLabel(assignmentType);
 };
 
 const formatBenchmarkLanguageLabel = (language: TeamAssignment['benchmarkLanguage']) => {
-  if (language === 'javascript') return 'JavaScript';
-  if (language === 'java') return 'Java';
-  if (language === 'cpp') return 'C++';
-  return 'Python';
+  return formatAssignmentLanguageLabel(language);
 };
 
 const formatSubmissionTypeLabel = (submissionType: TeamSubmissionType) => {
@@ -530,13 +562,444 @@ const formatDateTimeLabel = (value: string | null | undefined) => {
   if (!value) return 'No date';
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) return 'No date';
-  return parsed.toLocaleString(undefined, {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
+  return ENGLISH_DATE_TIME_FORMATTER.format(parsed);
+};
+
+const formatAnalyticsScore = (value: number | null | undefined) =>
+  typeof value === 'number' ? `${value}/100` : '--';
+
+const formatAnalyticsDelta = (value: number | null | undefined) => {
+  if (typeof value !== 'number') return 'No baseline yet';
+  if (value > 0) return `+${value}`;
+  if (value < 0) return `${value}`;
+  return '0';
+};
+
+const getAnalyticsToneClassName = (tone: 'critical' | 'watch' | 'positive') =>
+  tone === 'critical'
+    ? 'border-rose-500/20 bg-rose-500/10 text-rose-200'
+    : tone === 'watch'
+    ? 'border-amber-400/20 bg-amber-400/10 text-amber-200'
+    : 'border-emerald-500/20 bg-emerald-500/10 text-emerald-200';
+
+const getAnalyticsSurfaceClassName = (tone: 'critical' | 'watch' | 'positive') =>
+  tone === 'critical'
+    ? 'border-rose-500/20 bg-rose-500/[0.07]'
+    : tone === 'watch'
+    ? 'border-amber-400/20 bg-amber-400/[0.06]'
+    : 'border-emerald-500/20 bg-emerald-500/[0.06]';
+
+const getAnalyticsStatusTone = (tone: 'critical' | 'watch' | 'positive'): 'danger' | 'warn' | 'success' =>
+  tone === 'critical' ? 'danger' : tone === 'watch' ? 'warn' : 'success';
+
+const getAnalyticsTrendToneClassName = (status: TeamAnalytics['trend']['status']) =>
+  status === 'up'
+    ? 'text-emerald-300'
+    : status === 'down'
+    ? 'text-rose-300'
+    : status === 'flat'
+    ? 'text-amber-200'
+    : 'text-muted-foreground';
+
+const getAnalyticsTrendBarHeight = (value: number | null) => {
+  if (typeof value !== 'number') return 12;
+  return Math.max(14, Math.round((value / 100) * 72));
+};
+
+const formatAnalyticsTrendHeadline = (
+  status: TeamAnalytics['trend']['status'],
+  deltaFromPrevious: number | null
+) => {
+  if (status === 'up' && typeof deltaFromPrevious === 'number') {
+    return `+${deltaFromPrevious} vs previous tracked week`;
+  }
+  if (status === 'down' && typeof deltaFromPrevious === 'number') {
+    return `${Math.abs(deltaFromPrevious)} down vs previous tracked week`;
+  }
+  if (status === 'flat') {
+    return 'No lift vs previous tracked week';
+  }
+  return 'Need one more comparable benchmark';
+};
+
+const getAverageValue = (values: number[]) => {
+  if (!values.length) return null;
+  return Math.round(values.reduce((total, value) => total + value, 0) / values.length);
+};
+
+const getMedianValue = (values: number[]) => {
+  if (!values.length) return null;
+  const sorted = [...values].sort((left, right) => left - right);
+  const midpoint = Math.floor(sorted.length / 2);
+  if (sorted.length % 2 === 0) {
+    return Math.round((sorted[midpoint - 1] + sorted[midpoint]) / 2);
+  }
+  return sorted[midpoint];
+};
+
+const isOlderThanDays = (value: string | null | undefined, days: number) => {
+  if (!value) return true;
+  const parsed = new Date(value).getTime();
+  if (!Number.isFinite(parsed)) return true;
+  return Date.now() - parsed >= days * 24 * 60 * 60 * 1000;
+};
+
+const isDueWithinDays = (value: string | null | undefined, days: number) => {
+  if (!value) return false;
+  const parsed = new Date(value).getTime();
+  if (!Number.isFinite(parsed)) return false;
+  const now = Date.now();
+  return parsed >= now && parsed <= now + days * 24 * 60 * 60 * 1000;
+};
+
+const isRenderableTeamAnalytics = (value: TeamAnalytics | null | undefined): value is TeamAnalytics =>
+  Boolean(
+    value &&
+      typeof value === 'object' &&
+      'summary' in value &&
+      typeof (value as TeamAnalytics).summary?.needsReviewNow === 'number'
+  );
+
+const buildFallbackTeamAnalytics = (detail: TeamWorkspaceDetail): TeamAnalytics => {
+  const learnerMembers = detail.members.filter((member) => member.role === 'learner' && member.status === 'active');
+  const benchmarkedLearners = learnerMembers.filter((member) => typeof member.latestBenchmarkScore === 'number');
+  const noBenchmarkYet = learnerMembers.length - benchmarkedLearners.length;
+  const averageLatestScore = getAverageValue(
+    benchmarkedLearners.map((member) => Number(member.latestBenchmarkScore || 0))
+  );
+  const medianLatestScore = getMedianValue(
+    benchmarkedLearners.map((member) => Number(member.latestBenchmarkScore || 0))
+  );
+  const benchmarkCoverageRate = learnerMembers.length
+    ? Math.round((benchmarkedLearners.length / learnerMembers.length) * 100)
+    : 0;
+  const quietLearners3d = learnerMembers.filter((member) => isOlderThanDays(member.lastActiveAt, 3)).length;
+  const quietLearners7d = learnerMembers.filter((member) => isOlderThanDays(member.lastActiveAt, 7)).length;
+  const improvingLearners = learnerMembers.filter(
+    (member) => typeof member.improvementDelta === 'number' && member.improvementDelta > 0
+  ).length;
+  const plateauLearners = learnerMembers.filter(
+    (member) => typeof member.improvementDelta === 'number' && member.improvementDelta === 0
+  ).length;
+  const decliningLearners = learnerMembers.filter(
+    (member) => typeof member.improvementDelta === 'number' && member.improvementDelta < 0
+  ).length;
+  const readyForRetake = learnerMembers.filter((member) => member.recommendedAction === 'Ready for retake').length;
+  const feedbackDrafts = detail.feedback.filter((entry) => entry.status === 'draft').length;
+  const feedbackResolved = detail.feedback.filter((entry) => entry.status === 'resolved').length;
+  const needsReviewNow = detail.submissions.filter((entry) => entry.status === 'submitted').length;
+  const needsRevision = detail.submissions.filter((entry) => entry.status === 'needs_revision').length;
+  const pendingJoinRequests = detail.joinRequests.filter((request) => request.status === 'pending').length;
+
+  const assignmentSubmissionBacklog = new Map<string, { submitted: number }>();
+  detail.submissions.forEach((entry) => {
+    if (!entry.assignmentId) return;
+    const existing = assignmentSubmissionBacklog.get(entry.assignmentId) || { submitted: 0 };
+    if (entry.status === 'submitted') {
+      existing.submitted += 1;
+    }
+    assignmentSubmissionBacklog.set(entry.assignmentId, existing);
   });
+
+  const pastDueAssignments = detail.assignments.filter((assignment) => assignment.lifecycleState === 'past_due').length;
+  const dueNext7d = detail.assignments.filter(
+    (assignment) => assignment.lifecycleState !== 'archived' && isDueWithinDays(assignment.dueAt, 7)
+  ).length;
+  const offTrackAssignmentIds = new Set(
+    detail.assignments
+      .filter((assignment) => {
+        if (assignment.lifecycleState === 'archived') return false;
+        if (assignment.lifecycleState === 'past_due') return true;
+        return isDueWithinDays(assignment.dueAt, 7) && Number(assignment.completionRate || 0) < 60;
+      })
+      .map((assignment) => assignment.id)
+  );
+
+  const priorityAssignments = detail.assignments
+    .filter((assignment) => assignment.lifecycleState !== 'archived')
+    .map((assignment) => {
+      const reviewBacklog = assignmentSubmissionBacklog.get(assignment.id)?.submitted || 0;
+      const noLearnerStarted =
+        assignment.eligibleLearnerCount > 0 && assignment.notStartedLearnerCount === assignment.eligibleLearnerCount;
+      const dueSoon = isDueWithinDays(assignment.dueAt, 7);
+      let severity = 0;
+      let signal = '';
+      let reason = '';
+
+      if (assignment.lifecycleState === 'past_due') {
+        severity = 4;
+        signal = 'Past due';
+        reason = `${assignment.completionRate}% complete with ${assignment.notStartedLearnerCount} not started.`;
+      } else if (dueSoon && Number(assignment.completionRate || 0) < 60) {
+        severity = 3;
+        signal = 'Due soon with low completion';
+        reason = `${assignment.completionRate}% complete before the due window closes.`;
+      } else if (reviewBacklog > 0) {
+        severity = 2;
+        signal = 'Coach review backlog';
+        reason = `${reviewBacklog} submission${reviewBacklog === 1 ? '' : 's'} waiting on review.`;
+      } else if (noLearnerStarted) {
+        severity = 1;
+        signal = 'No learner has started';
+        reason = `${assignment.eligibleLearnerCount} learner${assignment.eligibleLearnerCount === 1 ? '' : 's'} are in scope and none have started yet.`;
+      }
+
+      return severity > 0
+        ? {
+            id: assignment.id,
+            title: assignment.title,
+            signal,
+            reason,
+            dueAt: assignment.dueAt,
+            completionRate: Number(assignment.completionRate || 0),
+            lifecycleState: assignment.lifecycleState,
+            learnerCount: assignment.eligibleLearnerCount,
+            reviewBacklog,
+            severity,
+          }
+        : null;
+    })
+    .filter(Boolean)
+    .sort((left, right) => {
+      const severityDifference = right.severity - left.severity;
+      if (severityDifference !== 0) return severityDifference;
+      return Number(left.completionRate || 0) - Number(right.completionRate || 0);
+    })
+    .slice(0, 4)
+    .map(({ severity, ...assignment }) => assignment);
+
+  const priorityLearners = learnerMembers
+    .map((member) => {
+      const quiet7d = isOlderThanDays(member.lastActiveAt, 7);
+      const quiet3d = isOlderThanDays(member.lastActiveAt, 3);
+      let severity = 0;
+      let tone: TeamAnalytics['priorityLearners'][number]['tone'] = 'watch';
+      let signal = '';
+      let reason = '';
+
+      if (member.latestBenchmarkScore === null && quiet7d) {
+        severity = 4;
+        tone = 'critical';
+        signal = 'No benchmark and quiet';
+        reason = 'No benchmark signal yet and no workspace activity in 7+ days.';
+      } else if (
+        typeof member.latestBenchmarkScore === 'number' &&
+        member.latestBenchmarkScore < 55 &&
+        (member.improvementDelta === null || member.improvementDelta <= 0)
+      ) {
+        severity = 4;
+        tone = 'critical';
+        signal = 'Low score with no lift';
+        reason = `Latest benchmark ${member.latestBenchmarkScore}/100${quiet7d ? ' and quiet for 7+ days.' : '.'}`;
+      } else if (typeof member.latestBenchmarkScore === 'number' && member.latestBenchmarkScore < 55) {
+        severity = 3;
+        tone = 'watch';
+        signal = 'Needs guided practice';
+        reason = `Latest benchmark ${member.latestBenchmarkScore}/100. ${member.recommendedAction}.`;
+      } else if (quiet7d) {
+        severity = 2;
+        tone = 'watch';
+        signal = 'Quiet 7d+';
+        reason = 'No workspace activity in 7+ days while active in the team.';
+      } else if (member.latestBenchmarkScore === null || quiet3d) {
+        severity = 1;
+        tone = 'watch';
+        signal = member.latestBenchmarkScore === null ? 'Needs first benchmark' : 'Quiet 3d+';
+        reason =
+          member.latestBenchmarkScore === null
+            ? 'Still no benchmark signal for this learner.'
+            : 'No recent workspace activity in the last 3 days.';
+      }
+
+      return severity > 0
+        ? {
+            userId: member.userId,
+            name: member.name,
+            signal,
+            reason,
+            latestScore: member.latestBenchmarkScore,
+            improvementDelta: member.improvementDelta,
+            lastActiveAt: member.lastActiveAt,
+            recommendedAction: member.recommendedAction,
+            tone,
+            severity,
+          }
+        : null;
+    })
+    .filter(Boolean)
+    .sort((left, right) => {
+      const severityDifference = right.severity - left.severity;
+      if (severityDifference !== 0) return severityDifference;
+      return Number(left.latestScore ?? Infinity) - Number(right.latestScore ?? Infinity);
+    })
+    .slice(0, 4)
+    .map(({ severity, ...member }) => member);
+
+  const trendPoints = detail.metrics.progressTimeline.map((point, index, points) => {
+    const distance = points.length - index - 1;
+    return {
+      label: distance === 0 ? 'This week' : distance === 1 ? 'Last week' : `${distance}w ago`,
+      value: point.value,
+      count: point.count ?? (typeof point.value === 'number' ? 1 : 0),
+    };
+  });
+  const latestTrendIndex = [...trendPoints].map((point) => point.value).findLastIndex((value) => typeof value === 'number');
+  const previousTrendIndex =
+    latestTrendIndex > 0
+      ? trendPoints
+          .slice(0, latestTrendIndex)
+          .map((point) => point.value)
+          .findLastIndex((value) => typeof value === 'number')
+      : -1;
+  const latestTrendValue =
+    latestTrendIndex >= 0 && typeof trendPoints[latestTrendIndex]?.value === 'number'
+      ? Number(trendPoints[latestTrendIndex].value)
+      : null;
+  const previousTrendValue =
+    previousTrendIndex >= 0 && typeof trendPoints[previousTrendIndex]?.value === 'number'
+      ? Number(trendPoints[previousTrendIndex].value)
+      : null;
+  const deltaFromPrevious =
+    latestTrendValue !== null && previousTrendValue !== null ? latestTrendValue - previousTrendValue : null;
+  const status: TeamAnalytics['trend']['status'] =
+    deltaFromPrevious === null
+      ? 'insufficient'
+      : deltaFromPrevious > 0
+      ? 'up'
+      : deltaFromPrevious < 0
+      ? 'down'
+      : 'flat';
+  const summary =
+    status === 'up'
+      ? `+${deltaFromPrevious} vs previous tracked week. The team is moving in the right direction.`
+      : status === 'down'
+      ? `${Math.abs(deltaFromPrevious || 0)} down vs previous tracked week. Check follow-through before the next retake.`
+      : status === 'flat'
+      ? 'No lift vs previous tracked week. Finish the corrective work before testing again.'
+      : latestTrendValue !== null
+      ? 'Useful first read, but confirm it with another comparable benchmark.'
+      : 'No comparable benchmark movement yet.';
+
+  const actionSignals: TeamAnalytics['actionSignals'] = [];
+  if (needsReviewNow > 0) {
+    actionSignals.push({
+      title: 'Coach review backlog',
+      detail: `${needsReviewNow} submission${needsReviewNow === 1 ? '' : 's'} are waiting on coach review right now.`,
+      tone: 'critical',
+    });
+  }
+  if (quietLearners7d > 0) {
+    actionSignals.push({
+      title: 'Quiet learners',
+      detail: `${quietLearners7d} learner${quietLearners7d === 1 ? '' : 's'} have gone quiet for 7+ days.`,
+      tone: 'watch',
+    });
+  }
+  if (offTrackAssignmentIds.size > 0) {
+    actionSignals.push({
+      title: 'Assignments drifting',
+      detail: `${offTrackAssignmentIds.size} assignment${offTrackAssignmentIds.size === 1 ? '' : 's'} are past due or due soon with low completion.`,
+      tone: 'critical',
+    });
+  }
+  if (noBenchmarkYet > 0) {
+    actionSignals.push({
+      title: 'Missing benchmark signal',
+      detail: `${noBenchmarkYet} learner${noBenchmarkYet === 1 ? '' : 's'} still have no benchmark signal.`,
+      tone: 'watch',
+    });
+  }
+  if (!actionSignals.length) {
+    actionSignals.push({
+      title: 'No urgent follow-up right now',
+      detail: 'The current queue is clear enough to focus on the next benchmark and coaching loop.',
+      tone: 'positive',
+    });
+  }
+
+  const activeAssignments = detail.assignments.filter((assignment) => assignment.lifecycleState !== 'archived').length;
+  const onTrackAssignments = Math.max(0, activeAssignments - offTrackAssignmentIds.size);
+  const highlights: TeamAnalytics['highlights'] = [];
+  if (readyForRetake > 0) {
+    highlights.push({
+      title: 'Retake-ready learners',
+      detail: `${readyForRetake} learner${readyForRetake === 1 ? '' : 's'} are ready for a benchmark retake after corrective work.`,
+    });
+  }
+  if (improvingLearners > 0) {
+    highlights.push({
+      title: 'Scores are lifting',
+      detail: `${improvingLearners} learner${improvingLearners === 1 ? '' : 's'} have a positive benchmark delta from their earlier baseline.`,
+    });
+  }
+  if (onTrackAssignments > 0) {
+    highlights.push({
+      title: 'Assignments still moving',
+      detail: `${onTrackAssignments} active assignment${onTrackAssignments === 1 ? '' : 's'} are not showing risk signals right now.`,
+    });
+  }
+  if (feedbackResolved > 0) {
+    highlights.push({
+      title: 'Coaching loops resolved',
+      detail:
+        feedbackResolved === 1
+          ? '1 coaching note has already been closed cleanly.'
+          : `${feedbackResolved} coaching notes have already been closed cleanly.`,
+    });
+  }
+  if (!highlights.length) {
+    highlights.push({
+      title: 'No stable positive signal yet',
+      detail: 'The team needs a fuller benchmark and coaching loop before momentum is clear.',
+    });
+  }
+
+  return {
+    summary: {
+      needsReviewNow,
+      quietLearners7d,
+      offTrackAssignments: offTrackAssignmentIds.size,
+      medianLatestScore,
+      benchmarkCoverageRate,
+      benchmarkedLearners: benchmarkedLearners.length,
+      totalLearners: learnerMembers.length,
+    },
+    health: {
+      activeLearners: learnerMembers.length,
+      noBenchmarkYet,
+      dueNext7d,
+      pastDueAssignments,
+      pendingJoinRequests,
+    },
+    movement: {
+      averageLatestScore,
+      medianLatestScore,
+      improvingLearners,
+      plateauLearners,
+      decliningLearners,
+      readyForRetake,
+      averageImprovement: detail.metrics.averageImprovement,
+    },
+    workflow: {
+      needsReviewNow,
+      needsRevision,
+      feedbackDrafts,
+      feedbackResolved,
+      quietLearners3d,
+      quietLearners7d,
+      offTrackAssignments: offTrackAssignmentIds.size,
+    },
+    trend: {
+      points: trendPoints,
+      deltaFromPrevious,
+      status,
+      summary,
+    },
+    actionSignals: actionSignals.slice(0, 3),
+    priorityLearners,
+    priorityAssignments,
+    highlights: highlights.slice(0, 3),
+  };
 };
 
 const normalizeRubricDraftValue = (value: string) => {
@@ -585,153 +1048,6 @@ const buildFeedbackRubricDraft = (breakdown: TeamRubricBreakdown | null | undefi
     breakdown?.problemSolving === null || breakdown?.problemSolving === undefined ? '' : String(breakdown.problemSolving),
   communication: breakdown?.communication === null || breakdown?.communication === undefined ? '' : String(breakdown.communication),
 });
-
-const formatMonthLabel = (value: Date) =>
-  value.toLocaleDateString(undefined, {
-    month: 'long',
-    year: 'numeric',
-  });
-
-const startOfCalendarMonth = (value: Date) => new Date(value.getFullYear(), value.getMonth(), 1);
-
-const startOfCalendarGrid = (value: Date) => {
-  const monthStart = startOfCalendarMonth(value);
-  const weekday = monthStart.getDay();
-  const offset = weekday === 0 ? 6 : weekday - 1;
-  const gridStart = new Date(monthStart);
-  gridStart.setDate(monthStart.getDate() - offset);
-  gridStart.setHours(0, 0, 0, 0);
-  return gridStart;
-};
-
-const addCalendarDays = (value: Date, amount: number) => {
-  const next = new Date(value);
-  next.setDate(next.getDate() + amount);
-  return next;
-};
-
-const toCalendarDateKey = (value: string | Date) => {
-  const parsed = value instanceof Date ? value : new Date(value);
-  if (Number.isNaN(parsed.getTime())) return '';
-  const year = parsed.getFullYear();
-  const month = `${parsed.getMonth() + 1}`.padStart(2, '0');
-  const day = `${parsed.getDate()}`.padStart(2, '0');
-  return `${year}-${month}-${day}`;
-};
-
-const getAssignmentDueMeta = (dueAt: string | null | undefined) => {
-  if (!dueAt) {
-    return {
-      band: 'no_due_date' as AssignmentDueBand,
-      label: 'No due date',
-      tone: 'default' as const,
-      sortValue: Number.POSITIVE_INFINITY,
-    };
-  }
-
-  const parsed = new Date(dueAt);
-  if (Number.isNaN(parsed.getTime())) {
-    return {
-      band: 'no_due_date' as AssignmentDueBand,
-      label: 'No due date',
-      tone: 'default' as const,
-      sortValue: Number.POSITIVE_INFINITY,
-    };
-  }
-
-  const diffMs = parsed.getTime() - Date.now();
-  if (diffMs < 0) {
-    return {
-      band: 'overdue' as AssignmentDueBand,
-      label: 'Overdue',
-      tone: 'danger' as const,
-      sortValue: parsed.getTime(),
-    };
-  }
-
-  if (diffMs <= 7 * 24 * 60 * 60 * 1000) {
-    return {
-      band: 'due_soon' as AssignmentDueBand,
-      label: 'Due soon',
-      tone: 'warn' as const,
-      sortValue: parsed.getTime(),
-    };
-  }
-
-  return {
-    band: 'scheduled' as AssignmentDueBand,
-    label: 'Scheduled',
-    tone: 'success' as const,
-    sortValue: parsed.getTime(),
-  };
-};
-
-const getAssignmentLifecycleMeta = (lifecycleState: TeamAssignmentLifecycleState) => {
-  switch (lifecycleState) {
-    case 'past_due':
-      return {
-        label: 'Past due',
-        tone: 'danger' as const,
-        sortPriority: 0,
-      };
-    case 'archived':
-      return {
-        label: 'Archived',
-        tone: 'default' as const,
-        sortPriority: 2,
-      };
-    case 'active':
-    default:
-      return {
-        label: 'Active',
-        tone: 'success' as const,
-        sortPriority: 1,
-      };
-  }
-};
-
-const getAssignmentWorkflowStateMeta = (assignment: TeamAssignment) => {
-  const dueMeta = getAssignmentDueMeta(assignment.dueAt);
-  const startedCount = assignment.completedLearnerCount + assignment.inProgressLearnerCount;
-
-  if (assignment.lifecycleState === 'archived') {
-    return {
-      label: 'Archived',
-      description: 'Inactive history',
-      sortPriority: 4,
-    };
-  }
-
-  if (assignment.lifecycleState === 'past_due' || dueMeta.band === 'overdue') {
-    return {
-      label: 'Past due',
-      description: 'Needs action now',
-      sortPriority: 0,
-    };
-  }
-
-  if (dueMeta.band === 'due_soon') {
-    return {
-      label: 'Due soon',
-      description: 'Inside 7 days',
-      sortPriority: 1,
-    };
-  }
-
-  if (dueMeta.band === 'scheduled' && startedCount === 0) {
-    return {
-      label: 'Scheduled',
-      description: 'Waiting to start',
-      sortPriority: 2,
-    };
-  }
-
-  return {
-    label: 'Live',
-    description: 'In progress',
-    sortPriority: 3,
-  };
-};
 
 const getFeedbackStateMeta = (entry: TeamFeedback) => {
   if (entry.status === 'resolved') {
@@ -872,28 +1188,23 @@ const formatTeamRoleLabel = (role: TeamRole) => {
   return 'Learner';
 };
 
-const formatDateTimeInput = (value: string | null | undefined) => {
-  if (!value) return '';
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return '';
-  const offset = parsed.getTimezoneOffset();
-  const normalized = new Date(parsed.getTime() - offset * 60 * 1000);
-  return normalized.toISOString().slice(0, 16);
-};
-
-const toIsoOrNull = (value: string) => {
-  if (!value.trim()) return null;
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return null;
-  return parsed.toISOString();
-};
-
 const getDaysUntil = (value: string | null | undefined) => {
   if (!value) return '14';
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) return '14';
   const diff = parsed.getTime() - Date.now();
   return String(Math.max(1, Math.ceil(diff / (1000 * 60 * 60 * 24))));
+};
+
+const formatInviteExpiryLabel = (value: string | null | undefined) => {
+  if (!value) return 'No expiry';
+
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return 'No expiry';
+
+  const diffDays = Math.ceil((parsed.getTime() - Date.now()) / (1000 * 60 * 60 * 24));
+  if (diffDays <= 0) return `Expired ${formatDateLabel(value)}`;
+  return `${formatDateLabel(value)} • ${diffDays}d left`;
 };
 
 const sanitizeIntegerDraftValue = (value: string) => value.replace(/[^\d]/g, '');
@@ -944,31 +1255,6 @@ const copyTextToClipboard = async (value: string) => {
   }
 };
 
-function ProgressStack({
-  completed,
-  inProgress,
-  notStarted,
-}: {
-  completed: number;
-  inProgress: number;
-  notStarted: number;
-}) {
-  const total = completed + inProgress + notStarted;
-  const completedWidth = total > 0 ? (completed / total) * 100 : 0;
-  const inProgressWidth = total > 0 ? (inProgress / total) * 100 : 0;
-  const notStartedWidth = total > 0 ? (notStarted / total) * 100 : 100;
-
-  return (
-    <div className="h-2 overflow-hidden rounded-full bg-secondary">
-      <div className="flex h-full w-full">
-        <div className="bg-emerald-400/90" style={{ width: `${completedWidth}%` }} />
-        <div className="bg-primary/90" style={{ width: `${inProgressWidth}%` }} />
-        <div className="bg-secondary-foreground/20" style={{ width: `${notStartedWidth}%` }} />
-      </div>
-    </div>
-  );
-}
-
 const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -994,6 +1280,9 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
   const [joinSettingsDraft, setJoinSettingsDraft] = useState<JoinSettingsDraft>(emptyJoinSettingsDraft());
   const [inviteDraft, setInviteDraft] = useState<InviteDraft>(emptyInviteDraft());
   const [assignmentDraft, setAssignmentDraft] = useState<AssignmentDraft>(emptyAssignmentDraft());
+  const [assignmentDueInputState, setAssignmentDueInputState] = useState<AssignmentDueInputState>(
+    EMPTY_ASSIGNMENT_DUE_INPUT_STATE
+  );
   const [feedbackDraft, setFeedbackDraft] = useState<FeedbackDraft>(emptyFeedbackDraft());
   const [feedbackRubricDraft, setFeedbackRubricDraft] = useState<FeedbackRubricDraft>(emptyFeedbackRubricDraft());
   const [confirmMemberAction, setConfirmMemberAction] = useState<MemberConfirmAction>(null);
@@ -1001,15 +1290,7 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
   const [memberSearchQuery, setMemberSearchQuery] = useState('');
   const [memberRoleFilter, setMemberRoleFilter] = useState<'all' | TeamRole>('all');
   const [memberActivityFilter, setMemberActivityFilter] = useState<MemberActivityFilter>('all');
-  const [assignmentSearchQuery, setAssignmentSearchQuery] = useState('');
-  const [assignmentTypeFilter, setAssignmentTypeFilter] = useState<'all' | TeamAssignmentType>('all');
-  const [assignmentLifecycleFilter, setAssignmentLifecycleFilter] = useState<AssignmentLifecycleFilter>('all');
-  const [assignmentSort, setAssignmentSort] = useState<AssignmentSortOption>('priority');
-  const [assignmentViewMode, setAssignmentViewMode] = useState<AssignmentViewMode>('list');
   const [selectedAssignmentId, setSelectedAssignmentId] = useState<string | null>(null);
-  const [selectedAssignmentIds, setSelectedAssignmentIds] = useState<string[]>([]);
-  const [assignmentBulkDueAt, setAssignmentBulkDueAt] = useState('');
-  const [assignmentCalendarMonth, setAssignmentCalendarMonth] = useState(() => startOfCalendarMonth(new Date()));
   const [assignmentEditorOpen, setAssignmentEditorOpen] = useState(false);
   const [feedbackSearchQuery, setFeedbackSearchQuery] = useState('');
   const [feedbackStatusFilter, setFeedbackStatusFilter] = useState<ReviewStatusFilter>('all');
@@ -1022,6 +1303,7 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
   const [submissionAttachmentMode, setSubmissionAttachmentMode] = useState<SubmissionAttachmentMode>('none');
   const [selectedSubmissionId, setSelectedSubmissionId] = useState<string | null>(null);
   const [submissionDraft, setSubmissionDraft] = useState<SubmissionDraft>(emptySubmissionDraft());
+  const [activeFeedbackStarterId, setActiveFeedbackStarterId] = useState<string | null>(null);
   const [showAllSubmissionHistory, setShowAllSubmissionHistory] = useState(false);
   const [showAllFeedbackHistory, setShowAllFeedbackHistory] = useState(false);
   const [showAllComposerHistory, setShowAllComposerHistory] = useState(false);
@@ -1033,6 +1315,7 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
     assignmentId: '',
   });
   const pendingFeedbackComposerActionRef = useRef<(() => void) | null>(null);
+  const pendingWorkspaceModalBootstrapRef = useRef<(() => void) | null>(null);
 
   const isSignedIn = Boolean(user);
   const isOverviewSelected = selectedTeamId === TEAM_WORKSPACE_OVERVIEW_VALUE;
@@ -1066,6 +1349,25 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
     () => getTeamPlanPolicyFromSeatLimit(selectedTeam?.seatLimit),
     [selectedTeam?.seatLimit]
   );
+  const resolvedTeamAnalytics = useMemo(() => {
+    if (isRenderableTeamAnalytics(teamAnalytics)) {
+      return teamAnalytics;
+    }
+    if (teamDetail) {
+      return buildFallbackTeamAnalytics(teamDetail);
+    }
+    return null;
+  }, [teamAnalytics, teamDetail]);
+  const analyticsHasBenchmarkSignal = Boolean(
+    resolvedTeamAnalytics && resolvedTeamAnalytics.summary.benchmarkedLearners > 0
+  );
+  const analyticsHasMovementBreakdown = Boolean(
+    resolvedTeamAnalytics &&
+      (resolvedTeamAnalytics.movement.improvingLearners > 0 ||
+        resolvedTeamAnalytics.movement.plateauLearners > 0 ||
+        resolvedTeamAnalytics.movement.decliningLearners > 0 ||
+        resolvedTeamAnalytics.movement.readyForRetake > 0)
+  );
   const trackTitleById = useMemo(
     () =>
       new Map(
@@ -1093,6 +1395,17 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
     }),
     [teamDetail]
   );
+  const pendingJoinRequests = useMemo(
+    () => (teamDetail?.joinRequests || []).filter((request) => request.status === 'pending'),
+    [teamDetail?.joinRequests]
+  );
+  const activeInvites = useMemo(
+    () => (teamDetail?.invites || []).filter((invite) => invite.status === 'active'),
+    [teamDetail?.invites]
+  );
+  const accessJoinModeOption =
+    TEAM_JOIN_MODE_OPTIONS.find((option) => option.value === joinSettingsDraft.joinMode) || TEAM_JOIN_MODE_OPTIONS[0];
+  const accessJoinModeMeta = TEAM_JOIN_MODE_META[joinSettingsDraft.joinMode];
 
   const hydrateMemberDrafts = (members: TeamMember[]) => {
     setMemberDrafts(
@@ -1237,7 +1550,10 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
     };
   }, []);
   const resetInviteDraft = useCallback(() => setInviteDraft(emptyInviteDraft()), []);
-  const resetAssignmentDraft = useCallback(() => setAssignmentDraft(emptyAssignmentDraft()), []);
+  const resetAssignmentDraft = useCallback(() => {
+    setAssignmentDraft(emptyAssignmentDraft());
+    setAssignmentDueInputState(EMPTY_ASSIGNMENT_DUE_INPUT_STATE);
+  }, []);
   const resetSubmissionDraft = useCallback(() => setSubmissionDraft(emptySubmissionDraft()), []);
   const resetFeedbackEditor = useCallback(() => setFeedbackDraft(emptyFeedbackDraft()), []);
   const performFeedbackComposerClose = useCallback((onAfterClose?: () => void) => {
@@ -1245,6 +1561,7 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
     setFeedbackDiscardPrompt(null);
     resetFeedbackEditor();
     setFeedbackRubricDraft(emptyFeedbackRubricDraft());
+    setActiveFeedbackStarterId(null);
     setSubmissionAttachmentMode('none');
     setSelectedSubmissionId(null);
     resetSubmissionDraft();
@@ -1314,6 +1631,7 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
     }
     setFeedbackDraft(nextFeedbackDraft);
     setFeedbackRubricDraft(nextRubricDraft);
+    setActiveFeedbackStarterId(null);
     setSubmissionAttachmentMode(attachmentMode);
     setSelectedSubmissionId(nextSelectedSubmissionId);
     setSubmissionDraft(nextSubmissionDraft);
@@ -1484,6 +1802,20 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
     }
   };
 
+  const activateWorkspaceModal = useCallback(
+    (modal: Exclude<WorkspaceModal, null>, bootstrap?: () => void) => {
+      if (activeModal === modal) {
+        pendingWorkspaceModalBootstrapRef.current = null;
+        bootstrap?.();
+        return;
+      }
+
+      pendingWorkspaceModalBootstrapRef.current = bootstrap || null;
+      setActiveModal(modal);
+    },
+    [activeModal]
+  );
+
   const handleSaveInvite = async () => {
     if (!selectedTeamId) return;
     if (!inviteDraft.label.trim()) {
@@ -1520,7 +1852,7 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
       if (inviteDraft.id) {
         await updateTeamInvite(selectedTeamId, inviteDraft.id, {
           label: inviteDraft.label.trim(),
-          email: inviteDraft.email.trim() || null,
+          email: inviteDraft.email.trim() || '',
           role: 'learner',
           maxUses,
           expiresInDays,
@@ -1578,16 +1910,9 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
 
   const handleSaveAssignment = async () => {
     if (!selectedTeamId) return;
-    if (!assignmentDraft.title.trim()) {
-      toast.error('Enter an assignment title.');
-      return;
-    }
-    if (assignmentDraft.assignmentType === 'roadmap' && !assignmentDraft.trackId) {
-      toast.error('Select a roadmap track.');
-      return;
-    }
-    if (assignmentDraft.assignmentType !== 'roadmap' && !assignmentDraft.benchmarkLanguage) {
-      toast.error('Select a benchmark language.');
+    const validation = getAssignmentDraftValidation(assignmentDraft, assignmentDueInputState);
+    if (!validation.readyToSave) {
+      toast.error(validation.issues[0]?.message || 'Fix the assignment before saving.');
       return;
     }
 
@@ -1595,13 +1920,15 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
     try {
       const isEditing = Boolean(assignmentDraft.id);
       const payload = {
-        title: assignmentDraft.title.trim(),
-        description: assignmentDraft.description.trim(),
+        title: validation.title,
+        description: validation.description,
         assignmentType: assignmentDraft.assignmentType,
         benchmarkLanguage:
-          assignmentDraft.assignmentType === 'roadmap' ? null : assignmentDraft.benchmarkLanguage || null,
+          assignmentDraft.assignmentType === 'benchmark' ? assignmentDraft.benchmarkLanguage || null : null,
         trackId: assignmentDraft.assignmentType === 'roadmap' ? assignmentDraft.trackId || null : null,
-        dueAt: toIsoOrNull(assignmentDraft.dueAt),
+        duelTargetCount:
+          assignmentDraft.assignmentType === 'duel_activity' ? validation.duelTargetCount ?? undefined : undefined,
+        dueAt: assignmentDueAtInputToIsoOrNull(validation.dueAt),
       };
 
       const savedAssignment = assignmentDraft.id
@@ -1609,9 +1936,9 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
         : await createTeamAssignment(selectedTeamId, payload);
 
       toast.success(isEditing ? 'Assignment updated.' : 'Assignment created.');
-      setSelectedAssignmentId(savedAssignment.id);
       closeAssignmentEditor();
       await refreshSelectedTeam(selectedTeamId);
+      setSelectedAssignmentId(savedAssignment.id);
     } catch (error: any) {
       toast.error(error?.message || 'Could not save assignment.');
     } finally {
@@ -1620,15 +1947,30 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
   };
 
   const startAssignmentEdit = (assignment: TeamAssignment) => {
+    const normalizedTitle = String(assignment.title || '').trim();
+    const nextEditorTitle =
+      /^Copy of\s+/i.test(normalizedTitle) || /\(copy(?:\s+\d+)?\)/i.test(normalizedTitle)
+        ? getAssignmentDisplayTitle(normalizedTitle)
+        : normalizedTitle;
+
     setAssignmentDraft({
       id: assignment.id,
-      title: assignment.title,
+      title: nextEditorTitle,
       description: assignment.description || '',
       assignmentType: assignment.assignmentType,
       benchmarkLanguage: assignment.benchmarkLanguage || 'python',
       trackId: assignment.trackId || '',
-      dueAt: formatDateTimeInput(assignment.dueAt),
+      duelTargetCount:
+        assignment.assignmentType === 'duel_activity'
+          ? String(
+              ('requiredMatchCount' in assignment.definitionSnapshot
+                ? assignment.definitionSnapshot.requiredMatchCount
+                : assignment.requiredCompletionCount) || 3
+            )
+          : '3',
+      dueAt: formatAssignmentDueAtInput(assignment.dueAt),
     });
+    setAssignmentDueInputState(getAssignmentDueInputStateFromValue(formatAssignmentDueAtInput(assignment.dueAt)));
     setSelectedAssignmentId(assignment.id);
     setAssignmentEditorOpen(true);
   };
@@ -1638,17 +1980,10 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
 
     setSubmittingKey(`duplicate-assignment-${assignment.id}`);
     try {
-      const duplicatedAssignment = await createTeamAssignment(selectedTeamId, {
-        title: `Copy of ${assignment.title}`,
-        description: assignment.description || '',
-        assignmentType: assignment.assignmentType,
-        benchmarkLanguage: assignment.assignmentType === 'roadmap' ? null : assignment.benchmarkLanguage,
-        trackId: assignment.assignmentType === 'roadmap' ? assignment.trackId : null,
-        dueAt: assignment.dueAt,
-      });
+      const duplicatedAssignment = await duplicateTeamAssignment(selectedTeamId, assignment.id);
       toast.success('Assignment duplicated.');
-      setSelectedAssignmentId(duplicatedAssignment.id);
       await refreshSelectedTeam(selectedTeamId);
+      setSelectedAssignmentId(duplicatedAssignment.id);
     } catch (error: any) {
       toast.error(error?.message || 'Could not duplicate assignment.');
     } finally {
@@ -1656,20 +1991,24 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
     }
   };
 
-  const handleBulkAssignmentAction = async (action: 'archive' | 'restore' | 'set_due_date') => {
-    if (!selectedTeamId || selectedAssignmentIds.length === 0) return;
-    if (action === 'set_due_date' && assignmentBulkDueAt && Number.isNaN(new Date(assignmentBulkDueAt).getTime())) {
+  const handleBulkAssignmentAction = async (
+    action: 'archive' | 'restore' | 'set_due_date',
+    assignmentIds: string[],
+    assignmentBulkDueAt: string
+  ) => {
+    if (!selectedTeamId || assignmentIds.length === 0) return false;
+    if (action === 'set_due_date' && assignmentBulkDueAt && !assignmentDueAtInputToIsoOrNull(assignmentBulkDueAt)) {
       toast.error('Enter a valid due date.');
-      return;
+      return false;
     }
 
     const bulkKey = `bulk-assignment-${action}`;
     setSubmittingKey(bulkKey);
     try {
       await bulkUpdateTeamAssignments(selectedTeamId, {
-        assignmentIds: selectedAssignmentIds,
+        assignmentIds,
         action,
-        dueAt: action === 'set_due_date' ? toIsoOrNull(assignmentBulkDueAt) : undefined,
+        dueAt: action === 'set_due_date' ? assignmentDueAtInputToIsoOrNull(assignmentBulkDueAt) : undefined,
       });
       toast.success(
         action === 'archive'
@@ -1678,40 +2017,43 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
           ? 'Assignments restored.'
           : 'Assignment due dates updated.'
       );
-      setSelectedAssignmentIds([]);
-      if (action === 'set_due_date') {
-        setAssignmentBulkDueAt('');
-      }
       await refreshSelectedTeam(selectedTeamId);
+      return true;
     } catch (error: any) {
       toast.error(error?.message || 'Could not update the selected assignments.');
+      return false;
     } finally {
       setSubmittingKey(null);
     }
   };
 
   const applyAssignmentTemplate = (templateId: string) => {
-    const template = ASSIGNMENT_TEMPLATES.find((entry) => entry.id === templateId);
-    if (!template) return;
+    const nextDraft = createAssignmentDraftFromTemplate(templateId);
+    if (!nextDraft) return;
 
-    setAssignmentDraft({
-      id: null,
-      title: template.title,
-      description: template.description,
-      assignmentType: template.assignmentType,
-      benchmarkLanguage: template.assignmentType === 'roadmap' ? 'python' : template.benchmarkLanguage || 'python',
-      trackId: template.assignmentType === 'roadmap' ? template.trackId || '' : '',
-      dueAt: '',
-    });
+    setAssignmentDraft(nextDraft);
+    setAssignmentDueInputState(getAssignmentDueInputStateFromValue(nextDraft.dueAt));
     setAssignmentEditorOpen(true);
   };
 
   const requestArchiveAssignment = (assignment: TeamAssignment) => {
     setConfirmWorkspaceAction({
       type: 'assignment_archive',
-      assignment,
+      assignment: {
+        id: assignment.id,
+        title: assignment.title,
+      },
     });
   };
+
+  const requestDeleteAssignments = useCallback((assignments: Array<Pick<TeamAssignment, 'id' | 'title'>>) => {
+    if (!assignments.length) return;
+
+    setConfirmWorkspaceAction({
+      type: 'assignment_delete',
+      assignments,
+    });
+  }, []);
 
   const handleRestoreAssignment = async (assignment: TeamAssignment) => {
     if (!selectedTeamId) return;
@@ -1925,6 +2267,7 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
 
     setFeedbackDraft(nextFeedbackDraft);
     setFeedbackRubricDraft(nextRubricDraft);
+    setActiveFeedbackStarterId(null);
     setSubmissionAttachmentMode(nextSubmissionAttachmentMode);
     setSelectedSubmissionId(nextSelectedSubmissionId);
     setSubmissionDraft(nextSubmissionDraft);
@@ -1965,10 +2308,19 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
 
     setFeedbackDraft((current) => ({
       ...current,
-      summary: current.summary || snippet.summary,
-      strengths: current.strengths || snippet.strengths,
-      focusAreas: current.focusAreas || snippet.focusAreas,
+      summary: snippet.summary,
+      strengths: snippet.strengths,
+      focusAreas: snippet.focusAreas,
     }));
+    setActiveFeedbackStarterId(snippet.id);
+  };
+
+  const updateFeedbackNoteField = (field: 'summary' | 'strengths' | 'focusAreas', value: string) => {
+    setFeedbackDraft((current) => ({
+      ...current,
+      [field]: value,
+    }));
+    setActiveFeedbackStarterId(null);
   };
 
   const requestRoleChange = (member: TeamMember, nextRole: TeamRole) => {
@@ -2042,16 +2394,35 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
 
     if (confirmWorkspaceAction.type === 'assignment_archive') {
       const { assignment } = confirmWorkspaceAction;
-      const deleteKey = `delete-assignment-${assignment.id}`;
-      setSubmittingKey(deleteKey);
+      const archiveKey = `archive-assignment-${assignment.id}`;
+      setSubmittingKey(archiveKey);
       try {
-        await deleteTeamAssignment(selectedTeamId, assignment.id);
+        await updateTeamAssignment(selectedTeamId, assignment.id, { archived: true });
         toast.success('Assignment archived.');
         if (assignmentDraft.id === assignment.id) closeAssignmentEditor();
         setConfirmWorkspaceAction(null);
         await refreshSelectedTeam(selectedTeamId);
       } catch (error: any) {
         toast.error(error?.message || 'Could not archive assignment.');
+      } finally {
+        setSubmittingKey(null);
+      }
+      return;
+    }
+
+    if (confirmWorkspaceAction.type === 'assignment_delete') {
+      const { assignments } = confirmWorkspaceAction;
+      setSubmittingKey('bulk-assignment-delete');
+      try {
+        await bulkUpdateTeamAssignments(selectedTeamId, {
+          assignmentIds: assignments.map((assignment) => assignment.id),
+          action: 'delete',
+        });
+        toast.success(assignments.length === 1 ? 'Assignment deleted.' : 'Assignments deleted.');
+        setConfirmWorkspaceAction(null);
+        await refreshSelectedTeam(selectedTeamId);
+      } catch (error: any) {
+        toast.error(error?.message || 'Could not delete the selected assignments.');
       } finally {
         setSubmittingKey(null);
       }
@@ -2211,15 +2582,8 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
   }, [teamDetail?.members, memberActivityFilter, memberRoleFilter, memberSearchQuery, user?.id]);
 
   useEffect(() => {
-    setAssignmentSearchQuery('');
-    setAssignmentTypeFilter('all');
-    setAssignmentLifecycleFilter('all');
-    setAssignmentSort('priority');
-    setAssignmentViewMode('list');
-    setSelectedAssignmentIds([]);
-    setAssignmentBulkDueAt('');
-    setAssignmentCalendarMonth(startOfCalendarMonth(new Date()));
     setAssignmentDraft(emptyAssignmentDraft());
+    setAssignmentDueInputState(EMPTY_ASSIGNMENT_DUE_INPUT_STATE);
     setAssignmentEditorOpen(false);
     setSelectedAssignmentId(null);
     setFeedbackSearchQuery('');
@@ -2228,6 +2592,7 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
     setFeedbackSort('recent');
     setFeedbackDraft(emptyFeedbackDraft());
     setFeedbackRubricDraft(emptyFeedbackRubricDraft());
+    setActiveFeedbackStarterId(null);
     setFeedbackComposerOpen(false);
     setSelectedFeedbackId(null);
     setSelectedReviewItemId(null);
@@ -2235,173 +2600,16 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
     setSelectedSubmissionId(null);
     setSubmissionDraft(emptySubmissionDraft());
     resetFeedbackComposerTracking();
+
+    if (!activeModal) {
+      pendingWorkspaceModalBootstrapRef.current = null;
+      return;
+    }
+
+    const pendingBootstrap = pendingWorkspaceModalBootstrapRef.current;
+    pendingWorkspaceModalBootstrapRef.current = null;
+    pendingBootstrap?.();
   }, [activeModal, resetFeedbackComposerTracking, selectedTeamId]);
-
-  const assignmentOperationalMeta = useMemo(() => {
-    const assignments = teamDetail?.assignments || [];
-    const submissions = teamDetail?.submissions || [];
-    const feedbackEntries = teamDetail?.feedback || [];
-
-    const latestFeedbackBySubmissionId = new Map<string, TeamFeedback>();
-    feedbackEntries
-      .filter((entry) => entry.submissionId)
-      .slice()
-      .sort((left, right) => new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime())
-      .forEach((entry) => {
-        if (entry.submissionId && !latestFeedbackBySubmissionId.has(entry.submissionId)) {
-          latestFeedbackBySubmissionId.set(entry.submissionId, entry);
-        }
-      });
-
-    return new Map(
-      assignments.map((assignment) => {
-        const relatedSubmissions = submissions.filter((entry) => entry.assignmentId === assignment.id);
-        const relatedSubmissionIds = new Set(relatedSubmissions.map((entry) => entry.id));
-        const relatedFeedback = feedbackEntries.filter(
-          (entry) => entry.assignmentId === assignment.id || (entry.submissionId ? relatedSubmissionIds.has(entry.submissionId) : false)
-        );
-        const scoredFeedback = relatedFeedback.map((entry) => entry.rubricScore).filter((value): value is number => value !== null);
-        const scoredSubmissions = relatedSubmissions
-          .map((entry) => entry.rubricScore)
-          .filter((value): value is number => value !== null);
-        const averageScoreSource = scoredFeedback.length > 0 ? scoredFeedback : scoredSubmissions;
-        const averageScore =
-          averageScoreSource.length > 0
-            ? Math.round(averageScoreSource.reduce((total, value) => total + value, 0) / averageScoreSource.length)
-            : null;
-        const needsReviewCount = relatedSubmissions.filter((submission) => {
-          const latestFeedback = latestFeedbackBySubmissionId.get(submission.id);
-          if (!latestFeedback) return true;
-          return latestFeedback.status !== 'resolved' && !latestFeedback.sharedWithMember && latestFeedback.status !== 'shared';
-        }).length;
-        const lastActivityCandidates = [
-          assignment.updatedAt || assignment.createdAt,
-          ...relatedSubmissions.map((entry) => entry.updatedAt || entry.createdAt),
-          ...relatedFeedback.map((entry) => entry.updatedAt || entry.createdAt),
-        ]
-          .filter(Boolean)
-          .map((value) => new Date(value as string).getTime())
-          .filter((value) => Number.isFinite(value));
-        const lastActivityAt =
-          lastActivityCandidates.length > 0
-            ? new Date(Math.max(...lastActivityCandidates)).toISOString()
-            : assignment.updatedAt || assignment.createdAt;
-
-        return [
-          assignment.id,
-          {
-            needsReviewCount,
-            submissionCount: relatedSubmissions.length,
-            feedbackCount: relatedFeedback.length,
-            averageScore,
-            lastActivityAt,
-          },
-        ] as const;
-      })
-    );
-  }, [teamDetail?.assignments, teamDetail?.feedback, teamDetail?.submissions]);
-
-  const assignmentModalStats = useMemo(() => {
-    const assignments = teamDetail?.assignments || [];
-
-    return assignments.reduce(
-      (accumulator, assignment) => {
-        const dueMeta = getAssignmentDueMeta(assignment.dueAt);
-        const operationalMeta = assignmentOperationalMeta.get(assignment.id);
-        accumulator.total += 1;
-        if (assignment.lifecycleState === 'active') accumulator.active += 1;
-        if (assignment.lifecycleState === 'past_due') accumulator.pastDue += 1;
-        if (assignment.lifecycleState === 'archived') accumulator.archived += 1;
-        if (assignment.assignmentType === 'benchmark') accumulator.benchmark += 1;
-        if (assignment.assignmentType === 'roadmap') accumulator.roadmap += 1;
-        if (assignment.assignmentType === 'challenge_pack') accumulator.challengePack += 1;
-        if (assignment.lifecycleState !== 'archived' && dueMeta.band === 'due_soon') accumulator.dueSoon += 1;
-        accumulator.needsReview += operationalMeta?.needsReviewCount || 0;
-        accumulator.totalCompletionRate += assignment.completionRate || 0;
-        return accumulator;
-      },
-      {
-        total: 0,
-        active: 0,
-        pastDue: 0,
-        archived: 0,
-        benchmark: 0,
-        roadmap: 0,
-        challengePack: 0,
-        dueSoon: 0,
-        needsReview: 0,
-        totalCompletionRate: 0,
-      }
-    );
-  }, [assignmentOperationalMeta, teamDetail?.assignments]);
-
-  const filteredAssignments = useMemo(() => {
-    const assignments = teamDetail?.assignments || [];
-    const normalizedQuery = assignmentSearchQuery.trim().toLowerCase();
-
-    return [...assignments]
-      .filter((assignment) => (assignmentTypeFilter === 'all' ? true : assignment.assignmentType === assignmentTypeFilter))
-      .filter((assignment) => (assignmentLifecycleFilter === 'all' ? true : assignment.lifecycleState === assignmentLifecycleFilter))
-      .filter((assignment) => {
-        if (!normalizedQuery) return true;
-        return [
-          assignment.title,
-          assignment.description || '',
-          assignment.benchmarkLanguage || '',
-          assignment.trackId || '',
-          trackTitleById.get(assignment.trackId || '') || '',
-          formatAssignmentTypeLabel(assignment.assignmentType),
-        ]
-          .join(' ')
-          .toLowerCase()
-          .includes(normalizedQuery);
-      })
-      .sort((left, right) => {
-        const leftDue = getAssignmentDueMeta(left.dueAt);
-        const rightDue = getAssignmentDueMeta(right.dueAt);
-        const leftUpdatedAt = new Date(left.updatedAt || left.createdAt).getTime();
-        const rightUpdatedAt = new Date(right.updatedAt || right.createdAt).getTime();
-
-        if (assignmentSort === 'completion') {
-          if (left.completionRate !== right.completionRate) {
-            return right.completionRate - left.completionRate;
-          }
-          return rightUpdatedAt - leftUpdatedAt;
-        }
-
-        if (assignmentSort === 'recent') {
-          return rightUpdatedAt - leftUpdatedAt;
-        }
-
-        if (assignmentSort === 'due') {
-          const leftSortValue = Number.isFinite(leftDue.sortValue) ? leftDue.sortValue : Number.MAX_SAFE_INTEGER;
-          const rightSortValue = Number.isFinite(rightDue.sortValue) ? rightDue.sortValue : Number.MAX_SAFE_INTEGER;
-          if (leftSortValue !== rightSortValue) return leftSortValue - rightSortValue;
-          return rightUpdatedAt - leftUpdatedAt;
-        }
-
-        const leftLifecycle = getAssignmentLifecycleMeta(left.lifecycleState);
-        const rightLifecycle = getAssignmentLifecycleMeta(right.lifecycleState);
-        if (leftLifecycle.sortPriority !== rightLifecycle.sortPriority) {
-          return leftLifecycle.sortPriority - rightLifecycle.sortPriority;
-        }
-
-        const leftPriority = leftDue.band === 'overdue' ? 0 : leftDue.band === 'due_soon' ? 1 : leftDue.band === 'scheduled' ? 2 : 3;
-        const rightPriority = rightDue.band === 'overdue' ? 0 : rightDue.band === 'due_soon' ? 1 : rightDue.band === 'scheduled' ? 2 : 3;
-        if (leftPriority !== rightPriority) return leftPriority - rightPriority;
-        if (left.completionRate !== right.completionRate) {
-          return right.completionRate - left.completionRate;
-        }
-        return rightUpdatedAt - leftUpdatedAt;
-      });
-  }, [
-    assignmentLifecycleFilter,
-    assignmentSearchQuery,
-    assignmentSort,
-    assignmentTypeFilter,
-    teamDetail?.assignments,
-    trackTitleById,
-  ]);
 
   const feedbackModalStats = useMemo(() => {
     const feedbackEntries = teamDetail?.feedback || [];
@@ -2602,11 +2810,6 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
       });
   }, [feedbackSearchQuery, feedbackSort, feedbackStatusFilter, feedbackVisibilityFilter, reviewQueueItems]);
 
-  const selectedAssignment = useMemo(
-    () => filteredAssignments.find((assignment) => assignment.id === selectedAssignmentId) || filteredAssignments[0] || null,
-    [filteredAssignments, selectedAssignmentId]
-  );
-
   const selectedFeedback = useMemo(
     () => filteredFeedback.find((entry) => entry.id === selectedFeedbackId) || filteredFeedback[0] || null,
     [filteredFeedback, selectedFeedbackId]
@@ -2618,16 +2821,6 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
   );
 
   const selectedReviewFeedback = selectedReviewItem?.feedback || null;
-
-  const selectedAssignments = useMemo(
-    () => filteredAssignments.filter((assignment) => selectedAssignmentIds.includes(assignment.id)),
-    [filteredAssignments, selectedAssignmentIds]
-  );
-
-  const allFilteredAssignmentsSelected =
-    filteredAssignments.length > 0 && filteredAssignments.every((assignment) => selectedAssignmentIds.includes(assignment.id));
-
-  const selectedAssignmentIndex = selectedAssignment ? filteredAssignments.findIndex((assignment) => assignment.id === selectedAssignment.id) : -1;
   const selectedReviewItemIndex = selectedReviewItem ? filteredReviewItems.findIndex((item) => item.id === selectedReviewItem.id) : -1;
 
   const openManualFeedbackComposer = useCallback(() => {
@@ -2646,6 +2839,86 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
     });
   }, [openNewFeedbackComposer, runAfterFeedbackComposerClose, selectedReviewItem]);
 
+  const resetReviewFilters = useCallback(() => {
+    setFeedbackSearchQuery('');
+    setFeedbackStatusFilter('all');
+    setFeedbackVisibilityFilter('all');
+    setFeedbackSort('recent');
+  }, []);
+
+  const openAnalyticsReviewQueue = useCallback(() => {
+    const firstNeedsReview = reviewQueueItems.find((item) => item.state === 'needs_review') || reviewQueueItems[0] || null;
+
+    return runAfterFeedbackComposerClose(() => {
+      activateWorkspaceModal('feedback', () => {
+        resetReviewFilters();
+        setFeedbackStatusFilter('needs_review');
+        setSelectedReviewItemId(firstNeedsReview?.id || null);
+        setSelectedFeedbackId(firstNeedsReview?.feedback?.id || null);
+      });
+    });
+  }, [activateWorkspaceModal, resetReviewFilters, reviewQueueItems, runAfterFeedbackComposerClose]);
+
+  const focusAnalyticsLearner = useCallback((memberUserId: string) => {
+    const matchingItem =
+      reviewQueueItems.find((item) => item.member?.userId === memberUserId && item.state === 'needs_review') ||
+      reviewQueueItems.find((item) => item.member?.userId === memberUserId) ||
+      null;
+
+    return runAfterFeedbackComposerClose(() => {
+      activateWorkspaceModal('feedback', () => {
+        resetReviewFilters();
+
+        if (matchingItem) {
+          if (matchingItem.state === 'needs_review') {
+            setFeedbackStatusFilter('needs_review');
+          }
+          setFeedbackSearchQuery(matchingItem.member?.name || '');
+          setSelectedReviewItemId(matchingItem.id);
+          setSelectedFeedbackId(matchingItem.feedback?.id || null);
+          return;
+        }
+
+        setSelectedReviewItemId(null);
+        setSelectedFeedbackId(null);
+        openNewFeedbackComposer(memberUserId);
+      });
+    });
+  }, [activateWorkspaceModal, openNewFeedbackComposer, resetReviewFilters, reviewQueueItems, runAfterFeedbackComposerClose]);
+
+  const focusAnalyticsAssignment = useCallback((assignmentId: string) => {
+    const matchingReviewItem = reviewQueueItems.find(
+      (item) =>
+        (item.assignment?.id || item.submission?.assignmentId || item.feedback?.assignmentId) === assignmentId &&
+        item.state === 'needs_review'
+    );
+
+    return runAfterFeedbackComposerClose(() => {
+      if (matchingReviewItem) {
+        activateWorkspaceModal('feedback', () => {
+          resetReviewFilters();
+          setFeedbackStatusFilter('needs_review');
+          setFeedbackSearchQuery(matchingReviewItem.assignment?.title || matchingReviewItem.submission?.assignmentTitle || '');
+          setSelectedReviewItemId(matchingReviewItem.id);
+          setSelectedFeedbackId(matchingReviewItem.feedback?.id || null);
+        });
+        return;
+      }
+
+      activateWorkspaceModal('assignments', () => {
+        setSelectedAssignmentId(assignmentId);
+      });
+    });
+  }, [activateWorkspaceModal, resetReviewFilters, reviewQueueItems, runAfterFeedbackComposerClose]);
+
+  const openAnalyticsAssignments = useCallback(() => {
+    return runAfterFeedbackComposerClose(() => {
+      activateWorkspaceModal('assignments', () => {
+        setSelectedAssignmentId(null);
+      });
+    });
+  }, [activateWorkspaceModal, runAfterFeedbackComposerClose]);
+
   const requestStartFeedbackEdit = useCallback((entry: TeamFeedback) => {
     if (feedbackComposerOpen && feedbackDraft.id === entry.id) return true;
     return runAfterFeedbackComposerClose(() => {
@@ -2658,15 +2931,6 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
       setActiveModal(null);
     });
   }, [runAfterFeedbackComposerClose]);
-
-  useEffect(() => {
-    if (activeModal !== 'assignments') return;
-    setSelectedAssignmentId((current) =>
-      current && filteredAssignments.some((assignment) => assignment.id === current)
-        ? current
-        : filteredAssignments[0]?.id || null
-    );
-  }, [activeModal, filteredAssignments]);
 
   useEffect(() => {
     if (activeModal !== 'feedback') return;
@@ -2687,11 +2951,6 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
     setShowAllFeedbackHistory(false);
     setShowAllComposerHistory(false);
   }, [selectedReviewItemId, feedbackComposerOpen]);
-
-  useEffect(() => {
-    if (activeModal !== 'assignments') return;
-    setSelectedAssignmentIds((current) => current.filter((assignmentId) => filteredAssignments.some((assignment) => assignment.id === assignmentId)));
-  }, [activeModal, filteredAssignments]);
 
   useEffect(() => {
     if (!feedbackComposerOpen || !isFeedbackComposerDirty) return;
@@ -2718,38 +2977,6 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.metaKey || event.ctrlKey || event.altKey || isTypingTarget(event.target)) return;
       if (confirmMemberAction || confirmWorkspaceAction || feedbackDiscardPrompt) return;
-
-      if (activeModal === 'assignments') {
-        if (event.key.toLowerCase() === 'n') {
-          event.preventDefault();
-          openNewAssignmentEditor();
-          return;
-        }
-        if (event.key.toLowerCase() === 'e' && selectedAssignment) {
-          event.preventDefault();
-          startAssignmentEdit(selectedAssignment);
-          return;
-        }
-        if (event.key.toLowerCase() === 'b') {
-          event.preventDefault();
-          setAssignmentViewMode((current) => (current === 'list' ? 'board' : current === 'board' ? 'calendar' : 'list'));
-          return;
-        }
-        if ((event.key.toLowerCase() === 'j' || event.key === 'ArrowDown') && filteredAssignments.length > 0) {
-          event.preventDefault();
-          const nextIndex = selectedAssignmentIndex >= 0 ? Math.min(selectedAssignmentIndex + 1, filteredAssignments.length - 1) : 0;
-          setSelectedAssignmentId(filteredAssignments[nextIndex]?.id || null);
-          setAssignmentEditorOpen(false);
-          return;
-        }
-        if ((event.key.toLowerCase() === 'k' || event.key === 'ArrowUp') && filteredAssignments.length > 0) {
-          event.preventDefault();
-          const previousIndex = selectedAssignmentIndex > 0 ? selectedAssignmentIndex - 1 : 0;
-          setSelectedAssignmentId(filteredAssignments[previousIndex]?.id || null);
-          setAssignmentEditorOpen(false);
-          return;
-        }
-      }
 
       if (activeModal === 'feedback') {
         if (event.key.toLowerCase() === 'n') {
@@ -2798,69 +3025,14 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
     confirmMemberAction,
     confirmWorkspaceAction,
     feedbackDiscardPrompt,
-    filteredAssignments,
     filteredReviewItems,
-    openNewAssignmentEditor,
     openContextualFeedbackComposer,
     feedbackComposerOpen,
     requestStartFeedbackEdit,
     runAfterFeedbackComposerClose,
-    selectedAssignment,
-    selectedAssignmentIndex,
     selectedReviewFeedback,
     selectedReviewItemIndex,
   ]);
-
-  const toggleAssignmentSelection = useCallback((assignmentId: string) => {
-    setSelectedAssignmentIds((current) =>
-      current.includes(assignmentId) ? current.filter((entry) => entry !== assignmentId) : [...current, assignmentId]
-    );
-  }, []);
-
-  const toggleAllFilteredAssignments = useCallback(() => {
-    setSelectedAssignmentIds((current) => {
-      if (filteredAssignments.length === 0) return current;
-      if (filteredAssignments.every((assignment) => current.includes(assignment.id))) {
-        return current.filter((assignmentId) => !filteredAssignments.some((assignment) => assignment.id === assignmentId));
-      }
-
-      return Array.from(new Set([...current, ...filteredAssignments.map((assignment) => assignment.id)]));
-    });
-  }, [filteredAssignments]);
-
-  const calendarAssignmentsByDate = useMemo(() => {
-    const grouped = new Map<string, TeamAssignment[]>();
-
-    filteredAssignments.forEach((assignment) => {
-      if (!assignment.dueAt) return;
-      const key = toCalendarDateKey(assignment.dueAt);
-      if (!key) return;
-      grouped.set(key, [...(grouped.get(key) || []), assignment]);
-    });
-
-    return grouped;
-  }, [filteredAssignments]);
-
-  const assignmentCalendarDays = useMemo(() => {
-    const monthStart = startOfCalendarMonth(assignmentCalendarMonth);
-    const gridStart = startOfCalendarGrid(monthStart);
-
-    return Array.from({ length: 42 }, (_, index) => {
-      const date = addCalendarDays(gridStart, index);
-      const key = toCalendarDateKey(date);
-      return {
-        key,
-        date,
-        isCurrentMonth: date.getMonth() === monthStart.getMonth(),
-        assignments: calendarAssignmentsByDate.get(key) || [],
-      };
-    });
-  }, [assignmentCalendarMonth, calendarAssignmentsByDate]);
-
-  const unscheduledAssignments = useMemo(
-    () => filteredAssignments.filter((assignment) => !assignment.dueAt),
-    [filteredAssignments]
-  );
 
   const feedbackContextMemberId = feedbackComposerOpen
     ? feedbackDraft.memberUserId
@@ -2935,26 +3107,6 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
     teamDetail?.submissions,
   ]);
 
-  const selectedAssignmentFeedback = useMemo(() => {
-    if (!selectedAssignment) return [];
-
-    return [...(teamDetail?.feedback || [])]
-      .filter((entry) => entry.assignmentId === selectedAssignment.id)
-      .sort((left, right) => new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime())
-      .slice(0, 4);
-  }, [selectedAssignment, teamDetail?.feedback]);
-
-  const selectedAssignmentSubmissions = useMemo(() => {
-    if (!selectedAssignment) return [];
-
-    return [...(teamDetail?.submissions || [])]
-      .filter((entry) => entry.assignmentId === selectedAssignment.id)
-      .sort((left, right) => new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime())
-      .slice(0, 5);
-  }, [selectedAssignment, teamDetail?.submissions]);
-
-  const selectedAssignmentOperationalMeta = selectedAssignment ? assignmentOperationalMeta.get(selectedAssignment.id) || null : null;
-
   const reviewQueueStats = useMemo(() => {
     const scoredItems = filteredReviewItems.filter((item) => item.score !== null);
 
@@ -2970,898 +3122,86 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
     };
   }, [filteredReviewItems]);
 
-  const assignmentBoardGroups = useMemo(() => {
-    const groups: Record<string, TeamAssignment[]> = {
-      'Past due': [],
-      'Due soon': [],
-      Live: [],
-      Scheduled: [],
-      Archived: [],
-    };
+  const openAssignmentReview = useCallback((submission: TeamWorkspaceDetail['submissions'][number]) => {
+    if (!submission.memberUserId) return;
 
-    filteredAssignments.forEach((assignment) => {
-      const workflowState = getAssignmentWorkflowStateMeta(assignment);
-      groups[workflowState.label] = [...(groups[workflowState.label] || []), assignment];
+    runAfterFeedbackComposerClose(() => {
+      activateWorkspaceModal('feedback', () => {
+        resetReviewFilters();
+        setSelectedReviewItemId(`submission:${submission.id}`);
+        setSelectedFeedbackId(null);
+        openNewFeedbackComposer(submission.memberUserId!, submission.assignmentId || undefined, 'existing', submission.id);
+      });
     });
+  }, [activateWorkspaceModal, openNewFeedbackComposer, resetReviewFilters, runAfterFeedbackComposerClose]);
 
-    return groups;
-  }, [filteredAssignments]);
+  const openAssignmentFeedback = useCallback((feedbackId: string) => {
+    runAfterFeedbackComposerClose(() => {
+      activateWorkspaceModal('feedback', () => {
+        setSelectedFeedbackId(feedbackId);
+        setFeedbackComposerOpen(false);
+      });
+    });
+  }, [activateWorkspaceModal, runAfterFeedbackComposerClose]);
 
   const renderAssignmentsModal = () => {
     if (activeModal !== 'assignments' || !teamDetail) return null;
 
-    const averageCompletion =
-      assignmentModalStats.total > 0 ? Math.round(assignmentModalStats.totalCompletionRate / assignmentModalStats.total) : 0;
-    const selectedAssignmentScope = selectedAssignment
-      ? selectedAssignment.assignmentType === 'roadmap'
-        ? trackTitleById.get(selectedAssignment.trackId || '') || 'Roadmap'
-        : formatBenchmarkLanguageLabel(selectedAssignment.benchmarkLanguage)
-      : '';
-    const selectedAssignmentTargetUnit = selectedAssignment
-      ? selectedAssignment.requiredCompletionCount === 1 && selectedAssignment.progressUnitLabel.endsWith('s')
-        ? selectedAssignment.progressUnitLabel.slice(0, -1)
-        : selectedAssignment.progressUnitLabel
-      : '';
-
     return (
       <ModalShell
         title="Assignments"
-        subtitle="Manage the work queue first. Open creation only when you need it."
+        subtitle="Triage work, review progress, and move the queue forward."
+        titlePresentation="headline"
+        headerActions={
+          assignmentEditorOpen ? null : (
+            <button
+              type="button"
+              onClick={openNewAssignmentEditor}
+              disabled={!canManageWorkspace}
+              className="inline-flex h-9 items-center justify-center gap-2 rounded-lg bg-primary px-3.5 text-sm font-semibold text-primary-foreground transition hover:bg-primary/90 disabled:opacity-60"
+            >
+              <Plus className="h-4 w-4" />
+              New assignment
+            </button>
+          )
+        }
         onClose={() => setActiveModal(null)}
       >
-        <div className="space-y-5">
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-            <div>
-              <div className="text-lg font-semibold text-foreground">Assignments queue</div>
-              <div className="mt-1 text-sm text-muted-foreground">
-                Review deadlines, progress, and state from one operational view.
-              </div>
-            </div>
-            <div className="flex flex-wrap gap-3">
-              <div className="inline-flex rounded-2xl border border-border bg-background p-1">
-                {([
-                  ['list', 'List'],
-                  ['board', 'Board'],
-                  ['calendar', 'Calendar'],
-                ] as Array<[AssignmentViewMode, string]>).map(([value, label]) => (
-                  <button
-                    key={value}
-                    type="button"
-                    onClick={() => setAssignmentViewMode(value)}
-                    className={`inline-flex h-9 items-center rounded-xl px-3 text-sm font-semibold transition ${
-                      assignmentViewMode === value ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'
-                    }`}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
-              <button
-                type="button"
-                onClick={openNewAssignmentEditor}
-                disabled={!canManageWorkspace}
-                className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl bg-primary px-5 text-sm font-semibold text-primary-foreground transition hover:bg-primary/90 disabled:opacity-60"
-              >
-                <Plus className="h-4 w-4" />
-                New assignment
-              </button>
-              {assignmentEditorOpen ? (
-                <button
-                  type="button"
-                  onClick={closeAssignmentEditor}
-                  className="inline-flex h-11 items-center justify-center rounded-2xl border border-border bg-background px-4 text-sm font-semibold text-foreground transition hover:bg-secondary"
-                >
-                  Close editor
-                </button>
-              ) : null}
-            </div>
-          </div>
-
-          <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_180px_180px_180px]">
-            <div className="relative">
-              <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-              <input
-                value={assignmentSearchQuery}
-                onChange={(event) => setAssignmentSearchQuery(event.target.value)}
-                placeholder="Search assignments"
-                className="h-11 w-full rounded-2xl border border-border bg-background pl-11 pr-4 text-sm text-foreground outline-none transition focus:border-primary/40"
-              />
-            </div>
-            <select
-              value={assignmentTypeFilter}
-              onChange={(event) => setAssignmentTypeFilter(event.target.value as 'all' | TeamAssignmentType)}
-              className="h-11 rounded-2xl border border-border bg-background px-4 text-sm text-foreground outline-none transition focus:border-primary/40"
-            >
-              <option value="all">All types</option>
-              <option value="benchmark">Benchmark</option>
-              <option value="challenge_pack">Challenge pack</option>
-              <option value="roadmap">Roadmap</option>
-            </select>
-            <select
-              value={assignmentLifecycleFilter}
-              onChange={(event) => setAssignmentLifecycleFilter(event.target.value as AssignmentLifecycleFilter)}
-              className="h-11 rounded-2xl border border-border bg-background px-4 text-sm text-foreground outline-none transition focus:border-primary/40"
-            >
-              {ASSIGNMENT_LIFECYCLE_FILTER_OPTIONS.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-            <select
-              value={assignmentSort}
-              onChange={(event) => setAssignmentSort(event.target.value as AssignmentSortOption)}
-              className="h-11 rounded-2xl border border-border bg-background px-4 text-sm text-foreground outline-none transition focus:border-primary/40"
-            >
-              <option value="priority">Sort: Priority</option>
-              <option value="due">Sort: Due date</option>
-              <option value="completion">Sort: Completion</option>
-              <option value="recent">Sort: Recent</option>
-            </select>
-          </div>
-
-          <div className="flex flex-wrap gap-2">
-            {[
-              {
-                label: 'All',
-                active: assignmentLifecycleFilter === 'all' && assignmentTypeFilter === 'all',
-                onClick: () => {
-                  setAssignmentLifecycleFilter('all');
-                  setAssignmentTypeFilter('all');
-                },
-              },
-              {
-                label: 'Active',
-                active: assignmentLifecycleFilter === 'active',
-                onClick: () => setAssignmentLifecycleFilter('active'),
-              },
-              {
-                label: 'Past due',
-                active: assignmentLifecycleFilter === 'past_due',
-                onClick: () => setAssignmentLifecycleFilter('past_due'),
-              },
-              {
-                label: 'Benchmarks',
-                active: assignmentTypeFilter === 'benchmark',
-                onClick: () => setAssignmentTypeFilter('benchmark'),
-              },
-              {
-                label: 'Roadmaps',
-                active: assignmentTypeFilter === 'roadmap',
-                onClick: () => setAssignmentTypeFilter('roadmap'),
-              },
-            ].map((view) => (
-              <button
-                key={view.label}
-                type="button"
-                onClick={view.onClick}
-                className={`inline-flex h-9 items-center rounded-full border px-4 text-sm font-semibold transition ${
-                  view.active
-                    ? 'border-primary/30 bg-primary/10 text-primary'
-                    : 'border-border bg-background text-muted-foreground hover:text-foreground'
-                }`}
-              >
-                {view.label}
-              </button>
-            ))}
-          </div>
-
-          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
-            <MetricCard label="Active" value={String(assignmentModalStats.active)} helper="Live assignments" />
-            <MetricCard label="Past due" value={String(assignmentModalStats.pastDue)} helper="Needs follow-up" />
-            <MetricCard label="Needs review" value={String(assignmentModalStats.needsReview)} helper="Submitted work waiting on coach review" />
-            <MetricCard label="Avg completion" value={`${averageCompletion}%`} helper="Across all assignments" />
-            <MetricCard
-              label="Plan usage"
-              value={`${workspaceCounts.assignments}/${selectedTeamPlanPolicy.assignmentLimit}`}
-              helper="Active assignment slots"
-            />
-          </div>
-
-          {selectedAssignmentIds.length > 0 ? (
-            <div className="rounded-2xl border border-primary/20 bg-primary/8 p-4">
-              <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-                <div>
-                  <div className="text-sm font-semibold text-foreground">{selectedAssignmentIds.length} selected</div>
-                  <div className="mt-1 text-sm text-muted-foreground">
-                    Archive, restore, or move the due date for the selected assignments.
-                  </div>
-                </div>
-                <div className="flex flex-wrap gap-3">
-                  <input
-                    type="datetime-local"
-                    value={assignmentBulkDueAt}
-                    onChange={(event) => setAssignmentBulkDueAt(event.target.value)}
-                    className="h-11 rounded-2xl border border-border bg-background px-4 text-sm text-foreground outline-none transition focus:border-primary/40"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => void handleBulkAssignmentAction('set_due_date')}
-                    disabled={submittingKey === 'bulk-assignment-set_due_date'}
-                    className="inline-flex h-11 items-center justify-center rounded-2xl border border-border bg-background px-4 text-sm font-semibold text-foreground transition hover:bg-secondary disabled:opacity-60"
-                  >
-                    Set due date
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => void handleBulkAssignmentAction('archive')}
-                    disabled={
-                      submittingKey === 'bulk-assignment-archive' ||
-                      selectedAssignments.every((assignment) => assignment.lifecycleState === 'archived')
-                    }
-                    className="inline-flex h-11 items-center justify-center rounded-2xl border border-destructive/20 bg-destructive/10 px-4 text-sm font-semibold text-destructive transition hover:bg-destructive/15 disabled:opacity-60"
-                  >
-                    Archive selected
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => void handleBulkAssignmentAction('restore')}
-                    disabled={
-                      submittingKey === 'bulk-assignment-restore' ||
-                      selectedAssignments.every((assignment) => assignment.lifecycleState !== 'archived')
-                    }
-                    className="inline-flex h-11 items-center justify-center rounded-2xl border border-border bg-background px-4 text-sm font-semibold text-foreground transition hover:bg-secondary disabled:opacity-60"
-                  >
-                    Restore selected
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setSelectedAssignmentIds([])}
-                    className="inline-flex h-11 items-center justify-center rounded-2xl border border-border bg-background px-4 text-sm font-semibold text-foreground transition hover:bg-secondary"
-                  >
-                    Clear
-                  </button>
-                </div>
-              </div>
-            </div>
-          ) : null}
-
-          <div className="grid gap-5 xl:grid-cols-[minmax(0,1.55fr)_400px] 2xl:grid-cols-[minmax(0,1.65fr)_420px]">
-            <div className="rounded-2xl border border-border bg-background">
-              {(teamDetail.assignments || []).length === 0 ? (
-                <div className="p-4">
-                  <EmptyState
-                    title="No assignments yet"
-                    helper="Create your first benchmark, roadmap, or challenge pack to start tracking learner progress."
-                  />
-                </div>
-              ) : filteredAssignments.length === 0 ? (
-                <div className="p-4">
-                  <EmptyState
-                    title="No assignments match this view"
-                    helper="Reset the filters to return to the full assignments queue."
-                  />
-                </div>
-              ) : assignmentViewMode === 'board' ? (
-                <div className="max-h-[58vh] overflow-x-auto overflow-y-auto p-4">
-                  <div className="grid min-w-[1240px] grid-flow-col auto-cols-[240px] gap-3">
-                  {(['Past due', 'Due soon', 'Live', 'Scheduled', 'Archived'] as const).map((column) => (
-                    <div key={column} className="rounded-2xl border border-border bg-card/60 p-3">
-                      <div className="flex items-center justify-between gap-3">
-                        <div className="text-xs font-semibold uppercase tracking-[0.16em] text-primary">{column}</div>
-                        <div className="text-xs text-muted-foreground">{assignmentBoardGroups[column]?.length || 0}</div>
-                      </div>
-                      <div className="mt-3 space-y-3">
-                        {(assignmentBoardGroups[column] || []).length === 0 ? (
-                          <div className="rounded-2xl border border-dashed border-border px-3 py-4 text-xs text-muted-foreground">
-                            Nothing here.
-                          </div>
-                        ) : (
-                          assignmentBoardGroups[column].map((assignment) => {
-                            const isSelected = selectedAssignment?.id === assignment.id;
-                            return (
-                              <button
-                                key={assignment.id}
-                                type="button"
-                                onClick={() => {
-                                  setSelectedAssignmentId(assignment.id);
-                                  setAssignmentEditorOpen(false);
-                                }}
-                                className={`w-full rounded-2xl border px-3 py-3 text-left transition ${
-                                  isSelected ? 'border-primary/30 bg-primary/10' : 'border-border bg-background hover:bg-secondary'
-                                }`}
-                              >
-                                <div className="text-sm font-semibold text-foreground">{assignment.title}</div>
-                                <div className="mt-1 text-xs text-muted-foreground">
-                                  {formatAssignmentTypeLabel(assignment.assignmentType)} |{' '}
-                                  {assignment.assignmentType === 'roadmap'
-                                    ? trackTitleById.get(assignment.trackId || '') || 'Roadmap'
-                                    : formatBenchmarkLanguageLabel(assignment.benchmarkLanguage)}
-                                </div>
-                                <div className="mt-3">
-                                  <ProgressStack
-                                    completed={assignment.completedLearnerCount}
-                                    inProgress={assignment.inProgressLearnerCount}
-                                    notStarted={assignment.notStartedLearnerCount}
-                                  />
-                                </div>
-                                <div className="mt-2 text-xs text-muted-foreground">
-                                  {assignment.completedLearnerCount}/{assignment.eligibleLearnerCount} complete
-                                </div>
-                              </button>
-                            );
-                          })
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                  </div>
-                </div>
-              ) : assignmentViewMode === 'calendar' ? (
-                <div className="space-y-4 p-4">
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div>
-                      <div className="text-sm font-semibold text-foreground">{formatMonthLabel(assignmentCalendarMonth)}</div>
-                      <div className="mt-1 text-xs text-muted-foreground">Plan deadlines visually and spot overloaded days faster.</div>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setAssignmentCalendarMonth(
-                            (current) => new Date(current.getFullYear(), current.getMonth() - 1, 1)
-                          )
-                        }
-                        className="inline-flex h-9 items-center justify-center rounded-xl border border-border bg-background px-3 text-sm font-semibold text-foreground transition hover:bg-secondary"
-                      >
-                        Prev
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setAssignmentCalendarMonth(startOfCalendarMonth(new Date()))}
-                        className="inline-flex h-9 items-center justify-center rounded-xl border border-border bg-background px-3 text-sm font-semibold text-foreground transition hover:bg-secondary"
-                      >
-                        Today
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setAssignmentCalendarMonth(
-                            (current) => new Date(current.getFullYear(), current.getMonth() + 1, 1)
-                          )
-                        }
-                        className="inline-flex h-9 items-center justify-center rounded-xl border border-border bg-background px-3 text-sm font-semibold text-foreground transition hover:bg-secondary"
-                      >
-                        Next
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-7 gap-2">
-                    {CALENDAR_DAY_LABELS.map((label) => (
-                      <div key={label} className="px-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-primary">
-                        {label}
-                      </div>
-                    ))}
-                    {assignmentCalendarDays.map((day) => (
-                      <div
-                        key={day.key}
-                        className={`min-h-[118px] rounded-2xl border p-2 ${
-                          day.isCurrentMonth ? 'border-border bg-card/60' : 'border-border/50 bg-background/40'
-                        }`}
-                      >
-                        <div className="flex items-center justify-between gap-2">
-                          <div className={`text-xs font-semibold ${day.isCurrentMonth ? 'text-foreground' : 'text-muted-foreground/70'}`}>
-                            {day.date.getDate()}
-                          </div>
-                          {day.assignments.length > 0 ? (
-                            <div className="text-[11px] text-muted-foreground">{day.assignments.length}</div>
-                          ) : null}
-                        </div>
-                        <div className="mt-2 space-y-2">
-                          {day.assignments.slice(0, 3).map((assignment) => (
-                            <button
-                              key={assignment.id}
-                              type="button"
-                              onClick={() => {
-                                setSelectedAssignmentId(assignment.id);
-                                setAssignmentEditorOpen(false);
-                              }}
-                              className={`w-full rounded-xl border px-2 py-2 text-left transition ${
-                                selectedAssignment?.id === assignment.id
-                                  ? 'border-primary/30 bg-primary/10'
-                                  : 'border-border bg-background hover:bg-secondary'
-                              }`}
-                            >
-                              <div className="truncate text-xs font-semibold text-foreground">{assignment.title}</div>
-                              <div className="mt-1 text-[11px] text-muted-foreground">
-                                {assignment.completedLearnerCount}/{assignment.eligibleLearnerCount} complete
-                              </div>
-                            </button>
-                          ))}
-                          {day.assignments.length > 3 ? (
-                            <div className="text-[11px] text-muted-foreground">+{day.assignments.length - 3} more</div>
-                          ) : null}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-
-                  {unscheduledAssignments.length > 0 ? (
-                    <div className="rounded-2xl border border-border bg-card/60 p-4">
-                      <div className="text-sm font-semibold text-foreground">Unscheduled assignments</div>
-                      <div className="mt-3 grid gap-3 lg:grid-cols-2">
-                        {unscheduledAssignments.map((assignment) => (
-                          <button
-                            key={assignment.id}
-                            type="button"
-                            onClick={() => {
-                              setSelectedAssignmentId(assignment.id);
-                              setAssignmentEditorOpen(false);
-                            }}
-                            className={`rounded-2xl border px-4 py-3 text-left transition ${
-                              selectedAssignment?.id === assignment.id
-                                ? 'border-primary/30 bg-primary/10'
-                                : 'border-border bg-background hover:bg-secondary'
-                            }`}
-                          >
-                            <div className="text-sm font-semibold text-foreground">{assignment.title}</div>
-                            <div className="mt-1 text-sm text-muted-foreground">
-                              {formatAssignmentTypeLabel(assignment.assignmentType)} |{' '}
-                              {assignment.assignmentType === 'roadmap'
-                                ? trackTitleById.get(assignment.trackId || '') || 'Roadmap'
-                                : formatBenchmarkLanguageLabel(assignment.benchmarkLanguage)}
-                            </div>
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  ) : null}
-                </div>
-              ) : (
-                <>
-                  <div className="hidden grid-cols-[36px_minmax(0,1fr)] gap-4 border-b border-border px-4 py-3 text-[11px] font-semibold uppercase tracking-[0.16em] text-primary lg:grid">
-                    <div>
-                      <input
-                        type="checkbox"
-                        checked={allFilteredAssignmentsSelected}
-                        onChange={toggleAllFilteredAssignments}
-                        className="h-4 w-4 rounded border-border bg-background"
-                      />
-                    </div>
-                    <div className="grid grid-cols-[minmax(0,2.1fr)_140px_180px] gap-4">
-                      <div>Assignment</div>
-                      <div>Due</div>
-                      <div>Progress</div>
-                    </div>
-                  </div>
-                  <div className="max-h-[58vh] divide-y divide-border overflow-y-auto">
-                    {filteredAssignments.map((assignment) => {
-                      const dueMeta = getAssignmentDueMeta(assignment.dueAt);
-                      const workflowState = getAssignmentWorkflowStateMeta(assignment);
-                      const operationalMeta = assignmentOperationalMeta.get(assignment.id);
-                      const isSelected = selectedAssignment?.id === assignment.id;
-                      const assignmentScope =
-                        assignment.assignmentType === 'roadmap'
-                          ? trackTitleById.get(assignment.trackId || '') || 'Roadmap track'
-                          : formatBenchmarkLanguageLabel(assignment.benchmarkLanguage);
-
-                      return (
-                        <div
-                          key={assignment.id}
-                          className={`grid gap-3 px-4 py-4 transition lg:grid-cols-[36px_minmax(0,1fr)] lg:gap-4 ${
-                            isSelected ? 'bg-primary/8' : 'hover:bg-card'
-                          }`}
-                        >
-                          <div className="pt-1">
-                            <input
-                              type="checkbox"
-                              checked={selectedAssignmentIds.includes(assignment.id)}
-                              onChange={() => toggleAssignmentSelection(assignment.id)}
-                              className="h-4 w-4 rounded border-border bg-background"
-                            />
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setSelectedAssignmentId(assignment.id);
-                              setAssignmentEditorOpen(false);
-                            }}
-                            className="grid min-w-0 gap-3 text-left lg:grid-cols-[minmax(0,2.1fr)_140px_180px] lg:gap-4"
-                          >
-                            <div className="min-w-0">
-                              <div className="truncate text-sm font-semibold text-foreground sm:text-base">{assignment.title}</div>
-                              <div className="mt-1 flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
-                                <span>{formatAssignmentTypeLabel(assignment.assignmentType)}</span>
-                                <span>|</span>
-                                <span>{assignmentScope}</span>
-                                <span>|</span>
-                                <span>{workflowState.label}</span>
-                              </div>
-                              <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                                <span>{operationalMeta?.needsReviewCount || 0} awaiting review</span>
-                                <span>|</span>
-                                {operationalMeta?.averageScore !== null && operationalMeta?.averageScore !== undefined
-                                  ? <span>{`Avg score ${operationalMeta.averageScore}`}</span>
-                                  : <span>No scores yet</span>}
-                                <span>|</span>
-                                <span>
-                                  Updated {formatRelativeActivityLabel(operationalMeta?.lastActivityAt || assignment.updatedAt || assignment.createdAt)}
-                                </span>
-                              </div>
-                            </div>
-                            <div className="flex items-start lg:items-center">
-                              <div>
-                                <div className="text-sm font-semibold text-foreground">
-                                  {assignment.dueAt ? formatDateLabel(assignment.dueAt) : 'No due date'}
-                                </div>
-                                <div className="mt-1 text-xs text-muted-foreground">
-                                  {dueMeta.label}
-                                </div>
-                              </div>
-                            </div>
-                            <div className="space-y-2">
-                              <div className="flex items-center justify-between gap-3 text-sm">
-                                <span className="font-semibold text-foreground">
-                                  {assignment.completedLearnerCount}/{assignment.eligibleLearnerCount} complete
-                                </span>
-                                <span className="text-muted-foreground">{assignment.completionRate}%</span>
-                              </div>
-                              <ProgressStack
-                                completed={assignment.completedLearnerCount}
-                                inProgress={assignment.inProgressLearnerCount}
-                                notStarted={assignment.notStartedLearnerCount}
-                              />
-                              <div className="text-xs text-muted-foreground">
-                                {assignment.inProgressLearnerCount} in progress | {assignment.notStartedLearnerCount} not started
-                              </div>
-                            </div>
-                          </button>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </>
-              )}
-            </div>
-
-            <div className="rounded-2xl border border-border bg-background p-4">
-              {assignmentEditorOpen ? (
-                <div className="space-y-4">
-                  <div>
-                    <div className="text-sm font-semibold text-foreground">
-                      {assignmentDraft.id ? 'Edit assignment' : 'New assignment'}
-                    </div>
-                    <div className="mt-1 text-sm text-muted-foreground">
-                      Define the work, deadline, and learning target without leaving the queue.
-                    </div>
-                  </div>
-
-                  {!assignmentDraft.id ? (
-                    <FormField label="Start from template">
-                      <div className="grid gap-2">
-                        {ASSIGNMENT_TEMPLATES.map((template) => (
-                          <button
-                            key={template.id}
-                            type="button"
-                            onClick={() => applyAssignmentTemplate(template.id)}
-                            className="rounded-2xl border border-border bg-card px-4 py-3 text-left transition hover:bg-secondary"
-                          >
-                            <div className="text-sm font-semibold text-foreground">{template.title}</div>
-                            <div className="mt-1 text-sm text-muted-foreground">{template.description}</div>
-                          </button>
-                        ))}
-                      </div>
-                    </FormField>
-                  ) : null}
-
-                  <FormField label="Assignment type">
-                    <div className="grid gap-2 sm:grid-cols-3">
-                      {([
-                        ['benchmark', 'Benchmark'],
-                        ['roadmap', 'Roadmap'],
-                        ['challenge_pack', 'Challenge pack'],
-                      ] as Array<[TeamAssignmentType, string]>).map(([value, label]) => (
-                        <button
-                          key={value}
-                          type="button"
-                          onClick={() =>
-                            setAssignmentDraft((current) => ({
-                              ...current,
-                              assignmentType: value,
-                              trackId: value === 'roadmap' ? current.trackId : '',
-                            }))
-                          }
-                          className={`rounded-2xl border px-4 py-3 text-sm font-semibold transition ${
-                            assignmentDraft.assignmentType === value
-                              ? 'border-primary/30 bg-primary/10 text-primary'
-                              : 'border-border bg-card text-foreground hover:bg-secondary'
-                          }`}
-                        >
-                          {label}
-                        </button>
-                      ))}
-                    </div>
-                  </FormField>
-
-                  <FormField label="Title">
-                    <input
-                      value={assignmentDraft.title}
-                      onChange={(event) => setAssignmentDraft((current) => ({ ...current, title: event.target.value }))}
-                      placeholder="Class benchmark"
-                      className="h-11 w-full rounded-2xl border border-border bg-card px-4 text-sm text-foreground outline-none transition focus:border-primary/40"
-                    />
-                  </FormField>
-
-                  {assignmentDraft.assignmentType === 'roadmap' ? (
-                    <FormField label="Track">
-                      <select
-                        value={assignmentDraft.trackId}
-                        onChange={(event) => setAssignmentDraft((current) => ({ ...current, trackId: event.target.value }))}
-                        className="h-11 w-full rounded-2xl border border-border bg-card px-4 text-sm text-foreground outline-none transition focus:border-primary/40"
-                      >
-                        <option value="">Select a roadmap track</option>
-                        {interviewTracks.map((track) => (
-                          <option key={track.id} value={track.id}>
-                            {track.title}
-                          </option>
-                        ))}
-                      </select>
-                    </FormField>
-                  ) : (
-                    <FormField label="Language">
-                      <select
-                        value={assignmentDraft.benchmarkLanguage || 'python'}
-                        onChange={(event) =>
-                          setAssignmentDraft((current) => ({
-                            ...current,
-                            benchmarkLanguage: event.target.value as AssignmentDraft['benchmarkLanguage'],
-                          }))
-                        }
-                        className="h-11 w-full rounded-2xl border border-border bg-card px-4 text-sm text-foreground outline-none transition focus:border-primary/40"
-                      >
-                        <option value="python">Python</option>
-                        <option value="javascript">JavaScript</option>
-                        <option value="java">Java</option>
-                        <option value="cpp">C++</option>
-                      </select>
-                    </FormField>
-                  )}
-
-                  <FormField label="Due date" helper="Optional">
-                    <input
-                      type="datetime-local"
-                      value={assignmentDraft.dueAt}
-                      onChange={(event) => setAssignmentDraft((current) => ({ ...current, dueAt: event.target.value }))}
-                      className="h-11 w-full rounded-2xl border border-border bg-card px-4 text-sm text-foreground outline-none transition focus:border-primary/40"
-                    />
-                  </FormField>
-
-                  <FormField label="Brief" helper="One-line purpose">
-                    <textarea
-                      value={assignmentDraft.description}
-                      onChange={(event) => setAssignmentDraft((current) => ({ ...current, description: event.target.value }))}
-                      placeholder="Measure baseline fluency before the next interview sprint."
-                      rows={5}
-                      className="w-full rounded-2xl border border-border bg-card px-4 py-3 text-sm text-foreground outline-none transition focus:border-primary/40"
-                    />
-                  </FormField>
-
-                  <div className="flex flex-wrap gap-3 pt-1">
-                    <button
-                      type="button"
-                      onClick={handleSaveAssignment}
-                      disabled={!canManageWorkspace || submittingKey === 'save-assignment'}
-                      className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl bg-primary px-5 text-sm font-semibold text-primary-foreground transition hover:bg-primary/90 disabled:opacity-60"
-                    >
-                      {submittingKey === 'save-assignment' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
-                      {assignmentDraft.id ? 'Save assignment' : 'Create assignment'}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={closeAssignmentEditor}
-                      className="inline-flex h-11 items-center justify-center rounded-2xl border border-border bg-card px-4 text-sm font-semibold text-foreground transition hover:bg-secondary"
-                    >
-                      Cancel
-                    </button>
-                  </div>
-                </div>
-              ) : selectedAssignment ? (
-                <div className="space-y-4">
-                  <div>
-                    <div className="text-xs font-semibold uppercase tracking-[0.16em] text-primary">Assignment detail</div>
-                    <div className="mt-2 text-xl font-semibold text-foreground">{selectedAssignment.title}</div>
-                    <div className="mt-2 text-sm text-muted-foreground">
-                      {selectedAssignment.description || 'No brief has been added yet.'}
-                    </div>
-                  </div>
-
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    <MetricCard label="Type" value={formatAssignmentTypeLabel(selectedAssignment.assignmentType)} />
-                    <MetricCard label="Focus" value={selectedAssignmentScope} />
-                    <MetricCard
-                      label="Due"
-                      value={selectedAssignment.dueAt ? formatDateLabel(selectedAssignment.dueAt) : 'No due date'}
-                      helper={getAssignmentDueMeta(selectedAssignment.dueAt).label}
-                    />
-                    <MetricCard
-                      label="State"
-                      value={getAssignmentWorkflowStateMeta(selectedAssignment).label}
-                      helper={`Last activity ${formatRelativeActivityLabel(selectedAssignmentOperationalMeta?.lastActivityAt || selectedAssignment.updatedAt || selectedAssignment.createdAt)}`}
-                    />
-                  </div>
-
-                  <div className="rounded-2xl border border-border bg-card px-4 py-4">
-                    <div className="flex items-center justify-between gap-3">
-                      <div>
-                        <div className="text-sm font-semibold text-foreground">Completion</div>
-                        <div className="mt-1 text-sm text-muted-foreground">
-                          {selectedAssignment.completedLearnerCount} complete | {selectedAssignment.inProgressLearnerCount} in progress |{' '}
-                          {selectedAssignment.notStartedLearnerCount} not started
-                        </div>
-                      </div>
-                      <div className="text-right">
-                        <div className="text-lg font-semibold text-foreground">{selectedAssignment.completionRate}%</div>
-                        <div className="text-xs text-muted-foreground">completion rate</div>
-                      </div>
-                    </div>
-                    <div className="mt-4">
-                      <ProgressStack
-                        completed={selectedAssignment.completedLearnerCount}
-                        inProgress={selectedAssignment.inProgressLearnerCount}
-                        notStarted={selectedAssignment.notStartedLearnerCount}
-                      />
-                    </div>
-                    <div className="mt-4 grid gap-3 sm:grid-cols-3">
-                      <MetricCard label="Learners" value={String(selectedAssignment.eligibleLearnerCount)} />
-                      <MetricCard label="Avg progress" value={`${selectedAssignment.averageProgressPercent}%`} />
-                      <MetricCard
-                        label="Target"
-                        value={String(selectedAssignment.requiredCompletionCount)}
-                        helper={selectedAssignmentTargetUnit ? `${selectedAssignmentTargetUnit} required` : undefined}
-                      />
-                    </div>
-                  </div>
-
-                  <div className="grid gap-3 sm:grid-cols-3">
-                    <MetricCard
-                      label="Needs attention"
-                      value={String(Math.max(selectedAssignment.eligibleLearnerCount - selectedAssignment.completedLearnerCount, 0))}
-                      helper="Learners not fully complete"
-                    />
-                    <MetricCard
-                      label="Needs review"
-                      value={String(selectedAssignmentOperationalMeta?.needsReviewCount || 0)}
-                      helper="Submission backlog"
-                    />
-                    <MetricCard
-                      label="Coaching notes"
-                      value={String(selectedAssignmentFeedback.length)}
-                      helper="Linked to this assignment"
-                    />
-                  </div>
-
-                  {selectedAssignmentSubmissions.length > 0 ? (
-                    <div className="rounded-2xl border border-border bg-card px-4 py-4">
-                      <div className="text-sm font-semibold text-foreground">Recent submissions</div>
-                      <div className="mt-3 space-y-3">
-                        {selectedAssignmentSubmissions.map((submission) => (
-                          <button
-                            key={submission.id}
-                            type="button"
-                            onClick={() => {
-                              if (!submission.memberUserId) return;
-                              openNewFeedbackComposer(
-                                submission.memberUserId,
-                                submission.assignmentId || undefined,
-                                'existing',
-                                submission.id
-                              );
-                            }}
-                            className="w-full rounded-2xl border border-border bg-background px-4 py-3 text-left transition hover:bg-secondary"
-                          >
-                            <div className="flex items-center justify-between gap-3">
-                              <div className="text-sm font-semibold text-foreground">{submission.memberName}</div>
-                              <div className="text-xs text-muted-foreground">
-                                Attempt {submission.attemptNumber} | {formatSubmissionStatusLabel(submission.status)}
-                              </div>
-                            </div>
-                            <div className="mt-1 text-sm text-muted-foreground">
-                              {submission.title} | {formatSubmissionTypeLabel(submission.submissionType)}
-                            </div>
-                            <div className="mt-2 line-clamp-2 text-sm text-muted-foreground">{submission.preview}</div>
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  ) : null}
-
-                  {selectedAssignmentFeedback.length > 0 ? (
-                    <div className="rounded-2xl border border-border bg-card px-4 py-4">
-                      <div className="text-sm font-semibold text-foreground">Recent coaching activity</div>
-                      <div className="mt-3 space-y-3">
-                        {selectedAssignmentFeedback.map((entry) => {
-                          const state = getFeedbackStateMeta(entry);
-                          return (
-                            <button
-                              key={entry.id}
-                              type="button"
-                              onClick={() => {
-                                setActiveModal('feedback');
-                                setSelectedFeedbackId(entry.id);
-                                setFeedbackComposerOpen(false);
-                              }}
-                              className="w-full rounded-2xl border border-border bg-background px-4 py-3 text-left transition hover:bg-secondary"
-                            >
-                              <div className="flex items-center justify-between gap-3">
-                                <div className="text-sm font-semibold text-foreground">{entry.memberName}</div>
-                                <div className="text-xs text-muted-foreground">{state.label}</div>
-                              </div>
-                              <div className="mt-1 text-sm text-muted-foreground">{entry.summary || 'Open coaching note'}</div>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  ) : null}
-
-                  <div className="flex flex-wrap gap-3 pt-1">
-                    <button
-                      type="button"
-                      onClick={() => startAssignmentEdit(selectedAssignment)}
-                      disabled={!canManageWorkspace}
-                      className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl border border-border bg-card px-4 text-sm font-semibold text-foreground transition hover:bg-secondary disabled:opacity-60"
-                    >
-                      <Pencil className="h-4 w-4" />
-                      Edit
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => void handleDuplicateAssignment(selectedAssignment)}
-                      disabled={!canManageWorkspace || submittingKey === `duplicate-assignment-${selectedAssignment.id}`}
-                      className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl border border-border bg-card px-4 text-sm font-semibold text-foreground transition hover:bg-secondary disabled:opacity-60"
-                    >
-                      {submittingKey === `duplicate-assignment-${selectedAssignment.id}` ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                      ) : (
-                        <Copy className="h-4 w-4" />
-                      )}
-                      Duplicate
-                    </button>
-                    {selectedAssignment.lifecycleState === 'archived' ? (
-                      <button
-                        type="button"
-                        onClick={() => void handleRestoreAssignment(selectedAssignment)}
-                        disabled={!canManageWorkspace || submittingKey === `restore-assignment-${selectedAssignment.id}`}
-                        className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl border border-border bg-card px-4 text-sm font-semibold text-foreground transition hover:bg-secondary disabled:opacity-60"
-                      >
-                        {submittingKey === `restore-assignment-${selectedAssignment.id}` ? (
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                        ) : (
-                          <RotateCcw className="h-4 w-4" />
-                        )}
-                        Restore
-                      </button>
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={() => requestArchiveAssignment(selectedAssignment)}
-                        disabled={!canManageWorkspace || submittingKey === `delete-assignment-${selectedAssignment.id}`}
-                        className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl border border-destructive/20 bg-destructive/10 px-4 text-sm font-semibold text-destructive transition hover:bg-destructive/15 disabled:opacity-60"
-                      >
-                        {submittingKey === `delete-assignment-${selectedAssignment.id}` ? (
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                        ) : (
-                          <Archive className="h-4 w-4" />
-                        )}
-                        Archive
-                      </button>
-                    )}
-                  </div>
-                </div>
-              ) : (
-                <EmptyState
-                  title="Select an assignment"
-                  helper="Choose a row from the queue to inspect progress, deadlines, and quick actions."
-                />
-              )}
-            </div>
-          </div>
-        </div>
+        <AssignmentsWorkspace
+          teamDetail={teamDetail}
+          canManageWorkspace={canManageWorkspace}
+          workspaceAssignmentCount={workspaceCounts.assignments}
+          assignmentLimit={selectedTeamPlanPolicy.assignmentLimit}
+          trackTitleById={trackTitleById}
+          assignmentDraft={assignmentDraft}
+          setAssignmentDraft={setAssignmentDraft}
+          assignmentDueInputState={assignmentDueInputState}
+          onAssignmentDueInputStateChange={setAssignmentDueInputState}
+          assignmentEditorOpen={assignmentEditorOpen}
+          selectedAssignmentId={selectedAssignmentId}
+          submittingKey={submittingKey}
+          onSelectAssignmentId={setSelectedAssignmentId}
+          onOpenNewAssignmentEditor={openNewAssignmentEditor}
+          onCloseAssignmentEditor={closeAssignmentEditor}
+          onSaveAssignment={handleSaveAssignment}
+          onStartAssignmentEdit={startAssignmentEdit}
+          onApplyAssignmentTemplate={applyAssignmentTemplate}
+          onDuplicateAssignment={handleDuplicateAssignment}
+          onRequestArchiveAssignment={requestArchiveAssignment}
+          onRequestDeleteAssignments={requestDeleteAssignments}
+          onRestoreAssignment={handleRestoreAssignment}
+          onBulkAssignmentAction={handleBulkAssignmentAction}
+          onOpenReviewForSubmission={openAssignmentReview}
+          onOpenFeedbackEntry={openAssignmentFeedback}
+          formatDateLabel={formatDateLabel}
+          formatDateTimeLabel={formatDateTimeLabel}
+          formatRelativeActivityLabel={formatRelativeActivityLabel}
+          formatSubmissionStatusLabel={formatSubmissionStatusLabel}
+          formatSubmissionTypeLabel={formatSubmissionTypeLabel}
+        />
       </ModalShell>
     );
   };
-
   const renderFeedbackModal = () => {
     if (activeModal !== 'feedback' || !teamDetail) return null;
 
@@ -3887,7 +3227,7 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
             sortPriority: 0,
           }
         : selectedReviewState);
-    const activeReviewHeading = feedbackContextMember?.name || selectedReviewItem?.member?.name || 'New review';
+    const activeReviewHeading = feedbackContextMember?.name || selectedReviewItem?.member?.name || '';
     const activeReviewTitle = feedbackComposerOpen
       ? feedbackContextAssignment?.title || 'Manual coaching note'
       : selectedReviewItem
@@ -3908,19 +3248,23 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
     const evidenceStatusLabel = composerHasAnchoredEvidence ? activeSubmissionLabel : 'No evidence attached';
     const manualReviewWarning = composerHasAnchoredEvidence
       ? null
-      : 'No learner attempt is attached. Score coaching signals here, not pretend code correctness.';
-    const composerRubricHeading = composerHasAnchoredEvidence ? 'Evidence-backed rubric' : 'Manual coaching rubric';
+      : 'No learner attempt is attached. Score coaching signals here, not code correctness.';
+    const composerRubricHeading = composerHasAnchoredEvidence ? 'Anchored rubric' : 'Manual rubric';
     const composerRubricHelper = composerHasAnchoredEvidence
-      ? 'Score the anchored work directly. Leave a dimension empty only if you have not judged it yet.'
-      : 'This note is not tied to a submission, so score clarity, consistency, reasoning, and next-step readiness instead.';
+      ? 'Score the anchored work. Leave blank only if you cannot judge a dimension yet.'
+      : 'No submission is attached, so score clarity, consistency, reasoning, and next step.';
     const composerModeTitle =
       composerMode === 'edit'
-        ? `Edit review for ${activeReviewHeading}`
-        : `Create review for ${activeReviewHeading}`;
+        ? activeReviewHeading
+          ? `Edit review for ${activeReviewHeading}`
+          : 'Edit review'
+        : activeReviewHeading
+        ? `Create review for ${activeReviewHeading}`
+        : 'Create a coaching note';
     const composerModeHelper =
       composerMode === 'edit'
-        ? 'Check the evidence, rescore if needed, then tighten one clear learner note.'
-        : 'Set the scope, evaluate the work honestly, write one learner note, and choose the outcome.';
+        ? 'Check the evidence, tighten the note, then save the outcome.'
+        : 'Set the scope, score the work, write the note, then save the outcome.';
     const composerQueueLabel =
       selectedReviewItem && filteredReviewItems.length > 0
         ? `${Math.max(selectedReviewItemIndex + 1, 1)} of ${filteredReviewItems.length} in this queue view`
@@ -3948,10 +3292,7 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
       : [];
 
     const clearReviewFilters = () => {
-      setFeedbackSearchQuery('');
-      setFeedbackStatusFilter('all');
-      setFeedbackVisibilityFilter('all');
-      setFeedbackSort('recent');
+      resetReviewFilters();
     };
     const hasNextReviewItem = selectedReviewItemIndex >= 0 && selectedReviewItemIndex < filteredReviewItems.length - 1;
     const selectReviewItem = (item: ReviewQueueItem | null) => {
@@ -3995,7 +3336,7 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
             <div>
               <div className="text-lg font-semibold text-foreground">Review queue</div>
               <div className="mt-1 text-sm text-muted-foreground">
-                Pick the next learner, finish the note, then move on.
+                Pick the next learner and move the note forward.
               </div>
             </div>
             <button
@@ -4070,19 +3411,7 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
                 helper={
                   (teamDetail.submissions || []).length > 0
                     ? 'Submitted work is here. Start the first review and turn it into feedback.'
-                    : 'The queue will fill as learners submit assignments or you create manual coaching notes.'
-                }
-                action={
-                  canManageWorkspace ? (
-                    <button
-                      type="button"
-                      onClick={openManualFeedbackComposer}
-                      className="inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-primary px-4 text-sm font-semibold text-primary-foreground transition hover:bg-primary/90"
-                    >
-                      <Plus className="h-4 w-4" />
-                      Start a manual review
-                    </button>
-                  ) : null
+                    : 'The queue will fill as learners submit assignments. Use New review above if you need to start a manual note first.'
                 }
               />
             </div>
@@ -4153,93 +3482,76 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
 
     const renderComposerContextPanel = () => (
       <div className="space-y-3">
-        <div className="rounded-[1.2rem] border border-border/70 bg-background/80 p-4">
-          <div className="text-sm font-semibold text-foreground">Evidence</div>
-          <div className="mt-1 text-sm text-muted-foreground">
-            Keep the note manual unless a specific learner attempt is the reason for the score or feedback.
+        <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+          <div className="rounded-[1rem] bg-card px-3 py-3 text-sm">
+            <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-primary">Learner</div>
+            <div className="mt-2 font-semibold text-foreground">{feedbackContextMember?.name || 'Select learner'}</div>
           </div>
-
-          <dl className="mt-4 space-y-2 text-sm">
-            <div className="flex items-start justify-between gap-4">
-              <dt className="text-muted-foreground">Learner</dt>
-              <dd className="text-right font-semibold text-foreground">
-                {feedbackContextMember?.name || 'Select learner'}
-              </dd>
+          <div className="rounded-[1rem] bg-card px-3 py-3 text-sm">
+            <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-primary">Assignment</div>
+            <div className="mt-2 font-semibold text-foreground">{feedbackContextAssignment?.title || 'General coaching note'}</div>
+          </div>
+          <div className="rounded-[1rem] bg-card px-3 py-3 text-sm">
+            <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-primary">Evidence</div>
+            <div className="mt-2 font-semibold text-foreground">{activeSubmissionLabel}</div>
+          </div>
+          <div className="rounded-[1rem] bg-card px-3 py-3 text-sm">
+            <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-primary">Last active</div>
+            <div className="mt-2 font-semibold text-foreground">
+              {feedbackContextMember ? formatRelativeActivityLabel(feedbackContextMember.lastActiveAt) : 'No activity yet'}
             </div>
-            <div className="flex items-start justify-between gap-4">
-              <dt className="text-muted-foreground">Assignment</dt>
-              <dd className="max-w-[65%] text-right font-semibold text-foreground">
-                {feedbackContextAssignment?.title || 'General coaching note'}
-              </dd>
-            </div>
-            <div className="flex items-start justify-between gap-4">
-              <dt className="text-muted-foreground">Last active</dt>
-              <dd className="text-right font-semibold text-foreground">
-                {feedbackContextMember ? formatRelativeActivityLabel(feedbackContextMember.lastActiveAt) : 'No activity yet'}
-              </dd>
-            </div>
-            {feedbackContextMember?.latestBenchmarkScore !== null ? (
-              <div className="flex items-start justify-between gap-4">
-                <dt className="text-muted-foreground">Benchmark</dt>
-                <dd className="text-right font-semibold text-foreground">
-                  {feedbackContextMember.latestBenchmarkScore}
-                  {feedbackContextMember.latestBenchmarkAt ? ` | ${formatDateLabel(feedbackContextMember.latestBenchmarkAt)}` : ''}
-                </dd>
-              </div>
-            ) : null}
-          </dl>
+          </div>
         </div>
 
-        <div className="rounded-[1.2rem] border border-border/70 bg-background/80 p-4">
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <div className="text-sm font-semibold text-foreground">Attachment mode</div>
-              <div className="mt-1 text-sm text-muted-foreground">
-                Choose manual, reuse an attempt, or create a snapshot only when it improves the review.
+        <details className="rounded-[1rem] border border-border bg-background/80">
+          <summary className="cursor-pointer list-none px-4 py-3">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <div className="text-sm font-semibold text-foreground">Change attachment</div>
+                <div className="mt-1 text-sm text-muted-foreground">
+                  Only change this when a different attempt should become the source of truth.
+                </div>
               </div>
-            </div>
-            <ReviewStatePill
-              label={
-                submissionAttachmentMode === 'none'
+              <span className="text-xs text-muted-foreground">
+                {submissionAttachmentMode === 'none'
                   ? 'Manual'
                   : submissionAttachmentMode === 'existing'
                   ? 'Linked'
-                  : 'Snapshot'
-              }
-              tone={submissionAttachmentMode === 'none' ? 'default' : 'warn'}
-            />
-          </div>
+                  : 'Snapshot'}
+              </span>
+            </div>
+          </summary>
 
-          <div className="mt-4 grid gap-2 sm:grid-cols-3">
-            {([
-              ['none', 'Manual'],
-              ['existing', 'Use existing'],
-              ['new', 'Create snapshot'],
-            ] as Array<[SubmissionAttachmentMode, string]>).map(([value, label]) => (
-              <button
-                key={value}
-                type="button"
-                onClick={() => {
-                  setSubmissionAttachmentMode(value);
-                  if (value === 'none') {
-                    setSelectedSubmissionId(null);
-                    setSubmissionDraft(emptySubmissionDraft());
-                  }
-                  if (value === 'new') {
-                    setSelectedSubmissionId(null);
-                  }
-                }}
-                className={`rounded-xl px-3 py-3 text-sm font-semibold transition ${
-                  submissionAttachmentMode === value ? 'bg-primary text-primary-foreground' : 'bg-card text-foreground hover:bg-secondary'
-                }`}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
+          <div className="border-t border-border px-4 py-4 space-y-4">
+            <div className="grid gap-2 sm:grid-cols-3">
+              {([
+                ['none', 'Manual'],
+                ['existing', 'Use existing'],
+                ['new', 'Create snapshot'],
+              ] as Array<[SubmissionAttachmentMode, string]>).map(([value, label]) => (
+                <button
+                  key={value}
+                  type="button"
+                  onClick={() => {
+                    setSubmissionAttachmentMode(value);
+                    if (value === 'none') {
+                      setSelectedSubmissionId(null);
+                      setSubmissionDraft(emptySubmissionDraft());
+                    }
+                    if (value === 'new') {
+                      setSelectedSubmissionId(null);
+                    }
+                  }}
+                  className={`rounded-xl px-3 py-3 text-sm font-semibold transition ${
+                    submissionAttachmentMode === value ? 'bg-primary text-primary-foreground' : 'bg-card text-foreground hover:bg-secondary'
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
 
-          {submissionAttachmentMode === 'existing' ? (
-            <div className="mt-4">
+            {submissionAttachmentMode === 'existing' ? (
               <ReviewField
                 label="Existing attempt"
                 helper={
@@ -4263,113 +3575,121 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
                   ))}
                 </select>
               </ReviewField>
-            </div>
-          ) : null}
+            ) : null}
 
-          {submissionAttachmentMode === 'new' ? (
-            <div className="mt-4 space-y-3 rounded-[1rem] bg-card/80 p-3">
-              <ReviewField label="Snapshot title">
-                <input
-                  value={submissionDraft.title}
-                  onChange={(event) => setSubmissionDraft((current) => ({ ...current, title: event.target.value }))}
-                  placeholder="Benchmark retry #2"
-                  className="h-11 w-full rounded-2xl border border-border bg-background px-4 text-sm text-foreground outline-none transition focus:border-primary/40"
-                />
-              </ReviewField>
-
-              <div className="grid gap-3 sm:grid-cols-2">
-                <ReviewField label="Type">
-                  <select
-                    value={submissionDraft.submissionType}
-                    onChange={(event) =>
-                      setSubmissionDraft((current) => ({
-                        ...current,
-                        submissionType: event.target.value as TeamSubmissionType,
-                      }))
-                    }
-                    className="h-11 w-full rounded-2xl border border-border bg-background px-4 text-sm text-foreground outline-none transition focus:border-primary/40"
-                  >
-                    <option value="written">Written response</option>
-                    <option value="code">Code snapshot</option>
-                    <option value="link">External link</option>
-                  </select>
-                </ReviewField>
-
-                <ReviewField label="State">
-                  <select
-                    value={submissionDraft.status}
-                    onChange={(event) =>
-                      setSubmissionDraft((current) => ({
-                        ...current,
-                        status: event.target.value as TeamSubmissionStatus,
-                      }))
-                    }
-                    className="h-11 w-full rounded-2xl border border-border bg-background px-4 text-sm text-foreground outline-none transition focus:border-primary/40"
-                  >
-                    <option value="submitted">Submitted</option>
-                    <option value="needs_revision">Needs revision</option>
-                    <option value="reviewed">Reviewed</option>
-                  </select>
-                </ReviewField>
-              </div>
-
-              {submissionDraft.submissionType === 'code' ? (
-                <ReviewField label="Language">
-                  <select
-                    value={submissionDraft.codeLanguage}
-                    onChange={(event) =>
-                      setSubmissionDraft((current) => ({
-                        ...current,
-                        codeLanguage: event.target.value as BenchmarkLanguage,
-                      }))
-                    }
-                    className="h-11 w-full rounded-2xl border border-border bg-background px-4 text-sm text-foreground outline-none transition focus:border-primary/40"
-                  >
-                    <option value="python">Python</option>
-                    <option value="javascript">JavaScript</option>
-                    <option value="java">Java</option>
-                    <option value="cpp">C++</option>
-                  </select>
-                </ReviewField>
-              ) : null}
-
-              {submissionDraft.submissionType === 'link' ? (
-                <ReviewField label="Link">
+            {submissionAttachmentMode === 'new' ? (
+              <div className="space-y-3 rounded-[1rem] bg-card/80 p-3">
+                <ReviewField label="Snapshot title">
                   <input
-                    value={submissionDraft.externalUrl}
-                    onChange={(event) => setSubmissionDraft((current) => ({ ...current, externalUrl: event.target.value }))}
-                    placeholder="https://github.com/..."
+                    value={submissionDraft.title}
+                    onChange={(event) => setSubmissionDraft((current) => ({ ...current, title: event.target.value }))}
+                    placeholder="Benchmark retry #2"
                     className="h-11 w-full rounded-2xl border border-border bg-background px-4 text-sm text-foreground outline-none transition focus:border-primary/40"
                   />
                 </ReviewField>
-              ) : (
-                <ReviewField label={submissionDraft.submissionType === 'code' ? 'Code snapshot' : 'Written response'}>
-                  <textarea
-                    value={submissionDraft.body}
-                    onChange={(event) => setSubmissionDraft((current) => ({ ...current, body: event.target.value }))}
-                    rows={5}
-                    placeholder={
-                      submissionDraft.submissionType === 'code'
-                        ? 'Paste the learner code snapshot here.'
-                        : 'Paste the learner answer or work sample here.'
-                    }
-                    className="w-full rounded-2xl border border-border bg-background px-4 py-3 text-sm text-foreground outline-none transition focus:border-primary/40"
-                  />
-                </ReviewField>
-              )}
-            </div>
-          ) : null}
-        </div>
+
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <ReviewField label="Type">
+                    <select
+                      value={submissionDraft.submissionType}
+                      onChange={(event) =>
+                        setSubmissionDraft((current) => ({
+                          ...current,
+                          submissionType: event.target.value as TeamSubmissionType,
+                        }))
+                      }
+                      className="h-11 w-full rounded-2xl border border-border bg-background px-4 text-sm text-foreground outline-none transition focus:border-primary/40"
+                    >
+                      <option value="written">Written response</option>
+                      <option value="code">Code snapshot</option>
+                      <option value="link">External link</option>
+                    </select>
+                  </ReviewField>
+
+                  <ReviewField label="State">
+                    <select
+                      value={submissionDraft.status}
+                      onChange={(event) =>
+                        setSubmissionDraft((current) => ({
+                          ...current,
+                          status: event.target.value as TeamSubmissionStatus,
+                        }))
+                      }
+                      className="h-11 w-full rounded-2xl border border-border bg-background px-4 text-sm text-foreground outline-none transition focus:border-primary/40"
+                    >
+                      <option value="submitted">Submitted</option>
+                      <option value="needs_revision">Needs revision</option>
+                      <option value="reviewed">Reviewed</option>
+                    </select>
+                  </ReviewField>
+                </div>
+
+                {submissionDraft.submissionType === 'code' ? (
+                  <ReviewField label="Language">
+                    <select
+                      value={submissionDraft.codeLanguage}
+                      onChange={(event) =>
+                        setSubmissionDraft((current) => ({
+                          ...current,
+                          codeLanguage: event.target.value as BenchmarkLanguage,
+                        }))
+                      }
+                      className="h-11 w-full rounded-2xl border border-border bg-background px-4 text-sm text-foreground outline-none transition focus:border-primary/40"
+                    >
+                      <option value="python">Python</option>
+                      <option value="javascript">JavaScript</option>
+                      <option value="java">Java</option>
+                      <option value="cpp">C++</option>
+                    </select>
+                  </ReviewField>
+                ) : null}
+
+                {submissionDraft.submissionType === 'link' ? (
+                  <ReviewField label="Link">
+                    <input
+                      value={submissionDraft.externalUrl}
+                      onChange={(event) => setSubmissionDraft((current) => ({ ...current, externalUrl: event.target.value }))}
+                      placeholder="https://github.com/..."
+                      className="h-11 w-full rounded-2xl border border-border bg-background px-4 text-sm text-foreground outline-none transition focus:border-primary/40"
+                    />
+                  </ReviewField>
+                ) : (
+                  <ReviewField label={submissionDraft.submissionType === 'code' ? 'Code snapshot' : 'Written response'}>
+                    <textarea
+                      value={submissionDraft.body}
+                      onChange={(event) => setSubmissionDraft((current) => ({ ...current, body: event.target.value }))}
+                      rows={5}
+                      placeholder={
+                        submissionDraft.submissionType === 'code'
+                          ? 'Paste the learner code snapshot here.'
+                          : 'Paste the learner answer or work sample here.'
+                      }
+                      className="w-full rounded-2xl border border-border bg-background px-4 py-3 text-sm text-foreground outline-none transition focus:border-primary/40"
+                    />
+                  </ReviewField>
+                )}
+              </div>
+            ) : null}
+          </div>
+        </details>
 
         {(feedbackContextSubmission || submissionAttachmentMode === 'new') && composerAttachedSubmissionPreview ? (
-          <div className="rounded-[1.2rem] border border-border/70 bg-background/80 p-4">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <div className="text-sm font-semibold text-foreground">
-                  {feedbackContextSubmission ? 'Attached evidence' : 'Snapshot preview'}
+          <details className="rounded-[1rem] border border-border bg-background/80">
+            <summary className="cursor-pointer list-none px-4 py-3">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <div className="text-sm font-semibold text-foreground">
+                    {feedbackContextSubmission ? 'Attached work preview' : 'Snapshot preview'}
+                  </div>
+                  <div className="mt-1 text-sm text-muted-foreground">{activeSubmissionLabel}</div>
                 </div>
-                <div className="mt-1 text-sm text-muted-foreground">{activeSubmissionLabel}</div>
+                {feedbackContextSubmission?.externalUrl ? (
+                  <span className="text-xs text-primary">Open link</span>
+                ) : null}
               </div>
+            </summary>
+
+            <div className="border-t border-border px-4 py-4">
               {feedbackContextSubmission?.externalUrl ? (
                 <a
                   href={feedbackContextSubmission.externalUrl}
@@ -4381,21 +3701,21 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
                   Open link
                 </a>
               ) : null}
-            </div>
 
-            <div className="mt-3 max-h-[14rem] overflow-y-auto rounded-[1rem] bg-card px-4 py-3 text-sm leading-7 text-muted-foreground whitespace-pre-wrap">
-              {composerAttachedSubmissionPreview}
+              <div className="mt-3 max-h-[12rem] overflow-y-auto rounded-[1rem] bg-card px-4 py-3 text-sm leading-7 text-muted-foreground whitespace-pre-wrap">
+                {composerAttachedSubmissionPreview}
+              </div>
             </div>
-          </div>
+          </details>
         ) : null}
 
         {submissionHistory.length > 0 ? (
-          <details className="rounded-[1.2rem] border border-border/70 bg-background/80">
+          <details className="rounded-[1rem] border border-border bg-background/80">
             <summary className="cursor-pointer list-none px-4 py-3">
               <div className="flex items-center justify-between gap-3">
                 <div>
                   <div className="text-sm font-semibold text-foreground">Recent attempts</div>
-                  <div className="text-sm text-muted-foreground">Re-anchor here if another attempt is the real source of truth.</div>
+                  <div className="text-sm text-muted-foreground">Re-anchor here only when another attempt should drive the note.</div>
                 </div>
                 <div className="text-xs text-muted-foreground">{submissionHistory.length} total</div>
               </div>
@@ -4467,7 +3787,7 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
                     {feedbackContextMember ? formatRelativeActivityLabel(feedbackContextMember.lastActiveAt) : 'No activity yet'}
                   </dd>
                 </div>
-                {feedbackContextMember?.latestBenchmarkScore !== null ? (
+                {feedbackContextMember && feedbackContextMember.latestBenchmarkScore !== null ? (
                   <div className="flex items-start justify-between gap-4">
                     <dt className="text-muted-foreground">Latest benchmark</dt>
                     <dd className="text-right font-semibold text-foreground">
@@ -4751,13 +4071,13 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
         <div className="rounded-[1.75rem] border border-border/60 bg-background/70 p-5">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
             <div>
-              <div className="text-lg font-semibold text-foreground">Current work</div>
+              <div className="text-lg font-semibold text-foreground">
+                {feedbackContextSubmission ? 'Attached work' : 'No attached work'}
+              </div>
               <div className="mt-1 text-sm text-muted-foreground">
                 {feedbackContextSubmission
                   ? 'Read the actual learner work before you score and coach it.'
-                  : feedbackComposerOpen
-                  ? 'Attach existing work or create a snapshot only if the review needs it.'
-                  : 'This queue item has no attached submission yet.'}
+                  : 'This review is still manual. Start the note only if that is intentional.'}
               </div>
             </div>
             {feedbackContextSubmission?.externalUrl ? (
@@ -4772,37 +4092,6 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
               </a>
             ) : null}
           </div>
-
-          {feedbackContextMember || feedbackContextAssignment || feedbackContextSubmission ? (
-            <dl className="mt-5 grid gap-x-6 gap-y-4 text-sm sm:grid-cols-2 xl:grid-cols-4">
-              {feedbackContextMember ? (
-                <>
-                  <div>
-                    <dt className="text-muted-foreground">Learner</dt>
-                    <dd className="mt-1 font-semibold text-foreground">{feedbackContextMember.name}</dd>
-                  </div>
-                  <div>
-                    <dt className="text-muted-foreground">Role</dt>
-                    <dd className="mt-1 font-semibold text-foreground">{formatTeamRoleLabel(feedbackContextMember.role)}</dd>
-                  </div>
-                </>
-              ) : null}
-              {feedbackContextAssignment ? (
-                <>
-                  <div>
-                    <dt className="text-muted-foreground">Assignment</dt>
-                    <dd className="mt-1 font-semibold text-foreground">{feedbackContextAssignment.title}</dd>
-                  </div>
-                  <div>
-                    <dt className="text-muted-foreground">Due</dt>
-                    <dd className="mt-1 font-semibold text-foreground">
-                      {feedbackContextAssignment.dueAt ? formatDateLabel(feedbackContextAssignment.dueAt) : 'No due date'}
-                    </dd>
-                  </div>
-                </>
-              ) : null}
-            </dl>
-          ) : null}
 
           <div className="mt-5 rounded-[1.4rem] bg-card/80 px-4 py-4">
             {feedbackContextSubmission ? (
@@ -5052,7 +4341,9 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
         rubricFields={composerRubricFields}
         feedbackRubricDraft={feedbackRubricDraft}
         setFeedbackRubricDraft={setFeedbackRubricDraft}
+        activeFeedbackStarterId={activeFeedbackStarterId}
         onApplyFeedbackSnippet={applyFeedbackSnippet}
+        onUpdateFeedbackNoteField={updateFeedbackNoteField}
         workflowOptions={FEEDBACK_WORKFLOW_OPTIONS}
         onSetFeedbackWorkflowState={setFeedbackWorkflowState}
         onSaveFeedback={handleSaveFeedback}
@@ -5073,8 +4364,12 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
           }
           if (selectedReviewItem) startReviewForItem(selectedReviewItem);
         }}
-        onOpenManualFeedbackComposer={openManualFeedbackComposer}
         composerContextPanel={renderComposerContextPanel()}
+        queueSnapshot={{
+          needsReview: reviewQueueStats.needsReview,
+          drafted: reviewQueueStats.drafted,
+          resolved: reviewQueueStats.resolved,
+        }}
       />
     );
 
@@ -5087,7 +4382,6 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
         queuePane={renderQueuePane()}
         hasSelectedReviewItem={Boolean(selectedReviewItem)}
         canManageWorkspace={canManageWorkspace}
-        onOpenManualFeedbackComposer={openManualFeedbackComposer}
         onStartOrEditReview={() => {
           if (selectedReviewItem) startReviewForItem(selectedReviewItem);
         }}
@@ -5101,10 +4395,15 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
         lastActiveLabel={feedbackContextMember ? formatRelativeActivityLabel(feedbackContextMember.lastActiveAt) : null}
         queueUpdatedLabel={selectedReviewItem ? formatRelativeActivityLabel(selectedReviewItem.updatedAt) : null}
         latestBenchmarkLabel={
-          feedbackContextMember?.latestBenchmarkScore !== null
+          feedbackContextMember && feedbackContextMember.latestBenchmarkScore !== null
             ? String(feedbackContextMember.latestBenchmarkScore) + (feedbackContextMember.latestBenchmarkAt ? ' | ' + formatDateLabel(feedbackContextMember.latestBenchmarkAt) : '')
             : null
         }
+        queueSnapshot={{
+          needsReview: reviewQueueStats.needsReview,
+          drafted: reviewQueueStats.drafted,
+          resolved: reviewQueueStats.resolved,
+        }}
       />
     );
   };
@@ -5273,7 +4572,7 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
                     value={
                       canManageWorkspace
                         ? `${workspaceCounts.assignments}/${selectedTeamPlanPolicy.assignmentLimit} active`
-                        : `${workspaceCounts.assignments} assigned`
+                        : `${workspaceCounts.assignments} active`
                     }
                     onClick={() => openModal('assignments')}
                     icon={<Plus className="h-5 w-5" />}
@@ -5524,7 +4823,7 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
                 )}
               </>
             )}
-          </div>
+            </div>
         </ModalShell>
       ) : null}
 
@@ -5536,40 +4835,117 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
           subtitle="Choose how people join, review pending requests, and manage invite codes."
           onClose={() => setActiveModal(null)}
         >
-          <div className="grid gap-5 xl:grid-cols-[360px_minmax(0,1fr)]">
-            <div className="space-y-5">
+          <div className="space-y-5">
+            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+              <MetricCard
+                label="Join policy"
+                value={accessJoinModeOption.label}
+                helper={accessJoinModeMeta.summary}
+              />
+              <MetricCard
+                label="Exposure surface"
+                value={
+                  joinSettingsDraft.joinMode === 'code_domain' && joinSettingsDraft.allowedEmailDomain.trim()
+                    ? joinSettingsDraft.allowedEmailDomain.trim()
+                    : accessJoinModeMeta.exposureValue
+                }
+                helper={
+                  joinSettingsDraft.joinMode === 'code_domain' && joinSettingsDraft.allowedEmailDomain.trim()
+                    ? 'Only signed-in users on this domain can use code-based access.'
+                    : accessJoinModeMeta.exposureHelper
+                }
+              />
+              <MetricCard
+                label="Active codes"
+                value={String(activeInvites.length)}
+                helper={
+                  workspaceCounts.invites === 0
+                    ? 'No invite codes live right now.'
+                    : `${workspaceCounts.invites} total code${workspaceCounts.invites === 1 ? '' : 's'} tracked here.`
+                }
+              />
+              <MetricCard
+                label="Pending requests"
+                value={String(pendingJoinRequests.length)}
+                helper={
+                  joinSettingsDraft.joinMode === 'code_approval'
+                    ? pendingJoinRequests.length === 0
+                      ? 'Approval mode is on and the queue is clear.'
+                      : 'These joins still need an owner or admin decision.'
+                    : 'Requests only appear when code joins require approval.'
+                }
+              />
+              <MetricCard
+                label="Default role"
+                value="Learner"
+                helper="Promote members later if they need coach or admin access."
+              />
+            </div>
+
+            <div className="grid gap-5 xl:grid-cols-[380px_minmax(0,1fr)]">
+              <div className="space-y-5">
               <div className="rounded-2xl border border-border bg-background p-4">
-                <div className="text-sm font-semibold text-foreground">Join settings</div>
-                <div className="mt-4 space-y-3">
-                  <select
-                    value={joinSettingsDraft.joinMode}
-                    onChange={(event) =>
-                      setJoinSettingsDraft((current) => ({
-                        ...current,
-                        joinMode: event.target.value as TeamJoinMode,
-                        allowedEmailDomain: event.target.value === 'code_domain' ? current.allowedEmailDomain : '',
-                      }))
-                    }
-                    className="h-11 w-full rounded-2xl border border-border bg-card px-4 text-sm text-foreground outline-none transition focus:border-primary/40"
-                  >
-                    {TEAM_JOIN_MODE_OPTIONS.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <div className="text-sm font-semibold text-foreground">Current access policy</div>
+                    <div className="mt-1 text-lg font-semibold text-foreground">{accessJoinModeOption.label}</div>
+                    <div className="mt-2 text-sm text-muted-foreground">{accessJoinModeMeta.summary}</div>
+                  </div>
+                  <ReviewStatePill label={accessJoinModeMeta.riskLabel} tone={accessJoinModeMeta.tone} />
+                </div>
+                <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-1">
+                  <div className="rounded-2xl border border-border bg-card px-4 py-3">
+                    <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-primary">Who can join</div>
+                    <div className="mt-2 text-sm font-semibold text-foreground">{accessJoinModeMeta.audienceLabel}</div>
+                    <div className="mt-1 text-xs text-muted-foreground">{accessJoinModeMeta.audienceHelper}</div>
+                  </div>
+                  <div className="rounded-2xl border border-border bg-card px-4 py-3">
+                    <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-primary">Review path</div>
+                    <div className="mt-2 text-sm font-semibold text-foreground">{accessJoinModeMeta.approvalLabel}</div>
+                    <div className="mt-1 text-xs text-muted-foreground">{accessJoinModeMeta.approvalHelper}</div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="rounded-2xl border border-border bg-background p-4">
+                <div className="text-sm font-semibold text-foreground">Update join settings</div>
+                <div className="mt-1 text-sm text-muted-foreground">
+                  Choose how codes behave before new members land in the workspace.
+                </div>
+                <div className="mt-4 space-y-4">
+                  <FormField label="Join mode">
+                    <select
+                      value={joinSettingsDraft.joinMode}
+                      onChange={(event) =>
+                        setJoinSettingsDraft((current) => ({
+                          ...current,
+                          joinMode: event.target.value as TeamJoinMode,
+                          allowedEmailDomain: event.target.value === 'code_domain' ? current.allowedEmailDomain : '',
+                        }))
+                      }
+                      className="h-11 w-full rounded-2xl border border-border bg-card px-4 text-sm text-foreground outline-none transition focus:border-primary/40"
+                    >
+                      {TEAM_JOIN_MODE_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  </FormField>
                   <div className="rounded-2xl border border-border bg-card px-4 py-3 text-sm text-muted-foreground">
-                    {TEAM_JOIN_MODE_OPTIONS.find((option) => option.value === joinSettingsDraft.joinMode)?.helper}
+                    {accessJoinModeOption.helper}
                   </div>
                   {joinSettingsDraft.joinMode === 'code_domain' ? (
-                    <input
-                      value={joinSettingsDraft.allowedEmailDomain}
-                      onChange={(event) =>
-                        setJoinSettingsDraft((current) => ({ ...current, allowedEmailDomain: event.target.value }))
-                      }
-                      placeholder="school.edu"
-                      className="h-11 w-full rounded-2xl border border-border bg-card px-4 text-sm text-foreground outline-none transition focus:border-primary/40"
-                    />
+                    <FormField label="Allowed email domain" helper="Required in this mode">
+                      <input
+                        value={joinSettingsDraft.allowedEmailDomain}
+                        onChange={(event) =>
+                          setJoinSettingsDraft((current) => ({ ...current, allowedEmailDomain: event.target.value }))
+                        }
+                        placeholder="school.edu"
+                        className="h-11 w-full rounded-2xl border border-border bg-card px-4 text-sm text-foreground outline-none transition focus:border-primary/40"
+                      />
+                    </FormField>
                   ) : null}
                   <button
                     type="button"
@@ -5585,88 +4961,97 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
 
               <div className="rounded-2xl border border-border bg-background p-4">
                 <div className="text-sm font-semibold text-foreground">{inviteDraft.id ? 'Edit invite' : 'Create invite'}</div>
-                <div className="mt-4 space-y-3">
-                  <input
-                    value={inviteDraft.label}
-                    onChange={(event) => setInviteDraft((current) => ({ ...current, label: event.target.value }))}
-                    placeholder="Invite label"
-                    className="h-11 w-full rounded-2xl border border-border bg-card px-4 text-sm text-foreground outline-none transition focus:border-primary/40"
-                  />
-                  <input
-                    value={inviteDraft.email}
-                    onChange={(event) => setInviteDraft((current) => ({ ...current, email: event.target.value }))}
-                    placeholder="Optional email"
-                    className="h-11 w-full rounded-2xl border border-border bg-card px-4 text-sm text-foreground outline-none transition focus:border-primary/40"
-                  />
+                <div className="mt-1 text-sm text-muted-foreground">
+                  Issue a tracked learner invite, then tighten or revoke it if the access surface changes.
+                </div>
+                <div className="mt-4 space-y-4">
+                  <FormField label="Invite label" helper="Visible to admins">
+                    <input
+                      value={inviteDraft.label}
+                      onChange={(event) => setInviteDraft((current) => ({ ...current, label: event.target.value }))}
+                      placeholder="General learner access"
+                      className="h-11 w-full rounded-2xl border border-border bg-card px-4 text-sm text-foreground outline-none transition focus:border-primary/40"
+                    />
+                  </FormField>
+                  <FormField label="Invite email" helper="Optional direct target">
+                    <input
+                      value={inviteDraft.email}
+                      onChange={(event) => setInviteDraft((current) => ({ ...current, email: event.target.value }))}
+                      placeholder="learner@example.com"
+                      className="h-11 w-full rounded-2xl border border-border bg-card px-4 text-sm text-foreground outline-none transition focus:border-primary/40"
+                    />
+                  </FormField>
                   <div className="rounded-2xl border border-border bg-card px-4 py-3 text-sm text-muted-foreground">
-                    All invites start as <span className="font-semibold text-foreground">Learner</span>. Owners and admins can promote members later.
+                    Every new invite lands as <span className="font-semibold text-foreground">Learner</span>. Promote access later only if the person needs coach or admin rights.
                   </div>
                   <div className="grid gap-3 sm:grid-cols-2">
-                    <input
-                      value={inviteDraft.maxUses}
-                      onChange={(event) =>
-                        setInviteDraft((current) => ({
-                          ...current,
-                          maxUses: sanitizeIntegerDraftValue(event.target.value),
-                        }))
-                      }
-                      onBlur={() =>
-                        setInviteDraft((current) => ({
-                          ...current,
-                          maxUses: clampInviteDraftField(
-                            current.maxUses,
-                            Math.min(25, selectedTeamInviteUsesCap),
-                            TEAM_INVITE_MIN_USES,
-                            selectedTeamInviteUsesCap
-                          ),
-                        }))
-                      }
-                      inputMode="numeric"
-                      pattern="[0-9]*"
-                      placeholder={`Max uses (1-${selectedTeamInviteUsesCap})`}
-                      className="h-11 w-full rounded-2xl border border-border bg-card px-4 text-sm text-foreground outline-none transition focus:border-primary/40"
-                    />
-                    <input
-                      value={inviteDraft.expiresInDays}
-                      onChange={(event) =>
-                        setInviteDraft((current) => ({
-                          ...current,
-                          expiresInDays: sanitizeIntegerDraftValue(event.target.value),
-                        }))
-                      }
-                      onBlur={() =>
-                        setInviteDraft((current) => ({
-                          ...current,
-                          expiresInDays: clampInviteDraftField(
-                            current.expiresInDays,
-                            14,
-                            TEAM_INVITE_MIN_EXPIRES_DAYS,
-                            TEAM_INVITE_MAX_EXPIRES_DAYS
-                          ),
-                        }))
-                      }
-                      inputMode="numeric"
-                      pattern="[0-9]*"
-                      placeholder="Expires in days (1-90)"
-                      className="h-11 w-full rounded-2xl border border-border bg-card px-4 text-sm text-foreground outline-none transition focus:border-primary/40"
-                    />
-                  </div>
-                  <div className="grid gap-2 text-xs text-muted-foreground sm:grid-cols-2">
-                    <div>Invite uses are limited to {TEAM_INVITE_MIN_USES}-{selectedTeamInviteUsesCap} on this plan.</div>
-                    <div>Expiry must stay within {TEAM_INVITE_MIN_EXPIRES_DAYS}-{TEAM_INVITE_MAX_EXPIRES_DAYS} days.</div>
+                    <FormField label="Max joins" helper={`${TEAM_INVITE_MIN_USES}-${selectedTeamInviteUsesCap}`}>
+                      <input
+                        value={inviteDraft.maxUses}
+                        onChange={(event) =>
+                          setInviteDraft((current) => ({
+                            ...current,
+                            maxUses: sanitizeIntegerDraftValue(event.target.value),
+                          }))
+                        }
+                        onBlur={() =>
+                          setInviteDraft((current) => ({
+                            ...current,
+                            maxUses: clampInviteDraftField(
+                              current.maxUses,
+                              Math.min(25, selectedTeamInviteUsesCap),
+                              TEAM_INVITE_MIN_USES,
+                              selectedTeamInviteUsesCap
+                            ),
+                          }))
+                        }
+                        inputMode="numeric"
+                        pattern="[0-9]*"
+                        placeholder="25"
+                        className="h-11 w-full rounded-2xl border border-border bg-card px-4 text-sm text-foreground outline-none transition focus:border-primary/40"
+                      />
+                    </FormField>
+                    <FormField label="Expires in" helper={`${TEAM_INVITE_MIN_EXPIRES_DAYS}-${TEAM_INVITE_MAX_EXPIRES_DAYS} days`}>
+                      <input
+                        value={inviteDraft.expiresInDays}
+                        onChange={(event) =>
+                          setInviteDraft((current) => ({
+                            ...current,
+                            expiresInDays: sanitizeIntegerDraftValue(event.target.value),
+                          }))
+                        }
+                        onBlur={() =>
+                          setInviteDraft((current) => ({
+                            ...current,
+                            expiresInDays: clampInviteDraftField(
+                              current.expiresInDays,
+                              14,
+                              TEAM_INVITE_MIN_EXPIRES_DAYS,
+                              TEAM_INVITE_MAX_EXPIRES_DAYS
+                            ),
+                          }))
+                        }
+                        inputMode="numeric"
+                        pattern="[0-9]*"
+                        placeholder="14"
+                        className="h-11 w-full rounded-2xl border border-border bg-card px-4 text-sm text-foreground outline-none transition focus:border-primary/40"
+                      />
+                    </FormField>
                   </div>
                   {inviteDraft.id ? (
-                    <select
-                      value={inviteDraft.status}
-                      onChange={(event) =>
-                        setInviteDraft((current) => ({ ...current, status: event.target.value as TeamInvite['status'] }))
-                      }
-                      className="h-11 w-full rounded-2xl border border-border bg-card px-4 text-sm text-foreground outline-none transition focus:border-primary/40"
-                    >
-                      <option value="active">Active</option>
-                      <option value="expired">Expired</option>
-                      <option value="revoked">Revoked</option>
-                    </select>
+                    <FormField label="Status">
+                      <select
+                        value={inviteDraft.status}
+                        onChange={(event) =>
+                          setInviteDraft((current) => ({ ...current, status: event.target.value as TeamInvite['status'] }))
+                        }
+                        className="h-11 w-full rounded-2xl border border-border bg-card px-4 text-sm text-foreground outline-none transition focus:border-primary/40"
+                      >
+                        <option value="active">Active</option>
+                        <option value="expired">Expired</option>
+                        <option value="revoked">Revoked</option>
+                      </select>
+                    </FormField>
                   ) : null}
                   <div className="flex flex-wrap gap-3">
                     <button
@@ -5694,14 +5079,31 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
 
             <div className="space-y-4">
               <div className="rounded-2xl border border-border bg-background p-4">
-                <div className="text-sm font-semibold text-foreground">Pending join requests</div>
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <div className="text-sm font-semibold text-foreground">Pending join requests</div>
+                    <div className="mt-1 text-sm text-muted-foreground">
+                      {joinSettingsDraft.joinMode === 'code_approval'
+                        ? 'Approve or deny code-based join requests here before those members enter the workspace.'
+                        : 'Requests only appear when the join mode requires owner or admin approval.'}
+                    </div>
+                  </div>
+                  <StatusPill>{pendingJoinRequests.length} pending</StatusPill>
+                </div>
                 <div className="mt-4 space-y-3">
-                  {(teamDetail.joinRequests || []).filter((request) => request.status === 'pending').length === 0 ? (
-                    <EmptyState title="No requests yet" helper="Approval-mode requests show up here for owners and admins." />
+                  {pendingJoinRequests.length === 0 ? (
+                    <div className="rounded-2xl border border-dashed border-border bg-card px-4 py-4">
+                      <div className="text-sm font-semibold text-foreground">
+                        {joinSettingsDraft.joinMode === 'code_approval' ? 'Approval queue is clear' : 'Approval queue is off'}
+                      </div>
+                      <div className="mt-1 text-sm text-muted-foreground">
+                        {joinSettingsDraft.joinMode === 'code_approval'
+                          ? 'New code joins will land here until an owner or admin reviews them.'
+                          : 'Switch to Code + admin approval if you want new code joins to wait for review.'}
+                      </div>
+                    </div>
                   ) : (
-                    (teamDetail.joinRequests || [])
-                      .filter((request) => request.status === 'pending')
-                      .map((request) => {
+                    pendingJoinRequests.map((request) => {
                         const approveKey = `approved-join-request-${request.id}`;
                         const denyKey = `denied-join-request-${request.id}`;
                         return (
@@ -5747,24 +5149,45 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
               </div>
 
               <div className="rounded-2xl border border-border bg-background p-4">
-                <div className="text-sm font-semibold text-foreground">Invite codes</div>
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <div className="text-sm font-semibold text-foreground">Invite codes</div>
+                    <div className="mt-1 text-sm text-muted-foreground">
+                      Track who each code is for, how much usage is left, and whether the invite surface is still acceptable.
+                    </div>
+                  </div>
+                  <StatusPill>{activeInvites.length} active</StatusPill>
+                </div>
                 <div className="mt-4 space-y-4">
                   {(teamDetail.invites || []).length === 0 ? (
-                    <EmptyState title="No invites yet" helper="Create learner invites here, then promote members after they join." />
+                    <div className="rounded-2xl border border-dashed border-border bg-card px-4 py-4">
+                      <div className="text-sm font-semibold text-foreground">No invite codes live yet</div>
+                      <div className="mt-1 text-sm text-muted-foreground">
+                        Create a learner invite here, then promote members later only if they need broader workspace access.
+                      </div>
+                    </div>
                   ) : (
                     (teamDetail.invites || []).map((invite) => {
                       const deleteKey = `delete-invite-${invite.id}`;
+                      const remainingUses = Math.max(0, invite.maxUses - invite.useCount);
+                      const inviteStateTone = invite.status === 'active' ? 'success' : 'warn';
                       return (
                         <div key={invite.id} className="rounded-2xl border border-border bg-background p-4">
-                          <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                             <div className="min-w-0">
-                              <div className="font-semibold text-foreground">{invite.label}</div>
-                              <div className="mt-2 text-sm text-muted-foreground">{invite.email || 'No email attached'}</div>
+                              <div className="flex flex-wrap items-center gap-2">
+                                <div className="font-semibold text-foreground">{invite.label}</div>
+                                <ReviewStatePill
+                                  label={invite.status === 'active' ? 'Active' : invite.status === 'expired' ? 'Expired' : 'Revoked'}
+                                  tone={inviteStateTone}
+                                />
+                              </div>
+                              <div className="mt-2 text-sm text-muted-foreground">
+                                {invite.email || 'Reusable invite code'} {invite.createdAt ? `| Created ${formatRelativeActivityLabel(invite.createdAt)}` : ''}
+                              </div>
                               <div className="mt-3 flex flex-wrap gap-2">
                                 <StatusPill>{invite.code}</StatusPill>
                                 <StatusPill>{invite.role}</StatusPill>
-                                <StatusPill>{invite.useCount}/{invite.maxUses} used</StatusPill>
-                                <StatusPill>{invite.status}</StatusPill>
                               </div>
                             </div>
                             <div className="flex flex-wrap gap-2">
@@ -5803,12 +5226,47 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
                               </button>
                             </div>
                           </div>
+                          <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                            <div className="rounded-2xl border border-border bg-card px-4 py-3">
+                              <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-primary">Remaining uses</div>
+                              <div className="mt-2 text-sm font-semibold text-foreground">
+                                {remainingUses}/{invite.maxUses}
+                              </div>
+                              <div className="mt-1 text-xs text-muted-foreground">
+                                {invite.useCount === 0
+                                  ? 'No joins claimed yet.'
+                                  : `${invite.useCount} join${invite.useCount === 1 ? '' : 's'} already used this code.`}
+                              </div>
+                            </div>
+                            <div className="rounded-2xl border border-border bg-card px-4 py-3">
+                              <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-primary">Expires</div>
+                              <div className="mt-2 text-sm font-semibold text-foreground">{formatInviteExpiryLabel(invite.expiresAt)}</div>
+                              <div className="mt-1 text-xs text-muted-foreground">
+                                {invite.expiresAt ? 'Rotate old codes before they drift into casual sharing.' : 'This code stays live until you revoke it.'}
+                              </div>
+                            </div>
+                            <div className="rounded-2xl border border-border bg-card px-4 py-3">
+                              <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-primary">Last used</div>
+                              <div className="mt-2 text-sm font-semibold text-foreground">
+                                {invite.lastUsedAt ? formatRelativeActivityLabel(invite.lastUsedAt) : 'Never used'}
+                              </div>
+                              <div className="mt-1 text-xs text-muted-foreground">
+                                {invite.lastUsedAt ? formatDateLabel(invite.lastUsedAt) : 'No member has joined with this code yet.'}
+                              </div>
+                            </div>
+                            <div className="rounded-2xl border border-border bg-card px-4 py-3">
+                              <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-primary">Created by</div>
+                              <div className="mt-2 text-sm font-semibold text-foreground">{invite.createdByName || 'Owner or admin'}</div>
+                              <div className="mt-1 text-xs text-muted-foreground">Created {formatDateLabel(invite.createdAt)}</div>
+                            </div>
+                          </div>
                         </div>
                       );
                     })
                   )}
                 </div>
               </div>
+            </div>
             </div>
           </div>
         </ModalShell>
@@ -5818,93 +5276,468 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
 
       {activeModal === 'analytics' && teamDetail ? (
         <ModalShell
-          title="Company analytics"
-          subtitle="Operational team signal beyond the base workspace metrics."
+          title="Team health and progress"
+          subtitle="See who needs follow-up, where progress is moving, and which assignments are drifting."
           onClose={() => setActiveModal(null)}
         >
-          {submittingKey === 'analytics' && !teamAnalytics ? (
+          {submittingKey === 'analytics' && !resolvedTeamAnalytics ? (
             <div className="flex min-h-[280px] items-center justify-center">
               <div className="inline-flex items-center gap-2 rounded-full border border-border bg-background px-4 py-2 text-sm text-muted-foreground">
                 <Loader2 className="h-4 w-4 animate-spin" />
                 Loading analytics
               </div>
             </div>
-          ) : teamAnalytics ? (
-            <div className="grid gap-4 lg:grid-cols-2">
+          ) : resolvedTeamAnalytics ? (() => {
+              const topPriorityLearner = resolvedTeamAnalytics.priorityLearners[0] || null;
+              const topPriorityAssignment = resolvedTeamAnalytics.priorityAssignments[0] || null;
+              const movementSummaryItems = [
+                ['Improving', resolvedTeamAnalytics.movement.improvingLearners],
+                ['Plateau', resolvedTeamAnalytics.movement.plateauLearners],
+                ['Declining', resolvedTeamAnalytics.movement.decliningLearners],
+                ['Retake ready', resolvedTeamAnalytics.movement.readyForRetake],
+              ] as const;
+              const priorityCards = [
+                {
+                  key: 'review',
+                  tone: resolvedTeamAnalytics.workflow.needsReviewNow > 0 ? ('critical' as const) : ('positive' as const),
+                  eyebrow: 'Review queue',
+                  value:
+                    resolvedTeamAnalytics.workflow.needsReviewNow > 0
+                      ? `${resolvedTeamAnalytics.workflow.needsReviewNow} submission${resolvedTeamAnalytics.workflow.needsReviewNow === 1 ? '' : 's'} need coach review`
+                      : 'Coach review queue is clear',
+                  helper:
+                    resolvedTeamAnalytics.workflow.needsRevision > 0
+                      ? `${resolvedTeamAnalytics.workflow.needsRevision} submission${resolvedTeamAnalytics.workflow.needsRevision === 1 ? '' : 's'} already need another learner pass.`
+                      : 'Open the review queue first, then clear learner follow-up and assignment drift.',
+                  actionLabel: resolvedTeamAnalytics.workflow.needsReviewNow > 0 ? 'Review now' : 'Open queue',
+                  onClick: openAnalyticsReviewQueue,
+                },
+                {
+                  key: 'learners',
+                  tone: topPriorityLearner?.tone || ('positive' as const),
+                  eyebrow: 'Learners at risk',
+                  value: topPriorityLearner
+                    ? `${topPriorityLearner.name} is the next learner most likely to slip`
+                    : 'No learner is slipping hard enough to force follow-up',
+                  helper: topPriorityLearner
+                    ? topPriorityLearner.reason
+                    : 'No one is both quiet and benchmark-light enough to justify a priority learner pull right now.',
+                  actionLabel: topPriorityLearner ? 'Open learner' : 'Queue is stable',
+                  onClick: topPriorityLearner ? () => focusAnalyticsLearner(topPriorityLearner.userId) : undefined,
+                },
+                {
+                  key: 'assignments',
+                  tone: topPriorityAssignment
+                    ? topPriorityAssignment.reviewBacklog > 0 || topPriorityAssignment.lifecycleState === 'past_due'
+                      ? ('critical' as const)
+                      : ('watch' as const)
+                    : ('positive' as const),
+                  eyebrow: 'Assignment pressure',
+                  value: topPriorityAssignment
+                    ? `${topPriorityAssignment.title} is the assignment pulling the most queue pressure`
+                    : 'No assignment is drifting enough to force intervention',
+                  helper: topPriorityAssignment
+                    ? topPriorityAssignment.reason
+                    : 'Due dates, completion, and review backlog all look stable for the current active assignment set.',
+                  actionLabel: topPriorityAssignment
+                    ? topPriorityAssignment.reviewBacklog > 0
+                      ? 'Review assignment work'
+                      : 'Open assignment'
+                    : 'Open assignments',
+                  onClick: topPriorityAssignment ? () => focusAnalyticsAssignment(topPriorityAssignment.id) : openAnalyticsAssignments,
+                },
+              ];
+
+              return (
+            <div className="space-y-5">
               <div className="rounded-2xl border border-border bg-background p-4">
-                <div className="text-sm font-semibold text-foreground">Score bands</div>
-                <div className="mt-4 space-y-3">
-                  {teamAnalytics.scoreBands.map((band) => (
-                    <div key={band.label} className="flex items-center justify-between rounded-2xl border border-border bg-card px-4 py-3 text-sm">
-                      <span className="text-foreground">{band.label}</span>
-                      <span className="font-semibold text-primary">{band.count}</span>
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <div className="text-base font-semibold text-foreground">What needs action now</div>
+                    <div className="mt-2 max-w-3xl text-sm leading-6 text-muted-foreground">
+                      Start with the review queue, then pull quiet learners and drifting assignments back into motion.
                     </div>
-                  ))}
+                  </div>
+                  <StatusPill tone={analyticsHasBenchmarkSignal ? 'default' : 'warn'}>
+                    {analyticsHasBenchmarkSignal ? 'Benchmark signal live' : 'Benchmark signal missing'}
+                  </StatusPill>
+                </div>
+                <div className="mt-4 grid gap-3 xl:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)_minmax(0,1fr)]">
+                  {priorityCards.map((card) => {
+                    const content = (
+                      <>
+                        <div className="flex items-start justify-between gap-3">
+                          <StatusPill tone={getAnalyticsStatusTone(card.tone)}>{card.eyebrow}</StatusPill>
+                          {card.onClick ? <ArrowRight className="mt-0.5 h-4 w-4 text-muted-foreground" /> : null}
+                        </div>
+                        <div className="mt-4 text-lg font-semibold leading-tight text-foreground">{card.value}</div>
+                        <div className="mt-2 text-sm leading-6 text-muted-foreground">{card.helper}</div>
+                        <div className="mt-4 text-sm font-semibold text-foreground">{card.actionLabel}</div>
+                      </>
+                    );
+
+                    if (!card.onClick) {
+                      return (
+                        <div key={card.key} className={`rounded-2xl border px-4 py-4 ${getAnalyticsSurfaceClassName(card.tone)}`}>
+                          {content}
+                        </div>
+                      );
+                    }
+
+                    return (
+                      <button
+                        key={card.key}
+                        type="button"
+                        onClick={card.onClick}
+                        className={`rounded-2xl border px-4 py-4 text-left transition hover:border-primary/30 hover:bg-card ${getAnalyticsSurfaceClassName(card.tone)}`}
+                      >
+                        {content}
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
 
-              <div className="rounded-2xl border border-border bg-background p-4">
-                <div className="text-sm font-semibold text-foreground">Role distribution</div>
-                <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                  {Object.entries(teamAnalytics.roleDistribution).map(([role, count]) => (
-                    <div key={role} className="rounded-2xl border border-border bg-card px-4 py-3">
-                      <div className="text-xs font-semibold uppercase tracking-[0.16em] text-primary">{role}</div>
-                      <div className="mt-2 text-2xl font-bold font-display text-foreground">{count}</div>
+              <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1.08fr)_minmax(340px,0.92fr)]">
+                <div className="space-y-5">
+                  
+                  <div className="rounded-2xl border border-border bg-background p-4">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <div className="text-base font-semibold text-foreground">Learners who need follow-up</div>
+                        <div className="mt-2 text-sm leading-6 text-muted-foreground">
+                          These learners are closest to slipping without a benchmark or corrective pass next.
+                        </div>
+                      </div>
+                      <StatusPill tone={resolvedTeamAnalytics.priorityLearners.length ? 'warn' : 'success'}>
+                        {resolvedTeamAnalytics.priorityLearners.length} shown
+                      </StatusPill>
                     </div>
-                  ))}
-                </div>
-              </div>
+                    <div className="mt-4 space-y-3">
+                      {resolvedTeamAnalytics.priorityLearners.length ? (
+                        resolvedTeamAnalytics.priorityLearners.map((member) => (
+                          <div
+                            key={member.userId}
+                            className={`rounded-2xl border px-4 py-4 ${getAnalyticsSurfaceClassName(member.tone)}`}
+                          >
+                            <div className="flex flex-wrap items-start justify-between gap-3">
+                              <div>
+                                <div className="text-base font-semibold text-foreground">{member.name}</div>
+                                <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                                  <span>{member.latestScore === null ? 'No benchmark yet' : `${member.latestScore}/100 latest`}</span>
+                                  <span aria-hidden="true">|</span>
+                                  <span>{formatRelativeActivityLabel(member.lastActiveAt)}</span>
+                                  <span aria-hidden="true">|</span>
+                                  <span>{member.improvementDelta === null ? 'No delta yet' : `${formatAnalyticsDelta(member.improvementDelta)} delta`}</span>
+                                </div>
+                              </div>
+                              <StatusPill tone={getAnalyticsStatusTone(member.tone)}>{member.signal}</StatusPill>
+                            </div>
+                            <div className="mt-3 text-sm leading-6 text-foreground">{member.reason}</div>
+                            <div className="mt-3 flex flex-wrap items-center justify-between gap-3 border-t border-border/70 pt-3">
+                              <div className="text-xs text-muted-foreground">
+                                <span className="font-semibold text-foreground">Next step:</span> {member.recommendedAction}
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => focusAnalyticsLearner(member.userId)}
+                                className="inline-flex h-10 items-center justify-center gap-2 rounded-2xl border border-primary/20 bg-primary px-4 text-sm font-semibold text-primary-foreground transition hover:bg-primary/90"
+                              >
+                                Open learner
+                                <ArrowRight className="h-4 w-4" />
+                              </button>
+                            </div>
+                          </div>
+                        ))
+                      ) : (
+                        <EmptyState
+                          title="No learner needs urgent follow-up"
+                          helper="There is no obvious benchmark or activity risk signal in the current learner set."
+                        />
+                      )}
+                    </div>
+                  </div>
 
-              <div className="rounded-2xl border border-border bg-background p-4">
-                <div className="text-sm font-semibold text-foreground">Recency and assignment health</div>
-                <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                  <div className="rounded-2xl border border-border bg-card px-4 py-3">
-                    <div className="text-xs uppercase tracking-[0.16em] text-primary">Recent / warm / stale</div>
-                    <div className="mt-2 text-sm text-foreground">{teamAnalytics.recency.recent} recent, {teamAnalytics.recency.warm} warm, {teamAnalytics.recency.stale} stale</div>
-                  </div>
-                  <div className="rounded-2xl border border-border bg-card px-4 py-3">
-                    <div className="text-xs uppercase tracking-[0.16em] text-primary">Assignments</div>
-                    <div className="mt-2 text-sm text-foreground">
-                      {teamAnalytics.assignmentStats.active} active | {teamAnalytics.assignmentStats.pastDue} past due | {teamAnalytics.assignmentStats.archived} archived
+                  <div className="grid items-start gap-5 lg:grid-cols-[minmax(0,0.88fr)_minmax(0,1.12fr)]">
+                    <div className="rounded-2xl border border-border bg-background p-4">
+                      <div className="flex items-center justify-between gap-3">
+                        <div>
+                          <div className="text-base font-semibold text-foreground">Assignments drifting</div>
+                          <div className="mt-2 text-sm leading-6 text-muted-foreground">
+                            Focus on the assignments that are due, under-complete, or building review backlog.
+                          </div>
+                        </div>
+                        <StatusPill tone={resolvedTeamAnalytics.priorityAssignments.length ? 'warn' : 'success'}>
+                          {resolvedTeamAnalytics.priorityAssignments.length} shown
+                        </StatusPill>
+                      </div>
+                      <div className="mt-4 space-y-3">
+                        {resolvedTeamAnalytics.priorityAssignments.length ? (
+                          resolvedTeamAnalytics.priorityAssignments.map((assignment) => {
+                            const assignmentTone =
+                              assignment.reviewBacklog > 0 || assignment.lifecycleState === 'past_due'
+                                ? ('critical' as const)
+                                : ('watch' as const);
+
+                            return (
+                              <div
+                                key={assignment.id}
+                                className={`rounded-2xl border px-4 py-4 ${getAnalyticsSurfaceClassName(assignmentTone)}`}
+                              >
+                                <div className="flex flex-wrap items-start justify-between gap-3">
+                                  <div>
+                                    <div className="text-base font-semibold text-foreground">{assignment.title}</div>
+                                    <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                                      <span>{assignment.completionRate}% complete</span>
+                                      <span aria-hidden="true">|</span>
+                                      <span>{assignment.dueAt ? `Due ${formatDateLabel(assignment.dueAt)}` : 'No due date'}</span>
+                                      <span aria-hidden="true">|</span>
+                                      <span>{assignment.learnerCount} learners</span>
+                                      {assignment.reviewBacklog > 0 ? (
+                                        <>
+                                          <span aria-hidden="true">|</span>
+                                          <span>{assignment.reviewBacklog} waiting on review</span>
+                                        </>
+                                      ) : null}
+                                    </div>
+                                  </div>
+                                  <StatusPill tone={getAnalyticsStatusTone(assignmentTone)}>{assignment.signal}</StatusPill>
+                                </div>
+                                <div className="mt-3 text-sm leading-6 text-foreground">{assignment.reason}</div>
+                                <div className="mt-3 border-t border-border/70 pt-3">
+                                  <button
+                                    type="button"
+                                    onClick={() => focusAnalyticsAssignment(assignment.id)}
+                                    className="inline-flex h-10 items-center justify-center gap-2 rounded-2xl border border-border bg-card px-4 text-sm font-semibold text-foreground transition hover:border-primary/20 hover:bg-secondary"
+                                  >
+                                    {assignment.reviewBacklog > 0 ? 'Review assignment work' : 'Open assignment'}
+                                    <ArrowRight className="h-4 w-4" />
+                                  </button>
+                                </div>
+                              </div>
+                            );
+                          })
+                        ) : (
+                          <div className="rounded-2xl border border-dashed border-border bg-background/40 px-4 py-4 text-sm text-muted-foreground">
+                            <div className="font-semibold text-foreground">Assignments look stable</div>
+                            <div className="mt-1">No active assignment is showing obvious due-date or completion risk right now.</div>
+                          </div>
+                        )}
+                      </div>
                     </div>
-                    <div className="mt-1 text-xs text-muted-foreground">
-                      {teamAnalytics.assignmentStats.averageCompletionRate}% average completion
+
+                    <div className="rounded-2xl border border-border bg-background p-4">
+                      <div className="text-base font-semibold text-foreground">Operational summary</div>
+                      <div className="mt-2 text-sm leading-6 text-muted-foreground">
+                        Use the queue load first, then keep the clean signals that are actually helping.
+                      </div>
+                      <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                        <MetricCard
+                          label="Needs review now"
+                          value={String(resolvedTeamAnalytics.workflow.needsReviewNow)}
+                          helper="Coach-facing submission queue."
+                        />
+                        <MetricCard
+                          label="Needs revision"
+                          value={String(resolvedTeamAnalytics.workflow.needsRevision)}
+                          helper="Learner submissions returned for another pass."
+                        />
+                        <MetricCard
+                          label="Quiet 3d+"
+                          value={String(resolvedTeamAnalytics.workflow.quietLearners3d)}
+                          helper="Active learners with no recent movement."
+                        />
+                        <MetricCard
+                          label="Feedback drafts"
+                          value={String(resolvedTeamAnalytics.workflow.feedbackDrafts)}
+                          helper="Coach notes not shared or resolved yet."
+                        />
+                      </div>
+                      <div className="mt-4 rounded-2xl border border-border bg-card px-4 py-4">
+                        <div className="text-xs font-semibold uppercase tracking-[0.16em] text-primary">Pressure next 7d</div>
+                        <div className="mt-2 text-sm leading-6 text-foreground">
+                          {resolvedTeamAnalytics.health.dueNext7d} due in the next 7 days | {resolvedTeamAnalytics.health.pastDueAssignments} past due |{' '}
+                          {resolvedTeamAnalytics.health.pendingJoinRequests} pending join request
+                          {resolvedTeamAnalytics.health.pendingJoinRequests === 1 ? '' : 's'}
+                        </div>
+                      </div>
+                      <div className="mt-4 space-y-3">
+                        <div className="text-xs font-semibold uppercase tracking-[0.16em] text-primary">Signals helping</div>
+                        {resolvedTeamAnalytics.highlights.map((highlight) => (
+                          <div key={highlight.title} className="rounded-2xl border border-border bg-card px-4 py-3">
+                            <div className="text-sm font-semibold text-foreground">{highlight.title}</div>
+                            <div className="mt-1 text-sm leading-6 text-muted-foreground">{highlight.detail}</div>
+                          </div>
+                        ))}
+                      </div>
                     </div>
-                  </div>
-                  <div className="rounded-2xl border border-border bg-card px-4 py-3">
-                    <div className="text-xs uppercase tracking-[0.16em] text-primary">Invites</div>
-                    <div className="mt-2 text-sm text-foreground">{teamAnalytics.inviteStats.active} active | {teamAnalytics.inviteStats.uses} uses</div>
-                  </div>
-                  <div className="rounded-2xl border border-border bg-card px-4 py-3">
-                    <div className="text-xs uppercase tracking-[0.16em] text-primary">Feedback</div>
-                    <div className="mt-2 text-sm text-foreground">{teamAnalytics.feedbackStats.total} total | {teamAnalytics.feedbackStats.shared} shared</div>
                   </div>
                 </div>
-              </div>
 
-              <div className="rounded-2xl border border-border bg-background p-4">
-                <div className="text-sm font-semibold text-foreground">Benchmarks and streaks</div>
-                <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                  <div className="rounded-2xl border border-border bg-card px-4 py-3">
-                    <div className="text-xs uppercase tracking-[0.16em] text-primary">Average benchmark</div>
-                    <div className="mt-2 text-2xl font-bold font-display text-foreground">{teamAnalytics.benchmarkStats.average ?? '--'}</div>
+                <div className="space-y-5">
+                  <div className="rounded-2xl border border-border bg-background p-4">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div>
+                        <div className="text-base font-semibold text-foreground">Performance movement</div>
+                        <div className="mt-2 text-sm leading-6 text-muted-foreground">
+                          Use benchmark coverage and the latest comparable score movement to decide whether the team is actually lifting.
+                        </div>
+                      </div>
+                      <StatusPill tone={analyticsHasBenchmarkSignal ? 'default' : 'warn'}>
+                        {analyticsHasBenchmarkSignal ? 'Comparable runs only' : 'Need more benchmark signal'}
+                      </StatusPill>
+                    </div>
+                    <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                      <MetricCard
+                        label="Benchmark coverage"
+                        value={`${resolvedTeamAnalytics.summary.benchmarkCoverageRate}%`}
+                        helper={`${resolvedTeamAnalytics.summary.benchmarkedLearners}/${resolvedTeamAnalytics.summary.totalLearners} active learners benchmarked`}
+                      />
+                      {resolvedTeamAnalytics.movement.averageLatestScore !== null ? (
+                        <MetricCard
+                          label="Average latest score"
+                          value={formatAnalyticsScore(resolvedTeamAnalytics.movement.averageLatestScore)}
+                          helper="Latest benchmark only, not lifetime average."
+                        />
+                      ) : (
+                        <div className="rounded-2xl border border-border bg-card px-4 py-3">
+                          <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-primary">Latest score read</div>
+                          <div className="mt-2 text-lg font-semibold leading-tight text-foreground sm:text-xl">No comparable benchmark yet</div>
+                          <div className="mt-1 text-xs text-muted-foreground">
+                            Take another comparable run before treating score movement as real.
+                          </div>
+                        </div>
+                      )}
+                      {analyticsHasMovementBreakdown ? (
+                        <div className="sm:col-span-2 rounded-2xl border border-border bg-card px-4 py-4">
+                          <div className="text-xs font-semibold uppercase tracking-[0.16em] text-primary">Movement split</div>
+                          <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                            {movementSummaryItems.map(([label, value]) => (
+                              <div key={label} className="flex items-center justify-between gap-3 text-sm">
+                                <span className="text-muted-foreground">{label}</span>
+                                <span className="font-semibold text-foreground">{value}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="sm:col-span-2 mt-4 rounded-2xl border border-dashed border-border bg-background/40 px-4 py-4 text-sm text-muted-foreground">
+                          <div className="font-semibold text-foreground">No meaningful movement split yet</div>
+                          <div className="mt-1">
+                            The team does not have enough comparable benchmark history yet to separate improving, plateauing, or declining learners.
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                    <div className="mt-4 rounded-2xl border border-border bg-card px-4 py-4">
+                      <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div>
+                          <div className="text-xs font-semibold uppercase tracking-[0.16em] text-primary">Trend</div>
+                          <div
+                            className={`mt-2 text-sm font-semibold ${getAnalyticsTrendToneClassName(resolvedTeamAnalytics.trend.status)}`}
+                          >
+                            {formatAnalyticsTrendHeadline(
+                              resolvedTeamAnalytics.trend.status,
+                              resolvedTeamAnalytics.trend.deltaFromPrevious
+                            )}
+                          </div>
+                          <div className="mt-1 text-sm leading-6 text-muted-foreground">{resolvedTeamAnalytics.trend.summary}</div>
+                        </div>
+                        <div className="text-xs text-muted-foreground">Weekly team average across comparable runs</div>
+                      </div>
+                      <div className="mt-5 space-y-3">
+                        {resolvedTeamAnalytics.trend.points.map((point) => (
+                          <div key={point.label} className="grid grid-cols-[72px_minmax(0,1fr)_70px] items-center gap-3">
+                            <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                              {point.label}
+                            </div>
+                            <div className="rounded-full bg-background px-2 py-2">
+                              <div className="h-2 rounded-full bg-border">
+                                <div
+                                  className={
+                                    typeof point.value === 'number'
+                                      ? 'h-2 rounded-full bg-primary'
+                                      : 'h-2 rounded-full border border-dashed border-border bg-background'
+                                  }
+                                  style={{ width: `${typeof point.value === 'number' ? Math.max(point.value, 6) : 6}%` }}
+                                />
+                              </div>
+                            </div>
+                            <div className="text-right">
+                              <div className="text-sm font-semibold text-foreground">
+                                {typeof point.value === 'number' ? `${point.value}/100` : '--'}
+                              </div>
+                              <div className="text-[11px] text-muted-foreground">
+                                {point.count > 0 ? `${point.count} run${point.count === 1 ? '' : 's'}` : 'No runs'}
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
                   </div>
-                  <div className="rounded-2xl border border-border bg-card px-4 py-3">
-                    <div className="text-xs uppercase tracking-[0.16em] text-primary">Median benchmark</div>
-                    <div className="mt-2 text-2xl font-bold font-display text-foreground">{teamAnalytics.benchmarkStats.median ?? '--'}</div>
+
+                  {false ? (
+                    <>
+                  <div className="rounded-2xl border border-border bg-background p-4">
+                    <div className="text-sm font-semibold text-foreground">Workflow pressure x</div>
+                    <div className="mt-2 text-sm text-muted-foreground">
+                      Use the operational load first: review backlog, revision loops, quiet learners, and due pressure.
+                    </div>
+                    <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                      <MetricCard
+                        label="Needs review now"
+                        value={String(resolvedTeamAnalytics.workflow.needsReviewNow)}
+                        helper="Coach-facing submission queue."
+                      />
+                      <MetricCard
+                        label="Needs revision"
+                        value={String(resolvedTeamAnalytics.workflow.needsRevision)}
+                        helper="Learner submissions returned for another pass."
+                      />
+                      <MetricCard
+                        label="Quiet 3d+"
+                        value={String(resolvedTeamAnalytics.workflow.quietLearners3d)}
+                        helper="Active learners with no recent movement."
+                      />
+                      <MetricCard
+                        label="Feedback drafts"
+                        value={String(resolvedTeamAnalytics.workflow.feedbackDrafts)}
+                        helper="Coach notes not shared or resolved yet."
+                      />
+                    </div>
+                    <div className="mt-4 rounded-2xl border border-border bg-card px-4 py-4 text-sm text-foreground">
+                      <div className="font-semibold text-foreground">Upcoming pressure</div>
+                      <div className="mt-2 text-muted-foreground">
+                        {resolvedTeamAnalytics.health.dueNext7d} due in the next 7 days • {resolvedTeamAnalytics.health.pastDueAssignments} past due •{' '}
+                        {resolvedTeamAnalytics.health.pendingJoinRequests} pending join request
+                        {resolvedTeamAnalytics.health.pendingJoinRequests === 1 ? '' : 's'}
+                      </div>
+                    </div>
                   </div>
-                  <div className="rounded-2xl border border-border bg-card px-4 py-3">
-                    <div className="text-xs uppercase tracking-[0.16em] text-primary">Completion rate</div>
-                    <div className="mt-2 text-2xl font-bold font-display text-foreground">{teamAnalytics.benchmarkStats.completionRate}%</div>
+
+                  <div className="rounded-2xl border border-border bg-background p-4">
+                    <div className="text-sm font-semibold text-foreground">Positive signals</div>
+                    <div className="mt-2 text-sm text-muted-foreground">
+                      Keep the signals that are actually helping: lift, retake readiness, or assignments still moving cleanly.
+                    </div>
+                    <div className="mt-4 space-y-3">
+                      {resolvedTeamAnalytics.highlights.map((highlight) => (
+                        <div key={highlight.title} className="rounded-2xl border border-border bg-card px-4 py-4">
+                          <div className="text-sm font-semibold text-foreground">{highlight.title}</div>
+                          <div className="mt-2 text-sm leading-6 text-muted-foreground">{highlight.detail}</div>
+                        </div>
+                      ))}
+                    </div>
                   </div>
-                  <div className="rounded-2xl border border-border bg-card px-4 py-3">
-                    <div className="text-xs uppercase tracking-[0.16em] text-primary">Highest streak</div>
-                    <div className="mt-2 text-2xl font-bold font-display text-foreground">{teamAnalytics.streakStats.highest}</div>
-                  </div>
+                    </>
+                  ) : null}
                 </div>
               </div>
             </div>
-          ) : (
+              );
+            })()
+          : (
             <EmptyState title="Analytics unavailable" helper="Load analytics again after the workspace sync finishes." />
           )}
         </ModalShell>
@@ -6035,18 +5868,34 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
           title={
             confirmWorkspaceAction.type === 'assignment_archive'
               ? `Archive ${confirmWorkspaceAction.assignment.title}?`
+              : confirmWorkspaceAction.type === 'assignment_delete'
+              ? confirmWorkspaceAction.assignments.length === 1
+                ? `Delete ${confirmWorkspaceAction.assignments[0].title}?`
+                : `Delete ${confirmWorkspaceAction.assignments.length} assignments?`
               : `Delete feedback for ${confirmWorkspaceAction.entry.memberName}?`
           }
           description={
             confirmWorkspaceAction.type === 'assignment_archive'
               ? 'This assignment will move to Archived and stop counting against the active assignment limit.'
+              : confirmWorkspaceAction.type === 'assignment_delete'
+              ? 'This permanently deletes the selected assignments from the queue. Any existing submissions and feedback stay in history, but the deleted assignments cannot be restored.'
               : 'This coaching note will be removed from the grading history.'
           }
-          confirmLabel={confirmWorkspaceAction.type === 'assignment_archive' ? 'Confirm archive' : 'Confirm delete'}
+          confirmLabel={
+            confirmWorkspaceAction.type === 'assignment_archive'
+              ? 'Confirm archive'
+              : confirmWorkspaceAction.type === 'assignment_delete'
+              ? confirmWorkspaceAction.assignments.length === 1
+                ? 'Delete assignment'
+                : 'Delete assignments'
+              : 'Confirm delete'
+          }
           tone={confirmWorkspaceAction.type === 'assignment_archive' ? 'default' : 'destructive'}
           busy={
             confirmWorkspaceAction.type === 'assignment_archive'
-              ? submittingKey === `delete-assignment-${confirmWorkspaceAction.assignment.id}`
+              ? submittingKey === `archive-assignment-${confirmWorkspaceAction.assignment.id}`
+              : confirmWorkspaceAction.type === 'assignment_delete'
+              ? submittingKey === 'bulk-assignment-delete'
               : submittingKey === `delete-feedback-${confirmWorkspaceAction.entry.id}`
           }
           onCancel={handleCancelWorkspaceAction}
@@ -6068,3 +5917,4 @@ const TeamsWorkspace: React.FC<TeamsWorkspaceProps> = ({ mode = 'app' }) => {
 };
 
 export default TeamsWorkspace;
+

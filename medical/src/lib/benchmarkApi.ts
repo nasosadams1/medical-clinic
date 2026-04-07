@@ -5,7 +5,7 @@ import {
 } from '../data/benchmarkEngine';
 import type { BenchmarkExecutionCase } from '../data/benchmarkModel';
 import { buildApiUrl } from './apiBase';
-import { supabase } from './supabase';
+import { getValidAccessToken, recoverFromSupabaseSessionError } from './supabase';
 
 export class BenchmarkApiUnavailableError extends Error {
   constructor(message: string) {
@@ -15,6 +15,40 @@ export class BenchmarkApiUnavailableError extends Error {
 }
 
 const buildBenchmarkApiUrl = (path = '') => buildApiUrl(`/api/benchmark${path}`);
+
+const formatBenchmarkApiError = (errorValue: unknown) => {
+  if (typeof errorValue !== 'string' || errorValue.trim().length === 0) {
+    return 'Benchmark request failed.';
+  }
+
+  const trimmed = errorValue.trim();
+  if (!trimmed.startsWith('[')) {
+    return trimmed;
+  }
+
+  try {
+    const parsed = JSON.parse(trimmed) as Array<{ path?: Array<string | number>; message?: string }>;
+    if (!Array.isArray(parsed) || parsed.length === 0) {
+      return trimmed;
+    }
+
+    const fieldLabels = Array.from(
+      new Set(
+        parsed
+          .map((entry) => (Array.isArray(entry.path) && entry.path.length > 0 ? entry.path.join('.') : null))
+          .filter((entry): entry is string => Boolean(entry))
+      )
+    );
+
+    if (fieldLabels.length > 0) {
+      return `Benchmark report is incomplete (${fieldLabels.join(', ')}). Refresh and rerun the benchmark to regenerate it.`;
+    }
+
+    return parsed[0]?.message || trimmed;
+  } catch {
+    return trimmed;
+  }
+};
 
 export interface BenchmarkExecutionEvaluationResult {
   passed: boolean;
@@ -81,8 +115,7 @@ export interface BenchmarkQualitySummary {
 }
 
 const getAuthHeaders = async () => {
-  const { data } = await supabase.auth.getSession();
-  const accessToken = data.session?.access_token;
+  const accessToken = await getValidAccessToken();
 
   if (!accessToken) {
     throw new Error('You must be signed in to sync benchmark history.');
@@ -106,7 +139,13 @@ const benchmarkFetch = async <T>(path: string, init: RequestInit = {}) => {
 
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) {
-      throw new Error((payload as { error?: string }).error || 'Benchmark request failed.');
+      if (response.status === 401 || response.status === 403) {
+        await recoverFromSupabaseSessionError({
+          status: response.status,
+          message: (payload as { error?: string }).error || response.statusText,
+        });
+      }
+      throw new Error(formatBenchmarkApiError((payload as { error?: unknown }).error));
     }
 
     return payload as T;
@@ -150,9 +189,10 @@ export const listBenchmarkReports = async (limit = 8) => {
 };
 
 export const persistBenchmarkReport = async (report: BenchmarkReport) => {
+  const normalizedReport = hydrateBenchmarkReport(report);
   const payload = await benchmarkFetch<{ report: BenchmarkReport }>('/reports', {
     method: 'POST',
-    body: JSON.stringify(report),
+    body: JSON.stringify(normalizedReport),
   });
   return hydrateBenchmarkReport(payload.report);
 };
